@@ -85,9 +85,11 @@ def licenca_de(chave: str) -> dict:
 def _carregar() -> None:
     from .blocky import BlockyProvider
     from .importer import ImportProvider
+    from .mesh import MeshProvider
 
     registrar("blocky", BlockyProvider)
     registrar("import", ImportProvider)
+    registrar("mesh", MeshProvider)
 
 
 _carregar()

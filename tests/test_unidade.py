@@ -106,6 +106,48 @@ def test_animacoes_base_gera_aviso_nao_erro():
     assert any(a["codigo"] == "FORGE-W-ANIM" for a in avisos)
 
 
+def _spec_mesh() -> dict:
+    return {
+        "schema": "forge3d/spec@1",
+        "projeto": "demo",
+        "perfil": "godot4",
+        "destino_exportacao": "~/.local/state/forge3d/saida/mesh",
+        "lote": [
+            {
+                "id": "weapon.axe.ice.01",
+                "tipo": "prop_equipavel",
+                "rota": "mesh",
+                "prompt": "machado de gelo",
+                "altura_metros": 1.2,
+                "seed": 20261110,
+            }
+        ],
+    }
+
+
+def test_rota_mesh_bloqueia_com_razao_acionavel_em_vez_de_banco_vazio():
+    """Slot de P3: sem GPU o item e bloqueado com motivo nomeado, nao \"nao implementado\"."""
+    from forge3d import plan
+
+    spec_doc, perfil, _avisos = spec.preparar(_spec_mesh())
+    tarefas = plan.montar(spec_doc, perfil, lambda chave: False)
+    tarefa = tarefas[0]
+    assert tarefa["estado_previsto"] == "bloqueada"
+    assert tarefa["provedor"]["nome"] == "mesh"
+    assert tarefa["estimativa"]["vram_mb"] >= 5500
+    assert "P3" in tarefa["razao"], tarefa["razao"]
+    assert "implementad" not in tarefa["razao"]
+
+
+def test_modelo_mesh_fora_da_allowlist_e_recusado(monkeypatch):
+    from forge3d.providers import obter
+
+    monkeypatch.setenv("FORGE3D_MODELO_MESH", "hunyuan3d")
+    pronto, razao = obter("mesh").preflight()
+    assert pronto is False
+    assert "allowlist" in razao.lower() or "licen" in razao.lower()
+
+
 # ---------------------------------------------------------------- cache
 
 

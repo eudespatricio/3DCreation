@@ -22,6 +22,15 @@
 | **Pixal3D** | **acadêmica / não comercial, proibida na UE** `[terceiro]` | ≥16 GB | fine-tune do TRELLIS.2 | sim | **inviável por VRAM e licença** |
 | **SAM 3D Objects** | SAM License, gated | ≥32 GB `[oficial]` | objeto único | não | inviável |
 
+### Correção de expectativa (comum em blog de 2024–2025)
+
+- **"2 a 5 s por peça"** é número de GPU grande. O valor oficial do TripoSR/SF3D é 0,5 s **em A100**.
+  Num RTX 3060 Laptop a estimativa é **6–10 s por peça** — `[estimado]`, não medido nesta máquina.
+- **InstantMesh não cabe em 6 GB**: há relato de alocação única de ~15 GiB e recomendação de 24 GB
+  `[terceiro]`. Para 6 GB, InstantMesh está fora — o par viável é **SF3D** ou **TripoSR**.
+- **ComfyUI não é obrigatório**: `Z-Image-Turbo` Q3_K roda em GPU de 4 GB via `stable-diffusion.cpp`.
+  ComfyUI é a maior stack do ambiente para uma função que um binário cobre (D22).
+
 ## 2. Text-to-image (concept e atlas)
 
 | Modelo | Licença | VRAM | Nota |

@@ -23,7 +23,9 @@
 | GAP-015 | `draft` (LLM) não existe; Ollama mede 4.096 tokens efetivos | P0 | P6 | prompt cabendo em 4k com teste de truncamento |
 | GAP-016 | Sem política de retenção do ledger e do cache (`gc`) | P0 | P6 | `gc`/rotação documentada e testada |
 | ~~GAP-017~~ | ~~Filtro `nearest` não testado no importador~~ | P0 | **P2 ✔** | fechado: Godot 4.3 aplicou `NEAREST_WITH_MIPMAPS` |
-| GAP-020 | Personagem sai com rig e sem clipe de animação (D14): no Godot ele é estático até alguém animar | P1 | P5 | clipe `idle` gerado ou retarget validado |
+| GAP-020 | Personagem sai com rig e sem clipe de animação (D14): no Godot ele é estático até alguém animar | P0 | P5 | clipe `idle` gerado ou retarget validado |
+| GAP-025 | **Rota `mesh` sem inferência**: o slot existe, declara D2/custo/licença e reporta o que falta, mas nenhum modelo é chamado (text-to-image e image-to-3D ausentes) | P0 | P3 | um PNG de concept virando `.glb` com QC aprovado, medido em 6 GB |
+| GAP-026 | Sem provider de **concept** (text-to-image): nada gera a imagem de entrada | P0 | P3 | PNG gerado por seed, com provedor e versão no manifesto |
 | GAP-021 | Um atlas por asset, sem variantes (dano, time, emissivo); trocar cor exige regerar | P1 | P4 | atlas com 2–3 variantes declaradas na spec |
 | GAP-022 | A pose de validação é render manual, não teste: nada no CI falha se o rig inverter eixo | P1 | P2 | teste que compara eixo local de cada osso com o mapa do perfil |
 | GAP-023 | **UV estica em face fina:** uma célula serve as 6 faces, então peça de pouca espessura (visor, placa) smear o padrão. Visível no close-up de 10/11 | P1 | P1.5 | célula por orientação de face (frente/lado/topo/fundo) e G3 medindo densidade de texel por face |

@@ -41,7 +41,9 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | `run` android (1 item) | **939 ms** frio · **307 ms** quente (`trabalho_executado: 0`) | `date +%s%N` em 10/11/2026 |
 | Import no **Godot 4.3** | `Node3D → Armature → Skeleton3D (23 ossos) → MeshInstance3D`; AABB 0,7584×1,85×0,4255 **idêntico ao manifesto**; `albedo_tex=true`; `filtro=2` (nearest + mipmaps) | `godot --headless --import` + inspeção GDScript |
 | Eixos de osso | todos com **X local = +X do mundo**, Y ao longo do osso | `data.bones[].matrix_local` no Blender |
-| Rig rígido sob pose | sem fenda nas juntas depois de sobrepor peça ao pivô; manga de junta no osso pai | render `docs/preview/android_pose3_*` |
+| Rig rígido sob pose | sem fenda nas juntas depois de sobrepor peça ao pivô; manga de junta no osso pai | render `docs/preview/android_pose_final_*` |
+| Slot da rota `mesh` | registrado; `doctor` reporta `P3: torch ausente — instale o extra GPU`; lote com rota mesh sai `bloqueado` com exit 5 e **nada escrito no destino** | `forge3d doctor` + `run examples/lote_02_rotas.yaml` em 10/11/2026 |
+| Atlas do android | **64×64 px** → 34,6 px/m de densidade de texel (close-up pede ~380 px/m) | `Pillow` sobre o PNG publicado |
 | Estimativa do `plan` | 9,0 s estimados × 2,08 s reais para 3 itens (≈3× conservador) | comparação dos dois relatórios |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): tempo por asset em

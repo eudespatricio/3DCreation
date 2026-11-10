@@ -92,6 +92,26 @@ vez. Mesh gerada tem topologia irregular e UV que não sobrevive a edição — 
 **Bloqueio:** sem provider instalado ou sem VRAM, o item sai `bloqueado` com `FORGE-E-RECURSO` ou
 `FORGE-E-PROVIDER` — **nunca** `falhou`, porque não é bug (D11).
 
+### Estado do slot (10/11/2026)
+
+O provider `mesh` **existe como slot registrado**, sem inferência: ele declara determinismo `D2`,
+custo (35 s, 5.500 MiB, 250 MB), capacidades e **preflight com diagnóstico nomeado**. Efeito:
+
+```
+$ forge3d doctor
+  providers  blocky: pronto · import: pronto · mesh: P3: torch ausente — instale o extra GPU …
+$ forge3d run lote_com_mesh.yaml
+  [bloqueado] weapon.axe.ice.01  P3: torch ausente — instale o extra GPU (docs/dependencias.md §4)
+```
+
+Ordem de construção recomendada, de propósito: **image-to-3D primeiro** (entra imagem, sai malha —
+testável com um PNG fixo, sem a variável do diffusion) e **text-to-image depois** (só precisa
+produzir um PNG). Nesta ordem, qualquer erro tem uma causa só.
+
+Entregas de P3: (1) provider `concept` (text-to-image → PNG); (2) provider de image-to-3D
+(PNG → malha + textura); (3) encadeamento e proveniência das duas etapas no manifesto; (4) lock
+de GPU exercitado de verdade e `doctor` medindo VRAM livre.
+
 ## 5. Rota `modular` — mapa por montagem (P4)
 
 Não é "gerar um mapa com IA". É **layout → WFC → instância → fusão**, exatamente como o desenho

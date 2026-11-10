@@ -1,0 +1,30 @@
+# Exemplo executavel da rota mesh (P3): PNG -> TripoSR -> UV+bake -> QC -> publish.
+# Requer a venv de i23d (FORGE3D_VENV_I23D) e ~6 GB de VRAM. Rode da raiz do repo:
+#   FORGE3D_I23D_REMOVER_FUNDO=1 forge3d run examples/lote_04_mesh.yaml
+schema: forge3d/spec@1
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/teapot_exemplo
+estilo_global: lowpoly_lit
+
+politica:
+  falha: continuar
+  custo_max_min: 15
+  seed_base: 20261110
+
+lote:
+  - id: prop.bule.exemplo.01
+    tipo: prop_estatico
+    rota: mesh
+    prompt: >-
+      Bule de porcelana branca com alca curva e bico, acabamento simples de prop.
+    origem: examples/concepts/teapot.png
+    altura_metros: 0.30
+    pivot: base
+    limite_triangulos: 8000
+    material: pbr
+    colisao: convex
+    seed: 20261110
+    lod: [100]
+    tags: [exemplo, bule, p3]

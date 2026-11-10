@@ -125,17 +125,18 @@ def _spec_mesh() -> dict:
     }
 
 
-def test_rota_mesh_bloqueia_com_razao_acionavel_em_vez_de_banco_vazio():
-    """Slot de P3: sem GPU o item e bloqueado com motivo nomeado, nao \"nao implementado\"."""
+def test_rota_mesh_bloqueia_sem_venv_com_razao_acionavel(monkeypatch, tmp_path):
+    """Sem a venv de i23d o item e bloqueado com motivo nomeado, nao "nao implementado"."""
     from forge3d import plan
 
+    monkeypatch.setenv("FORGE3D_VENV_I23D", str(tmp_path / "venv-ausente"))
     spec_doc, perfil, _avisos = spec.preparar(_spec_mesh())
     tarefas = plan.montar(spec_doc, perfil, lambda chave: False)
     tarefa = tarefas[0]
     assert tarefa["estado_previsto"] == "bloqueada"
     assert tarefa["provedor"]["nome"] == "mesh"
-    assert tarefa["estimativa"]["vram_mb"] >= 5500
-    assert "P3" in tarefa["razao"], tarefa["razao"]
+    assert tarefa["estimativa"]["vram_mb"] >= 3000
+    assert "venv" in tarefa["razao"].lower(), tarefa["razao"]
     assert "implementad" not in tarefa["razao"]
 
 
@@ -254,3 +255,65 @@ def test_bruto_declarado_pelo_provider_e_json_canonico(tmp_path):
     assert dados["altura_m"] == 0.5
     assert (tmp_path / "atlas.png").is_file()
     assert bruto.determinism == "D1"
+
+def _spec_v2(**extra) -> dict:
+    item = {
+        "id": "personagem.sentinel.corpo.01",
+        "tipo": "personagem_humanoide",
+        "rota": "blocky",
+        "parte": "corpo",
+        "prompt": "corpo",
+        "altura_metros": 1.85,
+        "auto_rig": True,
+    }
+    item.update(extra)
+    return {
+        "schema": "forge3d/spec@2",
+        "projeto": "demo",
+        "perfil": "godot4",
+        "destino_exportacao": "~/.local/state/forge3d/saida/kit",
+        "lote": [item],
+    }
+
+
+def test_spec_v2_parte_valida():
+    doc = _spec_v2()
+    spec_doc, _perfil, avisos = spec.preparar(doc)
+    assert spec_doc["lote"][0]["parte"] == "corpo"
+    assert avisos == []
+
+
+def test_spec_v2_parte_arma_com_tipo_errado_falha_b12():
+    doc = _spec_v2(parte="arma", tipo="personagem_humanoide", auto_rig=False)
+    with pytest.raises(ForgeError) as exc:
+        spec.preparar(doc)
+    assert any(e.get("regra") == "B12" for e in exc.value.detalhes["erros"])
+
+
+def test_spec_v2_capa_com_auto_rig_falha_b13():
+    doc = _spec_v2(parte="capa", altura_metros=1.20, auto_rig=True)
+    with pytest.raises(ForgeError) as exc:
+        spec.preparar(doc)
+    assert any(e.get("regra") == "B13" for e in exc.value.detalhes["erros"])
+
+
+def test_spec_v1_nao_aceita_parte():
+    doc = _spec_v2()
+    doc["schema"] = "forge3d/spec@1"
+    with pytest.raises(ForgeError) as exc:
+        spec.preparar(doc)
+    assert exc.value.codigo == "FORGE-E-SPEC"
+
+def test_rota_mesh_sem_vram_bloqueia_como_recurso_exit_6(monkeypatch, tmp_path):
+    """D11/I6: falta de VRAM e recurso (exit 6), nao falha de provider (exit 5)."""
+    from forge3d import plan
+    from forge3d.providers import mesh
+
+    monkeypatch.setenv("FORGE3D_VENV_I23D", str(tmp_path / "venv"))
+    monkeypatch.setattr(mesh, "_diagnostico", lambda: {"ok": True, "torch": "2.4.1", "cuda": True})
+    monkeypatch.setattr(mesh, "_vram_livre_mb", lambda: 100)
+    spec_doc, perfil, _avisos = spec.preparar(_spec_mesh())
+    tarefa = plan.montar(spec_doc, perfil, lambda chave: False)[0]
+    assert tarefa["estado_previsto"] == "bloqueada"
+    assert tarefa["codigo"] == "FORGE-E-RECURSO"
+    assert "VRAM" in tarefa["razao"]

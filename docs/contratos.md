@@ -15,15 +15,20 @@
 | Encoding | UTF-8, LF. JSON de saída com chaves ordenadas e sem espaços variáveis (hash estável) |
 | Relógio | `created_at` em UTC ISO-8601; nunca entra na chave de cache |
 
-## 2. `spec@1` — a entrada
+## 2. `spec@1` e `spec@2` — a entrada
 
-Exemplo canônico: [`../examples/lote_01.yaml`](../examples/lote_01.yaml).
+Exemplo canônico: [`../examples/lote_01.yaml`](../examples/lote_01.yaml). O kit P3-D usa
+[`../examples/lote_03_kit.yaml`](../examples/lote_03_kit.yaml) (`spec@2`).
+
+`spec@2` é extensão **retrocompatível** de `spec@1`: adiciona `parte` (`corpo`/`capa`/`arma`) ao
+item. `spec@1` continua aceito; o validador escolhe o schema pelo campo `schema`. O manifesto
+permanece `manifest@1` — a versão do spec viaja no `spec_hash`.
 
 ### Raiz
 
 | Campo | Tipo | Obrig. | Regra |
 |---|---|---|---|
-| `schema` | string | sim | constante `forge3d/spec@1` |
+| `schema` | string | sim | `forge3d/spec@1` ou `forge3d/spec@2` |
 | `projeto` | string | sim | slug `^[a-z][a-z0-9_-]*$` |
 | `perfil` | string | sim | `godot4` \| `roblox-r15` \| caminho para YAML de perfil |
 | `destino_exportacao` | string | sim | sob allowlist (D23); `~` é expandido; recusa `/mnt/*` e UNC |
@@ -55,7 +60,8 @@ nunca aparece em manifesto publicado (I14).
 | `auto_rig` | boolean | não | default `false`; exige `tipo` humanoide/criatura |
 | `esqueleto` | string | não | `godot-humanoid@1` \| `r15@1`; default do perfil |
 | `animacoes_base` | string[] | não | **reservado** (D14). Preenchido ⇒ aviso `FORGE-W-ANIM`, nunca erro |
-| `origem` | string | cond. | obrigatório em `rota: import`; arquivo existente `.blend`/`.bbmodel`/`.glb`/`.obj` |
+| `origem` | string | cond. | obrigatório em `rota: import`; na `mesh` é a imagem de concept (PNG/JPEG/WebP) |
+| `parte` | string | não | `corpo` \| `capa` \| `arma`; só `spec@2` e só rota `blocky` (B11–B13) |
 | `tags` | string[] | não | `^[a-z0-9][a-z0-9_-]*$`, ≤ 8, sem nome de franquia (I14) |
 
 ### Regras de negócio (além do schema)
@@ -72,6 +78,9 @@ nunca aparece em manifesto publicado (I14).
 | B8 | `paleta` ≤ 16 cores, todas `#rrggbb` | erro |
 | B9 | `prompt` não vazio quando exigido | erro |
 | B10 | Esqueleto declarado existe no perfil | erro |
+| B11 | `parte` só existe na rota `blocky` | erro (schema `spec@2`) |
+| B12 | `parte: corpo/capa` exige `personagem_humanoide`; `parte: arma` exige `prop_equipavel` | erro |
+| B13 | `parte: capa` é peça estática (`auto_rig: false`) | erro |
 
 ## 3. `manifest@1` — a saída
 
@@ -173,7 +182,10 @@ publicou ou veio do cache.
 
 ## 7. Compatibilidade
 
-- **Aditivo** (campo opcional novo, valor novo em enum com default): mantém `@1`.
+- **Neste projeto, mudança de schema sempre sobe a versão**, mesmo aditiva: é a regra do operador
+  (10/11/2026). `spec@2` é o exemplo — `parte` é opcional, mas `spec@1` fica congelado e continua
+  validando.
+- **Aditivo** (campo opcional novo, valor novo em enum com default): mantém `@1` fora do caso acima.
 - **Quebra** (renomear, tornar obrigatório, mudar unidade, mudar default): `@2`, com `forge3d migrate`
   lendo `@1` e o `@1` congelado por uma major.
 - O manifesto carrega a major do spec **com** a do manifesto: asset velho continua verificável.

@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, config, doctor, paths, plan, post, providers, publish, spec
+from . import __version__, config, doctor, locks, paths, plan, post, providers, publish, spec
 from .canonical import canon, sha256_arquivo, sha256_bytes
 from .errors import (
     EXIT_AMBIENTE,
@@ -100,13 +100,17 @@ def _executar_item(
         provider = providers.obter(item["rota"])
         staging = paths.dir_staging() / run_id / item["id"] / "bruto"
         staging.mkdir(parents=True, exist_ok=True)
-        bruto = provider.gerar(item, perfil, staging)
+        if getattr(provider, "usa_gpu", False):
+            # D11/I6: um job de GPU por vez; o segundo falha com exit 6 em vez de CUDA OOM
+            with locks.lock_gpu(run_id, esperar=False):
+                bruto = provider.gerar(item, perfil, staging)
+        else:
+            bruto = provider.gerar(item, perfil, staging)
 
         resultado = _pos_processar(item, perfil, bruto, run_id)
         resultado["determinism"] = provider.determinism
-        licenca = providers.licenca_de(
-            "procedural" if provider.nome in ("blocky", "import") else provider.nome
-        )
+        # cada provider declara a propria licenca: blocky/import sao procedurais, mesh e o modelo
+        licenca = dict(provider.licenca)
         resultado["licenca"] = licenca
 
         relatorio_qc = qc_mod.verificar(item, perfil, Path(resultado["dir_final"]), resultado)

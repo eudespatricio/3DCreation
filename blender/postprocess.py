@@ -15,7 +15,7 @@ import traceback
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 # faces de um cubo por indice de vertice; a orientacao e corrigida depois por recalc
 FACES_CUBO = (
@@ -177,6 +177,216 @@ def importar_fonte(arquivo: str) -> None:
                 bpy.context.collection.objects.link(obj)
     else:
         raise RuntimeError(f"formato de origem nao suportado: {ext}")
+
+
+
+# ------------------------------------------------------------------ malha gerada (P3-A)
+
+
+TEX_PX_GERADA = 512
+
+
+def _selecionar(obj) -> None:
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+
+
+def _aplicar_transformes(obj) -> None:
+    _selecionar(obj)
+    if obj.parent is not None:
+        bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+
+def unir_malhas() -> "bpy.types.Object":
+    """Uma malha so: o gerador pode devolver varias; o pos-processo trata um asset."""
+    malhas = objetos_malha()
+    if not malhas:
+        raise RuntimeError("origem sem malha importavel")
+    if len(malhas) == 1:
+        obj = malhas[0]
+        _aplicar_transformes(obj)
+        return obj
+    for obj in malhas:
+        _aplicar_transformes(obj)
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in malhas:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = malhas[0]
+    bpy.ops.object.join()
+    return bpy.context.view_layer.objects.active
+
+
+def _remover_ilhas_de_uma_face(bm) -> int:
+    """Ilha de uma face minuscula (sobra de decimate) vira borda aberta no G1."""
+    vistos = set()
+    remover = []
+    for face in bm.faces:
+        if face.index in vistos:
+            continue
+        pilha = [face]
+        componente = []
+        vistos.add(face.index)
+        while pilha:
+            atual = pilha.pop()
+            componente.append(atual)
+            for aresta in atual.edges:
+                for vizinha in aresta.link_faces:
+                    if vizinha.index not in vistos:
+                        vistos.add(vizinha.index)
+                        pilha.append(vizinha)
+        # qualquer ilha de uma face e sobra: nao e geometria de asset
+        if len(componente) == 1:
+            remover.append(componente[0])
+    if remover:
+        bmesh.ops.delete(bm, geom=remover, context="FACES")
+        soltos = [v for v in bm.verts if not v.link_faces]
+        if soltos:
+            bmesh.ops.delete(bm, geom=soltos, context="VERTS")
+    return len(remover)
+
+
+def reparar_malha(obj) -> dict:
+    """Solda, remove ilha solta e fecha buraco antes do export."""
+    antes = (len(obj.data.vertices), len(obj.data.polygons))
+    obj.data.validate(verbose=False)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-5)
+    bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=list(bm.edges))
+    ilhas = _remover_ilhas_de_uma_face(bm)
+    bordas = [e for e in bm.edges if len(e.link_faces) == 1]
+    if bordas:
+        bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
+        # holes_fill pode criar uma face solta; remove de novo
+        _remover_ilhas_de_uma_face(bm)
+    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+    return {
+        "vertices_antes": antes[0],
+        "faces_antes": antes[1],
+        "vertices_depois": len(obj.data.vertices),
+        "faces_depois": len(obj.data.polygons),
+        "ilhas_removidas": ilhas,
+        "bordas_preenchidas": len(bordas),
+    }
+
+
+def decimar(obj, alvo_tris: int) -> int:
+    tris = malha_triangulada(obj)
+    if alvo_tris <= 0 or tris <= alvo_tris:
+        return tris
+    mod = obj.modifiers.new("forge3d_decimate", "DECIMATE")
+    mod.ratio = max(0.01, min(1.0, (alvo_tris * 0.995) / tris))
+    _selecionar(obj)
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    return malha_triangulada(obj)
+
+
+def canonicalizar(obj) -> dict:
+    """Altura em Z, largura em X, profundidade em Y, base em Z=0 (tools/normalize_mesh.py)."""
+    minimo, maximo = bbox_local()
+    extensao = maximo - minimo
+    ordem = sorted(range(3), key=lambda i: extensao[i])
+    profundidade = ordem[0]
+    sobra = [i for i in range(3) if i != profundidade]
+    altura = max(sobra, key=lambda i: extensao[i])
+    largura = min(sobra, key=lambda i: extensao[i])
+    destinos = (largura, profundidade, altura)
+    linhas = []
+    for origem in destinos:
+        linha = [0.0, 0.0, 0.0]
+        linha[origem] = 1.0
+        linhas.append(linha)
+    if Matrix(linhas).determinant() < 0:
+        # permutacao impar espelharia a malha (logo/texto invertido)
+        linhas[1] = [-v for v in linhas[1]]
+    rot = Matrix(linhas).to_4x4()
+    obj.matrix_world = rot @ obj.matrix_world
+    _aplicar_transformes(obj)
+    minimo, maximo = bbox_local()
+    desloc = Vector(
+        (-(minimo.x + maximo.x) / 2.0, -(minimo.y + maximo.y) / 2.0, -minimo.z)
+    )
+    obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
+    _aplicar_transformes(obj)
+    return {
+        "altura_eixo": "XYZ"[altura],
+        "largura_eixo": "XYZ"[largura],
+        "profundidade_eixo": "XYZ"[profundidade],
+    }
+
+
+def desdobrar_uv(obj, margem: float = 0.003) -> str:
+    _selecionar(obj)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(
+        angle_limit=1.15192,  # 66 graus
+        island_margin=margem,
+        area_weight=0.0,
+        correct_aspect=True,
+        scale_to_bounds=False,
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    if not obj.data.uv_layers:
+        raise RuntimeError("smart_project nao criou camada UV")
+    return obj.data.uv_layers.active.name
+
+
+def assar_cor_vertices(obj, png: str, px: int) -> dict:
+    """Bake DIFFUSE/COLOR da cor por vertice para PNG e troca o material por textura."""
+    if not obj.data.color_attributes:
+        raise RuntimeError("malha sem atributo de cor por vertice para assar")
+    nome_cor = obj.data.color_attributes[0].name
+    obj.data.materials.clear()
+    mat = bpy.data.materials.new("forge3d_bake")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    if "Roughness" in bsdf.inputs:
+        bsdf.inputs["Roughness"].default_value = 0.85
+    if "Metallic" in bsdf.inputs:
+        bsdf.inputs["Metallic"].default_value = 0.0
+    vc = nt.nodes.new("ShaderNodeVertexColor")
+    vc.layer_name = nome_cor
+    nt.links.new(vc.outputs["Color"], bsdf.inputs["Base Color"])
+    img = bpy.data.images.new("forge3d_baseColor", width=px, height=px, alpha=False)
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    tex.select = True
+    nt.nodes.active = tex
+    obj.data.materials.append(mat)
+
+    cena = bpy.context.scene
+    cena.render.engine = "CYCLES"
+    cena.cycles.device = "CPU"
+    cena.cycles.samples = 1
+    cena.cycles.use_denoising = False
+    cena.render.bake.use_pass_direct = False
+    cena.render.bake.use_pass_indirect = False
+    cena.render.bake.use_pass_color = True
+    cena.render.bake.margin = max(4, px // 128)
+    cena.render.bake.use_clear = True
+    _selecionar(obj)
+    bpy.ops.object.bake(type="DIFFUSE")
+
+    img.filepath_raw = png
+    img.file_format = "PNG"
+    img.save()
+    img.pack()
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.nodes.remove(vc)
+    for atributo in list(obj.data.color_attributes):
+        obj.data.color_attributes.remove(atributo)
+    return {
+        "textura_px": px,
+        "cor_atributo": nome_cor,
+        "png_bytes": os.path.getsize(png),
+    }
 
 
 # ------------------------------------------------------------------ geometria
@@ -376,6 +586,7 @@ def exportar(caminho: str, objetos: list, com_rig: bool) -> None:
         "export_texcoords": True,
         "export_normals": True,
         "export_draco_mesh_compression_enable": False,
+        "export_image_format": "AUTO",
         "export_cameras": False,
         "export_lights": False,
     }
@@ -400,17 +611,37 @@ def processar(job: dict) -> dict:
     limpar_cena()
 
     rig_obj = None
+    info_gerada: dict = {}
+    textura_gerada: dict | None = None
     if bruto["schema"] == "forge3d/bruto-blocky@1":
         obj, grupos = construir_blocky(bruto, bruto_dir)
         if bruto.get("ossos"):
             rig_obj = criar_armadura(bruto["ossos"])
     elif bruto["schema"] == "forge3d/bruto-arquivo@1":
         importar_fonte(os.path.join(bruto_dir, bruto["arquivo"]))
-        malhas = objetos_malha()
-        if not malhas:
-            raise RuntimeError("origem sem malha importavel")
-        obj = malhas[0]
+        obj = unir_malhas()
         grupos = {}
+        if bruto.get("canonicalizar"):
+            info_gerada["canonicalizacao"] = canonicalizar(obj)
+        info_gerada["reparo_inicial"] = reparar_malha(obj)
+        if obj.data.color_attributes:
+            # malha gerada: corta o orcamento ANTES do UV/bake; o bake roda em 512 px
+            info_gerada["triangulos_antes_decimate"] = malha_triangulada(obj)
+            info_gerada["triangulos_pos_decimate"] = decimar(
+                obj, int(item["limite_triangulos"])
+            )
+            info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
+            info_gerada["uv"] = desdobrar_uv(obj)
+            px = int(bruto.get("textura_px") or TEX_PX_GERADA)
+            nome_png = f"{job['nome_base']}_baseColor.png"
+            info_gerada["bake"] = assar_cor_vertices(
+                obj, os.path.join(saida_dir, nome_png), max(64, min(px, 1024))
+            )
+            textura_gerada = {"caminho": nome_png, "papel": "textura"}
+        elif not obj.data.uv_layers:
+            raise RuntimeError(
+                "malha importada sem UV e sem cor por vertice: nao ha como assar textura"
+            )
     else:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
 
@@ -500,6 +731,17 @@ def processar(job: dict) -> dict:
             }
         )
 
+    if textura_gerada:
+        arquivos.append(
+            {
+                "caminho": textura_gerada["caminho"],
+                "papel": textura_gerada["papel"],
+                "bytes": os.path.getsize(os.path.join(saida_dir, textura_gerada["caminho"])),
+            }
+        )
+
+    if info_gerada:
+        medidas_base["gerada"] = info_gerada
     medidas_base["partes_colisao"] = len(colisores)
     medidas_base["esqueleto"] = item.get("esqueleto") if rig_obj is not None else None
     medidas_base["lod"] = [{"nivel": a["nivel"], "triangulos": a["triangulos"]} for a in arquivos if a["papel"] in ("mesh", "lod")]

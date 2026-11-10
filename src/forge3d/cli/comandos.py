@@ -34,7 +34,7 @@ def construir_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="diagnostico do ambiente")
     d.add_argument("--json", action="store_true")
 
-    v = sub.add_parser("validate", help="valida o lote contra spec@1 + regras de negocio")
+    v = sub.add_parser("validate", help="valida o lote contra spec@1/spec@2 + regras de negocio")
     v.add_argument("lote")
     v.add_argument("--json", action="store_true")
 

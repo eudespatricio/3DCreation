@@ -13,9 +13,9 @@ Leia nesta ordem, antes de qualquer ação:
   modelo. A implementação começa em P1, com autorização explícita do operador (D1).
 - **Não invente número.** Fato medido, medido por terceiro e estimativa são rótulos diferentes e
   vivem separados (`DECISOES.md` §1). Se não mediu, escreva `[estimado]`.
-- **Contrato é lei.** `schemas/spec.v1.schema.json` e `schemas/manifest.v1.schema.json` são a
-  fronteira com os projetos de jogo. Mudou o schema? Suba a versão (`@1` → `@2`) e registre em
-  `DECISOES.md`. Não existe alteração silenciosa de contrato.
+- **Contrato é lei.** `schemas/spec.v1.schema.json`/`spec.v2.schema.json` e
+  `schemas/manifest.v1.schema.json` são a fronteira com os projetos de jogo. Mudou o schema? Suba a
+  versão (`@1` → `@2`) e registre em `DECISOES.md`. Não existe alteração silenciosa de contrato.
 - **Nada escreve direto na pasta do jogo.** Só `publish`, atômico, via staging (I3).
 - **QC reprovado não publica.** Não existe flag para "publicar mesmo assim" (I5).
 - **O sistema tem que funcionar sem GPU.** Se a sua mudança torna a GPU obrigatória para o caminho

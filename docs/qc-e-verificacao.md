@@ -62,11 +62,15 @@ Roda sobre o que **já está publicado**, sem gerar nada. É o portão de pull r
 
 1. manifesto existe, valida no schema e está íntegro;
 2. `sha256` de cada arquivo confere;
-3. todos os gates re-rodam contra o perfil atual;
+3. todos os gates re-rodam contra o perfil atual: **G1** por topologia em Python puro (solda por
+   posição, sem Blender); **G2** lê a regra de pivô gravada no G2 antigo (`pivo_regra`) e mede o
+   GLB; **G3–G9** releem o GLB/PNG do destino;
 4. o índice e o disco concordam (nenhum arquivo órfão, nenhum registro fantasma).
 
-Divergiu ⇒ `exit 3` e a lista exata do que divergiu. Isso pega exatamente o caso mais comum em jogo:
-alguém editou o `.glb` na mão e o manifesto ficou mentindo.
+Divergiu ⇒ `exit 3` e a lista exata do que divergiu. Isso pega o caso mais comum em jogo — alguém
+editou o `.glb` na mão e o manifesto ficou mentindo — e também o perfil que mudou de tolerância
+depois da publicação. Manifesto antigo sem `pivo_regra` não tem como revalidar o pivô: o gate é
+pulado e isso é **GAP-037**.
 
 ## 5. Quando o QC reprova duas vezes
 

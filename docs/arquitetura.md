@@ -39,7 +39,7 @@ Duas exigências dominam o desenho:
                  lote.yaml / lote.json
                           │
         ┌─────────────────▼──────────────────┐
-        │ 1. VALIDAR       spec@1            │  JSON Schema + regras de negócio
+        │ 1. VALIDAR       spec@1/spec@2     │  JSON Schema + regras de negócio
         │                   + normalização   │  defaults por perfil, aliases legados
         └─────────────────┬──────────────────┘  exit 2 se inválido
                           │  Spec canônica (JSON ordenado)
@@ -200,7 +200,7 @@ mais é stdlib-leve. Isso mantém `forge3d plan` rodando em CI sem instalar meio
 3DCreation/
 ├── AGENTS.md  README.md  CONSELHOS.md  MAPA.md  DECISOES.md  INVARIANTES.md  CONTINUAR.md
 ├── docs/            # arquitetura, contratos, rotas, perfis, QC, dependências, riscos, roadmap, gaps
-├── schemas/         # spec.v1.schema.json · manifest.v1.schema.json  (fonte de verdade)
+├── schemas/         # spec.v1/v2.schema.json · manifest.v1.schema.json  (fonte de verdade)
 ├── profiles/        # godot4.yaml · roblox-r15.yaml
 ├── examples/        # lote_01.yaml (fixture canônica)
 ├── skills/context-recovery/

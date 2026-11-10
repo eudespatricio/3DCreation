@@ -68,8 +68,26 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | SF3D — bake de textura **falha** sem CUDA toolkit | `texture_baker` compilado com `USE_CUDA=0` só registra kernel CPU: `NotImplementedError: 'texture_baker_cpp::rasterize' ... only available for [CPU]` | traceback em `/tmp/forge3d_teste/sf3d512.log` |
 | Estimativa do `plan` | 9,0 s estimados × 2,08 s reais para 3 itens (≈3× conservador) | comparação dos dois relatórios |
 
-**Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): tempo por asset em
-qualquer modelo 3D, VRAM real por modelo, comportamento do importador Roblox, desempenho do `uv`
+| P3-A — bake próprio (`bpy`/Cycles CPU) | **funciona**: malha com `COLOR_0` sem UV vira `TEXCOORD_0` + PNG 512²; G3/G5 verdes | `blender/postprocess.py` + `tests/test_p3_bake.py` em 10/11/2026 |
+| P3-A — reparo de topologia | **1 triângulo solto** (área 5,1e-6 m²) saído do decimate; remover ilha de 1 face zera o G1 (3 bordas → 0) | `resultado.json` + inspeção `bmesh` em 10/11/2026 |
+| P3-A — tempo do bake | **~2,8 s** para 7.958 tris a 512 px (Blender 4.2, CPU) | `time` no run do bule em 10/11/2026 |
+| i23d — venv consolidada | **`~/.cache/forge3d/venv-i23d`** (Python 3.12.14, torch 2.4.1+cu121, 5,6 GB); `~/.venvs/triposr` (5,8 GB) removida | `du -sh` + `import torch` em 10/11/2026 |
+| i23d — inferência TripoSR (bule) | **7.960 tris** publicados; load 7,7 s + forward 1,2 s + extração 3,8 s (total 12,6 s); VRAM pico **2.378 MiB** | `i23d_resultado.json` em 10/11/2026 |
+| i23d — run completo (mesh) | **23,3 s** frio; **2,1 s** cache hit; GLB 1.126.404 B + PNG 313.107 B | `time` + manifesto publicado em 10/11/2026 |
+| QC `prop.bule.exemplo.01` | **G1–G9 verdes**, 7.960 tris, bbox 0,19769×0,300×0,174134 m, 1 material, textura 512² | manifesto + `forge3d verify` em 10/11/2026 |
+| Godot 4.3 — bule | `Node3D → MeshInstance3D`; AABB **0,19769×0,300×0,174134** idêntico ao manifesto; `albedo_tex=true`; 7.960 tris | `godot --headless --import` + GDScript em 10/11/2026 |
+| `doctor` mesh | **`mesh: pronto (TripoSR, torch 2.4.1+cu121, venv venv-i23d)`** | `forge3d doctor` em 10/11/2026 |
+| `verify` reexecuta G1–G9 | manifesto íntegro → ok; G2 com `esperado_m=1,2` → exit 3, "QC reexecutado reprovou G2" | `tests/invariants/test_invariantes_e2e.py::test_i4_verify_reexecuta_gates_contra_manifesto` |
+| Kit P3-D | corpo **300 tris / 23 ossos**, capa **60 tris / sem rig**, arma **36 tris**; 3 publicados e `verify` ok | `examples/lote_03_kit.yaml` em 10/11/2026 |
+| Godot 4.3 — kit | capa montada no osso `Chest` (idx 4), arma em `Hand.R` (idx 14); `KIT_OK` | `mount_kit.gd` em 10/11/2026 |
+| Suíte após P3 | **38 verdes** (24 unidade + 2 P3-A + 1 e2e rápido + 11 invariantes) em **14,3 s**; e2e rápido **2,0 s** | `pytest -q` em 10/11/2026 |
+| Probe Roblox R15 (sem Studio) | **prop** blocky publica e `verify` passa (48 tris, 1 colisor); **humanoid** falha em `pivot: junta` (fora do enum) e o blocky não gera nomes R15; `colisao.prefixo` ausente causava `KeyError` no G7 (corrigido) | `docs/perfis-export.md` §3 + `run`/`verify` em 10/11/2026 |
+| Planilha de custo mesh | **25 s estimados × 23,3 s reais** (erro +7%, dentro de 50%) | comparação `plan` × `run` em 10/11/2026 |
+| Qualidade TripoSR (cadeira) | **inutilizável**: 81.952 faces de entrada viraram blob; mesmo com rembg. Bule ficou reconhecível | previews `.scratch/chair_*` / `.scratch/teapot_*` em 10/11/2026 |
+
+
+**Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): A/B de 10 assets,
+qualidade de personagem com capa, comportamento do importador Roblox, desempenho do `uv`
 resolvendo `torch`.
 
 ## 2. Decisões
@@ -95,13 +113,22 @@ resolvendo `torch`.
 | D17 | **Preflight obrigatório** (`forge3d doctor`) com modelos de falha nomeados | 80% do tempo perdido em pipeline é ambiente, não algoritmo |
 | D18 | **Licença é gate**: allowlist de modelos com uso comercial permitido; `NOTICE` por asset no manifesto | Hunyuan3D-2.x exclui UE/UK/Coreia; Pixal3D é não-comercial; asset sem licença é passivo |
 | D19 | **Naming neutro**: `blocky_voxel`, nunca `minecraft_*`; valores antigos aceitos como alias legado com aviso | estética é livre, marca registrada não |
-| D20 | Spec é **versionada** (`forge3d/spec@1`) e validada por JSON Schema antes de qualquer provider | contrato silencioso quebra os pipes dos jogos sem aviso |
+| D20 | Spec é **versionada** (`forge3d/spec@1`, hoje também `spec@2`) e validada por JSON Schema antes de qualquer provider | contrato silencioso quebra os pipes dos jogos sem aviso |
 | D21 | Erros têm **código estável** `FORGE-E-*` além do exit code | pipe precisa ramificar por causa, não por parse de mensagem |
 | D22 | **ComfyUI não é dependência da v0**; quando a Rota B entrar, a interface é HTTP/CLI atrás de provider | stack mais pesada do ambiente para uma função que `sd.cpp`/`sf3d` cobrem |
 | D23 | **Allowlist de destino** em `~/.config/forge3d/allowlist.yaml`; sandbox do próprio Forge3D sempre liberado; **sem flag de bypass**; autorizar é `forge3d allowlist add` | deny by default — destino errado publica asset no projeto errado e não há desfazer barato (fecha Q2) |
 | D24 | **Estado centralizado** em `$FORGE3D_HOME` (`~/.local/state/forge3d`): cache, runs, staging, locks, índice, ledger, saída. Nenhum `.forge/` no diretório de execução | rodar de dentro de um jogo não cria pasta nem arquivo no jogo (fecha Q6) |
 | D25 | **Isolamento por padrão**: sem leitura de config a partir do cwd, sem escrita fora do estado próprio ou de destino autorizado, sem import de código de projeto de jogo | exigência explícita do operador (10/11/2026): o utilitário tem que funcionar independente de projeto |
 | D26 | **Núcleo leve**: `jsonschema` + `PyYAML` + `Pillow` e `argparse`; sem pydantic/typer/rich/orjson/numpy | o schema é a fonte de verdade; instalar em segundos é o que deixa `plan` rodar no CI |
+
+| D27 | **SF3D encerrado em 6 GB**: TripoSR é o i23d da P3; SF3D não é reinstalado (GAP-032/033/034/035 fechados por decisão) | medido: ~8 min/imagem e bake exige CUDA toolkit; TripoSR entrega em ~23 s e o bake próprio resolve UV |
+| D28 | **Bake próprio no `bpy`** para malha com `COLOR_0`: `smart_project` + bake `DIFFUSE/COLOR` em 512², Cycles CPU; sem `moderngl`/EGL | medido em 10/11/2026: G3/G5 verdes em 2,8 s; TripoSR só entrega cor por vértice (GAP-028) |
+| D29 | **i23d em subprocesso** na venv única `FORGE3D_VENV_I23D` (`~/.cache/forge3d/venv-i23d`), canal JSON; o núcleo não importa `torch` | 6 GB: o núcleo leve (D26) não paga 2,5 GB de torch; `doctor` mede a venv certa (GAP-031/C1) |
+| D30 | **`spec@2`** adiciona `parte` (`corpo`/`capa`/`arma`), retrocompatível: `spec@1` continua aceito e o manifesto segue `manifest@1` | P3-D precisa separar peças no contrato; mudança de schema sempre sobe versão |
+| D31 | **Kit P3-D**: corpo com rig, capa estática montada no osso `Chest`, arma no `Hand.R`; ids `personagem.*` | a capa estática evita esqueleto divergente; montagem por osso é o que o Godot consome |
+| D32 | **`verify` reexecuta G1–G9** contra o perfil atual, com topologia em Python puro; G2 grava `pivo_regra` no relatório | hash pega arquivo trocado; reexecução pega perfil/tolerância que mudou (C2) |
+| D33 | **Rota `mesh` exige `origem` (PNG)** enquanto o provider de concept text-to-image não existe (GAP-026); `prompt` é proveniência | separa a variável do diffusion da inferência; a imagem é o que o TripoSR consome |
+
 
 ## 3. Rejeitados (e por quê)
 
@@ -127,9 +154,10 @@ resolvendo `torch`.
 | ~~Q2~~ | **Resolvida em 10/11/2026 por D23** — allowlist em arquivo global, sandbox próprio liberado, sem bypass | — | — |
 | Q3 | Escala/rig do Roblox R15: 1 stud ≈ 0,28 m, nomes de membro e formato de animação | teste com o importador no P2 | I8 no perfil Roblox |
 | Q4 | Biblioteca de WFC para `modular` | P4 | Rota C |
-| Q5 | Modelo de mesh: SF3D (licença Stability, exige registro e teto US$ 1 M) × TripoSR (MIT) | P3, com A/B de 10 assets | Rota `mesh`, D18 |
+| ~~Q5~~ | **Resolvida em 10/11/2026 por D27** — SF3D encerrado em 6 GB; TripoSR (MIT) é o i23d da P3 | — | — |
 | ~~Q6~~ | **Resolvida em 10/11/2026 por D24** — estado central em `$FORGE3D_HOME`, nada no repo do jogo | — | — |
 | Q7 | Assets versionados no git do jogo: direto × Git LFS | antes do primeiro asset real no GameZero | nada técnico |
+| Q8 | Qualidade do reconstructor para personagem com capa: TripoSR × SF3D | P3 fechada para prop (bule) com TripoSR; A/B de 10 assets e personagem continuam abertos | Rota `mesh`, D18 |
 
 ## 5. Herdado do projeto `conselho` (aplicado aqui)
 

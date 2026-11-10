@@ -92,35 +92,33 @@ vez. Mesh gerada tem topologia irregular e UV que não sobrevive a edição — 
 **Bloqueio:** sem provider instalado ou sem VRAM, o item sai `bloqueado` com `FORGE-E-RECURSO` ou
 `FORGE-E-PROVIDER` — **nunca** `falhou`, porque não é bug (D11).
 
-### Estado do slot (10/11/2026)
+### Estado real (10/11/2026)
 
-O provider `mesh` **existe como slot registrado**, sem inferência: ele declara determinismo `D2`,
-custo (35 s, 5.500 MiB, 250 MB), capacidades e **preflight com diagnóstico nomeado**. Efeito:
+O provider `mesh` **infere TripoSR** na venv única `~/.cache/forge3d/venv-i23d` (Python 3.12.14,
+torch 2.4.1+cu121), chamada por subprocesso com `FORGE3D_VENV_I23D`; o núcleo não importa `torch`.
+A entrada é `origem` (PNG) — o concept text-to-image é GAP-026; `prompt` é proveniência.
 
-```
-$ forge3d doctor
-  providers  blocky: pronto · import: pronto · mesh: P3: torch ausente — instale o extra GPU …
-$ forge3d run lote_com_mesh.yaml
-  [bloqueado] weapon.axe.ice.01  P3: torch ausente — instale o extra GPU (docs/dependencias.md §4)
-```
+Fluxo medido com o bule:
 
-Ordem de construção recomendada, de propósito: **image-to-3D primeiro** (entra imagem, sai malha —
-testável com um PNG fixo, sem a variável do diffusion) e **text-to-image depois** (só precisa
-produzir um PNG). Nesta ordem, qualquer erro tem uma causa só.
+- `doctor`: `mesh: pronto (TripoSR, torch 2.4.1+cu121, venv venv-i23d)`;
+- TripoSR: 80.544 faces em 12,6 s (load 7,7 + forward 1,2 + extração 3,8), VRAM pico 2.378 MiB;
+- pós-processo: decimate para 7.960 tris, reparo topológico, `smart_project`, bake `DIFFUSE/COLOR`
+  512² (~2,8 s);
+- `run`: 23,3 s frio / 2,1 s cache hit; G1–G9 verdes; Godot 4.3 importa com AABB idêntico ao manifesto
+  e `albedo_tex=true`;
+- `verify` reexecuta G1–G9 contra o perfil atual (C2/D32).
 
-Entregas de P3: (1) provider `concept` (text-to-image → PNG); (2) provider de image-to-3D
-(PNG → malha + textura); (3) encadeamento e proveniência das duas etapas no manifesto; (4) lock
-de GPU exercitado de verdade e `doctor` medindo VRAM livre.
+**Três requisitos que só apareceram rodando:**
 
-**Primeiro teste real (10/11/2026, TripoSR em 6 GB)** — três requisitos que só apareceram rodando:
+1. **Normalização canônica** — a altura sai em eixos diferentes conforme o input; `canonicalizar` no
+   pós-processo leva para Z-up, base em 0 e centro em X/Y.
+2. **UV + bake próprios** — TripoSR só entrega `COLOR_0`; o bake no `bpy` (D28) resolve sem
+   `moderngl`/EGL e sem CUDA toolkit.
+3. **O input manda na qualidade** — fundo neutro/rembg e ausência de oclusão. O bule saiu reconhecível;
+   a cadeira saiu blob; personagem com capa segue GAP-036. Pose controlada não resolve oclusão.
 
-1. **Normalizar orientação**: a saída vem com a altura no eixo Y (2 de 2 inputs).
-   `tools/normalize_mesh.py` leva para Z-up com base em 0 e centro em X/Y.
-2. **UV + textura**: sem `--bake-texture` a malha sai só com cor por vértice e o QC G3/G5 reprova
-   — comportamento correto. Bake precisa de `moderngl` com contexto EGL (sem CUDA toolkit).
-3. **O input manda na qualidade**: foto com capa gerou casca oca (pernas fundidas); render flat do
-   nosso android gerou laje extrudada. T-pose e sombreamento não são preferência — são condição
-   de o modelo inferir volume (GAP-029).
+O lock de GPU (I6) é exercitado no `run`; o segundo job sai `FORGE-E-RECURSO` (exit 6). O `doctor`
+mede VRAM livre e a venv de i23d, sem importar `torch` no núcleo (D29).
 
 ## 5. Rota `modular` — mapa por montagem (P4)
 

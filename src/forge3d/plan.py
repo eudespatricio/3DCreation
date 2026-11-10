@@ -60,6 +60,9 @@ def montar(spec_doc: dict, perfil: dict, cache_disponivel) -> list[dict]:
         if not pronto:
             tarefa["estado_previsto"] = "bloqueada"
             tarefa["razao"] = razao
+            if "VRAM" in razao:
+                # D11/I6: falta de VRAM e recurso (exit 6), nao falha de provider (exit 5)
+                tarefa["codigo"] = "FORGE-E-RECURSO"
         tarefas.append(tarefa)
 
     return tarefas

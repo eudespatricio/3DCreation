@@ -1,0 +1,323 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge3d.local/schemas/spec.v2.schema.json",
+  "title": "forge3d/spec@2",
+  "description": "Extensao retrocompativel de spec@1: adiciona 'parte' para kits corpo/capa/arma. spec@1 continua aceito; o validador escolhe o schema pelo campo 'schema'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projeto",
+    "perfil",
+    "destino_exportacao",
+    "lote"
+  ],
+  "properties": {
+    "schema": {
+      "const": "forge3d/spec@2"
+    },
+    "projeto": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "maxLength": 64,
+      "description": "slug do projeto de jogo consumidor"
+    },
+    "perfil": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "godot4 | roblox-r15 | caminho para YAML de perfil"
+    },
+    "destino_exportacao": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "destino sob allowlist; /mnt/* e UNC sao recusados (I12, I13)"
+    },
+    "estilo_global": {
+      "description": "default de estilo. Aliases legados (docs/contratos.md) sao normalizados pelo carregador ANTES da validacao (FORGE-W-ALIAS, D19): o schema so aceita o valor canonico.",
+      "enum": [
+        "blocky_voxel",
+        "lowpoly_lit",
+        "stylized_pbr"
+      ]
+    },
+    "paleta": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "pattern": "^#[0-9a-fA-F]{6}$"
+      }
+    },
+    "politica": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "falha": {
+          "enum": [
+            "continuar",
+            "abortar"
+          ]
+        },
+        "custo_max_min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "seed_base": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "lote": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tipo"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$",
+          "maxLength": 80,
+          "description": "identidade estavel; mudar o id significa asset novo"
+        },
+        "tipo": {
+          "enum": [
+            "prop_estatico",
+            "prop_equipavel",
+            "personagem_humanoide",
+            "criatura",
+            "modulo_cenario",
+            "textura",
+            "mapa_setor"
+          ]
+        },
+        "rota": {
+          "enum": [
+            "blocky",
+            "import",
+            "mesh",
+            "modular"
+          ]
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "altura_metros": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10.0
+        },
+        "pivot": {
+          "enum": [
+            "empunhadura",
+            "base",
+            "centro",
+            "origem",
+            "topo"
+          ]
+        },
+        "limite_triangulos": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 50000
+        },
+        "material": {
+          "enum": [
+            "opaque",
+            "alpha_clip",
+            "transparent",
+            "pbr"
+          ]
+        },
+        "colisao": {
+          "enum": [
+            "none",
+            "box",
+            "convex",
+            "ucx"
+          ]
+        },
+        "lod": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 100
+          },
+          "description": "percentuais decrescentes; primeiro elemento deve ser 100 (B4)"
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "auto_rig": {
+          "type": "boolean"
+        },
+        "esqueleto": {
+          "type": "string",
+          "pattern": "^(godot-humanoid|r15)@[0-9]+$"
+        },
+        "animacoes_base": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": "reservado (D14): preenchido gera FORGE-W-ANIM, nunca erro"
+        },
+        "origem": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          }
+        },
+        "paleta": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "description": "sobrepoe a paleta do lote para este item, na ordem de papeis do tipo"
+        },
+        "parte": {
+          "enum": [
+            "corpo",
+            "capa",
+            "arma"
+          ],
+          "description": "peca de kit (B11: so rota blocky; B12: tipo por peca; B13: capa estatica)"
+        }
+      },
+      "allOf": [
+        {
+          "description": "B2: rota mesh exige seed e prompt",
+          "if": {
+            "required": [
+              "rota"
+            ],
+            "properties": {
+              "rota": {
+                "const": "mesh"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "seed",
+              "prompt"
+            ]
+          }
+        },
+        {
+          "description": "B3: rota import exige origem",
+          "if": {
+            "required": [
+              "rota"
+            ],
+            "properties": {
+              "rota": {
+                "const": "import"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "origem"
+            ]
+          }
+        },
+        {
+          "description": "B4: altura_metros obrigatoria exceto textura e mapa_setor",
+          "if": {
+            "required": [
+              "tipo"
+            ],
+            "properties": {
+              "tipo": {
+                "enum": [
+                  "textura",
+                  "mapa_setor"
+                ]
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "altura_metros"
+            ]
+          }
+        },
+        {
+          "description": "B6: auto_rig so em humanoide ou criatura",
+          "if": {
+            "required": [
+              "auto_rig"
+            ],
+            "properties": {
+              "auto_rig": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "tipo": {
+                "enum": [
+                  "personagem_humanoide",
+                  "criatura"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "description": "B11: 'parte' so na rota blocky",
+          "if": {
+            "required": [
+              "parte"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rota": {
+                "const": "blocky"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,4 +1,4 @@
-"""Contrato de entrada: carregar, normalizar, validar (spec@1).
+"""Contrato de entrada: carregar, normalizar, validar (spec@1 e spec@2).
 
 Ordem obrigatoria — e ela que o contrato promete:
 
@@ -56,22 +56,32 @@ CAMPOS_CANONICOS_ITEM = (
     "auto_rig",
     "esqueleto",
     "origem",
+    "parte",
     "tags",
     "animacoes_base",
     "paleta",
 )
 
-_SPEC_SCHEMA_CACHE: dict | None = None
+#: contratos de entrada aceitos. spec@2 e superset retrocompativel de spec@1.
+SPEC_SCHEMAS = {
+    "forge3d/spec@1": "spec.v1.schema.json",
+    "forge3d/spec@2": "spec.v2.schema.json",
+}
+_SPEC_SCHEMA_CACHE: dict[str, dict] = {}
 
 
-def SPEC_SCHEMA() -> dict:  # noqa: N802 - constante com carga preguicosa
-    global _SPEC_SCHEMA_CACHE
-    if _SPEC_SCHEMA_CACHE is None:
-        arq = paths.raiz_dados() / "schemas" / "spec.v1.schema.json"
+def SPEC_SCHEMA(versao: str = "forge3d/spec@1") -> dict:  # noqa: N802
+    if versao not in SPEC_SCHEMAS:
+        raise erro_spec(
+            f"schema de lote desconhecido: {versao!r} (aceitos: {', '.join(SPEC_SCHEMAS)})",
+            schema=versao,
+        )
+    if versao not in _SPEC_SCHEMA_CACHE:
+        arq = paths.raiz_dados() / "schemas" / SPEC_SCHEMAS[versao]
         import json
 
-        _SPEC_SCHEMA_CACHE = json.loads(arq.read_text(encoding="utf-8"))
-    return _SPEC_SCHEMA_CACHE
+        _SPEC_SCHEMA_CACHE[versao] = json.loads(arq.read_text(encoding="utf-8"))
+    return _SPEC_SCHEMA_CACHE[versao]
 
 
 def carregar_arquivo(caminho: str | Path) -> dict:
@@ -164,7 +174,7 @@ def _resolver_defaults(doc: dict, perfil: dict, avisos: list[dict]) -> None:
 
 def _validar_schema(doc: dict) -> None:
     limpo = {k: v for k, v in doc.items() if not k.startswith("_")}
-    validador = jsonschema.Draft202012Validator(SPEC_SCHEMA())
+    validador = jsonschema.Draft202012Validator(SPEC_SCHEMA(limpo.get("schema")))
     erros = sorted(validador.iter_errors(limpo), key=lambda e: list(e.path))
     if erros:
         detalhes = [
@@ -179,7 +189,7 @@ def _validar_schema(doc: dict) -> None:
 
 
 def _regras_negocio(doc: dict, perfil: dict) -> None:
-    """B1-B10 alem do schema. Uma lista de erros por rodada (nao para no primeiro)."""
+    """B1-B13 alem do schema. Uma lista de erros por rodada (nao para no primeiro)."""
     erros: list[dict] = []
     ids: set[str] = set()
     esqueletos = profiles.mapas_esqueleto(perfil)
@@ -233,6 +243,34 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                     }
                 )
 
+        parte = item.get("parte")
+        if parte:
+            esperado = {
+                "corpo": "personagem_humanoide",
+                "capa": "personagem_humanoide",
+                "arma": "prop_equipavel",
+            }.get(parte)
+            if item.get("rota") != "blocky":
+                erros.append(
+                    {"id": iid, "regra": "B11", "mensagem": "'parte' so existe na rota blocky"}
+                )
+            if esperado and item.get("tipo") != esperado:
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "B12",
+                        "mensagem": f"parte '{parte}' exige tipo '{esperado}'",
+                    }
+                )
+            if parte == "capa" and item.get("auto_rig"):
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "B13",
+                        "mensagem": "capa e peca estatica (auto_rig false) para montar no osso",
+                    }
+                )
+
     if erros:
         raise erro_spec(
             f"{len(erros)} violacao(oes) de regra de negocio",
@@ -247,7 +285,7 @@ def resolver_item(item: dict) -> dict:
 
     resolvido = {k: item[k] for k in CAMPOS_CANONICOS_ITEM if k in item}
     resolvido.setdefault("tags", [])
-    if item.get("rota") == "import" and item.get("origem"):
+    if item.get("rota") in ("import", "mesh") and item.get("origem"):
         p = Path(item["origem"]).expanduser()
         try:
             resolvido["origem_hash"] = sha256_arquivo(p)

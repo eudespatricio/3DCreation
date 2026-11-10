@@ -57,6 +57,13 @@ para acontecer com a segunda engine.
 | `lod` | `nenhum` | Roblox tem `RenderFidelity` próprio; LOD exportado é ignorado |
 | `validacao` | escala `1 %` (arredondamento de stud) · pivô por junta `2 mm` · tri/parte `≤ 10.000` · partes `≤ 15` | |
 
+**Probe em 10/11/2026 (sem Studio):** um `prop_estatico` blocky publica e `verify` passa com
+este perfil (48 tris, 1 colisor). O `personagem_humanoide` com `auto_rig` falha em `pivot: junta`
+(fora do enum de `spec@1`/`spec@2`) e o provider blocky não gera os nomes R15 — o caminho R15
+ainda não existe no código. `colisao.prefixo` estava ausente e o G7 estourava `KeyError`; o QC foi
+corrigido para não exigir prefixo quando o perfil não declara um. Studio continua pendente
+(GAP-006).
+
 ### Esqueleto `r15@1` (Rig)
 
 `HumanoidRootPart` · `Head` · `UpperTorso` · `LowerTorso` · `LeftUpperArm` · `LeftLowerArm` ·

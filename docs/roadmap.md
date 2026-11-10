@@ -70,13 +70,24 @@ e o documento `perfis-export.md` sem nenhum `[verificar]` pendente nesse perfil.
 
 ## P3 — Rota `mesh`
 
-**Entrega:** provider `mesh` com concept + image-to-3D atrás de interface, lock de GPU, provenance D2,
-`doctor` medindo VRAM, allowlist de licença aplicada.
+**Entrega:** provider `mesh` com image-to-3D local, bake UV/textura próprio, lock de GPU, provenance
+D2, `doctor` medindo a venv certa, allowlist de licença aplicada e `verify` reexecutando os gates.
+
+**Estado em 10/11/2026 — fechada para prop:**
+
+- `prop.bule.exemplo.01`: PNG → TripoSR → 7.960 tris → UV+bake 512² → **G1–G9 verdes**;
+- Godot 4.3 importou com AABB idêntico ao manifesto e `albedo_tex=true`, sem ajuste manual;
+- `run` 23,3 s frio / 2,1 s cache hit; VRAM pico 2.378 MiB;
+- kit corpo/capa/arma (blocky, `spec@2`) publicado e montado no Godot;
+- 38 testes verdes; `doctor` diz `mesh: pronto`.
+
+**Residual (P3.5):** 10 assets com A/B (Q8), concept provider (GAP-026), personagem com capa
+(GAP-029/GAP-036), split do input mesh (GAP-037), convexidade do colisor no `verify` (GAP-038).
 
 **Portão:**
 - 10 assets gerados com QC aprovado e **tempo/VRAM medidos nesta máquina** (entram em `DECISOES.md` §1);
-- A/B SF3D × TripoSR registrado — fecha o dissenso X1;
-- decisão de licença para jogo comercial escrita e assinada (Q5);
+- A/B SF3D × TripoSR registrado — SF3D encerrado em 6 GB (D27), A/B de qualidade ainda aberto;
+- decisão de licença para jogo comercial escrita (Q5 resolvida por D27: TripoSR/MIT);
 - falha de GPU ⇒ `bloqueado` com `exit 6`, nunca lote perdido.
 
 **Não faz:** TRELLIS.2 em produção (X3 continua experimental), Hunyuan3D (licença).

@@ -1,11 +1,12 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3 parcial: a mecânica funciona, a qualidade não.**
-29 testes verdes · janela encerrada em transição.
+**Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3 fechada para prop (bule) e kit blocky; qualidade
+de personagem com capa continua aberta.** 38 testes verdes · 1 asset com UV+textura aprovado no QC e
+importado no Godot 4.3 sem ajuste manual.
 
-**Para a próxima janela:** leia [`docs/pendencias.md`](docs/pendencias.md) (o que falta, com
-critério) e [`docs/goal-proxima-janela.md`](docs/goal-proxima-janela.md) (briefing + bloco de
-Goal pronto para colar). Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q`.
+**Para a próxima janela:** leia [`docs/pendencias.md`](docs/pendencias.md) (o que falta, com critério),
+[`docs/gaps.md`](docs/gaps.md) (lacunas) e [`DECISOES.md`](DECISOES.md) §1–§2 e §4. Verificação rápida:
+`python -m pytest tests/test_e2e_rapido.py -q` (2,0 s) e `python -m pytest -q` (14,3 s).
 
 ---
 
@@ -24,91 +25,102 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P0** | ✔ | arquitetura, contratos `spec@1`/`manifest@1`, 2 perfis, docs de processo |
 | **P0.5** | ✔ | D23 allowlist · D24 estado central · `tools/check-contexto.sh` |
 | **P1** | ✔ | rotas `blocky` e `import` de ponta a ponta: validar → planejar → gerar → Blender → QC G1–G9 → cache → publicar → índice → ledger |
-| **P3** | **parcial** | stack GPU + TripoSR rodando; **SF3D encerrado em 6 GB** (geometria sai, bake exige CUDA, ~8 min/imagem); canal de delegação mapeado. Qualidade ainda inutilizável |
-| **P2** | pendente | perfil `roblox-r15` (o YAML existe; falta validar no Studio) |
+| **P3** | **✔ parcial** | provider `i23d` real (TripoSR) + bake UV/textura próprio + venv única + kit corpo/capa/arma; **prop** fecha com G1–G9 verdes; personagem com capa ainda não |
+| **P2** | pendente (probe) | perfil `roblox-r15`: prop publica/verifica; humanoid bloqueado em `pivot: junta` e nos nomes R15; falta Studio |
 | **P4** | pendente | rota `modular` (WFC) |
 | **P5** | pendente | animação e retarget |
 
-## O que foi testado de image-to-3D (e falhou)
+## O que foi entregue nesta janela
 
-| Input | Pose | Resultado | Veredito |
-|---|---|---|---|
-| foto promocional com capa | A-pose | casca oca, pernas fundidas pela capa | inutilizável |
-| render do nosso android | flat | laje extrudada | inutilizável |
-| concept T-pose (OpenPose) | T-pose, capa | capa virou chapa de 1 m, corpo lâmina — **pior** | inutilizável |
-| T-pose com `--mc-resolution 512` | T-pose | mesma topologia de 256, e 336 s em vez de 4,5 s | resolução não é o gargalo |
-
-**Conclusões que a evidência sustenta:**
-
-1. Fundo neutro e recorte **funcionam** (rembg + composição; o input do modelo saiu correto).
-2. Pose controlada resolve simetria, **não** resolve oclusão nem superfície fina — a capa é o pior caso.
-3. O gargalo é a **representação do modelo de vista única**, não a pose nem a resolução do marching cubes.
-4. A saída do TripoSR **não passa no nosso QC**: sem UV, sem material, e orientação fora do frame
-   canônico em 3/3 inputs.
+- **P3-A** — `blender/postprocess.py` agora faz **UV + bake próprios** para malha com `COLOR_0`:
+  `smart_project` + bake `DIFFUSE/COLOR` em 512², Cycles CPU, PNG irmão no manifesto. Sem `moderngl`
+  nem EGL. Reparo topológico remove a ilha de 1 face que o decimate deixa (G1).
+- **P3-B** — provider `mesh` de verdade: TripoSR em **subprocesso** na venv
+  `~/.cache/forge3d/venv-i23d` via `FORGE3D_VENV_I23D`, normalização canônica no pós-processo, lock de
+  GPU (exit 6), publicação atômica. `doctor` diz `mesh: pronto`.
+- **P3-C** — venvs consolidadas: `~/.venvs/triposr` (5,8 GB) removida; só `venv-i23d` (torch 2.4.1).
+- **P3-D** — kit blocky corpo/capa/arma em `examples/lote_03_kit.yaml` (spec@2): 3 assets publicados e
+  montados no Godot (`Chest`, `Hand.R`).
+- **C1/C2** — `doctor` do `mesh` correto; `verify` reexecuta G1–G9 contra o perfil atual, com topologia
+  em Python puro.
+- **Contrato** — `spec@2` adiciona `parte` (`corpo`/`capa`/`arma`); `spec@1` continua aceito e o
+  manifesto segue `manifest@1`.
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| `run` 3 itens, cache frio / quente | **2.082 ms** / **476 ms** (`trabalho_executado: 0`) |
-| `plan` / `verify` | 141 ms / 127 ms |
-| Determinismo D1 | **sha256 idênticos** nos 12 artefatos entre dois runs com cache limpo |
-| Suite | **28 testes** verdes (19 unidade + 9 ponta a ponta) |
-| Android humanoid | 300 tris · 25 caixas · **23 ossos** · LOD 300/130/45 · **atlas 64×64 px** (34,6 px/m) · 5 arquivos · 73.222 B |
-| Import no **Godot 4.3** | `Node3D → Armature → Skeleton3D (23) → MeshInstance3D`; AABB idêntico ao manifesto; `filtro=2` (nearest+mipmaps) |
-| Stack GPU | torch **2.4.1+cu121**, `cuda_available=True` na RTX 3060 (6.144 MiB) |
-| TripoSR — tempo | forward **1,8–3,6 s** · extração **3,7–23 s** · total **21–55 s** frio (24 s é carregar pesos) |
-| TripoSR — saída | ~**67.800 tris**, GLB 1,36 MB, só `COLOR_0` (sem UV, sem material) |
-| Canal de delegação | `agentapi` funciona com `ANTIGRAVITY_LS_ADDRESS=127.0.0.1:43023` + `ANTIGRAVITY_CSRF_TOKEN` |
+| Suíte | **38 verdes** (24 unidade + 2 P3-A + 1 e2e rápido + 11 invariantes) em **14,3 s** |
+| E2E rápido | **2,0 s** (alvo <30 s) |
+| TripoSR — inferência (bule) | load **7,7 s** · forward **1,2 s** · extração **3,8 s** · total **12,6 s** · VRAM pico **2.378 MiB** |
+| `run` mesh — bule | **23,3 s** frio · **2,1 s** cache hit |
+| Asset `prop.bule.exemplo.01` | **7.960 tris** · 23.878 verts · bbox **0,19769×0,300×0,174134 m** · 1 material · textura **512²** · GLB **1.126.404 B** · PNG **313.107 B** |
+| QC do bule | **G1–G9 verdes** |
+| Godot 4.3 — bule | `Node3D → MeshInstance3D`; AABB **idêntico ao manifesto**; `albedo_tex=true`; 7.960 tris |
+| Kit P3-D | corpo **300 tris / 23 ossos** · capa **60 tris / sem rig** · arma **36 tris**; 3 publicados |
+| Godot 4.3 — kit | capa no osso `Chest` (idx 4), arma em `Hand.R` (idx 14); `KIT_OK` |
+| Venv i23d | **5,6 GB** · Python 3.12.14 · torch **2.4.1+cu121** |
+| `doctor` mesh | `mesh: pronto (TripoSR, torch 2.4.1+cu121, venv venv-i23d)` |
+| `verify` C2 | manifesto íntegro → ok; G2 com `esperado_m=1,2` → **exit 3**, "QC reexecutado reprovou G2" |
+| Custo mesh do `plan` | **25 s estimados × 23,3 s reais** (erro +7%) |
+| Probe Roblox (sem Studio) | prop blocky publica/verifica; humanoid falha em `pivot: junta`; blocky não gera nomes R15 |
 
 ## Decidido (não reabrir sem evidência nova)
 
 `D3` CLI-only · `D5` plan/run/verify/publish · `D7` D1/D2/D3 · `D9` QC sem bypass ·
 `D11` GPU serializada · `D14` animação fora da v0 · `D18` licença é gate · `D19` naming neutro ·
-`D23` allowlist · `D24` estado central · `D25` isolamento · `D26` núcleo leve.
+`D23` allowlist · `D24` estado central · `D25` isolamento · `D26` núcleo leve ·
+**`D27` SF3D encerrado em 6 GB** · **`D28` bake próprio no bpy** · **`D29` i23d em subprocesso na venv
+única** · **`D30` spec@2 com `parte`** · **`D31` kit corpo/capa/arma** · **`D32` verify reexecuta G1–G9**
+· **`D33` mesh exige `origem` enquanto GAP-026 não fecha**.
 
 ## Aberto — e o que cada um trava
 
 | # | Pergunta | Trava | Fecha em |
 |---|---|---|---|
-| **Q8** | qual reconstrutor: **SF3D** (UV+material, licença Stability) × TripoSR (MIT, sem UV) | a qualidade de qualquer personagem | P3, com 10 assets |
-| Q5 | SF3D × TripoSR por licença comercial | publicação | junto com Q8 |
+| **Q8** | qualidade do reconstructor para **personagem com capa** (TripoSR × SF3D) | a qualidade de personagem | P3.5, com 3 personagens |
 | Q3 | escala/rig Roblox (0,28 m/stud) | perfil Roblox | P2, teste no Studio |
 | Q1 | nome definitivo do produto | publicar o pacote | antes do release |
 | Q7 | assets no git do jogo (normal × LFS) | primeiro asset real | antes de integrar |
-| Q9 | delegação: chave de API (completude) × `agentapi` (sessão agêntica) | uso seguro em execução | P4 |
+| Q9 | delegação: chave de API × `agentapi` | uso seguro em execução | P4 |
+
+Gaps abertos que importam: **GAP-026** (concept text-to-image), **GAP-036** (personagem com capa),
+**GAP-037** (split do input mesh), **GAP-038** (verify de manifesto antigo sem `pivo_regra`),
+**GAP-039** (convexidade no G7), **GAP-040** (rembg explícito).
 
 ## Próximos passos — com custo, em ordem de evidência
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **Separar o asset**: `personagem.corpo` / `personagem.capa` / arma como `id` distintos | 1 sessão, sem GPU | a oclusão, que é a causa raiz medida |
-| **2** | **Avaliar SF3D** (pesos gated no HF, precisa token): UV + material nativos | ~5 GB, 1 sessão | GAP-028 (sem UV/material) e a qualidade |
-| **3** | Provider `i23d` de verdade: normalização canônica + bake + lock de GPU | 1–2 sessões | fechar a rota `mesh` |
-| **4** | Concept (SD1.5 + ControlNet) | ~4,5 GB, 2 sessões | entrada — **menor prioridade**, a pose não era o gargalo |
-| **5** | P2 Roblox no Studio | 1 sessão | segundo perfil de export |
+| **1** | Provider de **concept** (text-to-image → PNG): fecha GAP-026 e tira o `origem` manual | 1 sessão | entrada da rota mesh |
+| **2** | **Split do input mesh** (corpo/capa/arma): 3 concepts → 3 malhas | 1 sessão + GPU | GAP-036/GAP-037 |
+| **3** | **Roblox P2**: implementar `pivot: junta` + esqueleto R15 e validar no Studio | 1 sessão | segundo perfil; P8/GAP-006 |
+| **4** | Qualidade de personagem: 3 inputs com capa, medir e decidir TripoSR × SF3D | 1–2 sessões | Q8, GAP-029 |
+| **5** | `gc` de cache/ledger + CI de pull request | 1 sessão | C3, GAP-008 |
 | **6** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
-
-**Recomendação:** 1 → 2 → 3 juntos fecham a rota `mesh` com evidência; 4 só depois. O passo 1 é barato
-e pode rodar em paralelo.
 
 ## Comandos
 
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-forge3d doctor                         # ambiente (mesh reporta o que falta)
-forge3d plan  examples/lote_android.yaml
-forge3d run   examples/lote_android.yaml
-forge3d verify ~/.local/state/forge3d/saida/android
-python -m pytest -q                    # 28 testes
+forge3d doctor                         # ambiente; mesh deve dizer "pronto"
+forge3d plan  examples/lote_01.yaml
+forge3d run   examples/lote_01.yaml
+forge3d run   examples/lote_03_kit.yaml        # P3-D: corpo/capa/arma (blocky, sem GPU)
+FORGE3D_I23D_REMOVER_FUNDO=1 forge3d run examples/lote_04_mesh.yaml   # P3-B: TripoSR + bake
+forge3d verify ~/.local/state/forge3d/saida/teapot_exemplo
+python -m pytest -q                    # 38 testes
 bash tools/check-contexto.sh           # tetos
 python tools/check-p0.py               # docs, schemas, I12/I14
 
 # preview sem abrir o jogo
 blender -b --factory-startup --python tools/render_preview.py -- <glb> <saida> --pose|--close
-# normalização canônica de malha gerada
+# normalização canônica de malha gerada (ainda útil para inspeção isolada)
 blender -b --factory-startup --python tools/normalize_mesh.py -- <in.glb> <out.glb>
+# inferência isolada na venv (o provider monta esta linha)
+PYTHONPATH=~/.cache/forge3d/vendor/TripoSR ~/.cache/forge3d/venv-i23d/bin/python \
+  tools/i23d_infer.py --imagem <png> --saida-dir /tmp/i23d --resultado /tmp/i23d/r.json --sem-rembg
 # delegação (só com a IDE aberta; ver docs/delegacao.md)
 python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --dry-run
 ```
@@ -117,25 +129,24 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 
 `README.md` · `AGENTS.md` · `MAPA.md` · `CONSELHOS.md` · `DECISOES.md` · `INVARIANTES.md` ·
 `docs/arquitetura.md` · `docs/contratos.md` · `docs/rotas-e-providers.md` · `docs/perfis-export.md` ·
-`docs/qc-e-verificacao.md` · `docs/dependencias.md` · `docs/riscos-e-licencas.md` ·
-`docs/roadmap.md` · `docs/gaps.md` · `docs/plano-p3-concept.md` · `docs/delegacao.md` ·
-`src/forge3d/` (13 módulos) · `blender/postprocess.py` · `tools/` (`normalize_mesh`, `render_preview`,
-`delegar`, `torchmcubes_shim`, `check-*`) · `tests/`
+`docs/qc-e-verificacao.md` · `docs/dependencias.md` · `docs/riscos-e-licencas.md` · `docs/roadmap.md` ·
+`docs/gaps.md` · `docs/pendencias.md` · `schemas/` (`spec.v1`, `spec.v2`, `manifest.v1`) ·
+`src/forge3d/` (14 módulos) · `blender/postprocess.py` · `tools/` (`i23d_infer`, `normalize_mesh`,
+`render_preview`, `delegar`, `torchmcubes_shim`, `check-*`) · `tests/` · `examples/`
 
 ## Regras invioláveis (top 6)
 
 1. Nada roda sobre `/mnt/c` ou UNC (I12); estado sempre em ext4 sob `$FORGE3D_HOME`.
 2. Nenhuma escrita fora do destino autorizado (I3/I13) — autorizar é `forge3d allowlist add`.
 3. QC reprovado não publica; não existe bypass (I5).
-4. Diffusion nunca é D1 (D7).
+4. Diffusion/reconstructor nunca é D1 (D7).
 5. Mudou a saída de um provider? **Suba `VERSAO`** — entra na chave de cache (D6).
 6. Blender 4.2 pinado, subprocesso, canal JSON; nunca `pip install` no Python dele (I9).
 
 ## Como retomar
 
 > Leia `3DCreation/CONTINUAR.md`, `MAPA.md` e `DECISOES.md` §2 e §4. P0, P0.5 e P1 estão fechadas;
-> P3 está parcial: TripoSR roda (torch em `~/.cache/forge3d/venv-gpu`), mas a qualidade é inutilizável
-> e a saída não passa no QC (sem UV/material, orientação fora do frame). Evidência: T-pose piorou,
-> mc-resolution 512 não mudou topologia. Não reabra D3–D26.
-> Próximo passo recomendado: **separar o asset (corpo/capa)** e **avaliar SF3D** antes de investir em
-> concept. Fechar Q8 com 10 assets medidos.
+> P3 está fechada **para prop** (bule com UV+textura, G1–G9 verdes, importado no Godot 4.3) e para o
+> **kit blocky** corpo/capa/arma. O que falta: concept provider (GAP-026), split do input mesh
+> (GAP-036/037), qualidade de personagem com capa (Q8/GAP-029), Roblox P2 (Q3/GAP-006) e `gc`/CI.
+> Não reabra D3–D26; SF3D está encerrado (D27) e não deve ser reinstalado.

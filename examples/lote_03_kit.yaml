@@ -1,0 +1,63 @@
+# Kit de personagem separado em corpo / capa / arma (P3-D, spec@2).
+# A causa raiz da oclusao era o reconstructor fundir capa e corpo num asset so; aqui cada
+# peca tem id, geometria e ciclo de QC proprios, e e montada no Godot por osso.
+schema: forge3d/spec@2
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/kit_sentinel
+estilo_global: blocky_voxel
+
+paleta:
+  - "#7d858f"
+  - "#3b4048"
+  - "#1d2024"
+  - "#ff6a1f"
+  - "#38e8ff"
+
+politica:
+  falha: continuar
+  custo_max_min: 10
+  seed_base: 20261110
+
+lote:
+  - id: personagem.sentinel.corpo.01
+    tipo: personagem_humanoide
+    rota: blocky
+    parte: corpo
+    prompt: >-
+      Corpo de android sentinela sem capa: chassi cinza, juntas escuras e nucleo laranja.
+    altura_metros: 1.85
+    pivot: base
+    limite_triangulos: 3000
+    auto_rig: true
+    esqueleto: godot-humanoid@1
+    colisao: convex
+    lod: [100]
+    tags: [kit, corpo, sentinel]
+
+  - id: personagem.sentinel.capa.01
+    tipo: personagem_humanoide
+    rota: blocky
+    parte: capa
+    prompt: >-
+      Capa longa cinza-escura com forro laranja, presa nos ombros e caindo ate a canela.
+    altura_metros: 1.20
+    pivot: topo
+    limite_triangulos: 1000
+    colisao: none
+    lod: [100]
+    tags: [kit, capa, sentinel]
+
+  - id: personagem.sentinel.arma.01
+    tipo: prop_equipavel
+    rota: blocky
+    parte: arma
+    prompt: >-
+      Lamina curta de sentinela, cabo escuro e guarda laranja, para a mao direita.
+    altura_metros: 0.95
+    pivot: empunhadura
+    limite_triangulos: 800
+    colisao: convex
+    lod: [100]
+    tags: [kit, arma, sentinel]

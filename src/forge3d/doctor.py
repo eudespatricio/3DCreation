@@ -25,7 +25,7 @@ def _item(nome: str, ok: bool, detalhe: str, critico: bool = True) -> dict:
 
 def _checar_schemas() -> dict:
     falhas = []
-    for nome in ("spec.v1.schema.json", "manifest.v1.schema.json"):
+    for nome in ("spec.v1.schema.json", "spec.v2.schema.json", "manifest.v1.schema.json"):
         arq = paths.raiz_dados() / "schemas" / nome
         if not arq.is_file():
             falhas.append(f"{nome} ausente")
@@ -34,7 +34,7 @@ def _checar_schemas() -> dict:
             jsonschema.Draft202012Validator.check_schema(json.loads(arq.read_text(encoding="utf-8")))
         except jsonschema.SchemaError as exc:
             falhas.append(f"{nome}: {exc.message}")
-    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1 e manifest@1 validos")
+    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1/spec@2 e manifest@1 validos")
 
 
 def _checar_perfis() -> dict:

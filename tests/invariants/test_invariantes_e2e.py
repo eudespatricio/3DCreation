@@ -199,3 +199,50 @@ def test_rota_import_normaliza_asset_existente(execucao, tmp_path):
     assert abs(altura - 0.55) / 0.55 * 100 <= 0.5, altura
     assert manifesto["providers"]["geometry"]["name"] == "import"
     assert manifesto["qc"]["aprovado"] is True
+
+def test_i4_verify_reexecuta_gates_contra_manifesto(execucao):
+    """C2: trocar a altura esperada no manifesto (sem tocar no GLB) tem que reprovar no verify."""
+    destino = execucao["saida"]
+    manifesto = destino / "mob.skeleton.guard.manifest.json"
+    original = manifesto.read_text(encoding="utf-8")
+    man = json.loads(original)
+    for gate in man["qc"]["gates"]:
+        if gate["id"] == "G2":
+            gate["medido"]["esperado_m"] = 9.99
+    manifesto.write_text(json.dumps(man, indent=1), encoding="utf-8")
+    try:
+        codigo, saida = _rodar(["verify", str(destino)], execucao["env"])
+        assert codigo == 3, saida
+        assert saida["ok"] is False
+        assert any("QC reexecutado" in erro["erro"] for erro in saida["erros"]), saida["erros"]
+    finally:
+        manifesto.write_text(original, encoding="utf-8")
+
+
+def test_kit_corpo_capa_arma_publica_e_verifica(tmp_path):
+    """P3-D: corpo (rig), capa (estatica no Chest) e arma (empunhadura) como assets distintos."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = _ambiente(home)
+    lote = RAIZ / "examples" / "lote_03_kit.yaml"
+    codigo, relatorio = _rodar(["run", str(lote)], env)
+    assert codigo == 0, relatorio["itens"]
+    assert relatorio["resumo"]["publicados"] == 3
+
+    destino = home / ".local" / "state" / "forge3d" / "saida" / "kit_sentinel"
+    manifestos = {
+        p.name.replace(".manifest.json", ""): json.loads(p.read_text())
+        for p in destino.glob("*.manifest.json")
+    }
+    assert len(manifestos) == 3
+    corpo = manifestos["personagem.sentinel.corpo.01"]
+    capa = manifestos["personagem.sentinel.capa.01"]
+    arma = manifestos["personagem.sentinel.arma.01"]
+    assert corpo["rig"]["ossos"] == 23
+    assert capa["rig"] is None
+    assert arma["rig"] is None
+    assert capa["colisao"]["tipo"] == "none"
+    assert arma["colisao"]["tipo"] == "convex"
+
+    codigo, saida = _rodar(["verify", str(destino)], env)
+    assert codigo == 0 and saida["ok"] is True, saida

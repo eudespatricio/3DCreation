@@ -10,8 +10,8 @@
 
 | Modelo | Licença | VRAM mín. relatada | Qualidade | PBR | Veredito 6 GB |
 |---|---|---|---|---|---|
-| **SF3D** (Stable Fast 3D) | Stability AI Community License | ~6 GB `[oficial]` | boa; **UV + delight nativos** | parcial | **cabe** — 1ª escolha |
-| **TripoSR** | **MIT** | ~6 GB `[oficial]` | topologia irregular, cor por vértice | não | **cabe** — alternativa MIT |
+| ~~**SF3D**~~ (Stable Fast 3D) | Stability AI Community License | ~6 GB `[oficial]` | boa; UV + delight nativos | parcial | **encerrado** — D27: ~8 min/imagem e bake exige CUDA |
+| **TripoSR** | **MIT** | ~6 GB `[oficial]` | topologia irregular, cor por vértice | não | **cabe** — i23d da P3, bake próprio no `bpy` |
 | **Hunyuan3D-2mini / 2.0 shape-only** | Tencent (exclui UE/UK/Coreia) | <6 GB só via fork mmgp `[terceiro]`; textura oficial 16 GB `[oficial]` | boa geometria | não | cabe shape, **textura não** |
 | **SPAR3D** (sucessor do SF3D) | Stability Community `[não verificado no arquivo]` | 10,5 GB; ~7 GB em low-VRAM `[oficial]` | melhor material | sim | **não cabe** |
 | **TRELLIS.2** (4B) | **MIT** | ≥24 GB `[oficial]`; Q4 GGUF existe | melhor open de 2026 | sim (4 canais) | experimental — 8–15 min/asset `[estimado]` |
@@ -23,6 +23,9 @@
 | **SAM 3D Objects** | SAM License, gated | ≥32 GB `[oficial]` | objeto único | não | inviável |
 
 ### Correção de expectativa (comum em blog de 2024–2025)
+
+SF3D foi encerrado em 6 GB (D27); o UV+material que ele prometia é coberto pelo bake próprio no
+`bpy` (D28) sobre a cor por vértice do TripoSR.
 
 - **"2 a 5 s por peça"** é número de GPU grande. O valor oficial do TripoSR/SF3D é 0,5 s **em A100**.
   Num RTX 3060 Laptop a estimativa é **6–10 s por peça** — `[estimado]`, não medido nesta máquina.

@@ -32,7 +32,11 @@ def fail(msg):
 
 print("== schemas ==")
 schemas = {}
-for rel in ("schemas/spec.v1.schema.json", "schemas/manifest.v1.schema.json"):
+for rel in (
+    "schemas/spec.v1.schema.json",
+    "schemas/spec.v2.schema.json",
+    "schemas/manifest.v1.schema.json",
+):
     try:
         s = json.loads((ROOT / rel).read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(s)
@@ -42,16 +46,22 @@ for rel in ("schemas/spec.v1.schema.json", "schemas/manifest.v1.schema.json"):
         fail(f"{rel}: {e}")
 
 print("== exemplos yaml ==")
-spec_v = Draft202012Validator(schemas["schemas/spec.v1.schema.json"])
-for rel in ("examples/lote_01.yaml", "examples/lote_02_rotas.yaml"):
+LOTES = (
+    ("examples/lote_01.yaml", "schemas/spec.v1.schema.json", "spec@1"),
+    ("examples/lote_02_rotas.yaml", "schemas/spec.v1.schema.json", "spec@1"),
+    ("examples/lote_04_mesh.yaml", "schemas/spec.v1.schema.json", "spec@1"),
+    ("examples/lote_03_kit.yaml", "schemas/spec.v2.schema.json", "spec@2"),
+)
+for rel, schema_rel, rotulo in LOTES:
     try:
         doc = yaml.safe_load((ROOT / rel).read_text(encoding="utf-8"))
-        errs = sorted(spec_v.iter_errors(doc), key=lambda e: list(e.path))
+        validador = Draft202012Validator(schemas[schema_rel])
+        errs = sorted(validador.iter_errors(doc), key=lambda e: list(e.path))
         if errs:
             for e in errs[:5]:
                 fail(f"{rel}: {'/'.join(map(str, e.path))}: {e.message}")
         else:
-            ok(f"{rel} valida contra spec@1 ({len(doc['lote'])} itens)")
+            ok(f"{rel} valida contra {rotulo} ({len(doc['lote'])} itens)")
             ids = [i["id"] for i in doc["lote"]]
             if len(ids) != len(set(ids)):
                 fail(f"{rel}: B1 id duplicado")
@@ -63,6 +73,17 @@ for rel in ("examples/lote_01.yaml", "examples/lote_02_rotas.yaml"):
                     fail(f"{rel}: B2 seed ausente em {item['id']}")
                 if item.get("rota") == "import" and "origem" not in item:
                     fail(f"{rel}: B3 origem ausente em {item['id']}")
+                parte = item.get("parte")
+                if parte:
+                    esperado = {
+                        "corpo": "personagem_humanoide",
+                        "capa": "personagem_humanoide",
+                        "arma": "prop_equipavel",
+                    }[parte]
+                    if item.get("tipo") != esperado:
+                        fail(f"{rel}: B12 parte {parte} com tipo {item.get('tipo')}")
+                    if parte == "capa" and item.get("auto_rig"):
+                        fail(f"{rel}: B13 capa com auto_rig")
     except Exception as e:  # noqa: BLE001
         fail(f"{rel}: {e}")
 

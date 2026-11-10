@@ -204,6 +204,43 @@ def _template_arma(cores: dict) -> list[dict]:
     ]
 
 
+def _template_capa(cores: dict) -> list[dict]:
+    """Capa longa atras do corpo. Peca estatica: no Godot e filha do osso Chest."""
+
+    def caixa(nome, osso, x0, y0, z0, x1, y1, z1, cor, padrao) -> dict:
+        return {
+            "nome": nome,
+            "osso": osso,
+            "min": [min(x0, x1), min(y0, y1), min(z0, z1)],
+            "max": [max(x0, x1), max(y0, y1), max(z0, z1)],
+            "cor": cor,
+            "padrao": padrao,
+        }
+
+    return [
+        caixa(
+            "gola", "Chest", -0.13, -0.16, 0.76, 0.13, -0.075, 0.82,
+            cores["chassi_escuro"], "chapa",
+        ),
+        caixa(
+            "capa_superior", "Chest", -0.17, -0.18, 0.60, 0.17, -0.075, 0.78,
+            cores["chassi"], "chapa",
+        ),
+        caixa(
+            "capa_meio", "Spine1", -0.20, -0.19, 0.40, 0.20, -0.075, 0.62,
+            cores["chassi"], "chapa",
+        ),
+        caixa(
+            "capa_inferior", "Spine", -0.23, -0.20, 0.18, 0.23, -0.075, 0.42,
+            cores["chassi_escuro"], "chapa",
+        ),
+        caixa(
+            "capa_ponta", "Hips", -0.20, -0.19, 0.02, 0.20, -0.075, 0.20,
+            cores["accent"], "accent",
+        ),
+    ]
+
+
 def _template_frasco(cores: dict) -> list[dict]:
     return [
         {
@@ -264,7 +301,14 @@ def _template_bloco(cores: dict) -> list[dict]:
 
 def _caixas(tipo: str, altura: float, item: dict) -> list[dict]:
     cores = _cores(tipo, item)
-    if tipo in ("personagem_humanoide", "criatura"):
+    parte = item.get("parte")
+    if parte == "capa":
+        pecas = _template_capa(cores)
+    elif parte == "arma":
+        pecas = _template_arma(cores)
+    elif parte == "corpo":
+        pecas = _template_humanoide(cores)
+    elif tipo in ("personagem_humanoide", "criatura"):
         pecas = _template_humanoide(cores)
     elif tipo == "prop_equipavel":
         pecas = _template_arma(cores)
@@ -439,6 +483,7 @@ class BlockyProvider:
             "caixas": caixas,
             "ossos": ossos,
             "pivos": _pivos(caixas, tipo),
+            "parte": item.get("parte"),
         }
         arq = destino / "modelo.json"
         arq.write_text(

@@ -158,10 +158,10 @@ com aviso de depreciação, e nunca aparece em manifesto publicado.
 | I1 determinismo | **automatizado** — `test_i1_determinismo` compara sha256 de 12 artefatos em 2 runs com cache limpo |
 | I2 spec inválida | **automatizado** — `test_i2_spec_invalida_sai_2_sem_tocar_provider` |
 | I3 publish atômico | **parcial** — `rename` + manifesto por último implementados; falta teste de observação (GAP-014) |
-| I4 manifesto íntegro | **automatizado** — `test_i4_verify_pega_arquivo_adulterado` |
+| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (G1–G9) |
 | I5 QC sem bypass | **automatizado** — `test_i5_qc_nao_tem_bypass` (varre a fonte) |
-| I6 lock de GPU | implementado em `locks.py`, sem teste (rota `mesh` só em P3) |
-| I7 licença | allowlist implementada em `providers.LICENCAS`; teste quando a rota `mesh` entrar |
+| I6 lock de GPU | usado pelo provider `mesh` (segundo job = exit 6); falta teste concorrente dedicado |
+| I7 licença | **automatizado** — preflight recusa modelo fora da allowlist; G8 verde no asset `mesh` |
 | I8 escala e pivô | **automatizado** — `test_i8_escala_e_pivo_conforme_perfil` |
 | I9 Blender pinado | `doctor` verifica 4.2.x; falta teste dedicado |
 | I10 proveniência | garantida pelo schema do manifesto; falta teste de campo obrigatório |

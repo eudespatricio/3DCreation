@@ -12,14 +12,16 @@ from pathlib import Path
 
 from .errors import erro_qc
 
-__all__ = ["ler_glb", "analisar", "verificar", "GATES"]
+__all__ = ["ler_glb", "ler_glb_bin", "analisar", "topologia", "verificar", "GATES"]
 
 GATES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9")
 _MAGIC = 0x46546C67  # "glTF"
 _CHUNK_JSON = 0x4E4F534A
+_CHUNK_BIN = 0x004E4942  # "BIN\0"
 
 
-def ler_glb(caminho: Path) -> dict:
+def ler_glb_bin(caminho: Path) -> tuple[dict, bytes]:
+    """Le o GLB e devolve (json, chunk binario). O binario e necessario para topologia."""
     dados = Path(caminho).read_bytes()
     if len(dados) < 12:
         raise erro_qc(f"glb truncado: {caminho}", arquivo=str(caminho))
@@ -27,6 +29,8 @@ def ler_glb(caminho: Path) -> dict:
     if magic != _MAGIC:
         raise erro_qc(f"nao e GLB valido: {caminho}", arquivo=str(caminho))
     offset = 12
+    bloco_json = None
+    bloco_bin = b""
     while offset < len(dados):
         if offset + 8 > len(dados):
             break
@@ -35,8 +39,16 @@ def ler_glb(caminho: Path) -> dict:
         bloco = dados[offset : offset + tamanho]
         offset += tamanho
         if tipo == _CHUNK_JSON:
-            return json.loads(bloco.decode("utf-8"))
-    raise erro_qc(f"GLB sem chunk JSON: {caminho}", arquivo=str(caminho))
+            bloco_json = bloco
+        elif tipo == _CHUNK_BIN:
+            bloco_bin = bloco
+    if bloco_json is None:
+        raise erro_qc(f"GLB sem chunk JSON: {caminho}", arquivo=str(caminho))
+    return json.loads(bloco_json.decode("utf-8")), bloco_bin
+
+
+def ler_glb(caminho: Path) -> dict:
+    return ler_glb_bin(caminho)[0]
 
 
 def analisar(gltf: dict) -> dict:
@@ -110,6 +122,96 @@ def analisar(gltf: dict) -> dict:
     }
 
 
+_COMPONENTES = {
+    5120: ("b", 1),
+    5121: ("B", 1),
+    5122: ("h", 2),
+    5123: ("H", 2),
+    5125: ("I", 4),
+    5126: ("f", 4),
+}
+_TIPOS = {
+    "SCALAR": 1,
+    "VEC2": 2,
+    "VEC3": 3,
+    "VEC4": 4,
+    "MAT2": 4,
+    "MAT3": 9,
+    "MAT4": 16,
+}
+
+
+def _accessor(gltf: dict, binario: bytes, indice: int) -> list[tuple]:
+    acc = gltf["accessors"][indice]
+    bv = gltf["bufferViews"][int(acc["bufferView"])]
+    componente, tamanho = _COMPONENTES[int(acc["componentType"])]
+    n = _TIPOS[acc["type"]]
+    base = int(bv.get("byteOffset", 0)) + int(acc.get("byteOffset", 0))
+    passo = int(bv.get("byteStride", tamanho * n))
+    formato = "<" + componente * n
+    return [
+        struct.unpack_from(formato, binario, base + i * passo)
+        for i in range(int(acc["count"]))
+    ]
+
+
+def topologia(gltf: dict, binario: bytes) -> dict:
+    """Mede G1 em Python puro: solda por posicao e conta arestas com != 2 faces.
+
+    Usado pelo ``verify`` para reexecutar o gate sem confiar no relatorio antigo e sem Blender.
+    """
+    posicoes: list[tuple[float, float, float]] = []
+    triangulos: list[tuple[int, int, int]] = []
+
+    for malha in gltf.get("meshes", []):
+        for prim in malha.get("primitives", []):
+            atributos = prim.get("attributes", {})
+            pos_idx = atributos.get("POSITION")
+            if pos_idx is None or int(prim.get("mode", 4)) != 4:
+                continue
+            posicao = _accessor(gltf, binario, int(pos_idx))
+            base = len(posicoes)
+            posicoes.extend((float(p[0]), float(p[1]), float(p[2])) for p in posicao)
+            idx = prim.get("indices")
+            if idx is not None:
+                ids = [int(v[0]) for v in _accessor(gltf, binario, int(idx))]
+            else:
+                ids = list(range(len(posicao)))
+            for k in range(0, len(ids) - 2, 3):
+                triangulos.append((base + ids[k], base + ids[k + 1], base + ids[k + 2]))
+
+    # solda por posicao, a mesma tolerancia do bpy (1e-5 m)
+    mapa: dict[tuple[float, float, float], int] = {}
+    solda = []
+    for p in posicoes:
+        chave = (round(p[0], 5), round(p[1], 5), round(p[2], 5))
+        solda.append(mapa.setdefault(chave, len(mapa)))
+
+    arestas: dict[tuple[int, int], int] = {}
+    degeneradas = 0
+    for a, b, c in triangulos:
+        A, B, C = solda[a], solda[b], solda[c]
+        if A == B or B == C or C == A:
+            degeneradas += 1
+            continue
+        pa, pb, pc = posicoes[a], posicoes[b], posicoes[c]
+        ux, uy, uz = pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]
+        vx, vy, vz = pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]
+        cx, cy, cz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        if cx * cx + cy * cy + cz * cz < 4e-24:  # area < 1e-12
+            degeneradas += 1
+        for e in ((A, B), (B, C), (C, A)):
+            chave = (e[0], e[1]) if e[0] < e[1] else (e[1], e[0])
+            arestas[chave] = arestas.get(chave, 0) + 1
+
+    return {
+        "nao_manifold": sum(1 for n in arestas.values() if n != 2),
+        "degeneradas": degeneradas,
+        "vertices": len(mapa),
+        "triangulos": len(triangulos),
+    }
+
+
 def _png_dimensoes(caminho: Path) -> tuple[int, int]:
     with open(caminho, "rb") as fh:
         cabecalho = fh.read(26)
@@ -178,6 +280,7 @@ def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
                 "esperado_m": alvo,
                 "delta_pct": round(delta_pct, 3),
                 "desvio_pivo_m": None if desvio_pivo is None else round(desvio_pivo, 6),
+                "pivo_regra": regra,
             },
             "limite": {"escala_delta_pct": v["escala_delta_pct"], "pivo_delta_mm": v["pivo_delta_mm"]},
             "codigo": None if (delta_pct <= float(v["escala_delta_pct"]) and pivo_ok) else "FORGE-E-QC",
@@ -274,13 +377,19 @@ def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
                 nomes = analisar(ler_glb(pasta / arquivo_col["caminho"]))["colisores"]
             except erro_qc:
                 nomes = []
-        prefixo_ok = all(n.startswith(perfil["colisao"]["prefixo"]) for n in nomes) if nomes else False
+        # perfil sem convencao de nome (ex.: roblox-r15) nao tem como exigir prefixo;
+        # perfil que declara prefixo continua exigindo que todos os nos o usem
+        prefixo = perfil["colisao"].get("prefixo")
+        prefixo_ok = all(n.startswith(prefixo) for n in nomes) if (prefixo and nomes) else True
         gates.append(
             {
                 "id": "G7",
                 "status": "ok" if col_ok and prefixo_ok else "falhou",
                 "medido": {"partes": partes, "nos": nomes},
-                "limite": {"max_partes": perfil["colisao"]["max_partes"]},
+                "limite": {
+                    "max_partes": perfil["colisao"]["max_partes"],
+                    "prefixo": prefixo,
+                },
                 "codigo": None if col_ok and prefixo_ok else "FORGE-E-QC",
             }
         )

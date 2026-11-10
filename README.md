@@ -4,8 +4,8 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P1` — rotas `blocky` e `import` de ponta a ponta, **sem GPU**. 26 testes verdes,
-determinismo D1 comprovado por hash. Rotas `mesh` e `modular` em P3/P4.
+**Estado:** `P1` e `P3` (rota `mesh` para prop) — 38 testes verdes. `blocky`/`import` sem GPU;
+`mesh` com TripoSR + bake UV/textura próprio em ~23 s; kit corpo/capa/arma. `modular` em P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---
@@ -31,7 +31,7 @@ Um comando, um arquivo, um código de saída. Nada de importar código, nada de 
 ```bash
 forge3d plan   lote_01.yaml --json   # custo e cache, sem GPU, sem escrever nada (roda no CI)
 forge3d run    lote_01.yaml --json   # gera, verifica QC e publica no destino autorizado
-forge3d verify <destino>   --json    # portão de CI: manifesto íntegro + hash conferido
+forge3d verify <destino>   --json    # portão de CI: hash + G1–G9 reexecutados
 forge3d query  --max-tris 100 --json # "by demand": o que já existe
 forge3d doctor                       # diagnóstico do ambiente
 ```
@@ -57,14 +57,16 @@ Requisito duro (D25). O Forge3D **não contamina** o repositório de quem o cham
 |---|---|---|---|---|
 | `blocky` | voxel/blocky, item, personagem de blocos | **D1** (byte-idêntico) | ~0,7 s/asset, sem GPU | **P1 ✔** |
 | `import` | asset feito à mão (Blockbench/Blender) entra no mesmo QC | D1 | ~0,7 s/asset | **P1 ✔** |
-| `mesh` | 3D orgânico/detalhado por modelo local | D2 (semeado) | 10 s–15 min em 6 GB | P3 |
+| `mesh` | 3D orgânico/detalhado por modelo local (TripoSR) | D2 (semeado) | ~23 s/asset em 6 GB | **P3 ✔ parcial** |
 | `modular` | dungeon/cenário por WFC + montagem | D1 (seed fixa) | segundos | P4 |
 
 A GPU é **opcional**: o sistema é útil sem ela, e é isso que o mantém barato no pipe.
 
 ## O lote
 
-[`examples/lote_01.yaml`](examples/lote_01.yaml) é a fixture canônica — 3 assets, roda hoje:
+[`examples/lote_01.yaml`](examples/lote_01.yaml) é a fixture canônica — 3 assets, roda hoje.
+[`examples/lote_03_kit.yaml`](examples/lote_03_kit.yaml) é o kit corpo/capa/arma (`spec@2`) e
+[`examples/lote_04_mesh.yaml`](examples/lote_04_mesh.yaml) é a rota `mesh` (TripoSR + bake):
 
 ```yaml
 schema: forge3d/spec@1
@@ -88,7 +90,7 @@ lote:
 ## O que o pipeline faz
 
 ```
-lote ──► VALIDAR (schema + B1–B10)
+lote ──► VALIDAR (schema + B1–B13)
       ──► PLANEJAR (chave de cache, custo, bloqueios)   ◄── roda no CI, sem GPU
       ──► GERAR (provider → staging)
       ──► PÓS-PROCESSAR (Blender 4.2 headless: escala, pivô, LOD, colisor, rig)
@@ -111,7 +113,7 @@ O que faz diferença em produção, e não está num "script que chama modelo":
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-python -m pytest -q                     # 26 testes (unidade + invariantes de ponta a ponta)
+python -m pytest -q                     # 38 testes (unidade + P3-A + invariantes de ponta a ponta)
 bash tools/check-contexto.sh            # tetos de contexto
 python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
 
@@ -121,7 +123,9 @@ blender --background --factory-startup --python tools/render_preview.py -- \
 ```
 
 Os testes de invariante rodam o Blender de verdade: provam escala, pivô, hash idêntico entre execuções,
-detecção de arquivo adulterado no `verify`, idempotência e recusa de destino fora da allowlist.
+detecção de arquivo adulterado e reexecução dos gates no `verify`, idempotência e recusa de
+destino fora da allowlist. O asset de aceitação da P3 é `prop.bule.exemplo.01` (7.960 tris,
+textura 512², G1–G9 verdes, importado no Godot 4.3 com AABB idêntico ao manifesto).
 
 ## Documentos
 

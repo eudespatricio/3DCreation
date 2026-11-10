@@ -299,8 +299,14 @@ def registrar_ledger(evento: dict) -> None:
 
 
 def verificar(destino: Path) -> dict:
-    """Portao de CI: manifesto integro, arquivos presentes e hash conferido."""
+    """Portao de CI: manifesto+hash E reexecucao de G1-G9 contra o perfil atual.
+
+    O hash pega arquivo trocado; a reexecucao pega o caso mais sutil: o perfil do jogo mudou
+    (tolerancia, textura_max, mapa de ossos) e o manifesto antigo ficou mentindo.
+    """
     import jsonschema
+
+    from . import profiles, qc
 
     if not destino.is_dir():
         raise erro_manifesto(f"destino inexistente: {destino}", destino=str(destino))
@@ -339,6 +345,81 @@ def verificar(destino: Path) -> dict:
                         "medido": real,
                     }
                 )
+
+        # --- reexecucao dos gates contra o perfil ATUAL (C2) ---
+        try:
+            perfil = profiles.carregar(man["perfil"])
+        except Exception as exc:  # noqa: BLE001 - perfil de terceiro nao derruba o verify
+            erros.append(
+                {"manifesto": caminho.name, "erro": f"perfil '{man.get('perfil')}' invalido: {exc}"}
+            )
+            continue
+
+        gates_antigos = {g["id"]: g for g in man["qc"]["gates"]}
+        medido_g2 = (gates_antigos.get("G2") or {}).get("medido", {})
+        medido_g9 = (gates_antigos.get("G9") or {}).get("medido", {})
+        item = {
+            "id": man["asset_id"],
+            "altura_metros": medido_g2.get("esperado_m"),
+            "pivot": medido_g2.get("pivo_regra"),
+            "limite_triangulos": medido_g9.get("limite"),
+            "auto_rig": bool(man.get("rig")),
+            "esqueleto": (man.get("rig") or {}).get("esqueleto"),
+            "colisao": (man.get("colisao") or {}).get("tipo", "none"),
+        }
+        if item["altura_metros"] is None or item["limite_triangulos"] is None:
+            erros.append(
+                {"manifesto": caminho.name, "erro": "manifesto sem G2/G9 para revalidar escala"}
+            )
+            continue
+
+        lod = {l["arquivo"]: l for l in man.get("lod", [])}
+        arquivos = []
+        for f in man["files"]:
+            arq = {"caminho": f["caminho"], "papel": f["papel"]}
+            if f["papel"] == "mesh":
+                arq.update(nivel=0, triangulos=man["geometry"]["triangulos"])
+            elif f["caminho"] in lod:
+                arq.update(
+                    nivel=lod[f["caminho"]]["nivel"],
+                    triangulos=lod[f["caminho"]]["triangulos"],
+                )
+            arquivos.append(arq)
+
+        malha = next((f for f in man["files"] if f["papel"] == "mesh"), None)
+        if malha is None:
+            erros.append({"manifesto": caminho.name, "erro": "manifesto sem arquivo de malha"})
+            continue
+        try:
+            gltf, binario = qc.ler_glb_bin(destino / malha["caminho"])
+            topo = qc.topologia(gltf, binario)
+        except Exception as exc:  # noqa: BLE001 - GLB de terceiro pode ser ilegivel
+            erros.append({"manifesto": caminho.name, "erro": f"malha ilegivel: {exc}"})
+            continue
+
+        resultado = {
+            "medidas": {
+                **topo,
+                "partes_colisao": int((man.get("colisao") or {}).get("partes", 0)),
+            },
+            "arquivos": arquivos,
+            "licenca": man.get("licenca") or {},
+            "determinism": man.get("determinism"),
+        }
+        try:
+            revalidado = qc.verificar(item, perfil, destino, resultado)
+        except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto
+            erros.append({"manifesto": caminho.name, "erro": f"QC reexecutado falhou: {exc}"})
+            continue
+        if not revalidado["aprovado"]:
+            falhas = [g for g in revalidado["gates"] if g["status"] == "falhou"]
+            erros.append(
+                {
+                    "manifesto": caminho.name,
+                    "erro": "QC reexecutado reprovou",
+                    "gates": falhas,
+                }
+            )
         itens.append(
             {
                 "asset_id": man["asset_id"],
@@ -346,6 +427,7 @@ def verificar(destino: Path) -> dict:
                 "triangulos": man["geometry"]["triangulos"],
                 "arquivos": len(man["files"]),
                 "licenca": man["licenca"]["modelo"],
+                "qc_reexecutado": revalidado["aprovado"],
             }
         )
 

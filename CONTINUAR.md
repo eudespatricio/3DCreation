@@ -1,7 +1,11 @@
 # CONTINUAR — handoff de sessão
 
 **Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3 parcial: a mecânica funciona, a qualidade não.**
-28 testes verdes · commit `5907251`. Este arquivo é autossuficiente: a conversa pode ser fechada.
+29 testes verdes · janela encerrada em transição.
+
+**Para a próxima janela:** leia [`docs/pendencias.md`](docs/pendencias.md) (o que falta, com
+critério) e [`docs/goal-proxima-janela.md`](docs/goal-proxima-janela.md) (briefing + bloco de
+Goal pronto para colar). Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q`.
 
 ---
 
@@ -20,7 +24,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P0** | ✔ | arquitetura, contratos `spec@1`/`manifest@1`, 2 perfis, docs de processo |
 | **P0.5** | ✔ | D23 allowlist · D24 estado central · `tools/check-contexto.sh` |
 | **P1** | ✔ | rotas `blocky` e `import` de ponta a ponta: validar → planejar → gerar → Blender → QC G1–G9 → cache → publicar → índice → ledger |
-| **P3** | **parcial** | stack GPU instalada, TripoSR rodando, canal de delegação mapeado. **Qualidade inutilizável** |
+| **P3** | **parcial** | stack GPU + TripoSR rodando; **SF3D encerrado em 6 GB** (geometria sai, bake exige CUDA, ~8 min/imagem); canal de delegação mapeado. Qualidade ainda inutilizável |
 | **P2** | pendente | perfil `roblox-r15` (o YAML existe; falta validar no Studio) |
 | **P4** | pendente | rota `modular` (WFC) |
 | **P5** | pendente | animação e retarget |

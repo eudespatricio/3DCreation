@@ -34,5 +34,6 @@ testpaths = ["tests"]
 markers = [
   "blender: exige o binario do Blender 4.2",
   "lento: execucao de ponta a ponta, varios segundos",
+  "rapido: ciclo completo em um asset, alvo < 30 s",
 ]
 addopts = "-q"

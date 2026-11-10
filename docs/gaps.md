@@ -16,13 +16,16 @@
 | GAP-008 | Sem CI configurado (testes existem, pipeline não) | P0 | P1.5 | `pytest` + `check-contexto.sh` rodando em pull request |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
-| GAP-011 | Import no Godot não foi verificado: o portão P1 fala em "sem ajuste manual", mas o teste rodado aqui é QC + manifesto | P1 | P1.5 | um asset importado no Godot 4 sem correção de escala/pivô/material |
+| ~~GAP-011~~ | ~~Import no Godot não verificado~~ | P1 | **P1.5 ✔** | fechado em 10/11/2026: Godot 4.3 importou com hierarquia, 23 ossos, AABB idêntico ao manifesto e textura aplicada |
 | GAP-012 | `plan` superestima custo em ~3× (9,0 s estimados × 2,08 s reais para 3 itens) | P1 | P2 | estimativa calibrada por medição, com erro < 50 % |
 | GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada | P1 | P2 | critério visual registrado para `_LOD1`/`_LOD2` |
 | GAP-014 | I3 (publish atômico) tem implementação, mas não teste de observação durante o run | P1 | P1.5 | teste que falha se algum arquivo parcial aparecer no destino |
 | GAP-015 | `draft` (LLM) não existe; Ollama mede 4.096 tokens efetivos | P0 | P6 | prompt cabendo em 4k com teste de truncamento |
 | GAP-016 | Sem política de retenção do ledger e do cache (`gc`) | P0 | P6 | `gc`/rotação documentada e testada |
-| GAP-017 | Perfil `godot4` com filtro `nearest` não testado no importador (U3) | P0 | P2 | textura 16×16 importada sem interpolação |
+| ~~GAP-017~~ | ~~Filtro `nearest` não testado no importador~~ | P0 | **P2 ✔** | fechado: Godot 4.3 aplicou `NEAREST_WITH_MIPMAPS` |
+| GAP-020 | Personagem sai com rig e sem clipe de animação (D14): no Godot ele é estático até alguém animar | P1 | P5 | clipe `idle` gerado ou retarget validado |
+| GAP-021 | Um atlas por asset, sem variantes (dano, time, emissivo); trocar cor exige regerar | P1 | P4 | atlas com 2–3 variantes declaradas na spec |
+| GAP-022 | A pose de validação é render manual, não teste: nada no CI falha se o rig inverter eixo | P1 | P2 | teste que compara eixo local de cada osso com o mapa do perfil |
 | GAP-018 | `query --tag` existe, mas as tags não são indexadas por tabela própria (LIKE) | P1 | P4 | tabela `tags` normalizada quando o índice passar de ~1.000 assets |
 | GAP-019 | Uma execução da suíte e2e deu `ERROR` em 3 fixtures (`test_i2`, `test_i13`, `test_rota_import`) com stdout não-JSON, e **não reproduziu** em 3 execuções seguintes (26/26 verdes) | P1 | P1.5 | reproduzir com `-p no:randomly` e capturar o stderr do subprocesso; até lá, tratar suite vermelha como real |
 

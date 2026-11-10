@@ -181,10 +181,15 @@ def test_atlas_e_potencia_de_dois_para_todos_os_tamanhos(tmp_path):
     from forge3d.providers import blocky
 
     for n in (1, 2, 3, 5, 6, 9, 17):
-        caixas = [{"nome": f"c{i}", "min": [0, 0, 0], "max": [1, 1, 1]} for i in range(n)]
-        _nome, tam = blocky._atlas(caixas, [(10, 20, 30)], tmp_path)
+        caixas = [
+            {"nome": f"c{i}", "min": [0, 0, 0], "max": [1, 1, 1], "cor": "#8899aa", "padrao": "chapa"}
+            for i in range(n)
+        ]
+        destino = tmp_path / f"n{n}"
+        destino.mkdir(parents=True, exist_ok=True)
+        _nome, tam = blocky._atlas(caixas, destino)
         assert tam & (tam - 1) == 0, f"atlas {tam} nao e potencia de 2 (n={n})"
-        assert all("uv" in c for c in caixas)
+        assert all("uv" in c and "uv_topo" in c for c in caixas)
 
 
 def test_pivos_de_espada_ficam_na_empunhadura():

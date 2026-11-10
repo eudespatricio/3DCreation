@@ -23,6 +23,8 @@
 | `profiles/roblox-r15.yaml` | perfil de export Roblox (R15/blocky) | exportar para Roblox |
 | `examples/lote_01.yaml` | lote de referência, executável | exemplo canônico e fixture de teste |
 | `tools/check-p0.py` | portão do P0: schemas, exemplos, tetos, I12, I14 | antes de dizer "P0 fechada" |
+| `tools/render_preview.py` | preview headless (Cycles): frente, 3/4, `--pose` | revisar qualidade do asset |
+| `docs/preview/` | renders de referência do android (v1, final, pose) | mostrar qualidade a quem não abre o jogo |
 | `skills/context-recovery/` | protocolo de recuperação de contexto + templates | assumir projeto herdado / auditar |
 | `src/forge3d/` | `spec` `plan` `qc` `publish` `pipeline` `doctor` `locks` `canonical` `config` `paths` | implementação |
 | `src/forge3d/cli/` | `comandos.py` (7 subcomandos) + `main.py` | contrato CLI |
@@ -52,3 +54,6 @@
    passa. Mudou geometria/atlas ⇒ suba a versão do provider — ela entra na chave de cache (D6).
 9. **G1 solda antes de contar não-manifold.** glTF divide vértice em cada costura de UV; sem soldar,
    todo asset importado parece ter borda aberta. O gate mede topologia soldada de propósito.
+10. **Sobreponha o pivô, nunca compartilhe canto exato:** encostar abre fenda ao animar e canto
+    exato vira não-manifold no G1 após a solda. **Joelho e cotovelo giram ao contrário:** local X
+    negativo dobra o joelho, positivo dobra o cotovelo — sinal igual nos dois inverte o membro.

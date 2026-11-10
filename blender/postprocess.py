@@ -97,8 +97,11 @@ def construir_blocky(bruto: dict, base_dir: str) -> tuple:
         )
         for face in FACES_CUBO:
             faces.append(tuple(i0 + i for i in face))
-        u0, v0, u1, v1 = caixa["uv"]
-        for _ in range(6):
+        regiao = caixa["uv"]
+        regiao_topo = caixa.get("uv_topo") or regiao
+        for indice_face in range(6):
+            # face 1 de FACES_CUBO e o topo: recebe a celula clareada
+            u0, v0, u1, v1 = regiao_topo if indice_face == 1 else regiao
             uvs.extend([(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
         osso = caixa.get("osso")
         if osso:

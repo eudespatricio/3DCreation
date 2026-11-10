@@ -138,6 +138,13 @@
           "type": "array",
           "maxItems": 8,
           "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" }
+        },
+        "paleta": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "description": "sobrepoe a paleta do lote para este item, na ordem de papeis do tipo"
         }
       },
       "allOf": [

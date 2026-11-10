@@ -22,6 +22,9 @@ diretório onde roda, não escreve nada fora do próprio estado, não importa c�
 - **P0.5** — Q2/Q6 fechadas (D23 allowlist, D24 estado central), `tools/check-contexto.sh` no ar.
 - **P1** — pipeline completo das rotas `blocky` e `import`: validar → planejar → gerar → pós-processar
   (Blender 4.2) → QC G1–G9 → cache → publicar atômico → manifesto → índice SQLite → ledger.
+- **Qualidade (10/11/2026)** — humanoid android gerado por `examples/lote_android.yaml`: 300 tris,
+  23 ossos, LODs 300/130/45, atlas 128 px, 1 material; **importado no Godot 4.3** com hierarquia,
+  ossos, AABB idêntico ao manifesto e textura em nearest; provado sob pose. Renders em `docs/preview/`.
 - **Não feito:** rotas `mesh` (P3) e `modular` (P4), perfil Roblox validado no Studio (P2), animação.
 
 ## Números medidos nesta máquina (10/11/2026)
@@ -35,6 +38,9 @@ diretório onde roda, não escreve nada fora do próprio estado, não importa c�
 | Determinismo D1 | **sha256 idênticos** nos 12 artefatos entre dois runs com cache limpo |
 | Asset `mob.skeleton.guard` | 72 tris, bbox 0,814 × 1,85 × 0,333 m, **23 ossos**, 1 colisor convexo, 5 arquivos, 38.619 B |
 | Suite | **26 testes** (17 unidade + 9 ponta a ponta), ~75 s |
+| Android humanoid | 300 tris · 25 caixas · 23 ossos · LOD 300/130/45 · atlas 128 px · 5 arquivos · 73.222 B |
+| `run` android (1 item) | 939 ms frio · 307 ms quente |
+| Import no Godot 4.3 | `Node3D → Armature → Skeleton3D (23) → MeshInstance3D`, AABB idêntico, `filtro=2` |
 
 ## O que está decidido (não reabrir sem evidência nova)
 
@@ -53,6 +59,13 @@ Invariantes `I1`–`I14`: 9 automatizados, ver [`INVARIANTES.md`](INVARIANTES.md
 | Q3 | escala/rig do Roblox (0,28 m por stud; PBR por `SurfaceAppearance`) | P2, com teste no Studio |
 | Q5 | SF3D × TripoSR (licença × qualidade) | P3, com A/B de 10 assets |
 | Q7 | assets no git do jogo: normal × LFS | antes do primeiro asset real |
+
+## Convenção que já causou bug duas vezes
+
+Com Y do osso ao longo do membro e **X local = +X do mundo**: local X **positivo** leva o membro
+para frente (ombro, quadril e **cotovelo**); **negativo** leva para trás (**joelho**). Joelho e
+cotovelo giram em sentidos opostos — pose com o mesmo sinal nos dois parece membro invertido.
+Detalhe em `docs/perfis-export.md` §4; a pose de referência está em `tools/render_preview.py`.
 
 ## Próximo passo: P2 — perfil Roblox
 

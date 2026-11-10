@@ -244,7 +244,7 @@ def executar(
             continue
 
         try:
-            item["_paleta"] = spec_doc.get("paleta")
+            item["_paleta"] = item.get("paleta") or spec_doc.get("paleta")
             saida = _executar_item(
                 item,
                 tarefa,

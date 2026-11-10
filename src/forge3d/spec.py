@@ -58,6 +58,7 @@ CAMPOS_CANONICOS_ITEM = (
     "origem",
     "tags",
     "animacoes_base",
+    "paleta",
 )
 
 _SPEC_SCHEMA_CACHE: dict | None = None

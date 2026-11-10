@@ -89,6 +89,19 @@ A regra é **determinística e testável** (I8): o QC mede a posição do pivô 
 com o esperado. Se a regra não conseguir decidir, o item falha com `FORGE-E-QC` e mensagem explícita —
 não chuta.
 
+### Convenção de eixos de osso (medida em 10/11/2026)
+
+Todos os ossos exportados têm **X local = +X do mundo** e **Y local ao longo do osso** (verificado
+no Blender e no import do Godot 4.3). Consequência direta para animar:
+
+| Rotação local X | Efeito | Uso |
+|---|---|---|
+| **positiva** | membro vai para a frente (+Y no Blender, −Z no glTF) | flexão de **ombro, quadril e cotovelo** |
+| **negativa** | membro vai para trás | flexão de **joelho**; extensão de ombro/cotovelo |
+
+Não é convenção de mercado — Mixamo e Rigify usam outra. Por isso o mapa de retarget é tabela no
+perfil e a validação de rig confere nome a nome, não "parece razoável".
+
 ## 5. Convenções de nome (contrato com o jogo)
 
 | Objeto | Padrão | Exemplo |
@@ -108,7 +121,7 @@ Nome de arquivo é **determinístico a partir do `id`**: nada de timestamp, nada
 |---|---|---|
 | U1 | Escala exata do importador Roblox (0,28 m/stud e opção de escala na UI) | teste real no Studio, P2 |
 | U2 | `SurfaceAppearance`/PBR por glTF no importador Roblox | teste real, P2 |
-| U3 | Filtro `nearest` sobrevive ao import do Godot 4? | teste de import com textura 16×16, P1 |
+| ~~U3~~ | **Fechada (10/11/2026):** Godot 4.3 aplicou `TEXTURE_FILTER_NEAREST_WITH_MIPMAPS` (`filtro=2`) | import real do android |
 | U4 | `Humanoid` aceita rig vindo de glTF importado como `Model`? | teste no Studio, P2 |
 | U5 | LOD separado em `MeshInstance3D` vs `ImporterMesh` no Godot 4.2 | teste de import, P5 |
 

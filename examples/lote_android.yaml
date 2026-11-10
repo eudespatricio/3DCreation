@@ -1,0 +1,37 @@
+# Android humanoid — teste de qualidade da rota blocky para Godot 4
+# Foco: personagem com rig, LODs, colisão e visor/accent legíveis em pixel art.
+schema: forge3d/spec@1
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/android
+estilo_global: blocky_voxel
+
+paleta:
+  - "#7d858f"   # chassi claro
+  - "#3b4048"   # chassi escuro
+  - "#1d2024"   # juntas
+  - "#ff6a1f"   # accent laranja
+  - "#38e8ff"   # visor ciano
+
+politica:
+  falha: continuar
+  custo_max_min: 30
+  seed_base: 20261110
+
+lote:
+  - id: mob.android.sentinel.01
+    tipo: personagem_humanoide
+    rota: blocky
+    prompt: >-
+      Androide sentinela humanoide com chassi de liga cinza, placas de armadura
+      escura nos ombros e canelas, visor ciano horizontal no lugar dos olhos,
+      accent laranja no peito e nas juntas.
+    altura_metros: 1.85
+    pivot: base
+    limite_triangulos: 3000
+    auto_rig: true
+    esqueleto: godot-humanoid@1
+    colisao: convex
+    lod: [100, 50, 25]
+    tags: [mob, android, humanoid, scifi]

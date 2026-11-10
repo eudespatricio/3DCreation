@@ -114,6 +114,10 @@ cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 python -m pytest -q                     # 26 testes (unidade + invariantes de ponta a ponta)
 bash tools/check-contexto.sh            # tetos de contexto
 python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
+
+# revisar qualidade sem abrir o jogo (Cycles, ~4 s por vista)
+blender --background --factory-startup --python tools/render_preview.py -- \
+  ~/.local/state/forge3d/saida/android/mob.android.sentinel.01.glb docs/preview/meu_asset --pose
 ```
 
 Os testes de invariante rodam o Blender de verdade: provam escala, pivô, hash idêntico entre execuções,

@@ -1,63 +1,77 @@
 # Forge3D — esteira de assets 3D por demanda
 
-> Utilitário de linha de comando que transforma um **lote declarativo** (YAML/JSON) em assets
-> finais prontos para o jogo — glTF/GLB com escala, pivô, LOD, colisão, rig e manifesto — e
-> publica de forma atômica na pasta do projeto consumidor.
+> Utilitário de linha de comando que transforma um **lote declarativo** (YAML/JSON) em assets finais
+> prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
+> atômica num destino autorizado.
 
-**Estado:** `P0` — escopo, arquitetura e contratos fechados. **Ainda não existe código de pipeline.**
+**Estado:** `P1` — rotas `blocky` e `import` de ponta a ponta, **sem GPU**. 26 testes verdes,
+determinismo D1 comprovado por hash. Rotas `mesh` e `modular` em P3/P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---
 
 ## O problema
 
-Cada projeto de jogo precisa de assets. Hoje cada projeto resolve isso do seu jeito: modela à mão,
-baixa pack, ou cola um script de geração. O resultado é sempre o mesmo:
+Cada projeto precisa de assets. Hoje cada um resolve do seu jeito — modela à mão, baixa pack ou cola um
+script de geração — e o resultado é sempre parecido:
 
 - o asset chega com escala errada e alguém conserta no editor;
 - o pivô está na origem do mundo e a arma flutua na mão;
 - são 50 mil triângulos para uma espada;
-- não se sabe com qual prompt, modelo ou licença aquilo foi gerado;
+- ninguém sabe com qual prompt, modelo ou licença aquilo nasceu;
 - rodar o build de novo gera arquivos diferentes e suja o git do jogo.
 
-**Forge3D existe para tornar a geração de asset um passo de build**: reprodutível, verificável,
-barato de repetir e seguro de plugar em pipe de terceiros.
+**Forge3D torna geração de asset um passo de build**: reprodutível, verificável, barato de repetir e
+seguro de plugar no pipe de terceiros.
 
 ## Como um projeto de jogo usa isto
 
-O contrato é **um comando, um arquivo, um código de saída**. Nada de importar código, nada de daemon.
+Um comando, um arquivo, um código de saída. Nada de importar código, nada de daemon.
 
 ```bash
-# O que seria feito — não gasta GPU, não escreve nada. É o que roda no CI de pull request.
-forge3d plan   lote_01.yaml --json
-
-# Executa: gera, pós-processa, verifica QC e publica no destino do jogo.
-forge3d run    lote_01.yaml --json
-
-# Portão de CI sobre o que já está publicado: valida manifesto, QC e integridade.
-forge3d verify res://assets/importados --json
-
-# "by demand": o que já existe, filtrável, sem gerar nada.
-forge3d query  --tag weapon --max-tris 800 --json
-
-# Diagnóstico do ambiente antes de culpar a pipeline.
-forge3d doctor
+forge3d plan   lote_01.yaml --json   # custo e cache, sem GPU, sem escrever nada (roda no CI)
+forge3d run    lote_01.yaml --json   # gera, verifica QC e publica no destino autorizado
+forge3d verify <destino>   --json    # portão de CI: manifesto íntegro + hash conferido
+forge3d query  --max-tris 100 --json # "by demand": o que já existe
+forge3d doctor                       # diagnóstico do ambiente
 ```
 
-Branching no pipe é por **código de saída estável** (§5 de [`docs/contratos.md`](docs/contratos.md)):
-`0` ok · `2` spec inválida · `3` QC reprovado · `4` ambiente · `5` provider · `6` recurso bloqueado · `7` parcial.
+Branching no pipe é por **código de saída estável** ([`docs/contratos.md`](docs/contratos.md) §5):
+`0` ok · `2` spec inválida · `3` QC reprovou · `4` ambiente · `5` provider · `6` recurso · `7` parcial.
+
+## Isolamento — o utilitário é independente do projeto
+
+Requisito duro (D25). O Forge3D **não contamina** o repositório de quem o chama:
+
+| Regra | Efeito |
+|---|---|
+| **Estado próprio** | cache, runs, staging, locks, índice e ledger em `~/.local/state/forge3d`. Rodar de dentro de um jogo não cria pasta nem arquivo lá |
+| **Destino é allowlist** | por padrão só o sandbox do Forge3D é gravável; autorizar um projeto é ato explícito: `forge3d allowlist add /caminho/do/jogo/assets` |
+| **Config global, nunca do cwd** | o comportamento não muda conforme o diretório de onde você chamou (D24) |
+| **Zero import de código de jogo** | a fronteira é CLI + arquivo de lote; o consumidor não precisa do Forge3D instalado para validar o asset |
+| **`/mnt/c` e UNC são recusados** | I/O lento e hash instável; tudo roda em ext4 sob `/home` |
+
+## As quatro rotas
+
+| Rota | Para quê | Determinismo | Custo real | Estado |
+|---|---|---|---|---|
+| `blocky` | voxel/blocky, item, personagem de blocos | **D1** (byte-idêntico) | ~0,7 s/asset, sem GPU | **P1 ✔** |
+| `import` | asset feito à mão (Blockbench/Blender) entra no mesmo QC | D1 | ~0,7 s/asset | **P1 ✔** |
+| `mesh` | 3D orgânico/detalhado por modelo local | D2 (semeado) | 10 s–15 min em 6 GB | P3 |
+| `modular` | dungeon/cenário por WFC + montagem | D1 (seed fixa) | segundos | P4 |
+
+A GPU é **opcional**: o sistema é útil sem ela, e é isso que o mantém barato no pipe.
 
 ## O lote
 
-[`examples/lote_01.yaml`](examples/lote_01.yaml) é a referência executável do schema.
-Cada item declara rota, altura, pivô, orçamento de triângulos, colisão e LOD; o perfil decide o resto.
+[`examples/lote_01.yaml`](examples/lote_01.yaml) é a fixture canônica — 3 assets, roda hoje:
 
 ```yaml
 schema: forge3d/spec@1
-projeto: RPG_Dungeon
+projeto: demo
 perfil: godot4
-destino_exportacao: /home/eudespatricio/Games/GameZero/assets/importados
-paleta: ["#0d0d0f", "#ff5a1f", "#c9a227"]
+destino_exportacao: ~/.local/state/forge3d/saida/lote_01
+paleta: ["#0d0d0f", "#3a3a40", "#ff5a1f", "#ffd166", "#c9a227"]
 
 lote:
   - id: weapon.sword.fire.01
@@ -67,44 +81,43 @@ lote:
     altura_metros: 1.10
     pivot: empunhadura
     limite_triangulos: 800
+    colisao: convex
+    lod: [100, 50]
 ```
 
-## As quatro rotas
+## O que o pipeline faz
 
-| Rota | Para quê | Determinismo | Custo | Estado |
-|---|---|---|---|---|
-| `blocky` | voxel/blocky, item, personagem de blocos | **D1** (byte-idêntico) | segundos, sem GPU | P1 |
-| `import` | asset feito à mão (Blockbench/Blender) entra no mesmo QC | D1 | zero | P1 |
-| `mesh` | 3D orgânico/detalhado via modelo local | D2 (semeado) | 10 s–15 min em 6 GB | P3 |
-| `modular` | dungeon/cenário por WFC + montagem | D1 (seed fixa) | segundos | P4 |
+```
+lote ──► VALIDAR (schema + B1–B10)
+      ──► PLANEJAR (chave de cache, custo, bloqueios)   ◄── roda no CI, sem GPU
+      ──► GERAR (provider → staging)
+      ──► PÓS-PROCESSAR (Blender 4.2 headless: escala, pivô, LOD, colisor, rig)
+      ──► VERIFICAR (QC G1–G9; reprovou, não publica)
+      ──► PUBLICAR (rename atômico + manifesto + índice + ledger)
+```
 
-Detalhe em [`docs/rotas-e-providers.md`](docs/rotas-e-providers.md). A GPU é **opcional**:
-o sistema é útil sem ela e é isso que o mantém barato de rodar no seu pipe.
+O que faz diferença em produção, e não está num "script que chama modelo":
 
-## Por que não é só "um script que chama um modelo"
-
-Porque o modelo é a parte fácil. O que faz a diferença em produção:
-
-1. **Plano antes da execução** — custo, cache e bloqueio de recurso calculados sem gastar GPU.
-2. **Cache por conteúdo** — `sha256(spec + versão da pipeline + versões dos providers)`; rerun sem
-   mudança não toca um único arquivo.
-3. **Governança de VRAM** — em 6 GB, um job de GPU por vez, com descarregamento explícito.
-4. **QC como portão** — manifold, orçamento de triângulos, escala ±0,5 %, pivô 1 mm, UV, materiais,
-   rig, licença. Reprovou, não publica.
-5. **Publicação atômica** — staging → *rename*; nunca se escreve direto na pasta do jogo.
-6. **Manifesto e proveniência** — modelo, seed, versões, hash do spec e licença de cada asset.
-7. **Degradação explícita** — GPU fora do ar bloqueia só as tarefas que precisam dela.
+1. **Plano antes da execução** — custo e cache calculados sem gastar recurso.
+2. **Cache por conteúdo** — rerun sem mudança é `trabalho_executado: 0` (medido: 476 ms contra 2.082 ms).
+3. **QC como portão** — manifold, orçamento de triângulos, escala ±0,5 %, pivô 1 mm, UV, materiais,
+   rig, colisão, licença.
+4. **Publicação atômica** — staging → `rename`; nunca se escreve direto na pasta do jogo.
+5. **Manifesto e proveniência** — provider, versão, seed, hash do spec e licença de cada asset.
+6. **Degradação explícita** — GPU fora bloqueia só as tarefas que precisam dela.
 
 ## Verificar esta entrega
 
-O P0 é verificável — não é opinião. Um comando:
-
 ```bash
-uv run --no-project --python 3.12 --with pyyaml --with jsonschema python tools/check-p0.py
+cd /home/eudespatricio/3DCreation && . .venv/bin/activate
+
+python -m pytest -q                     # 26 testes (unidade + invariantes de ponta a ponta)
+bash tools/check-contexto.sh            # tetos de contexto
+python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
 ```
 
-Valida os dois schemas, os lotes de exemplo, o manifesto de exemplo, os perfis, os tetos de
-contexto e os invariantes I12/I14. Sai `0` em silêncio ou lista exatamente o que falhou.
+Os testes de invariante rodam o Blender de verdade: provam escala, pivô, hash idêntico entre execuções,
+detecção de arquivo adulterado no `verify`, idempotência e recusa de destino fora da allowlist.
 
 ## Documentos
 
@@ -115,10 +128,11 @@ contexto e os invariantes I12/I14. Sai `0` em silêncio ou lista exatamente o qu
 | regras que quebram o projeto se violadas | [`INVARIANTES.md`](INVARIANTES.md) |
 | avaliação crítica do desenho original | [`docs/avaliacao.md`](docs/avaliacao.md) |
 | arquitetura completa | [`docs/arquitetura.md`](docs/arquitetura.md) |
+| contrato de spec e manifesto | [`docs/contratos.md`](docs/contratos.md) |
 | como retomar uma sessão | [`CONTINUAR.md`](CONTINUAR.md) |
 | método de decisão por conselho | [`CONSELHOS.md`](CONSELHOS.md) |
 
 ## Escopo explicitamente fora da v0
 
-Animação/retarget automático, geração de mapa completo (Rota C), servidor HTTP, MCP, e qualquer
-modelo fechado por API. A lista com motivos está em [`DECISOES.md`](DECISOES.md) §3.
+Animação/retarget, geração de mapa completo (Rota C), servidor HTTP, MCP e qualquer modelo fechado por
+API. Motivos em [`DECISOES.md`](DECISOES.md) §3.

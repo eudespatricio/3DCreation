@@ -2,9 +2,9 @@
 # Valida contra o schema hoje; executa a partir de P3/P4.
 schema: forge3d/spec@1
 
-projeto: gamezero
+projeto: demo
 perfil: godot4
-destino_exportacao: /home/eudespatricio/Games/GameZero/assets/importados
+destino_exportacao: ~/.local/state/forge3d/saida/lote_02
 estilo_global: lowpoly_lit
 
 politica:

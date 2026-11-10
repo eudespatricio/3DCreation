@@ -20,17 +20,15 @@
 
 | Dependência | Versão | Por quê | Se faltar |
 |---|---|---|---|
-| Python | **3.12.x** (via `uv`) | wheels de ML e estabilidade; 3.14 não tem wheel de `torch` | nada funciona |
-| `pydantic` | `>=2.7,<3` | schema + validação tipada do spec | validação manual (pior) |
-| `PyYAML` | `>=6.0,<7` | lote em YAML | só JSON |
-| `jsonschema` | `>=4.21,<5` | validar **manifesto** de terceiros sem pydantic | — |
-| `typer` | `>=0.12` | CLI e help | `argparse` |
-| `rich` | `>=13` | log humano em stderr | log cru |
-| `Pillow` | `>=10` | atlas de pixel art da rota `blocky` | rota blocky não existe |
-| `numpy` | `>=1.26,<3` | geometria/voxel | — |
-| `orjson` | `>=3.9` | JSON estável e rápido (hash canônico) | `json` |
+| Python | **3.12.14** (venv do repo) | roda o pacote; 3.14 não tem wheel de ML | nada funciona |
+| `jsonschema` | `>=4.21,<5` | valida a spec e o **manifesto de terceiros** | contrato deixa de ser verificável |
+| `PyYAML` | `>=6.0,<7` | lote, perfis e allowlist em YAML | só JSON |
+| `Pillow` | `>=10,<12` | atlas de pixel art da rota `blocky` | rota blocky não existe |
+| `pytest` | `>=8` (dev) | oráculo dos invariantes | sem CI |
 
-Tudo isso é **leve** e instala em segundos. É o que permite `forge3d plan` rodar em CI sem GPU.
+**Sem `pydantic`, `typer`, `rich`, `numpy`, `orjson`** (D26): o schema é a fonte de verdade, então a
+validação é `jsonschema`; `argparse` e `json` são stdlib. Instalar em segundos é o que permite
+`forge3d plan` rodar em CI sem GPU.
 
 ## 3. Runtime — Blender (subprocesso)
 
@@ -72,7 +70,7 @@ Instalação opcional: `sudo apt-get install -y ripgrep jq unzip` (o usuário es
 ```bash
 cd /home/eudespatricio/3DCreation
 uv venv --python 3.12 .venv
-uv pip install -e ".[dev]"        # pyproject ainda não existe [P1]
+uv pip install -e ".[dev]"
 forge3d doctor
 ```
 

@@ -8,8 +8,8 @@
 | Fase | Objetivo | Precisa de GPU? | Portão de saída |
 |---|---|---|---|
 | **P0** | Escopo, arquitetura e contratos | não | este repositório de documentos + schemas válidos |
-| **P0.5** | Fechar decisões abertas que travam código | não | Q2 e Q6 decididas; `check-contexto.sh` verde |
-| **P1** | Rota `blocky` + `import` de ponta a ponta | não | 2 runs ⇒ mesmos hashes; 3 assets importados no Godot sem correção manual |
+| **P0.5** ✔ | Q2/Q6 fechadas e portão de contexto | não | **concluída em 10/11/2026** (D23, D24, `check-contexto.sh`) |
+| **P1** ✔ | Rotas `blocky` + `import` de ponta a ponta | não | **concluída em 10/11/2026**: 2 runs byte-idênticos, rerun = 0 trabalho, QC G1–G9 verde |
 | **P2** | Perfil `roblox-r15` | não | um rig R15 importa no Studio com `Humanoid` e anima |
 | **P3** | Rota `mesh` com stack local | **sim** | 10 assets com QC aprovado, tempo e VRAM medidos e registrados |
 | **P4** | Rota `modular` (WFC) | não | uma dungeon de 10 setores com colisão por setor e seed fixa |
@@ -26,14 +26,14 @@ interna entre documentos (nomes de campo, exit codes, IDs de invariante).
 
 **Não faz:** código, instalação de modelo, dependência pesada.
 
-## P0.5 — Destravar
+## P0.5 — Destravar — ✔ concluída
 
 **Entrega:** Q2 (allowlist de destino) e Q6 (onde mora `.forge/`) decididas e escritas em `DECISOES.md`;
 `tools/check-contexto.sh` aplicando os tetos; `scan_repo.py` portado para o lens Python/Blender.
 
 **Portão:** `bash tools/check-contexto.sh` sai `0`; nenhum `Q` aberto que bloqueie P1.
 
-## P1 — Rota `blocky` e `import` (o coração)
+## P1 — Rota `blocky` e `import` (o coração) — ✔ concluída
 
 Escopo mínimo que prova o desenho inteiro **sem GPU**:
 
@@ -45,6 +45,11 @@ Escopo mínimo que prova o desenho inteiro **sem GPU**:
 6. `publish/` atômico + manifesto + índice SQLite + ledger;
 7. CLI com os seis subcomandos e exit codes;
 8. `tests/invariants/` cobrindo I1–I5, I8–I14.
+
+**Medido em 10/11/2026:** 3 itens em 2.082 ms (cache frio) e 476 ms (cache quente, trabalho 0);
+sha256 idênticos em 12 artefatos entre dois runs; `verify` detecta arquivo adulterado (exit 3);
+rota `import` reprocessa um GLB pronto em 0,55 m com QC aprovado. **Falta** o teste de import no
+Godot (GAP-011) — o portão desceu de "entra no jogo" para "QC + manifesto", e está registrado.
 
 **Portão (todos):**
 - `forge3d run examples/lote_01.yaml` duas vezes ⇒ **hashes idênticos** (I1);

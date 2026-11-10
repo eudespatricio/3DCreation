@@ -24,10 +24,13 @@
 | `examples/lote_01.yaml` | lote de referência, executável | exemplo canônico e fixture de teste |
 | `tools/check-p0.py` | portão do P0: schemas, exemplos, tetos, I12, I14 | antes de dizer "P0 fechada" |
 | `skills/context-recovery/` | protocolo de recuperação de contexto + templates | assumir projeto herdado / auditar |
-| *(P1)* `src/forge3d/` | `cli` `spec` `plan` `providers` `post` `qc` `publish` `resources` | implementação |
-| *(P1)* `blender/*.py` | scripts `bpy` rodados com `--background` | pós-processo, LOD, colisor, rig |
-| *(P1)* `tests/invariants/` | cada invariante como teste executável | portão de CI |
-| *(P1)* `.forge/` | `cache/`, `locks/`, `runs/` (ledger e staging) | depurar run |
+| `src/forge3d/` | `spec` `plan` `qc` `publish` `pipeline` `doctor` `locks` `canonical` `config` `paths` | implementação |
+| `src/forge3d/cli/` | `comandos.py` (7 subcomandos) + `main.py` | contrato CLI |
+| `src/forge3d/providers/` | `base` `blocky` `importer` | adicionar rota |
+| `src/forge3d/post.py` + `blender/postprocess.py` | subprocesso + script `bpy` | pós-processo, LOD, colisor, rig |
+| `tests/` | `tests/test_unidade.py` + `tests/invariants/test_invariantes_e2e.py` | portão de CI |
+| `$FORGE3D_HOME` | `cache` `runs` `staging` `locks` `indice.sqlite` `ledger.jsonl` `saida/` | depurar run |
+| `~/.config/forge3d/allowlist.yaml` | destinos autorizados (D23) | publicar em projeto de jogo |
 
 ## Armadilhas conhecidas
 
@@ -45,3 +48,7 @@
    byte-idêntica (I1). Prometer D1 para `mesh` é mentir para o CI.
 7. **Nome de franquia é passivo jurídico.** `minecraft_bedrock` foi aceito como alias legado, mas o
    valor canônico é `blocky_voxel` (I14).
+8. **Alterou a saída de um provider sem subir `VERSAO`?** O cache serve o artefato velho e o QC
+   passa. Mudou geometria/atlas ⇒ suba a versão do provider — ela entra na chave de cache (D6).
+9. **G1 solda antes de contar não-manifold.** glTF divide vértice em cada costura de UV; sem soldar,
+   todo asset importado parece ter borda aberta. O gate mede topologia soldada de propósito.

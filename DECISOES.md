@@ -29,6 +29,14 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Ollama | `llama3.1`, `qwen2.5-coder:7b`; **contexto efetivo 4.096** | `ollama list`; contexto medido no projeto `conselho` (DECISOES §1) |
 | Diretório do projeto | `/home/eudespatricio/3DCreation` — **vazio** antes desta sessão | `ls -la` |
 | `edit` em caminho UNC | **falha** com `GetFileSecurityW EIO` (reproduzido nesta sessão) | tentativa de editar `docs/perfis-export.md` pelo harness |
+| `run` 3 itens, cache frio | **2.082 ms**, exit 0, 3 publicados | `date +%s%N` em 10/11/2026 |
+| `run` 3 itens, cache quente | **476 ms**, `cache_hits: 3`, `trabalho_executado: 0` | idem |
+| `plan` 3 itens | **141 ms** | idem |
+| `verify` 3 manifestos / 12 arquivos | **127 ms** | idem |
+| Determinismo D1 | **sha256 idênticos** nos 12 artefatos entre 2 runs com cache limpo | `tests/invariants/test_i1_determinismo` |
+| Asset `mob.skeleton.guard` | 72 tris · bbox 0,814×1,85×0,333 m · 23 ossos · 1 colisor convexo · 5 arquivos · 38.619 B | manifesto publicado |
+| Suíte de testes | **26 verdes** (17 unidade + 9 ponta a ponta) em ~75 s | `python -m pytest -q` |
+| Estimativa do `plan` | 9,0 s estimados × 2,08 s reais para 3 itens (≈3× conservador) | comparação dos dois relatórios |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): tempo por asset em
 qualquer modelo 3D, VRAM real por modelo, comportamento do importador Roblox, desempenho do `uv`
@@ -60,6 +68,10 @@ resolvendo `torch`.
 | D20 | Spec é **versionada** (`forge3d/spec@1`) e validada por JSON Schema antes de qualquer provider | contrato silencioso quebra os pipes dos jogos sem aviso |
 | D21 | Erros têm **código estável** `FORGE-E-*` além do exit code | pipe precisa ramificar por causa, não por parse de mensagem |
 | D22 | **ComfyUI não é dependência da v0**; quando a Rota B entrar, a interface é HTTP/CLI atrás de provider | stack mais pesada do ambiente para uma função que `sd.cpp`/`sf3d` cobrem |
+| D23 | **Allowlist de destino** em `~/.config/forge3d/allowlist.yaml`; sandbox do próprio Forge3D sempre liberado; **sem flag de bypass**; autorizar é `forge3d allowlist add` | deny by default — destino errado publica asset no projeto errado e não há desfazer barato (fecha Q2) |
+| D24 | **Estado centralizado** em `$FORGE3D_HOME` (`~/.local/state/forge3d`): cache, runs, staging, locks, índice, ledger, saída. Nenhum `.forge/` no diretório de execução | rodar de dentro de um jogo não cria pasta nem arquivo no jogo (fecha Q6) |
+| D25 | **Isolamento por padrão**: sem leitura de config a partir do cwd, sem escrita fora do estado próprio ou de destino autorizado, sem import de código de projeto de jogo | exigência explícita do operador (10/11/2026): o utilitário tem que funcionar independente de projeto |
+| D26 | **Núcleo leve**: `jsonschema` + `PyYAML` + `Pillow` e `argparse`; sem pydantic/typer/rich/orjson/numpy | o schema é a fonte de verdade; instalar em segundos é o que deixa `plan` rodar no CI |
 
 ## 3. Rejeitados (e por quê)
 
@@ -82,11 +94,11 @@ resolvendo `torch`.
 | # | Pergunta | Quando fecha | Bloqueia |
 |---|---|---|---|
 | Q1 | Nome definitivo do produto (`forge3d` é provisório) | antes de publicar o pacote | nada — é reversível |
-| Q2 | Mecanismo da allowlist de destino: arquivo de configuração × flag explícita por run | P0.5 | I13 |
+| ~~Q2~~ | **Resolvida em 10/11/2026 por D23** — allowlist em arquivo global, sandbox próprio liberado, sem bypass | — | — |
 | Q3 | Escala/rig do Roblox R15: 1 stud ≈ 0,28 m, nomes de membro e formato de animação | teste com o importador no P2 | I8 no perfil Roblox |
 | Q4 | Biblioteca de WFC para `modular` | P4 | Rota C |
 | Q5 | Modelo de mesh: SF3D (licença Stability, exige registro e teto US$ 1 M) × TripoSR (MIT) | P3, com A/B de 10 assets | Rota `mesh`, D18 |
-| Q6 | Onde mora `.forge/` (cache/locks): por projeto consumidor × central em `~/.cache/forge3d` | P1 | D6 |
+| ~~Q6~~ | **Resolvida em 10/11/2026 por D24** — estado central em `$FORGE3D_HOME`, nada no repo do jogo | — | — |
 | Q7 | Assets versionados no git do jogo: direto × Git LFS | antes do primeiro asset real no GameZero | nada técnico |
 
 ## 5. Herdado do projeto `conselho` (aplicado aqui)

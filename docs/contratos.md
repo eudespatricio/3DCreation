@@ -26,7 +26,7 @@ Exemplo canônico: [`../examples/lote_01.yaml`](../examples/lote_01.yaml).
 | `schema` | string | sim | constante `forge3d/spec@1` |
 | `projeto` | string | sim | slug `^[a-z][a-z0-9_-]*$` |
 | `perfil` | string | sim | `godot4` \| `roblox-r15` \| caminho para YAML de perfil |
-| `destino_exportacao` | string | sim | sob allowlist (Q2); recusa `/mnt/*` e UNC |
+| `destino_exportacao` | string | sim | sob allowlist (D23); `~` é expandido; recusa `/mnt/*` e UNC |
 | `estilo_global` | string | não | `blocky_voxel` \| `lowpoly_lit` \| `stylized_pbr`. Default vem do perfil |
 | `paleta` | string[] | não | 1–16 cores `#rrggbb`; usada pela rota `blocky` |
 | `politica` | objeto | não | `falha` (`continuar`\|`abortar`), `custo_max_min` (int), `seed_base` (int) |
@@ -80,7 +80,8 @@ Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o 
 | Campo | Tipo | Conteúdo |
 |---|---|---|
 | `schema` | string | `forge3d/manifest@1` |
-| `asset_id` / `projeto` / `perfil` | string | identidade e alvo |
+| `asset_id` / `projeto` / `perfil` / `rota` | string | identidade, alvo e técnica de geração |
+| `tags` | string[] | rótulos do item; consultáveis por `forge3d query --tag` |
 | `spec_hash` | string | `sha256:` do spec canônico que originou o asset |
 | `pipeline_version` | string | versão do Forge3D (git describe) — entra na chave de cache |
 | `determinism` | string | `D1` \| `D2` \| `D3` |
@@ -146,7 +147,9 @@ Schema completo: [`../schemas/manifest.v1.schema.json`](../schemas/manifest.v1.s
 | `6` | recurso ocupado/insuficiente (GPU, lock) | **retry depois**, não é bug |
 | `7` | parcial: parte publicada, parte bloqueada/falhou | tratar como sucesso com pendência |
 
-Precedência quando há várias causas: `4 > 2 > 6 > 5 > 3 > 7 > 0`.
+Quando **nada** foi publicado, vale a causa mais grave (`4 > 2 > 6 > 5 > 3`). Quando **algo** foi
+publicado e algo falhou ou ficou bloqueado, o lote é **parcial**: `7`. `0` só quando todo item
+publicou ou veio do cache.
 
 ## 6. Códigos de erro e aviso
 

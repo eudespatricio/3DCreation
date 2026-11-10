@@ -1,7 +1,7 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 10/11/2026 · **P0 fechada:** escopo, arquitetura e contratos escritos.
-**Zero código de pipeline. Zero dependência instalada. Zero modelo baixado.**
+**Data:** 10/11/2026 · **P0 e P1 fechadas.** A esteira funciona de ponta a ponta nas rotas `blocky` e
+`import`, sem GPU, com QC como portão. 26 testes verdes.
 Este arquivo é autossuficiente: a conversa pode ser fechada.
 
 ---
@@ -10,140 +10,116 @@ Este arquivo é autossuficiente: a conversa pode ser fechada.
 
 **Forge3D** é um utilitário de linha de comando que transforma um **lote declarativo** (YAML/JSON) em
 assets 3D de jogo verificáveis — `.glb` com escala, pivô, LOD, colisão, rig e manifesto — e publica de
-forma atômica na pasta do projeto consumidor.
+forma atômica num destino autorizado.
 
-Nasceu de um desenho do operador (orquestrador → rotas A/B/C → Blender headless → GLB no `/assets`) que
-foi auditado nesta sessão. O veredito da auditoria: o desenho está certo no **o quê** e incompleto no
-**como plugar** — ver [`docs/avaliacao.md`](docs/avaliacao.md).
+Requisito duro do operador (10/11/2026): **o utilitário é independente de projeto**. Não lê config do
+diretório onde roda, não escreve nada fora do próprio estado, não importa código de jogo. A fronteira
+é CLI + arquivo de lote (D25).
 
 ## Onde paramos
 
-- P0 entregue: 7 documentos residentes, 10 documentos de engenharia, 2 schemas JSON, 2 perfis de
-  export, 2 lotes de exemplo, skill `context-recovery` adaptada.
-- O diretório `/home/eudespatricio/3DCreation` estava **vazio** no início desta sessão.
-- Nada de código foi escrito (D1: P0 é só documento, por decisão do operador).
+- **P0** — arquitetura, contratos (`spec@1`, `manifest@1`), 2 perfis de export, docs de processo.
+- **P0.5** — Q2/Q6 fechadas (D23 allowlist, D24 estado central), `tools/check-contexto.sh` no ar.
+- **P1** — pipeline completo das rotas `blocky` e `import`: validar → planejar → gerar → pós-processar
+  (Blender 4.2) → QC G1–G9 → cache → publicar atômico → manifesto → índice SQLite → ledger.
+- **Não feito:** rotas `mesh` (P3) e `modular` (P4), perfil Roblox validado no Studio (P2), animação.
 
-## Decisões que o operador tomou nesta sessão
+## Números medidos nesta máquina (10/11/2026)
 
-| Pergunta | Resposta |
+| Medida | Valor |
 |---|---|
-| Contrato de consumo | **CLI + arquivo de lote** (sem HTTP, sem MCP, sem import de biblioteca) |
-| Alvos de export | **Godot 4** e **Roblox R15/blocky** |
-| Escopo desta sessão | **só arquitetura e documentos de processo** |
-| Stack GPU | **não instalar agora** — provider plugável, `doctor` diz o que falta |
+| `run` com 3 itens, cache frio | **2.082 ms** (exit 0, 3 publicados) |
+| `run` com cache quente | **476 ms** — `cache_hits: 3`, `trabalho_executado: 0` |
+| `plan` (3 itens) | **141 ms** |
+| `verify` (3 manifestos, 12 arquivos) | **127 ms** |
+| Determinismo D1 | **sha256 idênticos** nos 12 artefatos entre dois runs com cache limpo |
+| Asset `mob.skeleton.guard` | 72 tris, bbox 0,814 × 1,85 × 0,333 m, **23 ossos**, 1 colisor convexo, 5 arquivos, 38.619 B |
+| Suite | **26 testes** (17 unidade + 9 ponta a ponta), ~75 s |
 
-## O achado que define a próxima fase
+## O que está decidido (não reabrir sem evidência nova)
 
-Das 14 lacunas levantadas, **11 não são de IA** — são contrato, estado, verificação, recurso e licença.
-Geração é ~20 % do problema. A esteira só é chamável por outro pipe quando tem:
+`D3` CLI-only · `D5` plan/run/verify/publish · `D7` D1/D2/D3 · `D9` QC sem bypass · `D11` GPU
+serializada · `D14` animação fora da v0 · `D18` licença é gate · `D19` naming neutro ·
+**`D23` allowlist de destino** · **`D24` estado central** · **`D25` isolamento por padrão** ·
+**`D26` núcleo leve (3 dependências)**.
 
-1. `plan` (custo e cache sem gastar GPU);
-2. cache por conteúdo (rerun = zero trabalho);
-3. QC como portão (asset ruim não entra calado);
-4. `publish` atômico + manifesto (rastreabilidade e licença);
-5. governança de VRAM (6 GB não comportam dois modelos).
+Invariantes `I1`–`I14`: 9 automatizados, ver [`INVARIANTES.md`](INVARIANTES.md) § Estado da automação.
 
-## Decidido — não reabrir sem evidência nova
+## Aberto (não bloqueia P2)
 
-`D3` CLI-only · `D5` plan/run/verify/publish · `D7` D1/D2/D3 separados · `D9` QC sem bypass ·
-`D11` GPU opcional e serializada · `D14` animação fora da v0 · `D18` licença é gate ·
-`D19` naming neutro (`blocky_voxel`) · `D20` spec versionada.
-Invariantes `I1`–`I14` em [`INVARIANTES.md`](INVARIANTES.md) (verificáveis: I12 e I14 já hoje).
-
-## Aberto — fecha em P0.5
-
-| # | Pergunta | Bloqueia |
+| # | Pergunta | Fecha em |
 |---|---|---|
-| **Q2** | allowlist de destino: arquivo de config × flag por run | I13 |
-| **Q6** | `.forge/` (cache/locks) por projeto consumidor × central em `~/.cache/forge3d` | D6 |
-| Q1 | nome definitivo (`forge3d` é provisório) | publicação do pacote |
-| Q3 | escala/rig Roblox (0,28 m por stud) | perfil Roblox em P2 |
-| Q5 | SF3D × TripoSR (licença × qualidade) | rota `mesh` em P3 |
-| Q7 | assets no git do jogo: normal × LFS | primeiro asset real |
+| Q1 | nome definitivo do produto (`forge3d` é provisório) | antes de publicar o pacote |
+| Q3 | escala/rig do Roblox (0,28 m por stud; PBR por `SurfaceAppearance`) | P2, com teste no Studio |
+| Q5 | SF3D × TripoSR (licença × qualidade) | P3, com A/B de 10 assets |
+| Q7 | assets no git do jogo: normal × LFS | antes do primeiro asset real |
 
-## Próximo passo
+## Próximo passo: P2 — perfil Roblox
 
-**P0.5 (~meio dia, sem GPU):** decidir Q2 e Q6; criar `tools/check-contexto.sh`; portar `scan_repo.py`
-para o lens Python/Blender; fechar GAP-001 a GAP-004.
+1. Rodar `forge3d run` com `perfil: roblox-r15` e o mesmo lote.
+2. Importar no Studio: `Humanoid`, pivô por junta, escala em studs, textura.
+3. Fechar U1–U4 em [`docs/perfis-export.md`](docs/perfis-export.md) e a Q3.
+4. Se o importador divergir do previsto, **corrige-se o perfil**, não o código (D4).
 
-**Depois P1 — rota `blocky` + `import` de ponta a ponta.** É onde o desenho é provado sem GPU.
+**Portão de saída de P2:** modelo importado no Studio com `Humanoid`, membros girando no pivô certo,
+escala correta em studs, e nenhum `[verificar]` pendente nesse perfil.
 
-**Portão de saída de P1 (todos, falsificáveis):**
+## Comandos
 
-- `forge3d run examples/lote_01.yaml` duas vezes ⇒ **hashes idênticos**;
-- segunda execução ⇒ `trabalho_executado: 0`;
-- os 3 assets do exemplo entram no GameZero **sem ajuste manual** de escala, pivô ou material;
-- `verify` pega um `.glb` alterado à mão ⇒ `exit 3`;
-- spec com erro ⇒ `exit 2` sem instanciar provider.
+```bash
+cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-## Fatos medidos (não repita a medição)
+forge3d doctor                     # ambiente: blender, perfis, schemas, VRAM, disco
+forge3d validate examples/lote_01.yaml
+forge3d plan     examples/lote_01.yaml      # custo e cache, sem GPU
+forge3d run      examples/lote_01.yaml      # gera, verifica, publica
+forge3d verify   ~/.local/state/forge3d/saida/lote_01
+forge3d query    --max-tris 100 --json
+forge3d allowlist list             # destinos autorizados
 
-| Fato | Valor |
-|---|---|
-| Blender headless | 4.2.0 em `~/.local/bin/blender`; export GLB OK; Draco disponível |
-| Python do Blender | 3.11 embutido (não instalar pacote nele) |
-| Python do sistema | 3.14.4 — **inadequado** para `torch` |
-| Python via `uv` | 3.10.22 · 3.11.16 · **3.12.14** já instalados |
-| GPU | RTX 3060 Laptop, **6.144 MiB**, driver 617.42, `/dev/dxg` presente |
-| RAM / disco | 15 GB / 868 GB livres |
-| Ausentes | `rg`, `jq`, `ffmpeg`, `unzip`, `git-lfs` |
-| Presentes | `git` 2.53, `uv`, `docker`, ImageMagick, rede (pypi/github 200) |
-| Ollama | `llama3.1`, `qwen2.5-coder:7b`; **contexto efetivo 4.096** |
+python -m pytest -q                # 26 testes
+bash tools/check-contexto.sh       # tetos de contexto
+```
 
 ## Arquivos
 
 | Arquivo | O que é |
 |---|---|
-| `README.md` | o projeto, o contrato CLI, as rotas |
-| `AGENTS.md` | ordem de leitura + regras duras para agente |
-| `MAPA.md` | onde cada responsabilidade mora + armadilhas |
-| `CONSELHOS.md` | quando convocar conselho; **registro do Conselho #1** (esta sessão) |
-| `DECISOES.md` | §1 fatos medidos · §2 D1–D22 · §3 rejeitados · §4 Q1–Q7 · §5 herdado |
-| `INVARIANTES.md` | I1–I14 com comando de verificação |
-| `docs/avaliacao.md` | **auditoria do desenho original**: 14 lacunas, 6 contradições, 5 excessos |
-| `docs/arquitetura.md` | fluxo, camadas, fronteiras, determinismo, falha, publicação |
+| `README.md` | o produto, o contrato CLI, isolamento |
+| `AGENTS.md` | ordem de leitura + regras duras |
+| `MAPA.md` | onde cada responsabilidade mora + 9 armadilhas |
+| `CONSELHOS.md` | quando convocar conselho + registro do Conselho #1 |
+| `DECISOES.md` | §1 fatos medidos · §2 D1–D26 · §3 rejeitados · §4 Q em aberto |
+| `INVARIANTES.md` | I1–I14 + estado da automação |
+| `docs/avaliacao.md` | auditoria do desenho original (14 lacunas, 6 contradições) |
+| `docs/arquitetura.md` | fluxo, camadas, determinismo, falha, publicação, isolamento |
 | `docs/contratos.md` | `spec@1`, `manifest@1`, exit codes, `FORGE-E-*` |
-| `docs/rotas-e-providers.md` | `blocky` · `import` · `mesh` · `modular` + interface de provider |
-| `docs/perfis-export.md` | `godot4` e `roblox-r15`: eixos, escala, pivô, rig, colisão |
-| `docs/qc-e-verificacao.md` | gates G1–G9 e o `verify` de CI |
-| `docs/dependencias.md` | versões pinadas, o que instalar, o que **não** instalar |
-| `docs/riscos-e-licencas.md` | tabela de modelos 6 GB com licença e rótulo de evidência |
-| `docs/roadmap.md` | P0–P6 com portão de saída por fase |
-| `docs/gaps.md` | GAP-001..014 com condição de fechamento |
-| `schemas/spec.v1.schema.json` | contrato de entrada (fonte de verdade) |
-| `schemas/manifest.v1.schema.json` | contrato de saída (fonte de verdade) |
-| `profiles/godot4.yaml` · `profiles/roblox-r15.yaml` | perfis de export |
-| `examples/lote_01.yaml` | fixture canônica (3 assets, rota `blocky`) |
-| `examples/lote_02_rotas.yaml` | referência de `mesh` e `modular` |
-| `examples/manifest.exemplo.json` | manifesto completo ilustrativo (valida contra `manifest@1`) |
-| `tools/check-p0.py` | portão do P0 — roda e sai `0` |
-| `skills/context-recovery/` | protocolo + templates |
+| `docs/rotas-e-providers.md` | as 4 rotas + interface de provider |
+| `docs/perfis-export.md` | `godot4` e `roblox-r15` |
+| `docs/qc-e-verificacao.md` | gates G1–G9 |
+| `docs/dependencias.md` | 3 dependências de runtime, versões pinadas |
+| `docs/riscos-e-licencas.md` | modelos em 6 GB com licença e rótulo de evidência |
+| `docs/roadmap.md` | P0–P6 com portão por fase |
+| `docs/gaps.md` | GAP-001..018 com condição de fechamento |
+| `src/forge3d/` | 13 módulos (ver `MAPA.md`) |
+| `blender/postprocess.py` | script `bpy`: construir, rig, normalizar, LOD, colisor, exportar, medir |
+| `tests/` | unidade + invariantes de ponta a ponta |
+| `tools/check-contexto.sh` · `tools/check-p0.py` | portões (contexto e documentos) |
 
 ## Regras invioláveis (top 6)
 
-1. **P0 é só documento.** Código só em P1, com autorização explícita.
-2. **Nenhum número sem rótulo** `[medido]`/`[estimado]`/`[verificar]` — `DECISOES.md` §1 é a única
-   fonte de fato medido.
-3. **Contrato é lei.** Mudou `schemas/`? Suba a versão e registre. Não existe mudança silenciosa.
-4. **Nada escreve no destino fora de `publish`** (atômico). QC reprovado não publica.
-5. **Nunca prometer D1 para diffusion** — só `blocky`/`import`/`modular` são byte-idênticos.
-6. **Nada roda sobre `/mnt/c` ou UNC.**
-
-## Como verificar em 1 minuto
-
-```bash
-uv run --no-project --python 3.12 --with pyyaml --with jsonschema python tools/check-p0.py
-```
-
-Sai `0` = documentos coerentes, schemas válidos, tetos respeitados. Sai `1` = o que falhou está
-listado, com arquivo e linha.
+1. **Nada roda sobre `/mnt/c` ou UNC**; estado é sempre ext4 sob `/home` (I12).
+2. **Nenhuma escrita fora do destino autorizado** (I3, I13). Autorizar é `forge3d allowlist add`.
+3. **QC reprovado não publica** e não existe bypass (I5).
+4. **Diffusion nunca é D1.** Só `blocky`/`import`/`modular` prometem byte-idêntico (D7).
+5. **Mudou a saída de um provider? Suba `VERSAO`** — a versão entra na chave de cache (D6).
+6. **Blender é 4.2.x, subprocesso, canal JSON**; nunca `pip install` no Python dele (I9).
 
 ## Como retomar
 
 Cole na nova sessão:
 
 > Leia `3DCreation/CONTINUAR.md`, `3DCreation/MAPA.md` e `3DCreation/DECISOES.md` §2 e §4.
-> A P0 está fechada (só documentos, nenhum código). O operador escolheu: contrato CLI + lote,
-> alvos Godot 4 e Roblox R15, GPU só depois. Não escreva código de pipeline ainda.
-> Comece fechando Q2 (allowlist de destino) e Q6 (local do `.forge/`), depois faça o P0.5:
-> `tools/check-contexto.sh` + portar `scan_repo.py`. Sem só depois autorize P1.
+> P0 e P1 estão fechadas: rotas `blocky` e `import` funcionam sem GPU, 26 testes verdes, determinismo
+> D1 comprovado por hash. O operador exige isolamento total do utilitário (D25). Não reabra D3–D26.
+> Próximo passo: **P2 — perfil Roblox**, fechando U1–U4 e a Q3 com teste real no Studio.

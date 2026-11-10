@@ -98,7 +98,8 @@ resultados e nenhuma memória. No corrigido, rodar duas vezes produz **zero trab
 3. **Reprovar** geração acoplada: sem `plan`, sem cache e sem QC, a esteira não é chamável por outro
    pipe — é um script pessoal com boa propaganda.
 4. **Adiar** Rota C, animação e dependência de ComfyUI (E1–E5).
-5. **Fechar antes de P1**: Q2 (allowlist de destino) e Q6 (onde mora o cache).
+5. **Fechado antes de P1:** Q2 virou **D23** (allowlist de destino) e Q6 virou **D24** (estado
+   central) em 10/11/2026 — ver `DECISOES.md` §2.
 
 Detalhamento em [`arquitetura.md`](arquitetura.md); números de modelo em
 [`riscos-e-licencas.md`](riscos-e-licencas.md).

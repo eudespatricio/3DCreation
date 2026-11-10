@@ -29,6 +29,12 @@
     },
     "projeto": { "type": "string", "minLength": 1 },
     "perfil": { "type": "string", "minLength": 1 },
+    "rota": { "enum": ["blocky", "import", "mesh", "modular"] },
+    "tags": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" }
+    },
     "spec_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "pipeline_version": { "type": "string", "minLength": 1 },
     "determinism": { "enum": ["D1", "D2", "D3"] },

@@ -4,9 +4,8 @@ __pycache__/
 .venv/
 venv/
 
-# Estado local da pipeline (cache, locks, staging, runs)
-.forge/
-staging/
+# Estado da pipeline NAO mora no repo: fica em $FORGE3D_HOME (~/.local/state/forge3d).
+# Ver D24 em DECISOES.md. Nada de cache, runs, staging ou lock entra aqui.
 *.lock
 
 # Saídas de exemplo e temporários

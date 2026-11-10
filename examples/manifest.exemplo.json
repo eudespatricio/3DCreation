@@ -1,8 +1,10 @@
 {
   "schema": "forge3d/manifest@1",
   "asset_id": "weapon.sword.fire.01",
-  "projeto": "gamezero",
+  "projeto": "demo",
   "perfil": "godot4",
+  "rota": "blocky",
+  "tags": ["weapon", "sword", "fire"],
   "spec_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "pipeline_version": "0.1.0-p0",
   "determinism": "D1",

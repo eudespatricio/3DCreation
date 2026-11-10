@@ -2,9 +2,10 @@
 # Valida contra schemas/spec.v1.schema.json. E a fixture usada pelos testes de invariante.
 schema: forge3d/spec@1
 
-projeto: gamezero
+projeto: demo
 perfil: godot4
-destino_exportacao: /home/eudespatricio/Games/GameZero/assets/importados
+# destino sempre dentro do sandbox do proprio Forge3D (deny by default)
+destino_exportacao: ~/.local/state/forge3d/saida/lote_01
 estilo_global: blocky_voxel
 
 paleta:

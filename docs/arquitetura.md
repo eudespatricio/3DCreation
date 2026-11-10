@@ -31,6 +31,7 @@ Duas exigências dominam o desenho:
 | P8 | **Engine não entra na lógica** | engine entra em perfil (declarativo) |
 | P9 | **Todo artefato é rastreável** | `spec_hash` + provider + versão + seed + licença |
 | P10 | **Degradar é preferível a falhar** | GPU fora → `blocky` continua, `mesh` fica `blocked` |
+| P11 | **Isolamento por padrão** | sem config do cwd, sem escrita fora do estado próprio ou de destino autorizado (D23–D25) |
 
 ## 3. Fluxo
 
@@ -159,17 +160,20 @@ erro inesperado. **QC reprovado nunca é "continuar"**: é `rejected` e segue.
 ## 9. Publicação e persistência
 
 ```
-.forge/
+$FORGE3D_HOME  (~/.local/state/forge3d)   # nada disto mora no repositório do jogo (D24)
 ├── cache/<chave>/            # artefatos D1/D2 já aprovados, endereçados por conteúdo
 │   ├── final/                # .glb, texturas, colisão
-│   └── manifesto.json
-├── staging/<asset_id>/       # trabalho em andamento (efêmero)
+│   └── entrada.json          # resultado + QC + provider do cache hit
+├── staging/<run_id>/<id>/    # trabalho em andamento (efêmero)
 ├── locks/gpu.lock
 ├── runs/<run_id>/
 │   ├── plano.json            # o que foi decidido ANTES de executar
-│   ├── relatorio.json        # resultado por item
-│   └── ledger.jsonl          # append-only, 1 linha por evento
-└── indice.sqlite             # consultável: id, tags, tris, perfil, licença, hash
+│   └── relatorio.json        # resultado por item
+├── ledger.jsonl              # append-only, 1 linha por run
+├── indice.sqlite             # consultável: id, rota, tags, tris, perfil, licença
+└── saida/<lote>/             # sandbox público: sempre gravável, nunca de terceiro
+
+~/.config/forge3d/allowlist.yaml   # únicas raízes externas graváveis (D23)
 ```
 
 - **Cache** é o que torna o rerun barato. Chave = conteúdo, não `mtime`.
@@ -201,15 +205,30 @@ mais é stdlib-leve. Isso mantém `forge3d plan` rodando em CI sem instalar meio
 ├── examples/        # lote_01.yaml (fixture canônica)
 ├── skills/context-recovery/
 │
-├── pyproject.toml            [P1]
+├── pyproject.toml
 ├── src/forge3d/
-│   ├── cli/  spec/  plan/  providers/  post/  qc/  publish/  resources/   [P1]
+│   ├── cli/            comandos.py (7 subcomandos) · main.py
+│   ├── paths.py        três raízes: dados, config, estado (D24)
+│   ├── config.py       allowlist de destino + guarda de caminho (D23)
+│   ├── spec.py         normalização, schema, regras B1–B10
+│   ├── profiles.py     carregar perfil + consultas de default
+│   ├── plan.py         tarefas, chave de cache, resumo
+│   ├── post.py         subprocesso do Blender (canal JSON)
+│   ├── qc.py           parser GLB + gates G1–G9
+│   ├── publish.py      manifesto, índice, ledger, verify
+│   ├── pipeline.py     orquestração do lote
+│   ├── doctor.py       preflight
+│   ├── locks.py        lock de GPU
+│   ├── canonical.py    JSON canônico, sha256, chave de cache
+│   └── providers/      base.py · blocky.py · importer.py
 ├── blender/
-│   ├── postprocess.py  lod.py  collider.py  rig_transfer.py  export.py   [P1]
+│   └── postprocess.py  construir, rig, normalizar, LOD, colisor, exportar, medir
 ├── tests/
-│   ├── unit/  invariants/  fixtures/                                      [P1]
+│   ├── test_unidade.py
+│   └── invariants/test_invariantes_e2e.py
 └── tools/
-    └── check-contexto.sh     # tetos de MAPA/AGENTS/INVARIANTES/CONTINUAR   [P0.5]
+    ├── check-contexto.sh   tetos de contexto (sem dependência)
+    └── check-p0.py         portão dos documentos
 ```
 
 Nada de código de pipeline em `docs/`, nada de contrato em código. Schema em `schemas/` é a única
@@ -235,7 +254,8 @@ assets: assets/lote.yaml
 	forge3d run $< --json || (echo "forja falhou"; exit 1)
 ```
 
-**Projeto que só quer o asset já pronto:** consome `destino/manifest.json` — não precisa do Forge3D.
+**Projeto que só quer o asset já pronto:** consome `<asset_id>.manifest.json` no destino — não precisa
+do Forge3D instalado (e nunca precisa do código dele).
 
 ## 13. Não-objetivos (v0)
 

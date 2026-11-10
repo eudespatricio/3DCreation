@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forge3d"
+version = "0.1.0"
+description = "Esteira de assets 3D por demanda: lote declarativo -> GLB verificado. Independente de projeto."
+requires-python = ">=3.12"
+dependencies = [
+  "jsonschema>=4.21,<5",
+  "PyYAML>=6.0,<7",
+  "Pillow>=10,<12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+forge3d = "forge3d.cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/forge3d"]
+
+# schemas/ e profiles/ sao fonte de verdade na raiz do repo E dados do pacote:
+# uma copia entra no wheel para o utilitario funcionar instalado, sem o repo.
+[tool.hatch.build.targets.wheel.force-include]
+"schemas" = "forge3d/data/schemas"
+"profiles" = "forge3d/data/profiles"
+"blender" = "forge3d/data/blender"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "blender: exige o binario do Blender 4.2",
+  "lento: execucao de ponta a ponta, varios segundos",
+]
+addopts = "-q"

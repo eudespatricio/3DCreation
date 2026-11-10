@@ -151,6 +151,25 @@ grep -rniE "minecraft|fortnite|zelda|mario|pokemon|call of duty" examples/ profi
 Esperado: `OK: nenhuma franquia`. `minecraft_bedrock` é aceito **só** como alias legado de entrada,
 com aviso de depreciação, e nunca aparece em manifesto publicado.
 
+## Estado da automação (P1, 10/11/2026)
+
+| Invariante | Como está |
+|---|---|
+| I1 determinismo | **automatizado** — `test_i1_determinismo` compara sha256 de 12 artefatos em 2 runs com cache limpo |
+| I2 spec inválida | **automatizado** — `test_i2_spec_invalida_sai_2_sem_tocar_provider` |
+| I3 publish atômico | **parcial** — `rename` + manifesto por último implementados; falta teste de observação (GAP-014) |
+| I4 manifesto íntegro | **automatizado** — `test_i4_verify_pega_arquivo_adulterado` |
+| I5 QC sem bypass | **automatizado** — `test_i5_qc_nao_tem_bypass` (varre a fonte) |
+| I6 lock de GPU | implementado em `locks.py`, sem teste (rota `mesh` só em P3) |
+| I7 licença | allowlist implementada em `providers.LICENCAS`; teste quando a rota `mesh` entrar |
+| I8 escala e pivô | **automatizado** — `test_i8_escala_e_pivo_conforme_perfil` |
+| I9 Blender pinado | `doctor` verifica 4.2.x; falta teste dedicado |
+| I10 proveniência | garantida pelo schema do manifesto; falta teste de campo obrigatório |
+| I11 idempotência | **automatizado** — `test_i11_idempotencia_rerun_nao_trabalha` |
+| I12 caminhos proibidos | **automatizado** — `test_i12_recusa_mnt_e_unc` |
+| I13 allowlist | **automatizado** — `test_i13_destino_fora_da_allowlist_falha` e `..._sai_2` |
+| I14 IP neutro | **automatizado** — `tools/check-p0.py` |
+
 ## Ciclo de vida deste arquivo
 
 `INVARIANTES.md` é **artefato de transição** (ver `skills/context-recovery/SKILL.md`, fase 3). Ele existe

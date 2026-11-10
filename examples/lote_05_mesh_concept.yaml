@@ -1,0 +1,30 @@
+# Exemplo da P3.5: concept text-to-image local + i23d, sem `origem` manual.
+# Requer a venv de concept (FORGE3D_VENV_CONCEPT) e a venv de i23d. Rode da raiz do repo:
+#   FORGE3D_I23D_REMOVER_FUNDO=1 forge3d run examples/lote_05_mesh_concept.yaml
+schema: forge3d/spec@1
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/sentinel_concept
+estilo_global: lowpoly_lit
+
+politica:
+  falha: continuar
+  custo_max_min: 5
+  seed_base: 20261110
+
+lote:
+  - id: personagem.sentinel.concept.01
+    tipo: personagem_humanoide
+    rota: mesh
+    prompt: >-
+      full body front view of an original humanoid robot sentinel, T-pose, arms extended,
+      white and black armor with an orange core, game asset concept art
+    altura_metros: 1.80
+    pivot: base
+    limite_triangulos: 8000
+    material: pbr
+    colisao: convex
+    seed: 20261110
+    lod: [100]
+    tags: [exemplo, personagem, concept]

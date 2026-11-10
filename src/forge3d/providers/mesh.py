@@ -25,7 +25,7 @@ from pathlib import Path
 from .. import paths
 from .base import RawAsset
 
-VERSAO = "0.1.0"
+VERSAO = "0.1.2"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
 VRAM_MINIMA_MB = 3500
@@ -33,6 +33,13 @@ TIMEOUT_S = 900
 
 #: diagnóstico da venv é caro (importa torch); cache por processo e por venv
 _DIAGNOSTICO: dict[tuple[str, str], dict] = {}
+
+
+def _device() -> str:
+    """cuda:0 (default) ou cpu; CPU e fallback lento para quando a GPU esta ocupada."""
+    return os.environ.get(
+        "FORGE3D_I23D_DEVICE", os.environ.get("FORGE3D_DEVICE", "cuda:0")
+    ).strip().lower()
 
 
 def modelo_escolhido() -> str:
@@ -148,7 +155,7 @@ def _diagnostico() -> dict:
                         + (detalhe[-1] if detalhe else f"exit {proc.returncode}")
                     ),
                 }
-            elif not info.get("cuda"):
+            elif not info.get("cuda") and not _device().startswith("cpu"):
                 resultado = {"ok": False, "razao": "P3: venv de i23d sem CUDA disponível"}
             else:
                 resultado = {"ok": True, "torch": info.get("torch"), "cuda": True}
@@ -174,7 +181,18 @@ class MeshProvider:
         )
         mc = os.environ.get("FORGE3D_MC_RESOLUTION", "256").strip()
         tex = os.environ.get("FORGE3D_TEX_PX", "512").strip()
-        return f"{VERSAO}+mc{mc}+tex{tex}+rembg{int(rembg)}"
+        concept = (
+            os.environ.get("FORGE3D_MODELO_CONCEPT", "sd15").strip().replace("/", "_")
+        )
+        c_step = os.environ.get("FORGE3D_CONCEPT_PASSOS", "25").strip()
+        c_w = os.environ.get("FORGE3D_CONCEPT_LARGURA", "512").strip()
+        c_h = os.environ.get("FORGE3D_CONCEPT_ALTURA", "512").strip()
+        c_g = os.environ.get("FORGE3D_CONCEPT_GUIDANCE", "7.5").strip()
+        dev = _device().replace(":", "").replace("/", "_")
+        return (
+            f"{VERSAO}+mc{mc}+tex{tex}+rembg{int(rembg)}+concept{concept}"
+            f"+c{c_w}x{c_h}s{c_step}g{c_g}+dev{dev}"
+        )
 
     def _licenca(self) -> dict:
         from . import LICENCAS
@@ -198,7 +216,11 @@ class MeshProvider:
         return {"organic", "riggable", "pbr", "detail"}
 
     def custo(self, item: dict, perfil: dict) -> dict:
-        # medido em 10/11/2026: TripoSR ~18 s de provider (12,6 s de inferencia) + bake 2,8 s + Blender ~2 s
+        # [estimado] mesh medido (23,3 s) + concept SD1.5 (a medir); vram no pico do i23d
+        if _device().startswith("cpu"):
+            return {"segundos_estimados": 220.0 if not item.get("origem") else 200.0, "vram_mb": 0, "disco_mb": 4500}
+        if not item.get("origem"):
+            return {"segundos_estimados": 40.0, "vram_mb": 3500, "disco_mb": 4500}
         return {"segundos_estimados": 25.0, "vram_mb": 3200, "disco_mb": 250}
 
     def preflight(self) -> tuple[bool, str]:
@@ -223,9 +245,10 @@ class MeshProvider:
         if not diagnostico["ok"]:
             return False, diagnostico["razao"]
 
-        livre = _vram_livre_mb()
-        if livre is not None and livre < VRAM_MINIMA_MB:
-            return False, f"P3: VRAM livre {livre} MiB < {VRAM_MINIMA_MB} MiB exigidos"
+        if not _device().startswith("cpu"):
+            livre = _vram_livre_mb()
+            if livre is not None and livre < VRAM_MINIMA_MB:
+                return False, f"P3: VRAM livre {livre} MiB < {VRAM_MINIMA_MB} MiB exigidos"
 
         pesos = _cache_hf() / "models--stabilityai--TripoSR"
         if not pesos.is_dir():
@@ -235,10 +258,24 @@ class MeshProvider:
             f"pronto (TripoSR, torch {diagnostico.get('torch', '?')}, venv {dir_venv().name})"
         )
 
+    def preflight_item(self, item: dict) -> tuple[bool, str]:
+        """Preflight do item: sem `origem`, o estagio concept tambem precisa estar pronto."""
+        pronto, razao = self.preflight()
+        if not pronto:
+            return pronto, razao
+        if item.get("origem"):
+            return True, razao
+        from .concept import ConceptProvider
+
+        c_pronto, c_razao = ConceptProvider().preflight()
+        if not c_pronto:
+            return False, c_razao
+        return True, f"{razao}; concept: {c_razao}"
+
     def gerar(self, item: dict, perfil: dict, destino: Path) -> RawAsset:
         from ..errors import erro_provider_run
 
-        pronto, razao = self.preflight()
+        pronto, razao = self.preflight_item(item)
         if not pronto:
             if "VRAM" in razao:
                 from ..errors import erro_recurso
@@ -255,22 +292,23 @@ class MeshProvider:
             )
 
         origem = item.get("origem")
-        if not origem:
-            raise erro_provider_run(
-                "rota mesh exige 'origem' (PNG de concept) enquanto o provider de concept "
-                "text-to-image não existe (GAP-026)",
-                id=item.get("id"),
-                modelo=modelo_escolhido(),
-            )
-        imagem = Path(str(origem)).expanduser()
-        if not imagem.is_file():
-            raise erro_provider_run(
-                f"imagem de concept inexistente: {imagem}", id=item.get("id")
-            )
-        if imagem.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
-            raise erro_provider_run(
-                f"formato de concept não suportado: {imagem.suffix}", id=item.get("id")
-            )
+        concept_meta = None
+        if origem:
+            imagem = Path(str(origem)).expanduser()
+            if not imagem.is_file():
+                raise erro_provider_run(
+                    f"imagem de concept inexistente: {imagem}", id=item.get("id")
+                )
+            if imagem.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+                raise erro_provider_run(
+                    f"formato de concept não suportado: {imagem.suffix}", id=item.get("id")
+                )
+        else:
+            from .concept import ConceptProvider
+
+            concept = ConceptProvider().gerar(item, destino)
+            imagem = concept["png"]
+            concept_meta = concept["meta"]
 
         destino.mkdir(parents=True, exist_ok=True)
         resultado_path = destino / "i23d_resultado.json"
@@ -299,8 +337,13 @@ class MeshProvider:
             MODELO_HF,
             "--mc-resolution",
             str(int(resolucao)),
+            "--device",
+            _device(),
         ]
-        if os.environ.get("FORGE3D_I23D_REMOVER_FUNDO", "").strip() in ("1", "true", "sim"):
+        remover_fundo = concept_meta is not None or os.environ.get(
+            "FORGE3D_I23D_REMOVER_FUNDO", ""
+        ).strip() in ("1", "true", "sim")
+        if remover_fundo:
             comando.append("--remover-fundo")
 
         t0 = time.monotonic()
@@ -349,6 +392,7 @@ class MeshProvider:
             "canonicalizar": True,
             "textura_px": max(64, min(textura_px, 1024)),
             "pivos": {},
+            "concept": concept_meta,
         }
         arq_modelo = destino / "modelo.json"
         arq_modelo.write_text(
@@ -372,5 +416,6 @@ class MeshProvider:
                 "tempos_s": resultado.get("tempos_s"),
                 "vram_pico_mb": resultado.get("vram_pico_mb"),
                 "faces": resultado.get("faces"),
+                "concept": concept_meta,
             },
         )

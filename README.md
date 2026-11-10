@@ -4,8 +4,9 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P1` e `P3` (rota `mesh` para prop) — 38 testes verdes. `blocky`/`import` sem GPU;
-`mesh` com TripoSR + bake UV/textura próprio em ~23 s; kit corpo/capa/arma. `modular` em P4.
+**Estado:** `P1`, `P3` (mesh para prop) e `P3.5` (concept local) — 44 verdes + 1 GPU (manual).
+`blocky`/`import` sem GPU; `mesh` com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**;
+kit corpo/capa/arma. `modular` em P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---
@@ -57,7 +58,7 @@ Requisito duro (D25). O Forge3D **não contamina** o repositório de quem o cham
 |---|---|---|---|---|
 | `blocky` | voxel/blocky, item, personagem de blocos | **D1** (byte-idêntico) | ~0,7 s/asset, sem GPU | **P1 ✔** |
 | `import` | asset feito à mão (Blockbench/Blender) entra no mesmo QC | D1 | ~0,7 s/asset | **P1 ✔** |
-| `mesh` | 3D orgânico/detalhado por modelo local (TripoSR) | D2 (semeado) | ~23 s/asset em 6 GB | **P3 ✔ parcial** |
+| `mesh` | 3D orgânico/detalhado por modelo local (TripoSR; concept SD1.5) | D2 (semeado) | ~23 s com `origem` · **37 s** gerando concept | **P3 ✔ parcial** |
 | `modular` | dungeon/cenário por WFC + montagem | D1 (seed fixa) | segundos | P4 |
 
 A GPU é **opcional**: o sistema é útil sem ela, e é isso que o mantém barato no pipe.
@@ -66,7 +67,8 @@ A GPU é **opcional**: o sistema é útil sem ela, e é isso que o mantém barat
 
 [`examples/lote_01.yaml`](examples/lote_01.yaml) é a fixture canônica — 3 assets, roda hoje.
 [`examples/lote_03_kit.yaml`](examples/lote_03_kit.yaml) é o kit corpo/capa/arma (`spec@2`) e
-[`examples/lote_04_mesh.yaml`](examples/lote_04_mesh.yaml) é a rota `mesh` (TripoSR + bake):
+[`examples/lote_04_mesh.yaml`](examples/lote_04_mesh.yaml) é a rota `mesh` (TripoSR + bake) e
+[`examples/lote_05_mesh_concept.yaml`](examples/lote_05_mesh_concept.yaml) é o concept sem `origem`:
 
 ```yaml
 schema: forge3d/spec@1
@@ -92,6 +94,7 @@ lote:
 ```
 lote ──► VALIDAR (schema + B1–B13)
       ──► PLANEJAR (chave de cache, custo, bloqueios)   ◄── roda no CI, sem GPU
+      ──► CONCEPT (SD1.5 → PNG; só mesh sem `origem`)
       ──► GERAR (provider → staging)
       ──► PÓS-PROCESSAR (Blender 4.2 headless: escala, pivô, LOD, colisor, rig)
       ──► VERIFICAR (QC G1–G9; reprovou, não publica)
@@ -113,7 +116,7 @@ O que faz diferença em produção, e não está num "script que chama modelo":
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-python -m pytest -q                     # 38 testes (unidade + P3-A + invariantes de ponta a ponta)
+python -m pytest -q                     # 44 + 1 GPU (manual); P3-A, concept e invariantes
 bash tools/check-contexto.sh            # tetos de contexto
 python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
 
@@ -124,8 +127,9 @@ blender --background --factory-startup --python tools/render_preview.py -- \
 
 Os testes de invariante rodam o Blender de verdade: provam escala, pivô, hash idêntico entre execuções,
 detecção de arquivo adulterado e reexecução dos gates no `verify`, idempotência e recusa de
-destino fora da allowlist. O asset de aceitação da P3 é `prop.bule.exemplo.01` (7.960 tris,
-textura 512², G1–G9 verdes, importado no Godot 4.3 com AABB idêntico ao manifesto).
+destino fora da allowlist. Assets de aceitação: `prop.bule.exemplo.01` (prop, 7.960 tris) e
+`personagem.sentinel.concept.01` (concept→mesh sem `origem`, 7.940 tris), ambos com textura 512²,
+G1–G9 verdes e AABB idêntico no Godot 4.3.
 
 ## Documentos
 

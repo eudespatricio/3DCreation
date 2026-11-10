@@ -31,6 +31,14 @@ LICENCAS: dict[str, dict] = {
             "a licenca termina acima de US$ 1M de receita anual."
         ),
     },
+    "sd15": {
+        "modelo": "Stable Diffusion 1.5",
+        "uso_comercial": True,
+        "notice": (
+            "Stable Diffusion 1.5 sob CreativeML OpenRAIL-M: uso comercial permitido com as "
+            "restricoes de uso da licenca; ver docs/riscos-e-licencas.md."
+        ),
+    },
 }
 
 #: rotas conhecidas e o provider que as atende nesta fase
@@ -42,7 +50,7 @@ def registrar(rota: str, fabrica) -> None:
 
 
 def registrados() -> dict[str, object]:
-    return {rota: _estado(rota) for rota in ("blocky", "import", "mesh", "modular")}
+    return {rota: _estado(rota) for rota in ("blocky", "import", "mesh", "modular", "concept")}
 
 
 def _estado(rota: str) -> str:
@@ -84,12 +92,15 @@ def licenca_de(chave: str) -> dict:
 # registro das rotas implementadas (import tardio evita ciclo)
 def _carregar() -> None:
     from .blocky import BlockyProvider
+    from .concept import ConceptProvider
     from .importer import ImportProvider
     from .mesh import MeshProvider
 
     registrar("blocky", BlockyProvider)
     registrar("import", ImportProvider)
     registrar("mesh", MeshProvider)
+    # estagio interno do mesh; nao e rota valida de spec, mas aparece no doctor
+    registrar("concept", ConceptProvider)
 
 
 _carregar()

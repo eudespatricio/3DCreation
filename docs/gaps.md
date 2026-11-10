@@ -8,8 +8,7 @@
 
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
-| GAP-026 | Sem provider de **concept** (text-to-image): a rota `mesh` exige `origem` (PNG) e o `prompt` é proveniência | P0 | P3.5/P4 | PNG gerado por seed, com provider e versão no manifesto, sem `origem` manual |
-| GAP-029 | Qualidade do reconstructor: bule saiu reconhecível, **cadeira saiu blob**; personagem com capa não foi revalidado | P3 | P3.5 | 3 personagens com capa, malha fechada e reconhecível, sem fusão de capa/corpo |
+| GAP-029 | Qualidade do reconstructor: bule reconhecível, cadeira blob; **sentinela (personagem sem capa) reconhecível**, personagem com capa não revalidado | P3 | P3.5 | 3 personagens com capa, malha fechada e reconhecível, sem fusão de capa/corpo |
 | GAP-036 | **Personagem com capa** no `mesh`: o split P3-D foi feito na rota `blocky`, não no input do reconstructor | P3 | P3.5 | 3 concepts separados (corpo/capa/arma) → 3 meshes → montados no Godot |
 | GAP-037 | `verify` de manifesto antigo (sem `pivo_regra` no G2) **pula** a checagem de pivô | P3 | P3.5 | todo manifesto publicado tem `pivo_regra`, ou `verify` reprova a ausência |
 | GAP-038 | G7 reexecuta presença/prefixo do colisor, mas **não mede convexidade** | P1 | P3.5 | `verify` mede convexidade (`bpy` ou Python puro) e reprova colisor não convexo |
@@ -53,6 +52,7 @@
 | ~~GAP-033~~ | ~~`gpytoolbox` não compila no SF3D~~ | P3 | **P3 ✔** | não se aplica: SF3D encerrado por D27; remesh não está no caminho |
 | ~~GAP-034~~ | ~~Bake do SF3D exige kernel CUDA~~ | P3 | **P3 ✔** | não se aplica: bake próprio em CPU no `bpy` (D28); SF3D encerrado por D27 |
 | ~~GAP-035~~ | ~~SF3D leva ~8 min/imagem em 6 GB~~ | P3 | **P3 ✔** | decisão consciente **D27**: SF3D não é usado em 6 GB; TripoSR + bake em ~23 s |
+| ~~GAP-026~~ | ~~Sem provider de concept text-to-image~~ | P0 | **P3.5 ✔** | sentinela publicada **sem `origem`**, `providers.texture` (`concept/sd15`, revisão, seed), G1–G9 e Godot 4.3 |
 
 ## Como um gap nasce
 

@@ -286,8 +286,27 @@ def decimar(obj, alvo_tris: int) -> int:
     return malha_triangulada(obj)
 
 
-def canonicalizar(obj) -> dict:
-    """Altura em Z, largura em X, profundidade em Y, base em Z=0 (tools/normalize_mesh.py)."""
+def _extensao_faixa(obj, z0: float, z1: float) -> float:
+    """Area da faixa horizontal [z0,z1] no plano XY: cabeca fina vs base larga."""
+    xs: list[float] = []
+    ys: list[float] = []
+    for v in obj.data.vertices:
+        co = obj.matrix_world @ v.co
+        if z0 <= co.z <= z1:
+            xs.append(co.x)
+            ys.append(co.y)
+    if not xs:
+        return 0.0
+    return (max(xs) - min(xs)) * (max(ys) - min(ys))
+
+
+def canonicalizar(obj, tipo: str | None = None) -> dict:
+    """Altura em Z, largura em X, profundidade em Y, base em Z=0 (tools/normalize_mesh.py).
+
+    Para humanoide/criatura, corrige o caso em que a cabeca (faixa estreita) caiu embaixo: espelha
+    Z, preservando frente e lados, e recalcula normais. Medido no sentinela da P3.5: o TripoSR
+    devolveu o corpo de cabeca para baixo e o G2 passava (altura certa) sem essa checagem.
+    """
     minimo, maximo = bbox_local()
     extensao = maximo - minimo
     ordem = sorted(range(3), key=lambda i: extensao[i])
@@ -313,12 +332,47 @@ def canonicalizar(obj) -> dict:
     )
     obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
     _aplicar_transformes(obj)
-    return {
+
+    info = {
         "altura_eixo": "XYZ"[altura],
         "largura_eixo": "XYZ"[largura],
         "profundidade_eixo": "XYZ"[profundidade],
     }
-
+    if tipo in ("personagem_humanoide", "criatura"):
+        minimo, maximo = bbox_local()
+        altura_z = maximo.z - minimo.z
+        # perfil de area em 12 faixas: em T-pose os bracos/ombros puxam o centro para cima
+        n = 12
+        areas = []
+        for i in range(n):
+            z0 = minimo.z + altura_z * i / n
+            z1 = minimo.z + altura_z * (i + 1) / n
+            areas.append(_extensao_faixa(obj, z0, z1))
+        total = sum(areas)
+        centro = (
+            sum(a * (i + 0.5) for i, a in enumerate(areas)) / total if total else 0.0
+        )
+        info["centro_area"] = round(centro, 3)
+        info["areas"] = [round(a, 6) for a in areas]
+        if total > 0 and centro < n * 0.48:
+            # espelha Z: mantem frente (+Y) e lados (+-X), corrige cabeca para cima
+            for v in obj.data.vertices:
+                v.co.z = -v.co.z
+            obj.data.update()
+            bm = bmesh.new()
+            bm.from_mesh(obj.data)
+            bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+            bm.to_mesh(obj.data)
+            bm.free()
+            obj.data.update()
+            minimo, _maximo = bbox_local()
+            for v in obj.data.vertices:
+                v.co.z -= minimo.z
+            obj.data.update()
+            info["invertido"] = True
+        else:
+            info["invertido"] = False
+    return info
 
 def desdobrar_uv(obj, margem: float = 0.003) -> str:
     _selecionar(obj)
@@ -622,7 +676,7 @@ def processar(job: dict) -> dict:
         obj = unir_malhas()
         grupos = {}
         if bruto.get("canonicalizar"):
-            info_gerada["canonicalizacao"] = canonicalizar(obj)
+            info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
         info_gerada["reparo_inicial"] = reparar_malha(obj)
         if obj.data.color_attributes:
             # malha gerada: corta o orcamento ANTES do UV/bake; o bake roda em 512 px
@@ -746,7 +800,11 @@ def processar(job: dict) -> dict:
     medidas_base["esqueleto"] = item.get("esqueleto") if rig_obj is not None else None
     medidas_base["lod"] = [{"nivel": a["nivel"], "triangulos": a["triangulos"]} for a in arquivos if a["papel"] in ("mesh", "lod")]
 
-    return {"ok": True, "medidas": medidas_base, "arquivos": arquivos}
+    resultado = {"ok": True, "medidas": medidas_base, "arquivos": arquivos}
+    if bruto.get("concept"):
+        # proveniencia do estagio text-to-image; o manifest grava em providers.texture
+        resultado["concept"] = bruto["concept"]
+    return resultado
 
 
 def main() -> int:

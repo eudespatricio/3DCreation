@@ -50,6 +50,7 @@ LOTES = (
     ("examples/lote_01.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_02_rotas.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_04_mesh.yaml", "schemas/spec.v1.schema.json", "spec@1"),
+    ("examples/lote_05_mesh_concept.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_03_kit.yaml", "schemas/spec.v2.schema.json", "spec@2"),
 )
 for rel, schema_rel, rotulo in LOTES:

@@ -80,15 +80,27 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | `verify` reexecuta G1–G9 | manifesto íntegro → ok; G2 com `esperado_m=1,2` → exit 3, "QC reexecutado reprovou G2" | `tests/invariants/test_invariantes_e2e.py::test_i4_verify_reexecuta_gates_contra_manifesto` |
 | Kit P3-D | corpo **300 tris / 23 ossos**, capa **60 tris / sem rig**, arma **36 tris**; 3 publicados e `verify` ok | `examples/lote_03_kit.yaml` em 10/11/2026 |
 | Godot 4.3 — kit | capa montada no osso `Chest` (idx 4), arma em `Hand.R` (idx 14); `KIT_OK` | `mount_kit.gd` em 10/11/2026 |
-| Suíte após P3 | **38 verdes** (24 unidade + 2 P3-A + 1 e2e rápido + 11 invariantes) em **14,3 s**; e2e rápido **2,0 s** | `pytest -q` em 10/11/2026 |
+| Suíte após P3.5 | **44 verdes + 1 GPU (skip; manual passa)** (24 unidade + 2 P3-A + 6 concept + 1 e2e rápido + 11 invariantes) em **13,7 s**; e2e rápido **2,0 s** | `pytest -q` em 10/11/2026 |
 | Probe Roblox R15 (sem Studio) | **prop** blocky publica e `verify` passa (48 tris, 1 colisor); **humanoid** falha em `pivot: junta` (fora do enum) e o blocky não gera nomes R15; `colisao.prefixo` ausente causava `KeyError` no G7 (corrigido) | `docs/perfis-export.md` §3 + `run`/`verify` em 10/11/2026 |
 | Planilha de custo mesh | **25 s estimados × 23,3 s reais** (erro +7%, dentro de 50%) | comparação `plan` × `run` em 10/11/2026 |
 | Qualidade TripoSR (cadeira) | **inutilizável**: 81.952 faces de entrada viraram blob; mesmo com rembg. Bule ficou reconhecível | previews `.scratch/chair_*` / `.scratch/teapot_*` em 10/11/2026 |
 
 
-**Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): A/B de 10 assets,
-qualidade de personagem com capa, comportamento do importador Roblox, desempenho do `uv`
-resolvendo `torch`.
+| P3.5 — concept SD1.5 (robô) | 512², 20 steps: geração **5,3 s**, primeira carga **47,1 s** (inclui download de 13 arquivos, ~2 GB), VRAM pico **2.690 MiB**, PNG 287.681 B | `tools/concept_infer.py` em 10/11/2026 |
+| P3.5 — venv concept | `~/.venvs/concept` **5,6 GB** (cópia da i23d + diffusers 0.31.0 / transformers 4.44.2 / accelerate 1.2.1; torch 2.4.1+cu121) | `tools/setup_concept_venv.sh` + `du -sh` em 10/11/2026 |
+| P3.5 — concept SD1.5 (cache quente) | load **2,0 s** + geração **5,5 s** = **7,6 s**; VRAM pico **2.675 MiB** | `concept_resultado.json` do run sentinela em 10/11/2026 |
+| P3.5 — concept→mesh (sentinela) | **37,2 s** de run; i23d 16,9 s (load 6,8 + extração 3,7); **7.940 tris**; bbox **1,000387×1,8×0,729638 m**; GLB **1.149.148 B**; PNG **337.824 B**; G1–G9 verdes | `run` em 10/11/2026 |
+| P3.5 — orientação de humanoide | `centro_area=5,55` < 5,76 → espelha Z; `invertido=true`; 10 ilhas de 1 face removidas; G1 0 | `resultado.json` em 10/11/2026 |
+| P3.5 — Godot 4.3 (sentinela) | `Node3D → MeshInstance3D`; AABB **1,000387×1,8×0,729638** idêntico ao manifesto; `albedo_tex=true`; 7.940 tris | `godot --headless` + GDScript em 10/11/2026 |
+| P3.5 — fallback CPU | run completo **71,4 s** (384²/8 steps, mc128); mecânica OK, concept em close e malha não utilizável | `time` em 10/11/2026 |
+| Custo concept→mesh | **40 s estimados × 37,2 s reais** (erro -7%) | `plan` × `run` em 10/11/2026 |
+
+| P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |
+
+
+**Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
+end-to-end (implementado, execução pendente), A/B de 10 assets, qualidade de personagem com capa,
+comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 
 ## 2. Decisões
 
@@ -128,6 +140,14 @@ resolvendo `torch`.
 | D31 | **Kit P3-D**: corpo com rig, capa estática montada no osso `Chest`, arma no `Hand.R`; ids `personagem.*` | a capa estática evita esqueleto divergente; montagem por osso é o que o Godot consome |
 | D32 | **`verify` reexecuta G1–G9** contra o perfil atual, com topologia em Python puro; G2 grava `pivo_regra` no relatório | hash pega arquivo trocado; reexecução pega perfil/tolerância que mudou (C2) |
 | D33 | **Rota `mesh` exige `origem` (PNG)** enquanto o provider de concept text-to-image não existe (GAP-026); `prompt` é proveniência | separa a variável do diffusion da inferência; a imagem é o que o TripoSR consome |
+
+
+| D34 | Concept local **SD1.5** em venv separada `~/.venvs/concept` (`FORGE3D_VENV_CONCEPT`), porque o TripoSR fixa `transformers==4.35` e o diffusers 0.31 exige `>=4.44` | dois modelos com pins incompatíveis; sem API fechada (D3); licença OpenRAIL-M na allowlist |
+| D35 | Provider `mesh` executa o concept **internamente** quando o item não tem `origem`; o manifesto grava `providers.texture` (`concept/sd15`, versão+revisão, seed) e a licença combinada; `spec@1` não muda | o slot `providers.texture` já existe no `manifest@1`; evita bump de schema para uma etapa interna |
+| D36 | Concept gerado usa **rembg automático** no i23d (fundo neutro), com `FORGE3D_I23D_REMOVER_FUNDO` ainda válido para imagens externas | o fundo do diffusion não é transparente; sem rembg o TripoSR inclui o fundo |
+| D37 | **Orientação de humanoides gerados**: após permutar eixos, mede o perfil de área em 12 faixas; se o centro de área < 48% da altura, espelha Z (mantém frente/lados) e recalcula normais | medido: sentinela `centro_area=5,55` (cabeça embaixo) e android blocky `6,52` (ok); G2 passava mesmo invertido |
+| D38 | **Fallback CPU** para `mesh`/concept via `FORGE3D_DEVICE=cpu` (lento, sem VRAM); não é o caminho de aceitação | GPU compartilhada nesta máquina; o fallback validou o encadeamento em 71,4 s |
+
 
 
 ## 3. Rejeitados (e por quê)

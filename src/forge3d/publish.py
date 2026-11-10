@@ -73,6 +73,47 @@ def montar_manifesto(
     ]
     colisao = next((a for a in resultado.get("arquivos", []) if a["papel"] == "colisor"), None)
 
+    providers = {
+        "geometry": {
+            "name": provider["nome"],
+            "version": provider["versao"],
+            "license": licenca["modelo"],
+            **({"seed": int(item["seed"])} if "seed" in item else {}),
+        }
+    }
+    licenca_manifesto = {
+        "modelo": licenca["modelo"],
+        "uso_comercial": bool(licenca["uso_comercial"]),
+        "notice": licenca["notice"],
+    }
+    concept = resultado.get("concept")
+    if concept:
+        c_lic = concept.get("licenca") or {}
+        versao_concept = str(concept.get("versao", "0.1.0"))
+        revisao = str(concept.get("revisao", "") or "")
+        if revisao:
+            versao_concept = f"{versao_concept}+{revisao[:12]}"
+        detalhe = "{w}x{h}s{passos}g{guidance}".format(
+            w=concept.get("largura", "?"),
+            h=concept.get("altura", "?"),
+            passos=concept.get("passos", "?"),
+            guidance=concept.get("guidance", "?"),
+        )
+        versao_concept = f"{versao_concept}+{detalhe}"
+        if concept.get("device"):
+            versao_concept = f"{versao_concept}+{str(concept['device']).replace(':', '').replace('/', '_')}"
+        nome_modelo = str(concept.get("modelo", "sd15")).rstrip("/").split("/")[-1]
+        providers["texture"] = {
+            "name": f"concept/{nome_modelo}",
+            "version": versao_concept,
+            "license": str(c_lic.get("modelo", "Stable Diffusion 1.5")),
+            "seed": int(concept.get("seed", item.get("seed", 0))),
+        }
+        if c_lic.get("notice"):
+            licenca_manifesto["notice"] = (
+                licenca_manifesto["notice"].rstrip() + " Concept: " + c_lic["notice"]
+            ).strip()
+
     rig = None
     if item.get("auto_rig") and medidas.get("ossos"):
         rig = {"esqueleto": item.get("esqueleto") or "", "ossos": int(medidas["ossos"])}
@@ -87,14 +128,7 @@ def montar_manifesto(
         "spec_hash": spec_hash,
         "pipeline_version": __version__,
         "determinism": resultado.get("determinism", provider["determinism"]),
-        "providers": {
-            "geometry": {
-                "name": provider["nome"],
-                "version": provider["versao"],
-                "license": licenca["modelo"],
-                **({"seed": int(item["seed"])} if "seed" in item else {}),
-            }
-        },
+        "providers": providers,
         "geometry": {
             "triangulos": int(medidas["triangulos"]),
             "vertices": int(medidas["vertices"]),
@@ -110,11 +144,7 @@ def montar_manifesto(
         },
         "files": arquivos,
         "qc": {"aprovado": bool(relatorio_qc["aprovado"]), "gates": relatorio_qc["gates"]},
-        "licenca": {
-            "modelo": licenca["modelo"],
-            "uso_comercial": bool(licenca["uso_comercial"]),
-            "notice": licenca["notice"],
-        },
+        "licenca": licenca_manifesto,
         "origem_spec": {"arquivo": spec_doc.get("_arquivo", "?"), "hash": spec_hash},
         "run_id": run_id,
         "created_at": created_at or _agora(),

@@ -120,6 +120,30 @@ Fluxo medido com o bule:
 O lock de GPU (I6) é exercitado no `run`; o segundo job sai `FORGE-E-RECURSO` (exit 6). O `doctor`
 mede VRAM livre e a venv de i23d, sem importar `torch` no núcleo (D29).
 
+
+### Estagio concept (P3.5)
+
+O provider `mesh` agora **gera a imagem de entrada** quando o item nao tem `origem`:
+`prompt` + `seed` → SD 1.5 fp16 → PNG 512² → TripoSR. O concept e um **estagio interno** do mesh,
+nao uma rota do lote; o contrato `spec@1` nao muda.
+
+- venv: `~/.venvs/concept` (copia da i23d + `diffusers==0.31.0` / `transformers==4.44.2` /
+  `accelerate==1.2.1`; torch 2.4.1+cu121), selecionada por `FORGE3D_VENV_CONCEPT`;
+- modelo: `stable-diffusion-v1-5/stable-diffusion-v1-5` fp16, ~2 GB, **OpenRAIL-M**;
+- medido em 10/11/2026: 512², 25 steps, geracao **5,5 s**, carga **2,0 s** (cache; a primeira inclui
+  download), VRAM pico **2.675 MiB**, PNG 264.929 B; run completo **37,2 s**;
+- proveniencia: `providers.texture` no manifesto (`concept/sd15`, versao+revisao, seed) e a licenca
+  combinada em `licenca.notice`;
+- fundo: o concept e RGB; o i23d roda com `--remover-fundo` automaticamente quando o concept foi
+  gerado. `FORGE3D_I23D_REMOVER_FUNDO=1` continua valendo para `origem` externo.
+- sentinela: `personagem.sentinel.concept.01`, **7.940 tris**, bbox **1,000387×1,8×0,729638 m**, G1–G9
+  verdes e Godot 4.3 com AABB idêntico. A orientação de humanoide e corrigida pelo perfil de área
+  (D37): `centro_area=5,55` < 48% → espelha Z antes do bake.
+
+Exemplo: `examples/lote_05_mesh_concept.yaml` (`forge3d run` sem `origem`). O `plan` estima 40 s e o
+`doctor` mostra `concept: pronto`.
+
+
 ## 5. Rota `modular` — mapa por montagem (P4)
 
 Não é "gerar um mapa com IA". É **layout → WFC → instância → fusão**, exatamente como o desenho

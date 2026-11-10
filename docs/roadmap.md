@@ -79,7 +79,7 @@ D2, `doctor` medindo a venv certa, allowlist de licença aplicada e `verify` ree
 - Godot 4.3 importou com AABB idêntico ao manifesto e `albedo_tex=true`, sem ajuste manual;
 - `run` 23,3 s frio / 2,1 s cache hit; VRAM pico 2.378 MiB;
 - kit corpo/capa/arma (blocky, `spec@2`) publicado e montado no Godot;
-- 38 testes verdes; `doctor` diz `mesh: pronto`.
+- 44 verdes + 1 GPU (manual); `doctor` diz `mesh: pronto`.
 
 **Residual (P3.5):** 10 assets com A/B (Q8), concept provider (GAP-026), personagem com capa
 (GAP-029/GAP-036), split do input mesh (GAP-037), convexidade do colisor no `verify` (GAP-038).
@@ -91,6 +91,21 @@ D2, `doctor` medindo a venv certa, allowlist de licença aplicada e `verify` ree
 - falha de GPU ⇒ `bloqueado` com `exit 6`, nunca lote perdido.
 
 **Não faz:** TRELLIS.2 em produção (X3 continua experimental), Hunyuan3D (licença).
+
+
+## P3.5 — Concept local (SD1.5)
+
+**Entrega:** estagio text-to-image local dentro do provider `mesh`, sem `origem` manual; PNG com
+proveniencia (modelo, revisao, seed) no manifesto.
+
+**Estado em 10/11/2026 — portao cumprido:** `personagem.sentinel.concept.01` publicado **sem
+`origem`** em **37,2 s** (concept 5,5 s + i23d 16,9 s), **7.940 tris**, bbox
+**1,000387×1,8×0,729638 m**, G1–G9 verdes, `providers.texture` (`concept/sd15`, revisao, seed) e Godot
+4.3 com AABB idêntico. A orientação de humanoide ganhou o perfil de área (D37).
+
+**Portao:** cumprido para 1 GLB; falta o split em 3 concepts separados (corpo/capa/arma) e a qualidade
+de personagem **com capa**.
+
 
 ## P4 — Rota `modular`
 

@@ -1,12 +1,13 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3 fechada para prop (bule) e kit blocky; qualidade
-de personagem com capa continua aberta.** 38 testes verdes · 1 asset com UV+textura aprovado no QC e
-importado no Godot 4.3 sem ajuste manual.
+**Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3 fechada para prop (bule) e kit blocky; P3.5
+(concept SD1.5) fechada para personagem sem capa — sentinela publicado sem `origem`; qualidade com
+capa aberta.** 44 verdes + 1 GPU (skip; manual passa) · assets com UV+textura aprovados no QC e importados
+no Godot 4.3.
 
 **Para a próxima janela:** leia [`docs/pendencias.md`](docs/pendencias.md) (o que falta, com critério),
 [`docs/gaps.md`](docs/gaps.md) (lacunas) e [`DECISOES.md`](DECISOES.md) §1–§2 e §4. Verificação rápida:
-`python -m pytest tests/test_e2e_rapido.py -q` (2,0 s) e `python -m pytest -q` (14,3 s).
+`python -m pytest tests/test_e2e_rapido.py -q` (2,0 s) e `python -m pytest -q` (~15 s).
 
 ---
 
@@ -26,6 +27,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P0.5** | ✔ | D23 allowlist · D24 estado central · `tools/check-contexto.sh` |
 | **P1** | ✔ | rotas `blocky` e `import` de ponta a ponta: validar → planejar → gerar → Blender → QC G1–G9 → cache → publicar → índice → ledger |
 | **P3** | **✔ parcial** | provider `i23d` real (TripoSR) + bake UV/textura próprio + venv única + kit corpo/capa/arma; **prop** fecha com G1–G9 verdes; personagem com capa ainda não |
+| **P3.5** | **✔ (sem capa)** | concept SD1.5 local → TripoSR → UV/bake: `personagem.sentinel.concept.01` publicado sem `origem`, 7.940 tris, G1–G9, Godot; split e capa seguem |
 | **P2** | pendente (probe) | perfil `roblox-r15`: prop publica/verifica; humanoid bloqueado em `pivot: junta` e nos nomes R15; falta Studio |
 | **P4** | pendente | rota `modular` (WFC) |
 | **P5** | pendente | animação e retarget |
@@ -45,12 +47,17 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   em Python puro.
 - **Contrato** — `spec@2` adiciona `parte` (`corpo`/`capa`/`arma`); `spec@1` continua aceito e o
   manifesto segue `manifest@1`.
+- **P3.5** — concept **SD1.5** local em `~/.venvs/concept` (`FORGE3D_VENV_CONCEPT`), chamado pelo
+  provider `mesh` quando o item nao tem `origem`; PNG 512², 25 steps, geração **5,5 s**; o run
+  `concept → mesh` publicou `personagem.sentinel.concept.01` em **37,2 s**, **7.940 tris**, G1–G9,
+  `providers.texture` (`concept/sd15`, revisão, seed) e Godot com AABB idêntico. A orientação de
+  humanoide ganhou o perfil de área (D37): `centro_area=5,55` → espelha Z.
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **38 verdes** (24 unidade + 2 P3-A + 1 e2e rápido + 11 invariantes) em **14,3 s** |
+| Suíte | **44 verdes + 1 GPU (skip; manual passa)** (24 unidade + 2 P3-A + 6 concept + 1 e2e rápido + 11 invariantes) em **13,7 s** |
 | E2E rápido | **2,0 s** (alvo <30 s) |
 | TripoSR — inferência (bule) | load **7,7 s** · forward **1,2 s** · extração **3,8 s** · total **12,6 s** · VRAM pico **2.378 MiB** |
 | `run` mesh — bule | **23,3 s** frio · **2,1 s** cache hit |
@@ -60,9 +67,13 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Kit P3-D | corpo **300 tris / 23 ossos** · capa **60 tris / sem rig** · arma **36 tris**; 3 publicados |
 | Godot 4.3 — kit | capa no osso `Chest` (idx 4), arma em `Hand.R` (idx 14); `KIT_OK` |
 | Venv i23d | **5,6 GB** · Python 3.12.14 · torch **2.4.1+cu121** |
-| `doctor` mesh | `mesh: pronto (TripoSR, torch 2.4.1+cu121, venv venv-i23d)` |
+| `doctor` mesh/concept | `mesh: pronto ...` · `concept: pronto (SD1.5, diffusers 0.31.0)` |
 | `verify` C2 | manifesto íntegro → ok; G2 com `esperado_m=1,2` → **exit 3**, "QC reexecutado reprovou G2" |
 | Custo mesh do `plan` | **25 s estimados × 23,3 s reais** (erro +7%) |
+| Concept SD1.5 | 512² · 25 steps · geração **5,5 s** · carga **2,0 s** (cache) · VRAM pico **2.675 MiB** · PNG 264.929 B |
+| Sentinela concept→mesh | **37,2 s** · **7.940 tris** · bbox **1,000387×1,8×0,729638 m** · GLB **1.149.148 B** · PNG **337.824 B** · G1–G9 |
+| Godot 4.3 — sentinela | `Node3D → MeshInstance3D`; AABB **idêntico**; `albedo_tex=true`; 7.940 tris |
+| Venv concept | **5,6 GB** · diffusers 0.31.0 · transformers 4.44.2 · torch 2.4.1+cu121 |
 | Probe Roblox (sem Studio) | prop blocky publica/verifica; humanoid falha em `pivot: junta`; blocky não gera nomes R15 |
 
 ## Decidido (não reabrir sem evidência nova)
@@ -72,7 +83,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 `D23` allowlist · `D24` estado central · `D25` isolamento · `D26` núcleo leve ·
 **`D27` SF3D encerrado em 6 GB** · **`D28` bake próprio no bpy** · **`D29` i23d em subprocesso na venv
 única** · **`D30` spec@2 com `parte`** · **`D31` kit corpo/capa/arma** · **`D32` verify reexecuta G1–G9**
-· **`D33` mesh exige `origem` enquanto GAP-026 não fecha**.
+· **`D33` mesh exige `origem` enquanto GAP-026 não fecha** · **`D34` concept SD1.5 em venv separada**
+· **`D35` concept interno ao mesh** · **`D36` rembg automático do concept**.
 
 ## Aberto — e o que cada um trava
 
@@ -84,7 +96,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Q7 | assets no git do jogo (normal × LFS) | primeiro asset real | antes de integrar |
 | Q9 | delegação: chave de API × `agentapi` | uso seguro em execução | P4 |
 
-Gaps abertos que importam: **GAP-026** (concept text-to-image), **GAP-036** (personagem com capa),
+Gaps abertos que importam: **GAP-036** (personagem com capa),
 **GAP-037** (split do input mesh), **GAP-038** (verify de manifesto antigo sem `pivo_regra`),
 **GAP-039** (convexidade no G7), **GAP-040** (rembg explícito).
 
@@ -92,12 +104,11 @@ Gaps abertos que importam: **GAP-026** (concept text-to-image), **GAP-036** (per
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Provider de **concept** (text-to-image → PNG): fecha GAP-026 e tira o `origem` manual | 1 sessão | entrada da rota mesh |
-| **2** | **Split do input mesh** (corpo/capa/arma): 3 concepts → 3 malhas | 1 sessão + GPU | GAP-036/GAP-037 |
+| **1** | **Split do input mesh** (corpo/capa/arma): 3 concepts → 3 malhas | 1 sessão + GPU | GAP-036/GAP-037 |
+| **2** | Qualidade de personagem **com capa**: 3 inputs, medir e decidir TripoSR × SF3D | 1–2 sessões | Q8, GAP-029 |
 | **3** | **Roblox P2**: implementar `pivot: junta` + esqueleto R15 e validar no Studio | 1 sessão | segundo perfil; P8/GAP-006 |
-| **4** | Qualidade de personagem: 3 inputs com capa, medir e decidir TripoSR × SF3D | 1–2 sessões | Q8, GAP-029 |
-| **5** | `gc` de cache/ledger + CI de pull request | 1 sessão | C3, GAP-008 |
-| **6** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
+| **4** | `gc` de cache/ledger + CI de pull request | 1 sessão | C3, GAP-008 |
+| **5** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
 
 ## Comandos
 
@@ -109,8 +120,10 @@ forge3d plan  examples/lote_01.yaml
 forge3d run   examples/lote_01.yaml
 forge3d run   examples/lote_03_kit.yaml        # P3-D: corpo/capa/arma (blocky, sem GPU)
 FORGE3D_I23D_REMOVER_FUNDO=1 forge3d run examples/lote_04_mesh.yaml   # P3-B: TripoSR + bake
+forge3d run examples/lote_05_mesh_concept.yaml                     # P3.5: SD1.5 -> TripoSR
+forge3d verify ~/.local/state/forge3d/saida/sentinel_concept
 forge3d verify ~/.local/state/forge3d/saida/teapot_exemplo
-python -m pytest -q                    # 38 testes
+python -m pytest -q                    # 44 verdes + 1 GPU (skip; manual passa)
 bash tools/check-contexto.sh           # tetos
 python tools/check-p0.py               # docs, schemas, I12/I14
 
@@ -131,8 +144,10 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 `docs/arquitetura.md` · `docs/contratos.md` · `docs/rotas-e-providers.md` · `docs/perfis-export.md` ·
 `docs/qc-e-verificacao.md` · `docs/dependencias.md` · `docs/riscos-e-licencas.md` · `docs/roadmap.md` ·
 `docs/gaps.md` · `docs/pendencias.md` · `schemas/` (`spec.v1`, `spec.v2`, `manifest.v1`) ·
-`src/forge3d/` (14 módulos) · `blender/postprocess.py` · `tools/` (`i23d_infer`, `normalize_mesh`,
-`render_preview`, `delegar`, `torchmcubes_shim`, `check-*`) · `tests/` · `examples/`
+`src/forge3d/` (15 módulos) · `blender/postprocess.py` · `tools/` (`i23d_infer`, `concept_infer`,
+`setup_concept_venv`, `normalize_mesh`, `render_preview`, `delegar`, `torchmcubes_shim`, `check-*`) ·
+`tests/` · `examples/` (`lote_01`, `lote_03_kit`, `lote_04_mesh`, `lote_05_mesh_concept`) ·
+`docs/preview/p3_sentinel_*` (concept, frente, 3/4)
 
 ## Regras invioláveis (top 6)
 
@@ -147,6 +162,7 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 
 > Leia `3DCreation/CONTINUAR.md`, `MAPA.md` e `DECISOES.md` §2 e §4. P0, P0.5 e P1 estão fechadas;
 > P3 está fechada **para prop** (bule com UV+textura, G1–G9 verdes, importado no Godot 4.3) e para o
-> **kit blocky** corpo/capa/arma. O que falta: concept provider (GAP-026), split do input mesh
-> (GAP-036/037), qualidade de personagem com capa (Q8/GAP-029), Roblox P2 (Q3/GAP-006) e `gc`/CI.
+> **kit blocky** corpo/capa/arma. P3.5 fechou o **concept local → mesh** com o sentinela sem `origem`
+> (7.940 tris, G1–G9, Godot com AABB idêntico). Próximo: split do input mesh (GAP-036/037) e
+> qualidade de personagem **com capa** (Q8/GAP-029); depois Roblox P2 (Q3/GAP-006) e `gc`/CI.
 > Não reabra D3–D26; SF3D está encerrado (D27) e não deve ser reinstalado.

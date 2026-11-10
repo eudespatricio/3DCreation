@@ -56,7 +56,8 @@ def montar(spec_doc: dict, perfil: dict, cache_disponivel) -> list[dict]:
         tarefa["estimativa"] = provider.custo(item, perfil)
         tarefa["cache_hit"] = bool(cache_disponivel(chave))
 
-        pronto, razao = provider.preflight()
+        avaliar = getattr(provider, "preflight_item", None)
+        pronto, razao = avaliar(item) if callable(avaliar) else provider.preflight()
         if not pronto:
             tarefa["estado_previsto"] = "bloqueada"
             tarefa["razao"] = razao

@@ -70,6 +70,24 @@ O núcleo **não importa `torch`**: `doctor`/`preflight` rodam um subprocesso `p
 provider chama `tools/i23d_infer.py` com canal JSON (I9). Sem GPU, o item sai `bloqueado` com razão
 nomeada, nunca `falhou` (D11).
 
+### concept — SD 1.5 (P3.5)
+
+| Item | Valor medido |
+|---|---|
+| venv | `~/.venvs/concept` (cópia da i23d + diffusers 0.31.0 / transformers 4.44.2 / accelerate 1.2.1; torch 2.4.1+cu121; **5,6 GB**) |
+| seleção | `FORGE3D_VENV_CONCEPT` |
+| setup | `bash tools/setup_concept_venv.sh` |
+| modelo | `stable-diffusion-v1-5/stable-diffusion-v1-5` fp16 (**~2,0 GB**, revision `451f4fe…`) |
+| licença | CreativeML **OpenRAIL-M**; uso comercial com as restrições da licença |
+| opções | `FORGE3D_MODELO_CONCEPT` · `FORGE3D_CONCEPT_PASSOS` (25) · `_LARGURA`/`_ALTURA` (512) · `_GUIDANCE` (7.5) · `_SUFIXO` · `_NEGATIVO` |
+| medido | 512²/25 steps: **5,5 s** de geração, **2,0 s** de carga (cache), VRAM pico **2.675 MiB**, PNG 264.929 B |
+| fallback | `FORGE3D_DEVICE=cpu` (lento: 71,4 s no teste 384²/8, mc128; não é o caminho de aceitação) |
+
+O venv é **cópia** da i23d de propósito: o TripoSR prende `transformers==4.35` e o diffusers 0.31
+exige `>=4.44`. Não é uma segunda venv de i23d (GAP-031); é o segundo modelo. O núcleo chama
+`tools/concept_infer.py` por subprocesso com JSON (I9). A primeira geração baixa os pesos; o teste
+`FORGE3D_CONCEPT_E2E=1 pytest tests/test_concept_gpu.py -q` cobre isso.
+
 ### SF3D — encerrado por D27 (registro histórico, não reinstalar)
 
 > **Não reinstalar.** SF3D leva ~8 min/imagem em 6 GB e o bake exige CUDA toolkit (D27).
@@ -108,6 +126,8 @@ uv pip install -e ".[dev]"
 forge3d doctor
 forge3d run examples/lote_03_kit.yaml            # P3-D, sem GPU
 FORGE3D_I23D_REMOVER_FUNDO=1 forge3d run examples/lote_04_mesh.yaml   # P3-B, GPU
+bash tools/setup_concept_venv.sh                                  # uma vez, P3.5
+FORGE3D_CONCEPT_E2E=1 .venv/bin/python -m pytest tests/test_concept_gpu.py -q  # baixa/testa SD1.5
 ```
 
 `doctor` é a fonte de verdade do ambiente: ele falha com mensagem explícita, não com traceback. Ele

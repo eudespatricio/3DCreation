@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forge3d"
-version = "0.2.0"
+version = "0.2.1"
 description = "Esteira de assets 3D por demanda: lote declarativo -> GLB verificado. Independente de projeto."
 requires-python = ">=3.12"
 dependencies = [
@@ -35,5 +35,6 @@ markers = [
   "blender: exige o binario do Blender 4.2",
   "lento: execucao de ponta a ponta, varios segundos",
   "rapido: ciclo completo em um asset, alvo < 30 s",
+  "gpu: exige GPU/CUDA e modelos baixados",
 ]
 addopts = "-q"

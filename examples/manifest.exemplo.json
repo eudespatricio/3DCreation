@@ -1,0 +1,76 @@
+{
+  "schema": "forge3d/manifest@1",
+  "asset_id": "weapon.sword.fire.01",
+  "projeto": "gamezero",
+  "perfil": "godot4",
+  "spec_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "pipeline_version": "0.1.0-p0",
+  "determinism": "D1",
+  "providers": {
+    "geometry": { "name": "blocky", "version": "0.1.0", "license": "MIT" },
+    "texture": { "name": "blocky.atlas", "version": "0.1.0", "license": "MIT" }
+  },
+  "geometry": {
+    "triangulos": 780,
+    "vertices": 640,
+    "bbox_m": [0.18, 1.1, 0.09],
+    "materiais": 1
+  },
+  "rig": null,
+  "lod": [
+    { "nivel": 0, "triangulos": 780, "arquivo": "weapon.sword.fire.01.glb" },
+    { "nivel": 1, "triangulos": 390, "arquivo": "weapon.sword.fire.01_LOD1.glb" }
+  ],
+  "colisao": { "tipo": "convex", "partes": 1, "arquivo": "weapon.sword.fire.01_colisao.glb" },
+  "files": [
+    {
+      "caminho": "weapon.sword.fire.01.glb",
+      "papel": "mesh",
+      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "bytes": 48120
+    },
+    {
+      "caminho": "weapon.sword.fire.01_baseColor.png",
+      "papel": "textura",
+      "sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "bytes": 1024
+    },
+    {
+      "caminho": "weapon.sword.fire.01_LOD1.glb",
+      "papel": "lod",
+      "sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "bytes": 24010
+    },
+    {
+      "caminho": "weapon.sword.fire.01_colisao.glb",
+      "papel": "colisor",
+      "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "bytes": 612
+    }
+  ],
+  "qc": {
+    "aprovado": true,
+    "gates": [
+      { "id": "G1", "status": "ok", "medido": { "nao_manifold": 0, "degeneradas": 0 } },
+      { "id": "G2", "status": "ok", "medido": { "altura_m": 1.1, "delta_pct": 0.0 } },
+      { "id": "G3", "status": "ok", "medido": { "cobertura_uv": 1.0 } },
+      { "id": "G4", "status": "ok", "medido": { "textura_px": 64, "pot": true } },
+      { "id": "G5", "status": "ok", "medido": { "materiais": 1 } },
+      { "id": "G6", "status": "warn", "medido": { "ossos": 0 }, "codigo": "FORGE-W-QC" },
+      { "id": "G7", "status": "ok", "medido": { "partes": 1, "convexo": true } },
+      { "id": "G8", "status": "ok", "medido": { "uso_comercial": true } },
+      { "id": "G9", "status": "ok", "medido": { "triangulos": 780, "limite": 800, "bytes": 48120 } }
+    ]
+  },
+  "licenca": {
+    "modelo": "procedural (sem modelo de terceiro)",
+    "uso_comercial": true,
+    "notice": "Asset gerado proceduralmente por Forge3D na rota blocky; nenhum modelo generativo de terceiro participou."
+  },
+  "origem_spec": {
+    "arquivo": "examples/lote_01.yaml",
+    "hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "run_id": "01JB0X8K2Q",
+  "created_at": "2026-11-10T14:00:00Z"
+}

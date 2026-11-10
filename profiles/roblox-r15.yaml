@@ -1,0 +1,81 @@
+# Perfil de export — Roblox (R15 / blocky)
+# Consumido por forge3d (P2). Toda linha marcada [verificar] depende de teste real no Studio (U1-U4).
+schema: forge3d/profile@1
+perfil: roblox-r15
+versao: 1
+
+formato: [glb]
+
+unidades:
+  metros_por_unidade: 1.0        # geracao em metros
+  metros_por_stud: 0.28          # [verificar] U1: conversao studs = metros / 0.28
+  arredondar_studs: 0.001
+
+eixos:
+  up: "+Y"
+  frente: "-Z"
+
+aplicar_transforms: true         # MeshPart com escala aplicada quebra Motor6D
+
+pivot:
+  prop_estatico: base
+  prop_equipavel: empunhadura
+  personagem_humanoide: junta   # por MEMBRO: origem na junta (ombro, quadril), nao na base
+  criatura: junta
+  modulo_cenario: base
+  mapa_setor: centro
+
+colisao:
+  modo: hull_por_parte
+  max_partes: 15
+  uma_por_parte: true            # [verificar] U2: colisor separado nao vem como tal
+
+lod:
+  habilitado: false              # Roblox tem RenderFidelity proprio
+
+rig:
+  esqueleto_padrao: "r15@1"
+  max_ossos: 24
+  raiz: HumanoidRootPart
+  mapas:
+    "r15@1":
+      - HumanoidRootPart
+      - Head
+      - UpperTorso
+      - LowerTorso
+      - LeftUpperArm
+      - LeftLowerArm
+      - LeftHand
+      - RightUpperArm
+      - RightLowerArm
+      - RightHand
+      - LeftUpperLeg
+      - LeftLowerLeg
+      - LeftFoot
+      - RightUpperLeg
+      - RightLowerLeg
+      - RightFoot
+
+material:
+  modelo: surface_appearance     # [verificar] U2: PBR da Roblox nao vem por glTF
+  textura_max: 1024
+  pot: true
+  filtro: linear                 # pixel art na Roblox e limitada; nao prometer nearest
+
+validacao:
+  escala_delta_pct: 1.0          # arredondamento de stud tolera mais
+  pivo_delta_mm: 2.0
+  materiais_max: 8
+  bytes_max_kb: 4096
+  nao_manifold_max: 0
+  faces_degeneradas_max: 0
+  partes_max: 15
+  triangulos_por_parte_max: 10000
+
+orcamento_triangulos:
+  prop_estatico: 1500
+  prop_equipavel: 800
+  personagem_humanoide: 6000
+  criatura: 6000
+  modulo_cenario: 2000
+  mapa_setor: 20000

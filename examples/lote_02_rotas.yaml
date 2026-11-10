@@ -1,0 +1,45 @@
+# Lote de referencia das rotas que dependem de GPU/periodo posterior (P3 e P4).
+# Valida contra o schema hoje; executa a partir de P3/P4.
+schema: forge3d/spec@1
+
+projeto: gamezero
+perfil: godot4
+destino_exportacao: /home/eudespatricio/Games/GameZero/assets/importados
+estilo_global: lowpoly_lit
+
+politica:
+  falha: continuar
+  custo_max_min: 240
+  seed_base: 20261110
+
+lote:
+  # --- P3: rota mesh (image-to-3D local) ---
+  - id: weapon.axe.ice.01
+    tipo: prop_equipavel
+    rota: mesh
+    prompt: >-
+      Machado de guerra de gelo eterno, lamina translucida com veios azuis,
+      cabo de madeira escura com aneis de prata.
+    altura_metros: 1.20
+    pivot: empunhadura
+    limite_triangulos: 8000
+    material: pbr
+    colisao: convex
+    seed: 20261110
+    lod: [100, 50]
+    tags: [weapon, axe, ice]
+
+  # --- P4: rota modular (WFC + montagem) ---
+  - id: arena.lava.sector.01
+    tipo: modulo_cenario
+    rota: modular
+    prompt: >-
+      Setor de arena subterranea com piso de basalto rachado, veios de lava
+      e pilares quebrados nas bordas.
+    altura_metros: 4.0
+    pivot: base
+    limite_triangulos: 20000
+    colisao: ucx
+    seed: 20261110
+    lod: [100, 50]
+    tags: [cenario, dungeon, lava]

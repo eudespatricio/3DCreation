@@ -1,0 +1,32 @@
+# Arquivos gerados / lixo de build
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Estado local da pipeline (cache, locks, staging, runs)
+.forge/
+staging/
+*.lock
+
+# Saídas de exemplo e temporários
+/tmp/
+*.tmp
+*.bak
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Modelos e pesos — nunca versionar binário grande
+models/
+*.safetensors
+*.ckpt
+*.pth
+*.onnx
+
+# Assets gerados NÃO entram no git deste repo (o destino é o repo do jogo)
+assets_out/
+out/

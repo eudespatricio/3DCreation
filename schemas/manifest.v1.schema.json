@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge3d.local/schemas/manifest.v1.schema.json",
+  "title": "forge3d/manifest@1",
+  "description": "Contrato de saida: viaja junto do asset no destino. Permite ao jogo validar sem ter o Forge3D instalado.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "asset_id",
+    "projeto",
+    "perfil",
+    "spec_hash",
+    "pipeline_version",
+    "determinism",
+    "providers",
+    "geometry",
+    "files",
+    "qc",
+    "licenca",
+    "run_id",
+    "created_at"
+  ],
+  "properties": {
+    "schema": { "const": "forge3d/manifest@1" },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$"
+    },
+    "projeto": { "type": "string", "minLength": 1 },
+    "perfil": { "type": "string", "minLength": 1 },
+    "spec_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "pipeline_version": { "type": "string", "minLength": 1 },
+    "determinism": { "enum": ["D1", "D2", "D3"] },
+    "providers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["geometry"],
+      "properties": {
+        "geometry": { "$ref": "#/$defs/provider" },
+        "texture": { "$ref": "#/$defs/provider" }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["triangulos", "vertices", "bbox_m", "materiais"],
+      "properties": {
+        "triangulos": { "type": "integer", "minimum": 1, "maximum": 50000 },
+        "vertices": { "type": "integer", "minimum": 1 },
+        "bbox_m": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "number", "exclusiveMinimum": 0 }
+        },
+        "materiais": { "type": "integer", "minimum": 1, "maximum": 8 }
+      }
+    },
+    "rig": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["esqueleto", "ossos"],
+      "properties": {
+        "esqueleto": { "type": "string", "pattern": "^(godot-humanoid|r15)@[0-9]+$" },
+        "ossos": { "type": "integer", "minimum": 1, "maximum": 64 }
+      }
+    },
+    "lod": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nivel", "triangulos", "arquivo"],
+        "properties": {
+          "nivel": { "type": "integer", "minimum": 0, "maximum": 3 },
+          "triangulos": { "type": "integer", "minimum": 1 },
+          "arquivo": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "colisao": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tipo", "partes"],
+      "properties": {
+        "tipo": { "enum": ["none", "box", "convex", "ucx"] },
+        "partes": { "type": "integer", "minimum": 0, "maximum": 15 },
+        "arquivo": { "type": "string" }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["caminho", "papel", "sha256", "bytes"],
+        "properties": {
+          "caminho": { "type": "string", "minLength": 1 },
+          "papel": {
+            "enum": ["mesh", "textura", "normal", "orm", "colisor", "lod", "animacao", "manifesto"]
+          },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "bytes": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "qc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aprovado", "gates"],
+      "properties": {
+        "aprovado": { "type": "boolean" },
+        "gates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "status"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^G[1-9]$" },
+              "status": { "enum": ["ok", "warn", "falhou"] },
+              "medido": { "type": "object" },
+              "limite": { "type": "object" },
+              "codigo": { "type": "string", "pattern": "^FORGE-[EW]-[A-Z0-9-]+$" }
+            }
+          }
+        }
+      }
+    },
+    "licenca": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelo", "uso_comercial", "notice"],
+      "properties": {
+        "modelo": { "type": "string", "minLength": 1 },
+        "uso_comercial": { "type": "boolean" },
+        "notice": { "type": "string" }
+      }
+    },
+    "origem_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arquivo", "hash"],
+      "properties": {
+        "arquivo": { "type": "string", "minLength": 1 },
+        "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "run_id": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "license"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "license": { "type": "string", "minLength": 1 },
+        "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      }
+    }
+  }
+}

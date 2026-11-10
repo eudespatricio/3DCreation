@@ -1,0 +1,82 @@
+# Lote canonico — fixture executavel em P1 (rota blocky, sem GPU)
+# Valida contra schemas/spec.v1.schema.json. E a fixture usada pelos testes de invariante.
+schema: forge3d/spec@1
+
+projeto: gamezero
+perfil: godot4
+destino_exportacao: /home/eudespatricio/Games/GameZero/assets/importados
+estilo_global: blocky_voxel
+
+paleta:
+  - "#0d0d0f"
+  - "#3a3a40"
+  - "#ff5a1f"
+  - "#ffd166"
+  - "#c9a227"
+
+politica:
+  falha: continuar
+  custo_max_min: 30
+  seed_base: 20261110
+
+lote:
+  - id: weapon.sword.fire.01
+    tipo: prop_equipavel
+    rota: blocky
+    prompt: >-
+      Espada larga de ferro negro com runas de lava brilhantes na lamina,
+      cabo envolto em couro gasto e pomo de bronze.
+    altura_metros: 1.10
+    pivot: empunhadura
+    limite_triangulos: 800
+    material: opaque
+    colisao: convex
+    lod: [100, 50]
+    tags: [weapon, sword, fire]
+
+  - id: prop.potion.heal.01
+    tipo: prop_estatico
+    rota: blocky
+    prompt: >-
+      Frasco de pocao de vida com liquido vermelho luminoso, tampa de cortica
+      e rotulo de pergaminho.
+    altura_metros: 0.18
+    pivot: base
+    limite_triangulos: 300
+    colisao: box
+    lod: [100]
+    tags: [consumivel, potion]
+
+  - id: mob.skeleton.guard
+    tipo: personagem_humanoide
+    rota: blocky
+    prompt: >-
+      Esqueleto guerreiro com elmo rachado de bronze, peitoral de couro escuro
+      e escudo pequeno no braco esquerdo.
+    altura_metros: 1.85
+    pivot: base
+    limite_triangulos: 3000
+    auto_rig: true
+    esqueleto: godot-humanoid@1
+    colisao: convex
+    lod: [100, 50, 25]
+    tags: [mob, undead, guard]
+    # animacoes_base: [idle, walk]   # reservado (D14): gera FORGE-W-ANIM, nao erro
+
+# --- Exemplo de itens de outras rotas (nao executam nesta fixture) ---
+#
+#  - id: weapon.axe.ice.01        # rota mesh: exige GPU e seed (P3)
+#    tipo: prop_equipavel
+#    rota: mesh
+#    prompt: "Machado de guerra de gelo eterno com veios azuis"
+#    altura_metros: 1.20
+#    limite_triangulos: 8000
+#    material: pbr
+#    seed: 20261110
+#
+#  - id: weapon.dagger.old.01     # rota import: asset feito a mao (P1)
+#    tipo: prop_equipavel
+#    rota: import
+#    origem: /home/eudespatricio/3DCreation/examples/origem/dagger.blend
+#    altura_metros: 0.35
+#    pivot: empunhadura

@@ -1,0 +1,85 @@
+# Perfil de export — Godot 4
+# Consumido por forge3d (P1). Nao e codigo: mudar aqui muda o QC, nada mais.
+schema: forge3d/profile@1
+perfil: godot4
+versao: 1
+
+formato: [glb]
+
+unidades:
+  metros_por_unidade: 1.0        # 1 unidade glTF = 1 m, casa com Node3D
+
+eixos:
+  up: "+Y"
+  frente: "-Z"
+
+aplicar_transforms: true
+
+pivot:
+  prop_estatico: base
+  prop_equipavel: empunhadura
+  personagem_humanoide: base
+  criatura: base
+  modulo_cenario: base
+  mapa_setor: centro
+
+colisao:
+  modo: convex_hull_por_peca
+  prefixo: "UCX_"
+  max_partes: 8
+  dentro_da_aabb: true
+
+lod:
+  sufixos: ["_LOD0", "_LOD1", "_LOD2"]
+  preservar_materiais: true
+
+rig:
+  esqueleto_padrao: "godot-humanoid@1"
+  max_ossos: 64
+  mapas:
+    "godot-humanoid@1":
+      - Root
+      - Hips
+      - Spine
+      - Spine1
+      - Chest
+      - Neck
+      - Head
+      - Shoulder.L
+      - UpperArm.L
+      - LowerArm.L
+      - Hand.L
+      - Shoulder.R
+      - UpperArm.R
+      - LowerArm.R
+      - Hand.R
+      - UpperLeg.L
+      - LowerLeg.L
+      - Foot.L
+      - Toe.L
+      - UpperLeg.R
+      - LowerLeg.R
+      - Foot.R
+      - Toe.R
+
+material:
+  modelo: metallic-roughness
+  textura_max: 1024
+  pot: true
+  filtro: nearest                # [verificar] U3: glTF nao forca filtro; depende do preset de import
+
+validacao:
+  escala_delta_pct: 0.5
+  pivo_delta_mm: 1.0
+  materiais_max: 8
+  bytes_max_kb: 2048
+  nao_manifold_max: 0
+  faces_degeneradas_max: 0
+
+orcamento_triangulos:
+  prop_estatico: 1500
+  prop_equipavel: 800
+  personagem_humanoide: 6000
+  criatura: 6000
+  modulo_cenario: 2000
+  mapa_setor: 20000

@@ -1,0 +1,106 @@
+# Roadmap
+
+> Cada fase tem **portão de saída falsificável**. Sem portão verde, a fase seguinte não começa —
+> o custo de construir sobre uma base não verificada é maior que o de atrasar uma semana.
+
+## Visão
+
+| Fase | Objetivo | Precisa de GPU? | Portão de saída |
+|---|---|---|---|
+| **P0** | Escopo, arquitetura e contratos | não | este repositório de documentos + schemas válidos |
+| **P0.5** | Fechar decisões abertas que travam código | não | Q2 e Q6 decididas; `check-contexto.sh` verde |
+| **P1** | Rota `blocky` + `import` de ponta a ponta | não | 2 runs ⇒ mesmos hashes; 3 assets importados no Godot sem correção manual |
+| **P2** | Perfil `roblox-r15` | não | um rig R15 importa no Studio com `Humanoid` e anima |
+| **P3** | Rota `mesh` com stack local | **sim** | 10 assets com QC aprovado, tempo e VRAM medidos e registrados |
+| **P4** | Rota `modular` (WFC) | não | uma dungeon de 10 setores com colisão por setor e seed fixa |
+| **P5** | LOD de mesh, retarget, animação | sim | animação base tocando nos dois perfis |
+| **P6** | Índice, `gc`, CI e distribuição | não | `forge3d` instalável e `verify` rodando em CI de pull request |
+
+## P0 — Contratos (concluída em 10/11/2026)
+
+**Entrega:** `README`, `AGENTS`, `MAPA`, `CONSELHOS`, `DECISOES`, `INVARIANTES`, `CONTINUAR`, `docs/*`,
+`schemas/*`, `profiles/*`, `examples/*`, skill `context-recovery` adaptada.
+
+**Portão:** todo schema é JSON válido e o lote de exemplo valida contra `spec@1`; nenhuma contradição
+interna entre documentos (nomes de campo, exit codes, IDs de invariante).
+
+**Não faz:** código, instalação de modelo, dependência pesada.
+
+## P0.5 — Destravar
+
+**Entrega:** Q2 (allowlist de destino) e Q6 (onde mora `.forge/`) decididas e escritas em `DECISOES.md`;
+`tools/check-contexto.sh` aplicando os tetos; `scan_repo.py` portado para o lens Python/Blender.
+
+**Portão:** `bash tools/check-contexto.sh` sai `0`; nenhum `Q` aberto que bloqueie P1.
+
+## P1 — Rota `blocky` e `import` (o coração)
+
+Escopo mínimo que prova o desenho inteiro **sem GPU**:
+
+1. `spec/` com schema, normalização e regras B1–B10;
+2. `plan/` com chave de cache e estimativa;
+3. provider `blocky` (caixas + atlas Pillow) e provider `import`;
+4. `blender/postprocess.py` + `export.py` (4.2, JSON como canal);
+5. `qc/` com G1–G9 exceto os que dependem de GPU;
+6. `publish/` atômico + manifesto + índice SQLite + ledger;
+7. CLI com os seis subcomandos e exit codes;
+8. `tests/invariants/` cobrindo I1–I5, I8–I14.
+
+**Portão (todos):**
+- `forge3d run examples/lote_01.yaml` duas vezes ⇒ **hashes idênticos** (I1);
+- segunda execução ⇒ `trabalho_executado: 0` (I11);
+- os 3 assets do exemplo entram no GameZero **sem ajuste manual** de escala, pivô ou material;
+- `verify` pega um `.glb` alterado à mão ⇒ `exit 3`;
+- spec com erro ⇒ `exit 2` sem tocar em provider.
+
+**Não faz:** GPU, LOD de mesh, animação, mapa.
+
+## P2 — Roblox
+
+**Entrega:** `profiles/roblox-r15.yaml` completo, rig `r15@1`, conversão de escala, colisão por parte,
+e o teste real no Studio que fecha U1–U4.
+
+**Portão:** modelo importado no Studio com `Humanoid`, membros girando no pivô certo, textura correta,
+e o documento `perfis-export.md` sem nenhum `[verificar]` pendente nesse perfil.
+
+## P3 — Rota `mesh`
+
+**Entrega:** provider `mesh` com concept + image-to-3D atrás de interface, lock de GPU, provenance D2,
+`doctor` medindo VRAM, allowlist de licença aplicada.
+
+**Portão:**
+- 10 assets gerados com QC aprovado e **tempo/VRAM medidos nesta máquina** (entram em `DECISOES.md` §1);
+- A/B SF3D × TripoSR registrado — fecha o dissenso X1;
+- decisão de licença para jogo comercial escrita e assinada (Q5);
+- falha de GPU ⇒ `bloqueado` com `exit 6`, nunca lote perdido.
+
+**Não faz:** TRELLIS.2 em produção (X3 continua experimental), Hunyuan3D (licença).
+
+## P4 — Rota `modular`
+
+**Entrega:** catálogo de módulos com sockets, gerador de grafo de layout, WFC com seed, montagem e
+*join* por setor no Blender, colisão `UCX_` por peça, export por setor.
+
+**Portão:** dungeon de 10 setores reproduzível por seed, com colisão funcional e sem infinito de
+draw calls por setor.
+
+## P5 — Polimento
+
+LOD para mesh gerada (com critério visual, não decimate cego), retarget entre `godot-humanoid@1` e
+`r15@1`, animação base opcional. Fecha D14 e o GAP de animação.
+
+## P6 — Produto
+
+Índice consultável (`query`), `gc`, `migrate` de spec, CI de pull request com `verify`, distribuição
+(`uv tool install`), e — só se houver consumidor não-Python — o adaptador HTTP.
+
+## Caminho crítico
+
+```
+P0 ──► P0.5 ──► P1 ──┬──► P2
+                     └──► P3 ──► P5
+                     └──► P4
+```
+
+P1 é obrigatório antes de qualquer outra coisa: é onde o desenho é provado sem GPU. Inverter isso
+(começar pela geração) é reproduzir a lacuna L2–L4 do desenho original.

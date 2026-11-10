@@ -58,6 +58,10 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Canal de delegação (`agentapi`) | **funciona** com `ANTIGRAVITY_LS_ADDRESS=127.0.0.1:43023` + `ANTIGRAVITY_CSRF_TOKEN`; cria conversa e responde via `brain/<id>/.system_generated/steps/` | teste em 10/11/2026 com IDE aberta |
 | `new-conversation` é **agêntico** | executa ferramentas (`commandExecutionPolicy: eager`), não é endpoint de completude; no teste rodou comandos de shell | `brain/3836b572-…/steps/13/output.txt` |
 | Language server headless sozinho | **crashou** (panic do binário Go); só sobe com a IDE | `-headless=true -http_server_port=50091` |
+| SF3D — acesso gated | token salvo e usuário `eudespatricio` OK, mas **HTTP 403** em `config.yaml` e `model.safetensors`; repo é `gated: auto`, `emailVerified` nulo | API `/api/whoami-v2` + `/resolve/main/*` em 10/11/2026 |
+| SF3D — instalação | `~/.venvs/sf3d` (3.12, torch 2.4.1+cu121, CUDA ok); `texture_baker` compilado **CPU** (`USE_CUDA=0`, sem nvcc) → `_C` ok | smoke test de import |
+| SF3D — conflitos resolvidos | `cmake` 4.x quebra build antigo (usei 3.31 via PyPI, sem sudo); `scipy 1.18` exige numpy 2 e quebrava trimesh/rembg (fixei 1.13.1) | logs do build |
+| SF3D — `gpytoolbox` | falhou no build (cmake); é usado **só** no remesh → import tornado opcional no vendor, `--remesh_option none` | patch em `sf3d/models/mesh.py` |
 | Estimativa do `plan` | 9,0 s estimados × 2,08 s reais para 3 itens (≈3× conservador) | comparação dos dois relatórios |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): tempo por asset em

@@ -54,6 +54,21 @@ dentro do Blender: isso contamina o DCC e quebra na próxima atualização.
 **Não instalar por padrão:** ComfyUI (stack completa para uma função coberta), Hunyuan3D-2.1 e
 TRELLIS.2 (VRAM/licença — D18), Node/pnpm (não há etapa JS no v0).
 
+### SF3D (gated) — o que é preciso para rodar
+
+| Passo | Onde | Observação |
+|---|---|---|
+| conta com **e-mail verificado** | `huggingface.co/settings/account` | sem verificação o repo gated dá 403 |
+| **aceitar os termos** do modelo | `huggingface.co/stabilityai/stable-fast-3d` → *Agree and access repository* | `gated: auto`: libera na hora após o aceite |
+| token **Read** | `huggingface.co/settings/tokens` | `huggingface-cli login --token hf_...`; fica em `~/.cache/huggingface/token` (fora do repo) |
+| conferir acesso | `curl -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(cat ~/.cache/huggingface/token)" https://huggingface.co/stabilityai/stable-fast-3d/resolve/main/config.yaml` | **403** = sem aceite · **200** = liberado |
+
+Instalação (verificada em 10/11/2026): venv isolada `~/.venvs/sf3d` (o SF3D pina `transformers==4.42.3`
+e `huggingface-hub==0.23.4`, que **conflitam** com o TripoSR), `cmake<4` via PyPI (sem sudo),
+`scipy==1.13.1` (o 1.18 exige numpy 2 e quebra `trimesh`/`rembg` com numpy 1.26), pacotes locais com
+`--no-build-isolation` e `USE_CUDA=0` (sem `nvcc` o `texture_baker` compila em CPU).
+`gpytoolbox` só serve ao remesh: import tornado opcional no vendor, usar `--remesh_option none`.
+
 ## 5. Sistema
 
 | Ferramenta | Estado | Necessidade |

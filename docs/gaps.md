@@ -16,6 +16,8 @@
 | GAP-029 | Qualidade inutilizável nos 3 inputs testados (A-pose, flat, T-pose): casca oca, laje extrudada, chapa de capa | P3 | P3 | um input sem capa e com sombreamento gerando malha fechada e reconhecível |
 | GAP-030 | Delegação ao Antigravity é **sessão agêntica** (executa ferramentas), não completude: risco em execução desatendida | P3 | P4 | transporte com escopo restrito ou endpoint de completude com chave própria |
 | GAP-031 | Duas venvs de torch instaladas (2.4.1 e 2.5.1): consolidar em uma só para i23d | P3 | P3.5 | provider usa `FORGE3D_VENV_I23D` e só uma venv de i23d existe |
+| GAP-032 | SF3D instalado mas **sem acesso aos pesos**: aceite do repo gated pendente (403) | P3 | P3 | `HTTP 200` em `/resolve/main/config.yaml` com o token e primeira inferência rodada |
+| GAP-033 | `gpytoolbox` não compila (cmake) → remesh do SF3D indisponível; patch de import opcional no vendor | P3 | P3.5 | `gpytoolbox` instalado **ou** remesh feito no `bpy` |
 | GAP-006 | Escala/rig Roblox não verificados (U1–U4) | P0 | P2 | teste real no Studio; `[verificar]` removido do perfil |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
 | GAP-008 | Sem CI configurado (testes existem, pipeline não) | P0 | P1.5 | `pytest` + `check-contexto.sh` rodando em pull request |

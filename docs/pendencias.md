@@ -9,8 +9,7 @@
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P5 | **Split do input `mesh`**: corpo / capa / arma como três concepts e três malhas | o P3-D foi feito na rota `blocky`; o reconstructor ainda recebe o personagem inteiro e funde a capa (GAP-036) | 3 PNGs separados → 3 GLBs com QC aprovado → montados no Godot | **A** |
-| P7 | **Qualidade de personagem com capa/tecido** | sentinela (sem capa) saiu reconhecível; cadeira saiu blob e a capa ainda funde o corpo | 3 personagens com capa, malha fechada e reconhecível, sem fusão | **A** |
+| P7 | **Qualidade de personagem com capa/tecido** | sentinela e corpo do split saíram reconhecíveis; capa/arma do split saíram blobs (GAP-041) | capa/arma reconhecíveis **ou** rota `blocky` para elas (D39); 3 personagens com capa | **A** |
 | P8 | **Roblox P2**: validar o perfil no Studio | segundo perfil de export nunca foi testado; probe 10/11 mostrou que **prop** publica/verifica, mas humanoid falha em `pivot: junta` (fora do enum) e o blocky não gera nomes R15 (Q3/GAP-006) | import no Studio, U1–U4 sem `[verificar]`, R15 com `HumanoidRootPart` e membros nos nomes R15 | **B** |
 
 ## 2. Correções que já mordem
@@ -46,6 +45,9 @@
 - **P3-C** venvs consolidadas: `~/.venvs/triposr` (5,8 GB) removida; só `venv-i23d` (torch 2.4.1).
 - **P3-D** kit blocky corpo/capa/arma: `examples/lote_03_kit.yaml`, 3 assets publicados e montados no
   Godot (`Chest`, `Hand.R`).
+- **P5** split do input mesh: 3 concepts → **corpo 7.954 / capa 4.972 / arma 1.988 tris** publicados
+  (`personagem.sentinel.*.02`) e montados no Godot (`SPLIT_OK`); corpo utilizável, capa/arma blobs
+  (GAP-041).
 - **P6** concept **SD1.5** local: `examples/lote_05_mesh_concept.yaml` publicou
   `personagem.sentinel.concept.01` **sem `origem`** (7.940 tris, 37,2 s, G1–G9, `providers.texture`
   `concept/sd15`, importado no Godot com AABB idêntico).

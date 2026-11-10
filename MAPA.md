@@ -20,15 +20,15 @@
 | `schemas/spec.v1.schema.json` · `schemas/spec.v2.schema.json` | contrato de entrada (fonte de verdade) | validar lote |
 | `schemas/manifest.v1.schema.json` | contrato de saída (fonte de verdade) | consumir asset no jogo |
 | `profiles/godot4.yaml` · `profiles/roblox-r15.yaml` | perfis de export | exportar para Godot/Roblox |
-| `examples/lote_01.yaml` · `examples/lote_03_kit.yaml` · `examples/lote_04_mesh.yaml` · `examples/lote_05_mesh_concept.yaml` | fixtures: blocky, kit P3-D, mesh P3, concept P3.5 | exemplo canônico e fixture de teste |
+| `examples/lote_01.yaml` · `lote_03_kit` · `lote_04_mesh` · `lote_05_mesh_concept` · `lote_06_mesh_split` (com prefixo `examples/`) | fixtures: blocky, kit, mesh, concept, split | exemplo canônico e fixture de teste |
 | `examples/concepts/` | PNGs de entrada da rota `mesh` (teapot MIT) | rodar o exemplo mesh |
 | `tools/check-p0.py` | portão do P0: schemas, exemplos, tetos, I12, I14 | antes de dizer "P0 fechada" |
 | `tools/render_preview.py` · `docs/preview/` | preview headless e renders de referência | revisar qualidade do asset |
-| `tools/i23d_infer.py` · `tools/concept_infer.py` · `tools/normalize_mesh.py` | inferência i23d, concept SD1.5 e normalização canônica | depurar rota mesh |
+| `tools/i23d_infer.py` · `tools/concept_infer.py` · `tools/setup_concept_venv.sh` · `tools/normalize_mesh.py` | inferência i23d, concept SD1.5, setup da venv e normalização | depurar rota mesh |
 | `src/forge3d/` + `src/forge3d/cli/` | `spec` `plan` `qc` `publish` `pipeline` `doctor` `locks` `canonical` `config` `paths` + 7 subcomandos | implementação |
 | `src/forge3d/providers/` | `base` `blocky` `importer` `mesh` | adicionar rota |
 | `src/forge3d/post.py` + `blender/postprocess.py` | subprocesso + script `bpy` (LOD, colisor, rig, UV+bake) | pós-processo, textura, rig |
-| `tests/` | `test_unidade.py` + `test_p3_bake.py` + `test_concept.py` + `invariants/` + `fixtures/` | portão de CI |
+| `tests/` | `test_unidade.py` + `test_p3_bake.py` + `test_concept.py`/`_gpu.py` + `invariants/` + `fixtures/` | portão de CI |
 | `~/.venvs/concept` | venv do SD1.5/diffusers (cópia da i23d; pin de transformers diferente) | gerar concept |
 | `$FORGE3D_HOME` | `cache` `runs` `staging` `locks` `indice.sqlite` `ledger.jsonl` `saida/` | depurar run |
 | `~/.config/forge3d/allowlist.yaml` | destinos autorizados (D23) | publicar em projeto de jogo |

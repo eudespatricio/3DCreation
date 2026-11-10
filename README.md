@@ -68,7 +68,8 @@ A GPU é **opcional**: o sistema é útil sem ela, e é isso que o mantém barat
 [`examples/lote_01.yaml`](examples/lote_01.yaml) é a fixture canônica — 3 assets, roda hoje.
 [`examples/lote_03_kit.yaml`](examples/lote_03_kit.yaml) é o kit corpo/capa/arma (`spec@2`) e
 [`examples/lote_04_mesh.yaml`](examples/lote_04_mesh.yaml) é a rota `mesh` (TripoSR + bake) e
-[`examples/lote_05_mesh_concept.yaml`](examples/lote_05_mesh_concept.yaml) é o concept sem `origem`:
+[`examples/lote_05_mesh_concept.yaml`](examples/lote_05_mesh_concept.yaml) é o concept sem `origem` e
+[`examples/lote_06_mesh_split.yaml`](examples/lote_06_mesh_split.yaml) é o split corpo/capa/arma:
 
 ```yaml
 schema: forge3d/spec@1
@@ -128,8 +129,9 @@ blender --background --factory-startup --python tools/render_preview.py -- \
 Os testes de invariante rodam o Blender de verdade: provam escala, pivô, hash idêntico entre execuções,
 detecção de arquivo adulterado e reexecução dos gates no `verify`, idempotência e recusa de
 destino fora da allowlist. Assets de aceitação: `prop.bule.exemplo.01` (prop, 7.960 tris) e
-`personagem.sentinel.concept.01` (concept→mesh sem `origem`, 7.940 tris), ambos com textura 512²,
-G1–G9 verdes e AABB idêntico no Godot 4.3.
+`personagem.sentinel.concept.01` (concept→mesh sem `origem`, 7.940 tris) e o corpo do split
+`personagem.sentinel.corpo.02` (7.954 tris), todos com textura 512², G1–G9 verdes e AABB idêntico
+no Godot 4.3. No split, capa/arma publicam mas ainda saem blobs (GAP-041).
 
 ## Documentos
 

@@ -93,6 +93,10 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P3.5 — orientação de humanoide | `centro_area=5,55` < 5,76 → espelha Z; `invertido=true`; 10 ilhas de 1 face removidas; G1 0 | `resultado.json` em 10/11/2026 |
 | P3.5 — Godot 4.3 (sentinela) | `Node3D → MeshInstance3D`; AABB **1,000387×1,8×0,729638** idêntico ao manifesto; `albedo_tex=true`; 7.940 tris | `godot --headless` + GDScript em 10/11/2026 |
 | P3.5 — fallback CPU | run completo **71,4 s** (384²/8 steps, mc128); mecânica OK, concept em close e malha não utilizável | `time` em 10/11/2026 |
+| P3.5 — split mesh (3 concepts) | **1m39,9s**; corpo **7.954 tris**, capa **4.972**, arma **1.988**; 3 publicados e `verify` ok | `run` em 10/11/2026 |
+| P3.5 — split no Godot | corpo AABB **1,114836×1,8×0,906218**; capa **0,793371×1,3×0,670403**; arma **0,93732×1,0×0,833001**; `SPLIT_OK` | `mount_split.gd` em 10/11/2026 |
+| P3.5 — qualidade do split | corpo reconhecível; **capa e arma saíram blobs** (TripoSR não lida com peça fina/isolada) | previews `docs/preview/p3_split_*` em 10/11/2026 |
+
 | Custo concept→mesh | **40 s estimados × 37,2 s reais** (erro -7%) | `plan` × `run` em 10/11/2026 |
 
 | P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |
@@ -147,6 +151,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D36 | Concept gerado usa **rembg automático** no i23d (fundo neutro), com `FORGE3D_I23D_REMOVER_FUNDO` ainda válido para imagens externas | o fundo do diffusion não é transparente; sem rembg o TripoSR inclui o fundo |
 | D37 | **Orientação de humanoides gerados**: após permutar eixos, mede o perfil de área em 12 faixas; se o centro de área < 48% da altura, espelha Z (mantém frente/lados) e recalcula normais | medido: sentinela `centro_area=5,55` (cabeça embaixo) e android blocky `6,52` (ok); G2 passava mesmo invertido |
 | D38 | **Fallback CPU** para `mesh`/concept via `FORGE3D_DEVICE=cpu` (lento, sem VRAM); não é o caminho de aceitação | GPU compartilhada nesta máquina; o fallback validou o encadeamento em 71,4 s |
+| D39 | **Split mesh**: o corpo gerado é viável; capa/arma finas e isoladas **não** são confiáveis no TripoSR. O mecanismo de 3 itens/3 concepts fica; para capa/arma usáveis, a rota `blocky` (kit P3-D) ou um modelo especializado | medido: corpo reconhecível; capa e arma publicadas mas blobs (GAP-041) |
 
 
 

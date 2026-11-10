@@ -1,0 +1,61 @@
+# P3.5 — split do input mesh: corpo, capa e arma como itens/concepts separados.
+# Sem `origem`: cada item gera o proprio concept SD1.5 e a propria malha.
+# Rode da raiz do repo:
+#   forge3d run examples/lote_06_mesh_split.yaml
+schema: forge3d/spec@1
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/kit_mesh
+estilo_global: lowpoly_lit
+
+politica:
+  falha: continuar
+  custo_max_min: 10
+  seed_base: 20261111
+
+lote:
+  - id: personagem.sentinel.corpo.02
+    tipo: personagem_humanoide
+    rota: mesh
+    prompt: >-
+      full body front view of an original humanoid robot sentinel, T-pose, arms extended,
+      white and black armor with an orange core, game asset concept art
+    altura_metros: 1.80
+    pivot: base
+    limite_triangulos: 8000
+    material: pbr
+    colisao: convex
+    seed: 20261111
+    lod: [100]
+    tags: [kit, corpo, mesh]
+
+  - id: personagem.sentinel.capa.02
+    tipo: prop_estatico
+    rota: mesh
+    prompt: >-
+      long dark gray hooded cloak with orange lining, front view, hanging open,
+      isolated object, game asset concept art
+    altura_metros: 1.30
+    pivot: topo
+    limite_triangulos: 5000
+    material: pbr
+    colisao: none
+    seed: 20261111
+    lod: [100]
+    tags: [kit, capa, mesh]
+
+  - id: personagem.sentinel.arma.02
+    tipo: prop_equipavel
+    rota: mesh
+    prompt: >-
+      short dark metal sentinel blade with an orange guard and wrapped grip,
+      product shot, isolated object, game asset concept art
+    altura_metros: 1.00
+    pivot: empunhadura
+    limite_triangulos: 2000
+    material: pbr
+    colisao: convex
+    seed: 20261111
+    lod: [100]
+    tags: [kit, arma, mesh]

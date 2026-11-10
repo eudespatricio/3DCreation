@@ -13,7 +13,9 @@
 | ~~GAP-005~~ | ~~Rota `mesh` sem medição em 6 GB~~ | P0 | **P3 parcial ✔** | medido em 10/11/2026: forward 1,8–3,1 s, extração 3,7–4,5 s, total 21–36 s; falta A/B com 10 assets |
 | GAP-027 | TripoSR não entrega frame canônico: altura no eixo Y em 2/2 inputs | P3 | P3 | `tools/normalize_mesh.py` integrado ao provider `i23d`, com QC de orientação |
 | GAP-028 | Saída do TripoSR sem UV e sem material (só `COLOR_0`): QC G3/G5 reprovam, corretamente. Bake exige `moderngl` + contexto EGL | P3 | P3 | `--bake-texture` funcionando **ou** UV+bake próprios no `bpy` |
-| GAP-029 | Qualidade inutilizável nos 2 inputs testados: foto com capa → casca oca; render flat → laje extrudada | P3 | P3 | um input T-pose com sombreamento gerando malha fechada e reconhecível |
+| GAP-029 | Qualidade inutilizável nos 3 inputs testados (A-pose, flat, T-pose): casca oca, laje extrudada, chapa de capa | P3 | P3 | um input sem capa e com sombreamento gerando malha fechada e reconhecível |
+| GAP-030 | Delegação ao Antigravity é **sessão agêntica** (executa ferramentas), não completude: risco em execução desatendida | P3 | P4 | transporte com escopo restrito ou endpoint de completude com chave própria |
+| GAP-031 | Duas venvs de torch instaladas (2.4.1 e 2.5.1): consolidar em uma só para i23d | P3 | P3.5 | provider usa `FORGE3D_VENV_I23D` e só uma venv de i23d existe |
 | GAP-006 | Escala/rig Roblox não verificados (U1–U4) | P0 | P2 | teste real no Studio; `[verificar]` removido do perfil |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
 | GAP-008 | Sem CI configurado (testes existem, pipeline não) | P0 | P1.5 | `pytest` + `check-contexto.sh` rodando em pull request |

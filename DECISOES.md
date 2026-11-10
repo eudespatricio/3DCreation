@@ -62,6 +62,10 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | SF3D — instalação | `~/.venvs/sf3d` (3.12, torch 2.4.1+cu121, CUDA ok); `texture_baker` compilado **CPU** (`USE_CUDA=0`, sem nvcc) → `_C` ok | smoke test de import |
 | SF3D — conflitos resolvidos | `cmake` 4.x quebra build antigo (usei 3.31 via PyPI, sem sudo); `scipy 1.18` exige numpy 2 e quebrava trimesh/rembg (fixei 1.13.1) | logs do build |
 | SF3D — `gpytoolbox` | falhou no build (cmake); é usado **só** no remesh → import tornado opcional no vendor, `--remesh_option none` | patch em `sf3d/models/mesh.py` |
+| SF3D — **acesso liberado** | aceite gated concedido; `config.yaml` passou de 403 para 200 | `curl` com token em 10/11/2026 |
+| SF3D — geometria em 6 GB | **funciona**: mesh extraída com 8.066 vértices / 16.128 faces | log: `After Remesh 8066 16128` |
+| SF3D — **tempo real** | **~8 min por imagem** (`0/1 [08:01]`), VRAM de pico **5.844/6.144 MiB** — o "0,5 s" é A100 | mon amostrador 1 Hz |
+| SF3D — bake de textura **falha** sem CUDA toolkit | `texture_baker` compilado com `USE_CUDA=0` só registra kernel CPU: `NotImplementedError: 'texture_baker_cpp::rasterize' ... only available for [CPU]` | traceback em `/tmp/forge3d_teste/sf3d512.log` |
 | Estimativa do `plan` | 9,0 s estimados × 2,08 s reais para 3 itens (≈3× conservador) | comparação dos dois relatórios |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): tempo por asset em

@@ -26,6 +26,8 @@
 | GAP-020 | Personagem sai com rig e sem clipe de animação (D14): no Godot ele é estático até alguém animar | P1 | P5 | clipe `idle` gerado ou retarget validado |
 | GAP-021 | Um atlas por asset, sem variantes (dano, time, emissivo); trocar cor exige regerar | P1 | P4 | atlas com 2–3 variantes declaradas na spec |
 | GAP-022 | A pose de validação é render manual, não teste: nada no CI falha se o rig inverter eixo | P1 | P2 | teste que compara eixo local de cada osso com o mapa do perfil |
+| GAP-023 | **UV estica em face fina:** uma célula serve as 6 faces, então peça de pouca espessura (visor, placa) smear o padrão. Visível no close-up de 10/11 | P1 | P1.5 | célula por orientação de face (frente/lado/topo/fundo) e G3 medindo densidade de texel por face |
+| GAP-024 | **Densidade de herói:** atlas 64² e célula 16 px dão 34,6 px/m; close-up pede ~380 px/m. Sem bevel/inset, toda aresta é viva | P1 | P1.5 | atlas 256–512, célula 32–64, 80–150 peças e chanfro de 1 voxel, medido em close-up |
 | GAP-018 | `query --tag` existe, mas as tags não são indexadas por tabela própria (LIKE) | P1 | P4 | tabela `tags` normalizada quando o índice passar de ~1.000 assets |
 | GAP-019 | Uma execução da suíte e2e deu `ERROR` em 3 fixtures (`test_i2`, `test_i13`, `test_rota_import`) com stdout não-JSON, e **não reproduziu** em 3 execuções seguintes (26/26 verdes) | P1 | P1.5 | reproduzir com `-p no:randomly` e capturar o stderr do subprocesso; até lá, tratar suite vermelha como real |
 

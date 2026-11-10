@@ -24,7 +24,7 @@ def _args() -> dict:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     if len(argv) < 2:
         raise SystemExit("uso: render_preview.py -- <glb> <saida> [--size N] [--samples N]")
-    opcoes = {"glb": argv[0], "saida": argv[1], "size": 720, "samples": 32, "pose": False}
+    opcoes = {"glb": argv[0], "saida": argv[1], "size": 720, "samples": 32, "pose": False, "close": False}
     resto = argv[2:]
     i = 0
     while i < len(resto):
@@ -36,6 +36,9 @@ def _args() -> dict:
             i += 2
         elif resto[i] == "--pose":
             opcoes["pose"] = True
+            i += 1
+        elif resto[i] == "--close":
+            opcoes["close"] = True
             i += 1
         else:
             i += 1
@@ -213,6 +216,11 @@ def main() -> int:
         "frente": Vector((0.0, 1.0, 0.08)),
         "tres_quartos": Vector((0.8, 1.0, 0.28)),
     }
+    if opcoes["close"]:
+        # close-up do terco superior: e onde densidade de texel e detalhe aparecem
+        centro = Vector((0.0, 0.0, maximo.z - altura_total * 0.22))
+        escala = altura_total * 0.42
+        vistas = {"close": Vector((0.55, 1.0, 0.18))}
     for nome, direcao in vistas.items():
         for obj in [o for o in bpy.context.scene.objects if o.type == "CAMERA"]:
             bpy.data.objects.remove(obj, do_unlink=True)

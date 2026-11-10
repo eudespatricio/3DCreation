@@ -10,7 +10,10 @@
 | ~~GAP-002~~ | ~~Local do estado (Q6)~~ | P0 | **P0.5 ✔** | fechado por **D24**: tudo em `$FORGE3D_HOME`, nada no repo do jogo |
 | ~~GAP-003~~ | ~~Teto de contexto sem script~~ | P0 | **P0.5 ✔** | `tools/check-contexto.sh`, sem dependência, verde |
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
-| GAP-005 | Rota `mesh` sem nenhuma medição em 6 GB nesta máquina | P0 | P3 | 10 assets com tempo e VRAM medidos em `DECISOES.md` §1 |
+| ~~GAP-005~~ | ~~Rota `mesh` sem medição em 6 GB~~ | P0 | **P3 parcial ✔** | medido em 10/11/2026: forward 1,8–3,1 s, extração 3,7–4,5 s, total 21–36 s; falta A/B com 10 assets |
+| GAP-027 | TripoSR não entrega frame canônico: altura no eixo Y em 2/2 inputs | P3 | P3 | `tools/normalize_mesh.py` integrado ao provider `i23d`, com QC de orientação |
+| GAP-028 | Saída do TripoSR sem UV e sem material (só `COLOR_0`): QC G3/G5 reprovam, corretamente. Bake exige `moderngl` + contexto EGL | P3 | P3 | `--bake-texture` funcionando **ou** UV+bake próprios no `bpy` |
+| GAP-029 | Qualidade inutilizável nos 2 inputs testados: foto com capa → casca oca; render flat → laje extrudada | P3 | P3 | um input T-pose com sombreamento gerando malha fechada e reconhecível |
 | GAP-006 | Escala/rig Roblox não verificados (U1–U4) | P0 | P2 | teste real no Studio; `[verificar]` removido do perfil |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
 | GAP-008 | Sem CI configurado (testes existem, pipeline não) | P0 | P1.5 | `pytest` + `check-contexto.sh` rodando em pull request |

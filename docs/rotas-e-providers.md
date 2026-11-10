@@ -112,6 +112,16 @@ Entregas de P3: (1) provider `concept` (text-to-image → PNG); (2) provider de 
 (PNG → malha + textura); (3) encadeamento e proveniência das duas etapas no manifesto; (4) lock
 de GPU exercitado de verdade e `doctor` medindo VRAM livre.
 
+**Primeiro teste real (10/11/2026, TripoSR em 6 GB)** — três requisitos que só apareceram rodando:
+
+1. **Normalizar orientação**: a saída vem com a altura no eixo Y (2 de 2 inputs).
+   `tools/normalize_mesh.py` leva para Z-up com base em 0 e centro em X/Y.
+2. **UV + textura**: sem `--bake-texture` a malha sai só com cor por vértice e o QC G3/G5 reprova
+   — comportamento correto. Bake precisa de `moderngl` com contexto EGL (sem CUDA toolkit).
+3. **O input manda na qualidade**: foto com capa gerou casca oca (pernas fundidas); render flat do
+   nosso android gerou laje extrudada. T-pose e sombreamento não são preferência — são condição
+   de o modelo inferir volume (GAP-029).
+
 ## 5. Rota `modular` — mapa por montagem (P4)
 
 Não é "gerar um mapa com IA". É **layout → WFC → instância → fusão**, exatamente como o desenho

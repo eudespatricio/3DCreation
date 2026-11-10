@@ -44,6 +44,14 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Rig rígido sob pose | sem fenda nas juntas depois de sobrepor peça ao pivô; manga de junta no osso pai | render `docs/preview/android_pose_final_*` |
 | Slot da rota `mesh` | registrado; `doctor` reporta `P3: torch ausente — instale o extra GPU`; lote com rota mesh sai `bloqueado` com exit 5 e **nada escrito no destino** | `forge3d doctor` + `run examples/lote_02_rotas.yaml` em 10/11/2026 |
 | Atlas do android | **64×64 px** → 34,6 px/m de densidade de texel (close-up pede ~380 px/m) | `Pillow` sobre o PNG publicado |
+| Stack GPU instalada | torch **2.4.1+cu121**, `cuda_available=True` na RTX 3060 Laptop; venv fora do repo em `~/.cache/forge3d/venv-gpu` | `torch.cuda.is_available()` |
+| `torchmcubes` sem CUDA toolkit | **inviável compilar** (sem `nvcc`, cmake, ninja) → substituído por `tools/torchmcubes_shim.py` (PyMCubes) | `command -v nvcc` |
+| Bug de eixo no shim | PyMCubes devolve eixos invertidos vs `torchmcubes`; sem inverter, altura vira profundidade. Corrigido e provado com elipsoide | `tools/torchmcubes_shim.py` |
+| Background removal (concept limpo) | **funciona**: rembg recortou o sujeito e compôs fundo neutro; o input do modelo ficou correto (85 % de enquadramento) | render do `input.png` do TripoSR |
+| TripoSR — tempos medidos | model forward **1,8–3,1 s** · extração de malha **3,7–4,5 s** · total **21–36 s** frio (24 s é carregar pesos) | log do `run.py` |
+| TripoSR — saída | ~**67.800 tris**, GLB de 1,36 MB, **sem UV e sem material** (só `COLOR_0`) | `qc.analisar` no GLB |
+| TripoSR — orientação | altura sai no **eixo Y em 2 de 2 inputs** → normalização obrigatória | `tools/normalize_mesh.py` |
+| TripoSR — qualidade (2 inputs) | foto real com capa → casca oca, pernas fundidas; render flat do android → laje extrudada | renders em `.scratch/` |
 | Estimativa do `plan` | 9,0 s estimados × 2,08 s reais para 3 itens (≈3× conservador) | comparação dos dois relatórios |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): tempo por asset em

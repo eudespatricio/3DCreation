@@ -8,6 +8,9 @@ venv/
 # Ver D24 em DECISOES.md. Nada de cache, runs, staging ou lock entra aqui.
 *.lock
 
+# Artefatos de teste local (renders, malhas de terceiro) — nunca versionar
+.scratch/
+
 # Saídas de exemplo e temporários
 /tmp/
 *.tmp

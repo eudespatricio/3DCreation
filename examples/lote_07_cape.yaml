@@ -1,0 +1,32 @@
+# Capa isolada do sentinela (P3.5, qualidade). O prompt negativo e essencial para o SD1.5 nao
+# desenhar uma pessoa; rode da raiz do repo:
+#   FORGE3D_CONCEPT_NEGATIVO="person, body, mannequin, legs, arms, head, face, human, hands, feet" \
+#     forge3d run examples/lote_07_cape.yaml
+schema: forge3d/spec@1
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/kit_mesh
+estilo_global: lowpoly_lit
+
+politica:
+  falha: continuar
+  custo_max_min: 5
+  seed_base: 20261112
+
+lote:
+  - id: personagem.sentinel.capa.03
+    tipo: prop_estatico
+    rota: mesh
+    prompt: >-
+      a single empty hooded cloak, no person, no body, no mannequin, dark gray exterior
+      with orange lining, front view, symmetrical, hanging open, isolated object,
+      game asset concept art
+    altura_metros: 1.30
+    pivot: topo
+    limite_triangulos: 5000
+    material: pbr
+    colisao: none
+    seed: 20261112
+    lod: [100]
+    tags: [kit, capa, mesh]

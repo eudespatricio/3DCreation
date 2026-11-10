@@ -9,12 +9,10 @@
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
 | GAP-029 | Qualidade do reconstructor: bule reconhecível, cadeira blob; **sentinela (personagem sem capa) reconhecível**, personagem com capa não revalidado | P3 | P3.5 | 3 personagens com capa, malha fechada e reconhecível, sem fusão de capa/corpo |
-| GAP-036 | **Personagem com capa / split do input mesh**: 3 concepts → 3 GLBs publicados e montados no Godot; corpo reconhecível, mas **capa e arma saíram blobs** | P3 | P3.5 | capa/arma mesh reconhecíveis ou decisão de roteá-las para `blocky` (D39) |
 | GAP-037 | `verify` de manifesto antigo (sem `pivo_regra` no G2) **pula** a checagem de pivô | P3 | P3.5 | todo manifesto publicado tem `pivo_regra`, ou `verify` reprova a ausência |
 | GAP-038 | G7 reexecuta presença/prefixo do colisor, mas **não mede convexidade** | P1 | P3.5 | `verify` mede convexidade (`bpy` ou Python puro) e reprova colisor não convexo |
 | GAP-039 | `rembg` é opcional e explícito; concept com fundo não neutro falha ou entra com fundo | P3 | P3.5 | provider decide rembg por alfa/metadado e registra a decisão na versão |
 | GAP-040 | `preflight` do `mesh` checa pesos no cache HF fixo, ignorando `FORGE3D_MODELOS` | P3 | P3.5 | preflight respeita `FORGE3D_MODELOS` e caminho local de pesos |
-| GAP-041 | **Capa/arma no split mesh**: TripoSR não lida com peça fina/isolada; os 3 GLBs publicam, mas capa/arma não são usáveis | P3.5 | P3.5 | capa/arma com malha reconhecível e fechada **ou** decisão de rotear capa/arma para `blocky` (D39) |
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
 | GAP-006 | Escala/rig Roblox não verificados (U1–U4); probe 10/11: prop passa, humanoid falha em `pivot: junta` e o blocky não gera nomes R15 | P0 | P2 | teste real no Studio; `[verificar]` removido do perfil; `pivot: junta` e esqueleto R15 implementados |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
@@ -54,6 +52,8 @@
 | ~~GAP-034~~ | ~~Bake do SF3D exige kernel CUDA~~ | P3 | **P3 ✔** | não se aplica: bake próprio em CPU no `bpy` (D28); SF3D encerrado por D27 |
 | ~~GAP-035~~ | ~~SF3D leva ~8 min/imagem em 6 GB~~ | P3 | **P3 ✔** | decisão consciente **D27**: SF3D não é usado em 6 GB; TripoSR + bake em ~23 s |
 | ~~GAP-026~~ | ~~Sem provider de concept text-to-image~~ | P0 | **P3.5 ✔** | sentinela publicada **sem `origem`**, `providers.texture` (`concept/sd15`, revisão, seed), G1–G9 e Godot 4.3 |
+| ~~GAP-036~~ | ~~Personagem com capa / split do input mesh~~ | P3 | **P3.5 ✔** | híbrido corpo .02 + capa .03 + arma `blocky` .01 montado no Godot (`CHAR_CAPE_OK`); capa/arma mesh .02 isoladas ficam D39 |
+| ~~GAP-041~~ | ~~Capa/arma no split mesh~~ | P3.5 | **P3.5 ✔** | D39/D40: arma vai para `blocky`; capa .03 reconhecível no conjunto; previews `docs/preview/p3_char_cape_*` |
 
 ## Como um gap nasce
 

@@ -20,7 +20,7 @@
 | `schemas/spec.v1.schema.json` · `schemas/spec.v2.schema.json` | contrato de entrada (fonte de verdade) | validar lote |
 | `schemas/manifest.v1.schema.json` | contrato de saída (fonte de verdade) | consumir asset no jogo |
 | `profiles/godot4.yaml` · `profiles/roblox-r15.yaml` | perfis de export | exportar para Godot/Roblox |
-| `examples/lote_01.yaml` · `lote_03_kit` · `lote_04_mesh` · `lote_05_mesh_concept` · `lote_06_mesh_split` (com prefixo `examples/`) | fixtures: blocky, kit, mesh, concept, split | exemplo canônico e fixture de teste |
+| `examples/lote_01.yaml` · `lote_03_kit` · `lote_04_mesh` · `lote_05_mesh_concept` · `lote_06_mesh_split` · `lote_07_cape` (prefixo `examples/`) | fixtures: blocky, kit, mesh, concept, split, capa | exemplo canônico e fixture de teste |
 | `examples/concepts/` | PNGs de entrada da rota `mesh` (teapot MIT) | rodar o exemplo mesh |
 | `tools/check-p0.py` | portão do P0: schemas, exemplos, tetos, I12, I14 | antes de dizer "P0 fechada" |
 | `tools/render_preview.py` · `docs/preview/` | preview headless e renders de referência | revisar qualidade do asset |

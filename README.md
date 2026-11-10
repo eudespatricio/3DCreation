@@ -4,9 +4,9 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P1`, `P3` (mesh para prop) e `P3.5` (concept local) — 44 verdes + 1 GPU (manual).
-`blocky`/`import` sem GPU; `mesh` com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**;
-kit corpo/capa/arma. `modular` em P4.
+**Estado:** `P1`, `P3` (mesh para prop) e `P3.5` (concept local + híbrido com capa) — 44 verdes +
+1 GPU (manual). `blocky`/`import` sem GPU; `mesh` com TripoSR + bake UV/textura e concept SD1.5
+**sem `origem`**; kit corpo/capa/arma. `modular` em P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---
@@ -69,7 +69,8 @@ A GPU é **opcional**: o sistema é útil sem ela, e é isso que o mantém barat
 [`examples/lote_03_kit.yaml`](examples/lote_03_kit.yaml) é o kit corpo/capa/arma (`spec@2`) e
 [`examples/lote_04_mesh.yaml`](examples/lote_04_mesh.yaml) é a rota `mesh` (TripoSR + bake) e
 [`examples/lote_05_mesh_concept.yaml`](examples/lote_05_mesh_concept.yaml) é o concept sem `origem` e
-[`examples/lote_06_mesh_split.yaml`](examples/lote_06_mesh_split.yaml) é o split corpo/capa/arma:
+[`examples/lote_06_mesh_split.yaml`](examples/lote_06_mesh_split.yaml) é o split corpo/capa/arma e
+[`examples/lote_07_cape.yaml`](examples/lote_07_cape.yaml) é a capa isolada do híbrido:
 
 ```yaml
 schema: forge3d/spec@1
@@ -131,7 +132,8 @@ detecção de arquivo adulterado e reexecução dos gates no `verify`, idempotê
 destino fora da allowlist. Assets de aceitação: `prop.bule.exemplo.01` (prop, 7.960 tris) e
 `personagem.sentinel.concept.01` (concept→mesh sem `origem`, 7.940 tris) e o corpo do split
 `personagem.sentinel.corpo.02` (7.954 tris), todos com textura 512², G1–G9 verdes e AABB idêntico
-no Godot 4.3. No split, capa/arma publicam mas ainda saem blobs (GAP-041).
+no Godot 4.3. O híbrido corpo .02 + capa .03 + arma blocky monta com `CHAR_CAPE_OK`; capa/arma mesh
+.02 isoladas seguem blobs (D39).
 
 ## Documentos
 

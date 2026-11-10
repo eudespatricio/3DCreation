@@ -103,9 +103,9 @@ proveniencia (modelo, revisao, seed) no manifesto.
 **1,000387×1,8×0,729638 m**, G1–G9 verdes, `providers.texture` (`concept/sd15`, revisao, seed) e Godot
 4.3 com AABB idêntico. A orientação de humanoide ganhou o perfil de área (D37).
 
-**Portao:** cumprido para 1 GLB e para o **mecanismo de split** (3 concepts → corpo 7.954 / capa 4.972 /
-arma 1.988 tris, montados no Godot). Falta qualidade: capa/arma ainda saem blobs (GAP-041/D39) e o
-personagem **com capa** segue aberto (GAP-036/Q8).
+**Portao:** cumprido para 1 GLB, para o **mecanismo de split** (3 concepts) e para **1 personagem
+híbrido** com capa (corpo .02 + capa .03 + arma blocky, `CHAR_CAPE_OK`). Falta o A/B de **3
+personagens** (P7/Q8), Roblox P2 (P8) e `gc`/CI (C3/GAP-008).
 
 
 ## P4 — Rota `modular`

@@ -97,6 +97,10 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P3.5 — split no Godot | corpo AABB **1,114836×1,8×0,906218**; capa **0,793371×1,3×0,670403**; arma **0,93732×1,0×0,833001**; `SPLIT_OK` | `mount_split.gd` em 10/11/2026 |
 | P3.5 — qualidade do split | corpo reconhecível; **capa e arma saíram blobs** (TripoSR não lida com peça fina/isolada) | previews `docs/preview/p3_split_*` em 10/11/2026 |
 
+| P3.5 — capa .03 | prompt "empty cloak" + negativo de pessoa: **35,8 s**, **4.972 tris**, G1–G9; o concept ainda é uma figura encapuzada, a malha é uma casca de capa | `run` em 10/11/2026 |
+| P3.5 — personagem híbrido | corpo .02 + capa .03 + arma `blocky` .01; Godot `CHAR_CAPE_OK`; AABB corpo **1,114836×1,8×0,906218**, capa **0,531849×1,3×0,355717**, arma **0,209×0,95×0,0666** | `godot --headless` em 10/11/2026 |
+| P3.5 — qualidade do conjunto | corpo/capa/arma reconhecíveis no híbrido; capa/arma mesh .02 isoladas seguem blobs (D39) | previews `docs/preview/p3_char_cape_*` em 10/11/2026 |
+
 | Custo concept→mesh | **40 s estimados × 37,2 s reais** (erro -7%) | `plan` × `run` em 10/11/2026 |
 
 | P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |
@@ -152,6 +156,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D37 | **Orientação de humanoides gerados**: após permutar eixos, mede o perfil de área em 12 faixas; se o centro de área < 48% da altura, espelha Z (mantém frente/lados) e recalcula normais | medido: sentinela `centro_area=5,55` (cabeça embaixo) e android blocky `6,52` (ok); G2 passava mesmo invertido |
 | D38 | **Fallback CPU** para `mesh`/concept via `FORGE3D_DEVICE=cpu` (lento, sem VRAM); não é o caminho de aceitação | GPU compartilhada nesta máquina; o fallback validou o encadeamento em 71,4 s |
 | D39 | **Split mesh**: o corpo gerado é viável; capa/arma finas e isoladas **não** são confiáveis no TripoSR. O mecanismo de 3 itens/3 concepts fica; para capa/arma usáveis, a rota `blocky` (kit P3-D) ou um modelo especializado | medido: corpo reconhecível; capa e arma publicadas mas blobs (GAP-041) |
+| D40 | **Kit híbrido para personagem com capa**: corpo `mesh` + capa `mesh` (prompt de capa vazia + negativo de pessoa) + arma `blocky`; montagem estática no Godot. A capa/arma mesh isoladas não são o produto | medido: `CHAR_CAPE_OK`, 3 assets reconhecíveis; capa/arma .02 blobs (D39) |
 
 
 

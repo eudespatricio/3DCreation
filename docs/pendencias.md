@@ -9,7 +9,7 @@
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P7 | **Qualidade de personagem com capa/tecido** | sentinela e corpo do split saíram reconhecíveis; capa/arma do split saíram blobs (GAP-041) | capa/arma reconhecíveis **ou** rota `blocky` para elas (D39); 3 personagens com capa | **A** |
+| P7 | **Qualidade de personagem com capa/tecido** | o híbrido corpo .02 + capa .03 + arma `blocky` monta no Godot (`CHAR_CAPE_OK`); capa/arma mesh .02 isoladas seguem blobs | **1 personagem** híbrido reconhecível; 3 personagens para o A/B | **A** |
 | P8 | **Roblox P2**: validar o perfil no Studio | segundo perfil de export nunca foi testado; probe 10/11 mostrou que **prop** publica/verifica, mas humanoid falha em `pivot: junta` (fora do enum) e o blocky não gera nomes R15 (Q3/GAP-006) | import no Studio, U1–U4 sem `[verificar]`, R15 com `HumanoidRootPart` e membros nos nomes R15 | **B** |
 
 ## 2. Correções que já mordem
@@ -29,7 +29,7 @@
 
 | # | Pergunta | Contexto medido | Prio |
 |---|---|---|---|
-| Q8 | reconstrutor/qualidade: TripoSR × SF3D | **TripoSR escolhido para prop** (bule em 23,3 s) e **sentinela sem capa** (37,2 s, G1–G9 verdes); SF3D encerrado por **D27** (8 min/imagem); personagem **com capa** continua aberto (GAP-029/036) | **A** |
+| Q8 | reconstrutor/qualidade: TripoSR × SF3D | **TripoSR escolhido para prop** (bule em 23,3 s) e **sentinela sem capa** (37,2 s, G1–G9 verdes); SF3D encerrado por **D27** (8 min/imagem); **1 híbrido** com capa montado (D40), faltam 3 para o A/B (GAP-029) | **A** |
 | Q9 | delegação: chave de API × `agentapi` | `agentapi` é sessão agêntica com execução de ferramenta (GAP-030) | B |
 | Q3 | escala/rig Roblox | perfil escrito, nunca validado no Studio | B |
 | Q1 | nome definitivo do produto | `forge3d` é provisório | C |

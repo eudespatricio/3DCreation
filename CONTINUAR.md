@@ -1,9 +1,9 @@
 # CONTINUAR — handoff de sessão
 
 **Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3 fechada para prop (bule) e kit blocky; P3.5
-(concept SD1.5) fechada para personagem sem capa — sentinela publicado sem `origem`; qualidade com
-capa aberta.** 44 verdes + 1 GPU (skip; manual passa) · assets com UV+textura aprovados no QC e importados
-no Godot 4.3.
+fechada para concept→mesh e para 1 personagem híbrido com capa (corpo/capa mesh + arma blocky).**
+44 verdes + 1 GPU (skip; manual passa) · assets com UV+textura aprovados no QC e importados no
+Godot 4.3.
 
 **Para a próxima janela:** leia [`docs/pendencias.md`](docs/pendencias.md) (o que falta, com critério),
 [`docs/gaps.md`](docs/gaps.md) (lacunas) e [`DECISOES.md`](DECISOES.md) §1–§2 e §4. Verificação rápida:
@@ -27,7 +27,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P0.5** | ✔ | D23 allowlist · D24 estado central · `tools/check-contexto.sh` |
 | **P1** | ✔ | rotas `blocky` e `import` de ponta a ponta: validar → planejar → gerar → Blender → QC G1–G9 → cache → publicar → índice → ledger |
 | **P3** | **✔ parcial** | provider `i23d` real (TripoSR) + bake UV/textura próprio + venv única + kit corpo/capa/arma; **prop** fecha com G1–G9 verdes; personagem com capa ainda não |
-| **P3.5** | **✔ parcial** | concept SD1.5 → TripoSR → UV/bake: sentinela sem `origem` e split corpo/capa/arma (3 GLBs, Godot); corpo utilizável, capa/arma blobs |
+| **P3.5** | **✔ parcial** | concept SD1.5 → TripoSR → UV/bake: sentinela sem `origem`, split 3 concepts e **híbrido** corpo .02 + capa .03 + arma blocky (`CHAR_CAPE_OK`); faltam 3 personagens para o A/B |
 | **P2** | pendente (probe) | perfil `roblox-r15`: prop publica/verifica; humanoid bloqueado em `pivot: junta` e nos nomes R15; falta Studio |
 | **P4** | pendente | rota `modular` (WFC) |
 | **P5** | pendente | animação e retarget |
@@ -53,8 +53,9 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   `providers.texture` (`concept/sd15`, revisão, seed) e Godot com AABB idêntico. A orientação de
   humanoide ganhou o perfil de área (D37): `centro_area=5,55` → espelha Z.
 - **P3.5 split** — 3 concepts separados (corpo/capa/arma) publicaram 7.954 / 4.972 / 1.988 tris em
-  **1m39,9s** e montaram no Godot (`SPLIT_OK`); o corpo é utilizável, capa/arma saíram blobs
-  (GAP-041/D39).
+  **1m39,9s** e montaram no Godot (`SPLIT_OK`); o corpo é utilizável, capa/arma .02 saíram blobs
+  (D39). A capa .03 (prompt de capa vazia + negativo de pessoa) e a arma **blocky** fecharam o
+  **híbrido** com `CHAR_CAPE_OK` no Godot.
 
 ## Números medidos nesta máquina
 
@@ -78,6 +79,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Godot 4.3 — sentinela | `Node3D → MeshInstance3D`; AABB **idêntico**; `albedo_tex=true`; 7.940 tris |
 | Split mesh — 3 concepts | **1m39,9s**; corpo **7.954** / capa **4.972** / arma **1.988 tris**; 3 publicados |
 | Godot 4.3 — split | corpo AABB **1,114836×1,8×0,906218**; capa **0,793371×1,3×0,670403**; arma **0,93732×1,0×0,833001**; `SPLIT_OK` |
+| Godot 4.3 — híbrido | corpo .02 + capa .03 + arma blocky .01; AABB capa **0,531849×1,3×0,355717**, arma **0,209×0,95×0,0666**; `CHAR_CAPE_OK` |
 | Venv concept | **5,6 GB** · diffusers 0.31.0 · transformers 4.44.2 · torch 2.4.1+cu121 |
 | Probe Roblox (sem Studio) | prop blocky publica/verifica; humanoid falha em `pivot: junta`; blocky não gera nomes R15 |
 
@@ -101,19 +103,17 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Q7 | assets no git do jogo (normal × LFS) | primeiro asset real | antes de integrar |
 | Q9 | delegação: chave de API × `agentapi` | uso seguro em execução | P4 |
 
-Gaps abertos que importam: **GAP-036** (capa/arma do split), **GAP-037** (verify de manifesto
-antigo sem `pivo_regra`), **GAP-038** (convexidade no G7), **GAP-039** (rembg explícito),
-**GAP-040** (`FORGE3D_MODELOS`), **GAP-041** (capa/arma mesh).
+Gaps abertos que importam: **GAP-037** (verify de manifesto antigo sem `pivo_regra`), **GAP-038**
+(convexidade no G7), **GAP-039** (rembg explícito), **GAP-040** (`FORGE3D_MODELOS`).
 
 ## Próximos passos — com custo, em ordem de evidência
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **Capa/arma usáveis**: rotear para `blocky` (D39) ou prompt/modelo especializado; corpo mesh já serve | 1 sessão | GAP-036/GAP-041/P7 |
-| **2** | Qualidade de personagem **com capa**: 3 inputs, medir e decidir TripoSR × SF3D | 1–2 sessões | Q8, GAP-029 |
-| **3** | **Roblox P2**: implementar `pivot: junta` + esqueleto R15 e validar no Studio | 1 sessão | segundo perfil; P8/GAP-006 |
-| **4** | `gc` de cache/ledger + CI de pull request | 1 sessão | C3, GAP-008 |
-| **5** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
+| **1** | **3 personagens híbridos** para o A/B (P7/Q8) | 1–2 sessões | qualidade com capa |
+| **2** | **Roblox P2**: implementar `pivot: junta` + esqueleto R15 e validar no Studio | 1 sessão | segundo perfil; P8/GAP-006 |
+| **3** | `gc` de cache/ledger + CI de pull request | 1 sessão | C3, GAP-008 |
+| **4** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
 
 ## Comandos
 
@@ -127,6 +127,7 @@ forge3d run   examples/lote_03_kit.yaml        # P3-D: corpo/capa/arma (blocky, 
 FORGE3D_I23D_REMOVER_FUNDO=1 forge3d run examples/lote_04_mesh.yaml   # P3-B: TripoSR + bake
 forge3d run examples/lote_05_mesh_concept.yaml                     # P3.5: SD1.5 -> TripoSR
 forge3d run examples/lote_06_mesh_split.yaml                       # P3.5: corpo/capa/arma
+forge3d run examples/lote_07_cape.yaml                             # capa .03 (negativo de pessoa)
 forge3d verify ~/.local/state/forge3d/saida/sentinel_concept
 forge3d verify ~/.local/state/forge3d/saida/kit_mesh
 forge3d verify ~/.local/state/forge3d/saida/teapot_exemplo
@@ -154,7 +155,7 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 `src/forge3d/` (15 módulos) · `blender/postprocess.py` · `tools/` (`i23d_infer`, `concept_infer`,
 `setup_concept_venv`, `normalize_mesh`, `render_preview`, `delegar`, `torchmcubes_shim`, `check-*`) ·
 `tests/` · `examples/` (`lote_01`, `lote_03_kit`, `lote_04_mesh`, `lote_05_mesh_concept`) ·
-`docs/preview/p3_sentinel_*` (concept, frente, 3/4) · `docs/preview/p3_split_*` (corpo/capa/arma)
+`docs/preview/p3_sentinel_*` · `docs/preview/p3_split_*` · `docs/preview/p3_char_cape_*` (híbrido)
 
 ## Regras invioláveis (top 6)
 

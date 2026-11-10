@@ -56,7 +56,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | `run` mesh — bule | **23,3 s** frio · **2,1 s** cache hit |
 | Asset `prop.bule.exemplo.01` | **7.960 tris** · 23.878 verts · bbox **0,19769×0,300×0,174134 m** · 1 material · textura **512²** · GLB **1.126.404 B** · PNG **313.107 B** |
 | QC do bule | **G1–G9 verdes** |
-| Godot 4.3 — bule | `Node3D → MeshInstance3D`; AABB **idêntico ao manifesto**; `albedo_tex=true`; 7.960 tris |
+| Godot 4.3 — bule | `Node3D → MeshInstance3D`; AABB **idêntico ao manifesto**; `albedo_tex=true`; 7.960 tris; previews `docs/preview/p3_bule_frente.png` e `..._tres_quartos.png` |
 | Kit P3-D | corpo **300 tris / 23 ossos** · capa **60 tris / sem rig** · arma **36 tris**; 3 publicados |
 | Godot 4.3 — kit | capa no osso `Chest` (idx 4), arma em `Hand.R` (idx 14); `KIT_OK` |
 | Venv i23d | **5,6 GB** · Python 3.12.14 · torch **2.4.1+cu121** |

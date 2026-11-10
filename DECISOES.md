@@ -75,7 +75,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | i23d — inferência TripoSR (bule) | **7.960 tris** publicados; load 7,7 s + forward 1,2 s + extração 3,8 s (total 12,6 s); VRAM pico **2.378 MiB** | `i23d_resultado.json` em 10/11/2026 |
 | i23d — run completo (mesh) | **23,3 s** frio; **2,1 s** cache hit; GLB 1.126.404 B + PNG 313.107 B | `time` + manifesto publicado em 10/11/2026 |
 | QC `prop.bule.exemplo.01` | **G1–G9 verdes**, 7.960 tris, bbox 0,19769×0,300×0,174134 m, 1 material, textura 512² | manifesto + `forge3d verify` em 10/11/2026 |
-| Godot 4.3 — bule | `Node3D → MeshInstance3D`; AABB **0,19769×0,300×0,174134** idêntico ao manifesto; `albedo_tex=true`; 7.960 tris | `godot --headless --import` + GDScript em 10/11/2026 |
+| Godot 4.3 — bule | `Node3D → MeshInstance3D`; AABB **0,19769×0,300×0,174134** idêntico ao manifesto; `albedo_tex=true`; 7.960 tris; previews em `docs/preview/p3_bule_*` | `godot --headless --import` + GDScript em 10/11/2026 |
 | `doctor` mesh | **`mesh: pronto (TripoSR, torch 2.4.1+cu121, venv venv-i23d)`** | `forge3d doctor` em 10/11/2026 |
 | `verify` reexecuta G1–G9 | manifesto íntegro → ok; G2 com `esperado_m=1,2` → exit 3, "QC reexecutado reprovou G2" | `tests/invariants/test_invariantes_e2e.py::test_i4_verify_reexecuta_gates_contra_manifesto` |
 | Kit P3-D | corpo **300 tris / 23 ossos**, capa **60 tris / sem rig**, arma **36 tris**; 3 publicados e `verify` ok | `examples/lote_03_kit.yaml` em 10/11/2026 |

@@ -1,138 +1,137 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 10/11/2026 · **P0 e P1 fechadas.** A esteira funciona de ponta a ponta nas rotas `blocky` e
-`import`, sem GPU, com QC como portão. 26 testes verdes.
-Este arquivo é autossuficiente: a conversa pode ser fechada.
+**Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3 parcial: a mecânica funciona, a qualidade não.**
+28 testes verdes · commit `5907251`. Este arquivo é autossuficiente: a conversa pode ser fechada.
 
 ---
 
 ## O que é este projeto
 
-**Forge3D** é um utilitário de linha de comando que transforma um **lote declarativo** (YAML/JSON) em
-assets 3D de jogo verificáveis — `.glb` com escala, pivô, LOD, colisão, rig e manifesto — e publica de
-forma atômica num destino autorizado.
+**Forge3D** transforma um **lote declarativo** (YAML/JSON) em assets 3D verificáveis — `.glb` com
+escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma atômica num destino autorizado.
 
 Requisito duro do operador (10/11/2026): **o utilitário é independente de projeto**. Não lê config do
-diretório onde roda, não escreve nada fora do próprio estado, não importa código de jogo. A fronteira
-é CLI + arquivo de lote (D25).
+diretório onde roda, não escreve fora do próprio estado, não importa código de jogo (D25).
 
-## Onde paramos
+## Onde estamos, por fase
 
-- **P0** — arquitetura, contratos (`spec@1`, `manifest@1`), 2 perfis de export, docs de processo.
-- **P0.5** — Q2/Q6 fechadas (D23 allowlist, D24 estado central), `tools/check-contexto.sh` no ar.
-- **P1** — pipeline completo das rotas `blocky` e `import`: validar → planejar → gerar → pós-processar
-  (Blender 4.2) → QC G1–G9 → cache → publicar atômico → manifesto → índice SQLite → ledger.
-- **Qualidade (10/11/2026)** — humanoid android gerado por `examples/lote_android.yaml`: 300 tris,
-  23 ossos, LODs 300/130/45, atlas 128 px, 1 material; **importado no Godot 4.3** com hierarquia,
-  ossos, AABB idêntico ao manifesto e textura em nearest; provado sob pose. Renders em `docs/preview/`.
-- **Não feito:** rotas `mesh` (P3) e `modular` (P4), perfil Roblox validado no Studio (P2), animação.
+| Fase | Estado | Entrega |
+|---|---|---|
+| **P0** | ✔ | arquitetura, contratos `spec@1`/`manifest@1`, 2 perfis, docs de processo |
+| **P0.5** | ✔ | D23 allowlist · D24 estado central · `tools/check-contexto.sh` |
+| **P1** | ✔ | rotas `blocky` e `import` de ponta a ponta: validar → planejar → gerar → Blender → QC G1–G9 → cache → publicar → índice → ledger |
+| **P3** | **parcial** | stack GPU instalada, TripoSR rodando, canal de delegação mapeado. **Qualidade inutilizável** |
+| **P2** | pendente | perfil `roblox-r15` (o YAML existe; falta validar no Studio) |
+| **P4** | pendente | rota `modular` (WFC) |
+| **P5** | pendente | animação e retarget |
 
-## Números medidos nesta máquina (10/11/2026)
+## O que foi testado de image-to-3D (e falhou)
+
+| Input | Pose | Resultado | Veredito |
+|---|---|---|---|
+| foto promocional com capa | A-pose | casca oca, pernas fundidas pela capa | inutilizável |
+| render do nosso android | flat | laje extrudada | inutilizável |
+| concept T-pose (OpenPose) | T-pose, capa | capa virou chapa de 1 m, corpo lâmina — **pior** | inutilizável |
+| T-pose com `--mc-resolution 512` | T-pose | mesma topologia de 256, e 336 s em vez de 4,5 s | resolução não é o gargalo |
+
+**Conclusões que a evidência sustenta:**
+
+1. Fundo neutro e recorte **funcionam** (rembg + composição; o input do modelo saiu correto).
+2. Pose controlada resolve simetria, **não** resolve oclusão nem superfície fina — a capa é o pior caso.
+3. O gargalo é a **representação do modelo de vista única**, não a pose nem a resolução do marching cubes.
+4. A saída do TripoSR **não passa no nosso QC**: sem UV, sem material, e orientação fora do frame
+   canônico em 3/3 inputs.
+
+## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| `run` com 3 itens, cache frio | **2.082 ms** (exit 0, 3 publicados) |
-| `run` com cache quente | **476 ms** — `cache_hits: 3`, `trabalho_executado: 0` |
-| `plan` (3 itens) | **141 ms** |
-| `verify` (3 manifestos, 12 arquivos) | **127 ms** |
+| `run` 3 itens, cache frio / quente | **2.082 ms** / **476 ms** (`trabalho_executado: 0`) |
+| `plan` / `verify` | 141 ms / 127 ms |
 | Determinismo D1 | **sha256 idênticos** nos 12 artefatos entre dois runs com cache limpo |
-| Asset `mob.skeleton.guard` | 72 tris, bbox 0,814 × 1,85 × 0,333 m, **23 ossos**, 1 colisor convexo, 5 arquivos, 38.619 B |
-| Suite | **26 testes** (17 unidade + 9 ponta a ponta), ~75 s |
-| Android humanoid | 300 tris · 25 caixas · 23 ossos · LOD 300/130/45 · atlas 128 px · 5 arquivos · 73.222 B |
-| `run` android (1 item) | 939 ms frio · 307 ms quente |
-| Import no Godot 4.3 | `Node3D → Armature → Skeleton3D (23) → MeshInstance3D`, AABB idêntico, `filtro=2` |
+| Suite | **28 testes** verdes (19 unidade + 9 ponta a ponta) |
+| Android humanoid | 300 tris · 25 caixas · **23 ossos** · LOD 300/130/45 · **atlas 64×64 px** (34,6 px/m) · 5 arquivos · 73.222 B |
+| Import no **Godot 4.3** | `Node3D → Armature → Skeleton3D (23) → MeshInstance3D`; AABB idêntico ao manifesto; `filtro=2` (nearest+mipmaps) |
+| Stack GPU | torch **2.4.1+cu121**, `cuda_available=True` na RTX 3060 (6.144 MiB) |
+| TripoSR — tempo | forward **1,8–3,6 s** · extração **3,7–23 s** · total **21–55 s** frio (24 s é carregar pesos) |
+| TripoSR — saída | ~**67.800 tris**, GLB 1,36 MB, só `COLOR_0` (sem UV, sem material) |
+| Canal de delegação | `agentapi` funciona com `ANTIGRAVITY_LS_ADDRESS=127.0.0.1:43023` + `ANTIGRAVITY_CSRF_TOKEN` |
 
-## O que está decidido (não reabrir sem evidência nova)
+## Decidido (não reabrir sem evidência nova)
 
-`D3` CLI-only · `D5` plan/run/verify/publish · `D7` D1/D2/D3 · `D9` QC sem bypass · `D11` GPU
-serializada · `D14` animação fora da v0 · `D18` licença é gate · `D19` naming neutro ·
-**`D23` allowlist de destino** · **`D24` estado central** · **`D25` isolamento por padrão** ·
-**`D26` núcleo leve (3 dependências)**.
+`D3` CLI-only · `D5` plan/run/verify/publish · `D7` D1/D2/D3 · `D9` QC sem bypass ·
+`D11` GPU serializada · `D14` animação fora da v0 · `D18` licença é gate · `D19` naming neutro ·
+`D23` allowlist · `D24` estado central · `D25` isolamento · `D26` núcleo leve.
 
-Invariantes `I1`–`I14`: 9 automatizados, ver [`INVARIANTES.md`](INVARIANTES.md) § Estado da automação.
+## Aberto — e o que cada um trava
 
-## Aberto (não bloqueia P2)
+| # | Pergunta | Trava | Fecha em |
+|---|---|---|---|
+| **Q8** | qual reconstrutor: **SF3D** (UV+material, licença Stability) × TripoSR (MIT, sem UV) | a qualidade de qualquer personagem | P3, com 10 assets |
+| Q5 | SF3D × TripoSR por licença comercial | publicação | junto com Q8 |
+| Q3 | escala/rig Roblox (0,28 m/stud) | perfil Roblox | P2, teste no Studio |
+| Q1 | nome definitivo do produto | publicar o pacote | antes do release |
+| Q7 | assets no git do jogo (normal × LFS) | primeiro asset real | antes de integrar |
+| Q9 | delegação: chave de API (completude) × `agentapi` (sessão agêntica) | uso seguro em execução | P4 |
 
-| # | Pergunta | Fecha em |
-|---|---|---|
-| Q1 | nome definitivo do produto (`forge3d` é provisório) | antes de publicar o pacote |
-| Q3 | escala/rig do Roblox (0,28 m por stud; PBR por `SurfaceAppearance`) | P2, com teste no Studio |
-| Q5 | SF3D × TripoSR (licença × qualidade) | P3, com A/B de 10 assets |
-| Q7 | assets no git do jogo: normal × LFS | antes do primeiro asset real |
+## Próximos passos — com custo, em ordem de evidência
 
-## Convenção que já causou bug duas vezes
+| # | Ação | Custo | Ataca |
+|---|---|---|---|
+| **1** | **Separar o asset**: `personagem.corpo` / `personagem.capa` / arma como `id` distintos | 1 sessão, sem GPU | a oclusão, que é a causa raiz medida |
+| **2** | **Avaliar SF3D** (pesos gated no HF, precisa token): UV + material nativos | ~5 GB, 1 sessão | GAP-028 (sem UV/material) e a qualidade |
+| **3** | Provider `i23d` de verdade: normalização canônica + bake + lock de GPU | 1–2 sessões | fechar a rota `mesh` |
+| **4** | Concept (SD1.5 + ControlNet) | ~4,5 GB, 2 sessões | entrada — **menor prioridade**, a pose não era o gargalo |
+| **5** | P2 Roblox no Studio | 1 sessão | segundo perfil de export |
+| **6** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
 
-Com Y do osso ao longo do membro e **X local = +X do mundo**: local X **positivo** leva o membro
-para frente (ombro, quadril e **cotovelo**); **negativo** leva para trás (**joelho**). Joelho e
-cotovelo giram em sentidos opostos — pose com o mesmo sinal nos dois parece membro invertido.
-Detalhe em `docs/perfis-export.md` §4; a pose de referência está em `tools/render_preview.py`.
-
-## Próximo passo: P2 — perfil Roblox
-
-1. Rodar `forge3d run` com `perfil: roblox-r15` e o mesmo lote.
-2. Importar no Studio: `Humanoid`, pivô por junta, escala em studs, textura.
-3. Fechar U1–U4 em [`docs/perfis-export.md`](docs/perfis-export.md) e a Q3.
-4. Se o importador divergir do previsto, **corrige-se o perfil**, não o código (D4).
-
-**Portão de saída de P2:** modelo importado no Studio com `Humanoid`, membros girando no pivô certo,
-escala correta em studs, e nenhum `[verificar]` pendente nesse perfil.
+**Recomendação:** 1 → 2 → 3 juntos fecham a rota `mesh` com evidência; 4 só depois. O passo 1 é barato
+e pode rodar em paralelo.
 
 ## Comandos
 
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-forge3d doctor                     # ambiente: blender, perfis, schemas, VRAM, disco
-forge3d validate examples/lote_01.yaml
-forge3d plan     examples/lote_01.yaml      # custo e cache, sem GPU
-forge3d run      examples/lote_01.yaml      # gera, verifica, publica
-forge3d verify   ~/.local/state/forge3d/saida/lote_01
-forge3d query    --max-tris 100 --json
-forge3d allowlist list             # destinos autorizados
+forge3d doctor                         # ambiente (mesh reporta o que falta)
+forge3d plan  examples/lote_android.yaml
+forge3d run   examples/lote_android.yaml
+forge3d verify ~/.local/state/forge3d/saida/android
+python -m pytest -q                    # 28 testes
+bash tools/check-contexto.sh           # tetos
+python tools/check-p0.py               # docs, schemas, I12/I14
 
-python -m pytest -q                # 26 testes
-bash tools/check-contexto.sh       # tetos de contexto
+# preview sem abrir o jogo
+blender -b --factory-startup --python tools/render_preview.py -- <glb> <saida> --pose|--close
+# normalização canônica de malha gerada
+blender -b --factory-startup --python tools/normalize_mesh.py -- <in.glb> <out.glb>
+# delegação (só com a IDE aberta; ver docs/delegacao.md)
+python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --dry-run
 ```
 
-## Arquivos
+## Arquivos-chave
 
-| Arquivo | O que é |
-|---|---|
-| `README.md` | o produto, o contrato CLI, isolamento |
-| `AGENTS.md` | ordem de leitura + regras duras |
-| `MAPA.md` | onde cada responsabilidade mora + 9 armadilhas |
-| `CONSELHOS.md` | quando convocar conselho + registro do Conselho #1 |
-| `DECISOES.md` | §1 fatos medidos · §2 D1–D26 · §3 rejeitados · §4 Q em aberto |
-| `INVARIANTES.md` | I1–I14 + estado da automação |
-| `docs/avaliacao.md` | auditoria do desenho original (14 lacunas, 6 contradições) |
-| `docs/arquitetura.md` | fluxo, camadas, determinismo, falha, publicação, isolamento |
-| `docs/contratos.md` | `spec@1`, `manifest@1`, exit codes, `FORGE-E-*` |
-| `docs/rotas-e-providers.md` | as 4 rotas + interface de provider |
-| `docs/perfis-export.md` | `godot4` e `roblox-r15` |
-| `docs/qc-e-verificacao.md` | gates G1–G9 |
-| `docs/dependencias.md` | 3 dependências de runtime, versões pinadas |
-| `docs/riscos-e-licencas.md` | modelos em 6 GB com licença e rótulo de evidência |
-| `docs/roadmap.md` | P0–P6 com portão por fase |
-| `docs/gaps.md` | GAP-001..018 com condição de fechamento |
-| `src/forge3d/` | 13 módulos (ver `MAPA.md`) |
-| `blender/postprocess.py` | script `bpy`: construir, rig, normalizar, LOD, colisor, exportar, medir |
-| `tests/` | unidade + invariantes de ponta a ponta |
-| `tools/check-contexto.sh` · `tools/check-p0.py` | portões (contexto e documentos) |
+`README.md` · `AGENTS.md` · `MAPA.md` · `CONSELHOS.md` · `DECISOES.md` · `INVARIANTES.md` ·
+`docs/arquitetura.md` · `docs/contratos.md` · `docs/rotas-e-providers.md` · `docs/perfis-export.md` ·
+`docs/qc-e-verificacao.md` · `docs/dependencias.md` · `docs/riscos-e-licencas.md` ·
+`docs/roadmap.md` · `docs/gaps.md` · `docs/plano-p3-concept.md` · `docs/delegacao.md` ·
+`src/forge3d/` (13 módulos) · `blender/postprocess.py` · `tools/` (`normalize_mesh`, `render_preview`,
+`delegar`, `torchmcubes_shim`, `check-*`) · `tests/`
 
 ## Regras invioláveis (top 6)
 
-1. **Nada roda sobre `/mnt/c` ou UNC**; estado é sempre ext4 sob `/home` (I12).
-2. **Nenhuma escrita fora do destino autorizado** (I3, I13). Autorizar é `forge3d allowlist add`.
-3. **QC reprovado não publica** e não existe bypass (I5).
-4. **Diffusion nunca é D1.** Só `blocky`/`import`/`modular` prometem byte-idêntico (D7).
-5. **Mudou a saída de um provider? Suba `VERSAO`** — a versão entra na chave de cache (D6).
-6. **Blender é 4.2.x, subprocesso, canal JSON**; nunca `pip install` no Python dele (I9).
+1. Nada roda sobre `/mnt/c` ou UNC (I12); estado sempre em ext4 sob `$FORGE3D_HOME`.
+2. Nenhuma escrita fora do destino autorizado (I3/I13) — autorizar é `forge3d allowlist add`.
+3. QC reprovado não publica; não existe bypass (I5).
+4. Diffusion nunca é D1 (D7).
+5. Mudou a saída de um provider? **Suba `VERSAO`** — entra na chave de cache (D6).
+6. Blender 4.2 pinado, subprocesso, canal JSON; nunca `pip install` no Python dele (I9).
 
 ## Como retomar
 
-Cole na nova sessão:
-
-> Leia `3DCreation/CONTINUAR.md`, `3DCreation/MAPA.md` e `3DCreation/DECISOES.md` §2 e §4.
-> P0 e P1 estão fechadas: rotas `blocky` e `import` funcionam sem GPU, 26 testes verdes, determinismo
-> D1 comprovado por hash. O operador exige isolamento total do utilitário (D25). Não reabra D3–D26.
-> Próximo passo: **P2 — perfil Roblox**, fechando U1–U4 e a Q3 com teste real no Studio.
+> Leia `3DCreation/CONTINUAR.md`, `MAPA.md` e `DECISOES.md` §2 e §4. P0, P0.5 e P1 estão fechadas;
+> P3 está parcial: TripoSR roda (torch em `~/.cache/forge3d/venv-gpu`), mas a qualidade é inutilizável
+> e a saída não passa no QC (sem UV/material, orientação fora do frame). Evidência: T-pose piorou,
+> mc-resolution 512 não mudou topologia. Não reabra D3–D26.
+> Próximo passo recomendado: **separar o asset (corpo/capa)** e **avaliar SF3D** antes de investir em
+> concept. Fechar Q8 com 10 assets medidos.

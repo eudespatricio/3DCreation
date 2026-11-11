@@ -78,6 +78,10 @@ def erro_qc(msg: str, **det) -> ForgeError:
     return ForgeError("FORGE-E-QC", msg, EXIT_QC, det)
 
 
+def erro_upload(msg: str, **det) -> ForgeError:
+    return ForgeError("FORGE-E-UPLOAD", msg, EXIT_PROVIDER, det)
+
+
 def erro_manifesto(msg: str, **det) -> ForgeError:
     return ForgeError("FORGE-E-MANIFEST", msg, EXIT_QC, det)
 

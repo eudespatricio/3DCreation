@@ -5,8 +5,8 @@
 > atômica num destino autorizado.
 
 **Estado:** `P1`, `P3` (mesh para prop), `P3.5` (concept local + A/B de 3 personagens híbridos) e
-`P2` parcial (R15 com 16 ossos, pivô por membro e `.rbxlx` nativo no Studio) — 48 verdes + 1 GPU
-(manual). `blocky`/`import` sem GPU; `mesh`
+`P2` parcial (R15 com 16 ossos, pivô por membro, `.rbxlx` nativo e upload Open Cloud) — 50 verdes +
+1 GPU (manual). `blocky`/`import` sem GPU; `mesh`
 com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` em P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
@@ -38,6 +38,8 @@ forge3d query  --max-tris 100 --json # "by demand": o que já existe
 forge3d doctor                       # diagnóstico do ambiente
 forge3d gc --manter-dias 30          # retenção de cache/runs/staging (não toca no publicado)
 forge3d export-r15 examples/lote_09_r15.yaml --item personagem.r15.guard.01  # .rbxlx nativo
+forge3d upload-model <arquivo.glb> --creator-id <id> --dry-run  # request sem rede
+forge3d upload-model <arquivo.glb> --creator-id <id>           # Open Cloud Model (free)
 ```
 
 Branching no pipe é por **código de saída estável** ([`docs/contratos.md`](docs/contratos.md) §5):
@@ -121,7 +123,7 @@ O que faz diferença em produção, e não está num "script que chama modelo":
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-python -m pytest -q                     # 48 + 1 GPU (manual); P3-A, concept, gc, rbxlx e invariantes
+python -m pytest -q                     # 50 + 1 GPU (manual); P3-A, concept, gc, rbxlx, upload
 bash tools/check-contexto.sh            # tetos de contexto
 python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
 
@@ -134,6 +136,19 @@ R15: `run-in-roblox` 0.3.2 no Studio passou `R15_STUDIO_PASS motores=15 partes=1
 [`docs/preview/r15_studio_test.log`](docs/preview/r15_studio_test.log)). O `forge3d export-r15`
 gera um **`.rbxlx` nativo** (16 Parts + 15 Motor6D, com CFrame e pivô no joint) que abre direto no
 Studio — `R15_RBXLX_PASS partes=16 motores=15`; textura/MeshPart e escala/stud seguem em P8.
+
+**Upload Open Cloud (free):** o `upload-model` sobe `.glb` como `Model` (20 MB max) e devolve
+`assetId`; a key fica fora do repo:
+
+```bash
+mkdir -p ~/.config/forge3d && chmod 700 ~/.config/forge3d
+printf '%s' 'SUA_KEY' > ~/.config/forge3d/roblox.key && chmod 600 ~/.config/forge3d/roblox.key
+export FORGE3D_ROBLOX_CREATOR_ID=1234567   # user ID ou group ID
+forge3d upload-model ~/.local/state/forge3d/saida/r15/personagem.r15.guard.01.glb --dry-run
+```
+
+A key também pode vir de `FORGE3D_ROBLOX_API_KEY`; nunca commite. O upload cria um **package de
+MeshParts**, não um rig R15; o `.rbxlx` nativo continua sendo o rig.
 
 `bash tools/ci.sh` roda o portão de pull request sem GPU/Blender (unidade + concept + gc + contexto +
 P0); a suíte completa com Blender/GPU continua local. O workflow está em `.github/workflows/ci.yml`.

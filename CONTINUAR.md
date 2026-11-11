@@ -1,7 +1,7 @@
 # CONTINUAR — handoff de sessão
 
 **Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3/P3.5 fechadas para prop, concept→mesh e 3
-personagens híbridos com capa; P2 parcial (R15 com 16 ossos, pivô e `.rbxlx` nativo).** 48 verdes + 1 GPU
+personagens híbridos com capa; P2 parcial (R15 com 16 ossos, pivô e `.rbxlx` nativo).** 50 verdes + 1 GPU
 (skip; manual passa) · assets com UV+textura aprovados no QC e importados no Godot 4.3.
 
 **Para a próxima janela:** leia [`docs/pendencias.md`](docs/pendencias.md) (o que falta, com critério),
@@ -51,25 +51,23 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   `concept → mesh` publicou `personagem.sentinel.concept.01` em **37,2 s**, **7.940 tris**, G1–G9,
   `providers.texture` (`concept/sd15`, revisão, seed) e Godot com AABB idêntico. A orientação de
   humanoide ganhou o perfil de área (D37): `centro_area=5,55` → espelha Z.
-- **P3.5 split** — 3 concepts separados (corpo/capa/arma) publicaram 7.954 / 4.972 / 1.988 tris em
-  **1m39,9s** e montaram no Godot (`SPLIT_OK`); o corpo é utilizável, capa/arma .02 saíram blobs
-  (D39). A capa .03 (prompt de capa vazia + negativo de pessoa) e a arma **blocky** fecharam o
-  **híbrido** com `CHAR_CAPE_OK` no Godot.
-- **P3.5 A/B** — 3 corpos (sentinela .02, scout .05, heavy .04) + capa .03 + arma `blocky` .01;
-  **7.954 / 7.950 / 7.960 tris**, `AB_OK` no Godot e imagem `docs/preview/p3_ab_3personagens.png`.
-  O scout .05 expôs sliver de 2,96e-9 (D42) e orientação invertida (D43).
+- **P3.5 split** — 3 concepts (corpo/capa/arma) publicaram 7.954/4.972/1.988 tris em **1m39,9s** e
+  montaram no Godot (`SPLIT_OK`); capa/arma .02 blobs (D39); capa .03 + arma **blocky** fecharam o
+  **híbrido** (`CHAR_CAPE_OK`).
+- **P3.5 A/B** — 3 corpos + capa .03 + arma `blocky`; **7.954/7.950/7.960 tris**, `AB_OK`, imagem
+  `p3_ab_3personagens.png`; scout .05 expôs sliver (D42) e orientação (D43).
 - **P2 R15** — 16 partes R15, 300 tris, G1–G9, `verify` e `R15_OK` no Godot; os 16 bone heads são os
   pivôs por membro (D41/D47). Studio: `R15_STUDIO_PASS` e `.rbxlx` nativo (16 Parts + 15 Motor6D,
   `R15_RBXLX_PASS`); logs `docs/preview/r15_studio_test.log` e `r15_rbxlx_test.log`; o
-  `forge3d export-r15` evita o import manual do rig.
-- **C3/CI** — `forge3d gc --manter-dias 30` (2 testes, D45); `tools/ci.sh` + workflow com **33 testes**,
+  `forge3d export-r15` evita o import manual do rig; `upload-model` sobe o GLB (free).
+- **C3/CI** — `forge3d gc --manter-dias 30` (2 testes, D45); `tools/ci.sh` + workflow com **35 testes**,
   contexto e P0 (D46).
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **48 verdes + 1 GPU (skip; manual passa)** (24 unidade + 2 P3-A + 6 concept + 2 gc + 1 rbxlx + 1 e2e rápido + 12 invariantes) em **13,5 s** |
+| Suíte | **50 verdes + 1 GPU (skip; manual passa)** (24 unidade + 2 P3-A + 6 concept + 2 gc + 1 rbxlx + 2 upload + 1 e2e rápido + 12 invariantes) em **12,4 s** |
 | E2E rápido | **2,0 s** (alvo <30 s) |
 | TripoSR — inferência (bule) | load **7,7 s** · forward **1,2 s** · extração **3,8 s** · total **12,6 s** · VRAM pico **2.378 MiB** |
 | `run` mesh — bule | **23,3 s** frio · **2,1 s** cache hit |
@@ -92,7 +90,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | P2 — R15 blocky | **300 tris** · **16 ossos** (todos no mapa R15) · G1–G9 · `verify` · `R15_OK` |
 | P2 — pivô por membro (Studio) | **`R15_STUDIO_PASS motores=15 partes=16`**; 16 bone heads no GLB (H=1,85 m) |
 | P2 — export nativo `.rbxlx` | **16 Parts + 15 Motor6D**, 18.479 B; `R15_RBXLX_PASS partes=16 motores=15` |
-| gc / CI | `gc` 2 testes; `tools/ci.sh` **33 testes** + contexto + P0 |
+| P2 — upload Open Cloud | `upload-model` dry-run/local: POST multipart, `assetId=999`; **2 testes**; upload real pendente |
+| gc / CI | `gc` 2 testes; `tools/ci.sh` **35 testes** + contexto + P0 |
 | Venv concept | **5,6 GB** · diffusers 0.31.0 · transformers 4.44.2 · torch 2.4.1+cu121 |
 | Probe Roblox (sem Studio) | prop blocky publica/verifica; humanoid falha em `pivot: junta`; blocky não gera nomes R15 |
 
@@ -124,7 +123,7 @@ no G7), **GAP-039** (rembg explícito), **GAP-040** (`FORGE3D_MODELOS`).
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **Roblox P2**: textura/MeshPart, escala/stud e U1–U4 (rig `.rbxlx` já validado) | 1 sessão + Studio | P8/GAP-006 |
+| **1** | **Roblox P2**: upload real (key), package no rig, escala/stud e U1–U4 | 1 sessão + Studio | P8/GAP-006 |
 | **2** | Primeiro run do **CI** no GitHub + suíte Blender/GPU local documentada | 1 sessão | GAP-008 |
 | **3** | Correções C5–C11 (flake, delegar, verify antigo, convexidade, rembg, `FORGE3D_MODELOS`, tokens) | 1 sessão | C5–C11 |
 | **4** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
@@ -145,6 +144,7 @@ forge3d run examples/lote_07_cape.yaml                             # capa .03 (n
 forge3d run examples/lote_08_ab_hybrid.yaml                       # A/B: scout .05 + heavy .04
 forge3d run examples/lote_09_r15.yaml                             # R15: 16 ossos
 forge3d export-r15 examples/lote_09_r15.yaml --item personagem.r15.guard.01  # .rbxlx nativo
+forge3d upload-model <glb> --creator-id <id> --dry-run              # Open Cloud
 # Studio R15: ver docs/preview/r15_studio_test.log (run-in-roblox 0.3.2 + plugin)
 forge3d gc --dry-run --manter-dias 30                             # retencao
 bash tools/ci.sh                                                  # CI sem GPU/Blender
@@ -152,7 +152,7 @@ forge3d verify ~/.local/state/forge3d/saida/sentinel_concept
 forge3d verify ~/.local/state/forge3d/saida/kit_mesh
 forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d verify ~/.local/state/forge3d/saida/teapot_exemplo
-python -m pytest -q                    # 48 verdes + 1 GPU (skip; manual passa)
+python -m pytest -q                    # 50 verdes + 1 GPU (skip; manual passa)
 bash tools/check-contexto.sh           # tetos
 python tools/check-p0.py               # docs, schemas, I12/I14
 
@@ -179,7 +179,7 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 `docs/preview/p3_sentinel_*` · `p3_split_*` · `p3_char_cape_*` · `p3_ab_3personagens.png` ·
 `src/forge3d/gc.py` · `tools/ci.sh` · `.github/workflows/ci.yml` · `tools/r15_studio_test.lua` ·
 `docs/preview/r15_studio_test.log` · `r15_rbxlx_test.log` · `src/forge3d/rbx.py` ·
-`tools/r15_rbxlx_test.lua` · `tests/test_rbx.py`
+`tools/r15_rbxlx_test.lua` · `tests/test_rbx.py` · `src/forge3d/upload.py` · `tests/test_upload.py`
 
 ## Regras invioláveis (top 6)
 

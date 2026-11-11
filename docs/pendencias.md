@@ -3,13 +3,13 @@
 > Regra: item sem critério de aceitação não entra aqui — vira conversa.
 > Prioridade: **A** = destrava a fase seguinte · **B** = correção que já morde · **C** = dívida aceitável.
 
-Última revisão: 10/11/2026 (P3/P3.5 com 3 personagens híbridos; R15 parcial; 48 verdes + 1 GPU (manual)).
+Última revisão: 10/11/2026 (P3/P3.5 com 3 personagens híbridos; R15 parcial; 50 verdes + 1 GPU (manual)).
 
 ## 1. Bloqueiam a próxima fase (P2/P4)
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P8 | **Roblox P2**: textura/escala no Studio | **Pivô por membro e `.rbxlx` nativo (16 Parts+15 Motor6D) validados no Studio**; faltam textura/MeshPart, escala/stud e U1–U4 (Q3/GAP-006) | GLB/MeshPart com textura no Studio, U1–U4 sem `[verificar]`, escala/stud | **B** |
+| P8 | **Roblox P2**: upload real + montagem | `upload-model` pronto (dry-run e servidor local); pivô e `.rbxlx` nativo validados; faltam rodar o upload real com a key, montar o package no rig, escala/stud e U1–U4 (Q3/GAP-006) | upload real com `assetId`+moderação, package no rig, U1–U4 sem `[verificar]` | **B** |
 
 ## 2. Correções que já mordem
 
@@ -28,7 +28,7 @@
 | # | Pergunta | Contexto medido | Prio |
 |---|---|---|---|
 | Q9 | delegação: chave de API × `agentapi` | `agentapi` é sessão agêntica com execução de ferramenta (GAP-030) | B |
-| Q3 | escala/rig Roblox | pivô e `.rbxlx` nativo validados; textura/MeshPart, escala/stud e U1–U4 pendentes | B |
+| Q3 | escala/rig Roblox | pivô e `.rbxlx` nativo validados; upload real/package, escala/stud e U1–U4 pendentes | B |
 | Q1 | nome definitivo do produto | `forge3d` é provisório | C |
 | Q7 | assets no git do jogo: normal × LFS | primeiro asset real ainda não integrado | C |
 

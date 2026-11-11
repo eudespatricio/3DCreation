@@ -12,6 +12,7 @@ venv/
 .env
 .env.*
 *.token
+*.key
 hf_token*
 
 # Artefatos de teste local (renders, malhas de terceiro) — nunca versionar

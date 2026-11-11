@@ -106,7 +106,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P3.5 — sliver no G1 | face de área **2,96e-9 m²** deixava 3 arestas não-manifold; remover faces < 1e-8 resolveu | `resultado.json` em 10/11/2026 |
 | P2 — R15 blocky | **300 tris**, **16 ossos** R15 (todos no mapa), G1–G9, `verify` ok; Godot `R15_OK`; Studio pendente | `run`/`godot` em 10/11/2026 |
 | gc | remove cache/runs/staging > 30 dias; **2 testes**; não toca `saida/`, índice nem ledger | `tests/test_gc.py` em 10/11/2026 |
-| CI | `tools/ci.sh` roda **33 testes** + contexto + P0; workflow em `.github/workflows/ci.yml` | `bash tools/ci.sh` em 10/11/2026 |
+| CI | `tools/ci.sh` roda **35 testes** + contexto + P0; workflow em `.github/workflows/ci.yml` | `bash tools/ci.sh` em 10/11/2026 |
 
 | P2 — R15 no Studio | **`R15_STUDIO_PASS motores=15 partes=16`**; Studio `63eb6055af4e4688`, `run-in-roblox` 0.3.2; log `docs/preview/r15_studio_test.log` | `run-in-roblox` em 10/11/2026 |
 | P2 — R15 GLB, pivôs por membro | 16 ossos com cabeça nos joints (H=1,85 m): LowerTorso **0,814** · UpperTorso **0,962** · Head **1,443** · braço **1,406/1,110/0,814** · perna **0,814/0,4347/0,1203**; Y constante **-0,0554** | Blender no GLB em 10/11/2026 |
@@ -114,6 +114,9 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 
 | P2 — export nativo `.rbxlx` | `forge3d export-r15` gera **16 Parts + 15 Motor6D** (18.479 B); abre no Studio e passa **`R15_RBXLX_PASS partes=16 motores=15`**, sem upload/textura | CLI + `run-in-roblox` em 10/11/2026 |
 | P2 — CFrame no `.rbxlx` | Part precisa de `CFrame`; com `Position` os Parts ficavam na origem e o pivô errava | primeira versão em 10/11/2026 |
+
+| P2 — upload Open Cloud | `upload-model` dry-run + servidor local: POST multipart com `x-api-key`, `operation` e `assetId=999`; 2 testes; upload real pendente de key/creator | `tests/test_upload.py` em 10/11/2026 |
+| P2 — `Model` no Open Cloud | `.glb` 39 KB, limite 20 MB; importa como **package de MeshParts**, não como rig R15; API key/upload **free** | doc Open Cloud em 10/11/2026 |
 
 | Custo concept→mesh | **40 s estimados × 37,2 s reais** (erro -7%) | `plan` × `run` em 10/11/2026 |
 
@@ -179,6 +182,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D46 | **CI sem GPU/Blender**: `tools/ci.sh` roda unidade/concept/gc + contexto + P0; a suíte Blender/GPU continua local | GAP-008 configurado; primeira execução no GitHub pendente |
 | D47 | **Pivô por membro = head dos 16 bones**, não o pivô do objeto; o objeto fica em `base`. O teste no Studio valida 15 Motor6D; o import da malha/textura no Studio continua manual | 16 bone heads medidos no GLB; `R15_STUDIO_PASS`; `AssetImportService` sem sessão por caminho |
 | D48 | **Export nativo `.rbxlx`** para R15: 16 `Part`s (agregando caixas por osso) + 15 `Motor6D` com `CFrame`/`C0`/`C1`; sem upload e sem textura. Evita o import manual do rig; o GLB/MeshPart com textura continua o caminho de mesh | 16/15, `R15_RBXLX_PASS`; Part com `CFrame` (não `Position`) |
+| D49 | **Upload Open Cloud via `Model`**: `forge3d upload-model` lê a key de `FORGE3D_ROBLOX_API_KEY`, `FORGE3D_ROBLOX_API_KEY_FILE` ou `~/.config/forge3d/roblox.key`; `--dry-run` não usa rede. Key nunca entra no repo; o asset sobe como package, então o rig R15 continua no `.rbxlx` | fluxo testado contra servidor local; upload real pendente de creator/key |
 
 
 

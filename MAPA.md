@@ -25,10 +25,10 @@
 | `tools/check-p0.py` | portão do P0: schemas, exemplos, tetos, I12, I14 | antes de dizer "P0 fechada" |
 | `tools/render_preview.py` · `docs/preview/` | preview headless e renders de referência | revisar qualidade do asset |
 | `tools/i23d_infer.py` · `tools/concept_infer.py` · `tools/setup_concept_venv.sh` · `tools/normalize_mesh.py` · `tools/ci.sh` · `tools/r15_studio_test.lua` · `tools/r15_rbxlx_test.lua` | inferência, concept, setup, normalização e CI sem GPU | depurar rota mesh / portão de PR |
-| `src/forge3d/` + `src/forge3d/cli/` | `spec` `plan` `qc` `publish` `pipeline` `doctor` `locks` `canonical` `config` `paths` `gc` `rbx` + 9 subcomandos | implementação |
+| `src/forge3d/` + `src/forge3d/cli/` | `spec` `plan` `qc` `publish` `pipeline` `doctor` `locks` `canonical` `config` `paths` `gc` `rbx` `upload` + 10 subcomandos | implementação |
 | `src/forge3d/providers/` | `base` `blocky` `importer` `mesh` | adicionar rota |
 | `src/forge3d/post.py` + `blender/postprocess.py` | subprocesso + script `bpy` (LOD, colisor, rig, UV+bake) | pós-processo, textura, rig |
-| `tests/` | `test_unidade.py` + `test_p3_bake.py` + `test_concept.py`/`_gpu.py` + `test_gc.py` + `test_rbx.py` + `invariants/` + `fixtures/` | portão de CI |
+| `tests/` | `test_unidade.py` + `test_p3_bake.py` + `test_concept.py`/`_gpu.py` + `test_gc.py` + `test_rbx.py` + `test_upload.py` + `invariants/` + `fixtures/` | portão de CI |
 | `~/.venvs/concept` | venv do SD1.5/diffusers (cópia da i23d; pin de transformers diferente) | gerar concept |
 | `$FORGE3D_HOME` | `cache` `runs` `staging` `locks` `indice.sqlite` `ledger.jsonl` `saida/` | depurar run |
 | `~/.config/forge3d/allowlist.yaml` | destinos autorizados (D23) | publicar em projeto de jogo |

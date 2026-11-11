@@ -1,6 +1,6 @@
 """Implementacao dos subcomandos (argparse, sem dependencia extra).
 
-Nove comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist`` ``gc`` ``export-r15``.
+Dez comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist`` ``gc`` ``export-r15`` ``upload-model``.
 """
 
 from __future__ import annotations
@@ -74,6 +74,17 @@ def construir_parser() -> argparse.ArgumentParser:
     e.add_argument("--saida")
     e.add_argument("--json", action="store_true")
 
+    u = sub.add_parser("upload-model", help="sobe um .glb via Open Cloud Assets (Model)")
+    u.add_argument("arquivo")
+    u.add_argument("--nome")
+    u.add_argument("--descricao")
+    u.add_argument("--creator-id")
+    u.add_argument("--creator-type", choices=["user", "group"])
+    u.add_argument("--dry-run", action="store_true")
+    u.add_argument("--intervalo", type=float, default=2.0)
+    u.add_argument("--max-espera", type=float, default=300.0)
+    u.add_argument("--json", action="store_true")
+
     return p
 
 
@@ -113,6 +124,8 @@ def _executar(args) -> int:
         return _gc(args)
     if args.cmd == "export-r15":
         return _export_r15(args)
+    if args.cmd == "upload-model":
+        return _upload_model(args)
     raise SystemExit(2)  # pragma: no cover
 
 
@@ -233,6 +246,37 @@ def _allowlist(args) -> int:
     else:
         print("removido" if removido else "nao estava na allowlist")
     return 0 if removido else 2
+
+
+def _upload_model(args) -> int:
+    from .. import upload
+
+    relatorio = upload.executar(
+        args.arquivo,
+        nome=args.nome,
+        descricao=args.descricao,
+        creator_id=args.creator_id,
+        creator_type=args.creator_type,
+        dry_run=args.dry_run,
+        intervalo=args.intervalo,
+        max_espera=args.max_espera,
+    )
+    if args.json:
+        _json(relatorio)
+    elif relatorio["dry_run"]:
+        print("dry-run: nenhum request enviado")
+        print(f"  POST {relatorio['url']}")
+        print(
+            f"  creator {relatorio['creator']}  nome {relatorio['nome']}  "
+            f"{relatorio['bytes']} B  {relatorio['content_type']}"
+        )
+        print(f"  key: {'encontrada (nao impressa)' if relatorio['key_presente'] else 'ausente'}")
+    else:
+        print(
+            f"assetId {relatorio['asset_id']}  operation {relatorio['operation']}  "
+            f"moderacao {relatorio['moderation']}  {relatorio['bytes']} B"
+        )
+    return 0
 
 
 def _export_r15(args) -> int:

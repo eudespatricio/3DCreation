@@ -63,6 +63,14 @@ arquivo abre direto no Studio — `R15_RBXLX_PASS partes=16 motores=15` — sem 
 Importer e sem textura (as Part usam a cor do blocky). Textura/atlas e `MeshPart` continuam no
 `glb` e em P8.
 
+### Upload Open Cloud (free)
+
+`forge3d upload-model <glb> --creator-id <id>` sobe o arquivo como **`Model`** via Open Cloud
+Assets API (20 MB por chamada; `.glb`/`.gltf`/`.fbx`). A key vem de `FORGE3D_ROBLOX_API_KEY`,
+`FORGE3D_ROBLOX_API_KEY_FILE` ou `~/.config/forge3d/roblox.key`; `--dry-run` monta o request sem
+rede. O resultado é um **package de MeshParts**, não um rig R15 — o `.rbxlx` nativo continua sendo
+o rig; o upload resolve a textura/malha, e a montagem do package no rig é o passo seguinte.
+
 **Probe em 10/11/2026:** um `prop_estatico` blocky publica e `verify` passa com este perfil
 (48 tris, 1 colisor). O `personagem_humanoide` com `auto_rig: true` e `esqueleto: r15@1` publica
 **300 tris com 16 ossos/nomes R15** (`HumanoidRootPart`…`RightFoot`), G1–G9, `verify` ok e

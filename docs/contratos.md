@@ -218,7 +218,7 @@ publicou ou veio do cache.
 | `FORGE-E-LICENCA` | modelo sem permissão de uso comercial | 5 |
 | `FORGE-E-RECURSO` | VRAM, lock, disco, timeout de recurso | 6 |
 | `FORGE-E-BPY` | falha no script Blender (2 tentativas) | 5 |
-| `FORGE-E-QC` | gate G1–G9 reprovado | 3 |
+| `FORGE-E-QC` | gate G1–G10 reprovado | 3 |
 | `FORGE-E-UPLOAD` | upload Open Cloud recusado/falhou (key, creator, HTTP) | 5 |
 | `FORGE-E-MANIFEST` | manifesto ausente, inválido ou hash divergente | 3 |
 | `FORGE-E-INTERNO` | bug do Forge3D | 4 |

@@ -273,6 +273,8 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D76 | **Separação projeto × plataforma (I15)**: `src/`, `profiles/`, `examples/` e `schemas/` não citam projeto de jogo nem caminho `/home/` fixo; o linter (`tools/conformidade.py` item e) reprova. Projeto entra por perfil (plataforma), spec (lote) e allowlist (destino) | auditoria de 11/11/2026: o código estava limpo, mas o critério do portão P2 citava um projeto e o `pendencias` repetia dois nomes; nome de projeto em contrato amarra a régua a um consumidor |
 | D77 | **Portão da P4**: 10 setores (grade 5x2) de uma dungeon por seed, **colisão por peça** (`colisao: ucx`: hull por caixa, piso e parede separados) e **1 draw call por setor** (1 malha + 1 material). Catálogo de 7 módulos; o módulo tem no máximo 6 caixas para caber no `max_partes: 8` do perfil Godot — sem pilares (4 deles estouravam o limite e o `ucx` colapsava em um hull só) | medido: 10 setores de 24–48 tris, 2–4 hulls cada (chão 0,20 m, parede 2,00 m), 1 mesh/1 material por setor e `verify` 0 problemas; grade 5x2 valida em 4 seeds |
 
+| D78 | **Ambiente: o repo mora em ext4 no WSL e a sessão Windows o vê por UNC** — o prefixo `\\wsl.localhost\` é o acesso normal ao ext4, não defeito; ferramenta que não modifica arquivo existente por lá (o Windows não lê a ACL do 9p: `GetFileSecurityW EIO`) usa a receita `write <arquivo>.new` + `mv` por `wsl.exe`, e comando roda por `wsl.exe ... .venv/bin/...` | medido em 11/11/2026: criar, apagar e `mv` funcionam e **modificar existente falha**; 200 arquivos pequenos custam 906 ms por UNC vs 12 ms nativo (~75×) e 50 MB 3,38 s vs 0,03 s — por isso o repo nunca vai para `/mnt/c` (I12), não por causa do prefixo |
+
 ## 3. Rejeitados (e por quê)
 
 - **ComfyUI + TripoSR + Blender acoplados num script só** — três falhas diferentes viram uma mensagem
@@ -286,7 +288,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 - **Gerar `LOD` a partir de decimate cego na Rota B** — decimate destrói silhouette de mesh gerada;
   LOD de mesh generativa é P5, com critério visual.
 - **Animar via modelo generativo** — fora de escopo, custo desproporcional em 6 GB (D14).
-- **Rodar a pipeline sobre `/mnt/c`** — I/O lento comprovado e `edit` já quebrou em UNC no `conselho`.
+- **Rodar a pipeline sobre `/mnt/c`** — I/O lento comprovado (D78: 200 arquivos = 906 ms por UNC vs 12 ms em ext4). A montagem UNC que a sessão Windows vê é o acesso normal ao ext4; o que se recusa é mover os dados para o NTFS.
 - **YAML como formato de manifesto de saída** — consumidor precisa de parse estrito e hash estável; JSON.
 
 ## 4. Em aberto (não decidido)

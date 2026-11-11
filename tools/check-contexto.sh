@@ -18,8 +18,8 @@ limite() {
 estado=0
 limite MAPA.md 60 || estado=1
 limite AGENTS.md 80 || estado=1
-limite INVARIANTES.md 220 || estado=1
-limite CONTINUAR.md 220 || estado=1
+limite INVARIANTES.md 200 || estado=1
+limite CONTINUAR.md 200 || estado=1
 limite CONSELHOS.md 140 || estado=1
 
 # todo caminho citado no MAPA precisa existir (mapa que mente e pior que mapa nenhum)

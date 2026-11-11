@@ -214,7 +214,7 @@ mais é stdlib-leve. Isso mantém `forge3d plan` rodando em CI sem instalar meio
 │   ├── profiles.py     carregar perfil + consultas de default
 │   ├── plan.py         tarefas, chave de cache, resumo
 │   ├── post.py         subprocesso do Blender (canal JSON)
-│   ├── qc.py           parser GLB + gates G1–G9
+│   ├── qc.py           parser GLB + gates G1–G10
 │   ├── publish.py      manifesto, índice, ledger, verify
 │   ├── pipeline.py     orquestração do lote
 │   ├── doctor.py       preflight

@@ -35,7 +35,7 @@ Um comando, um arquivo, um código de saída. Nada de importar código, nada de 
 ```bash
 forge3d plan   lote_01.yaml --json   # custo e cache, sem GPU, sem escrever nada (roda no CI)
 forge3d run    lote_01.yaml --json   # gera, verifica QC e publica no destino autorizado
-forge3d verify <destino>   --json    # portão de CI: hash + G1–G9 reexecutados
+forge3d verify <destino>   --json    # portão de CI: hash + G1–G10 reexecutados
 forge3d query  --max-tris 100 --json # "by demand": o que já existe
 forge3d doctor                       # diagnóstico do ambiente
 forge3d gc --manter-dias 30          # retenção de cache/runs/staging (não toca no publicado)
@@ -107,7 +107,7 @@ lote ──► VALIDAR (schema + B1–B13)
       ──► CONCEPT (SD1.5 → PNG; só mesh sem `origem`)
       ──► GERAR (provider → staging)
       ──► PÓS-PROCESSAR (Blender 4.2 headless: escala, pivô, LOD, colisor, rig)
-      ──► VERIFICAR (QC G1–G9; reprovou, não publica)
+      ──► VERIFICAR (QC G1–G10; reprovou, não publica)
       ──► PUBLICAR (rename atômico + manifesto + índice + ledger)
 ```
 

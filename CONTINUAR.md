@@ -1,10 +1,11 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5, P5 e C5–C12 fechadas.** A P2 fechou pela
+**Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5, P4, P5 e C5–C15 fechadas.** A P2 fechou pela
 escala (`manifest@2`, D62): package e `.rbxlx` medem **6,6071 studs** (D68). A C12 republicou
-**7 destinos, 16 manifestos** com `verify` **0 problemas**. A P5 fechou: clipe `idle` por retarget
-(D66) em `manifest@3` (D67), tocando no Godot e no Roblox (D69), e LOD medido por silhueta (D71).
-**138 verdes + 1 GPU (skip)** em 139 testes · CI no GitHub com **123 testes**.
+**7 destinos, 16 manifestos** com `verify` **0 problemas**. A P4 saiu com `spec@3` + WFC (D74/D75).
+A P5 fechou: clipe `idle` por retarget (D66) em `manifest@3` (D67), tocando no Godot e no Roblox
+(D69), e LOD medido por silhueta (D71). **138 verdes + 1 GPU (skip)** em 139 testes · CI no GitHub
+com **123 testes**.
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 
@@ -72,6 +73,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 |---|---|
 | Suíte | **138 verdes + 1 GPU (skip)** em **139 testes** |
 | CI no GitHub | **123 testes** (`tools/ci.sh`) + contexto + P0 |
+| Repo por UNC (sessão Windows) | criar, apagar e `mv` funcionam; **modificar arquivo existente falha** com `GetFileSecurityW EIO` |
+| I/O em lote por UNC | **200 arquivos pequenos: 906 ms** vs **12 ms** em ext4 (~75×); 50 MB: **3,38 s** vs 0,03 s |
 | Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
@@ -105,20 +108,21 @@ unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tol
 **`D66` animação base por retarget** · **`D67` `manifest@3` declara `animacoes`** · **`D68` Part
 permuta tamanho como centro** · **`D69` clipe do Roblox com `Priority=Core`** · **`D71` LOD medido por
 silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo** · **`D74` WFC próprio** ·
-**`D75` P4 fatiada: `spec@3` + um setor por asset** · **`D76`/I15 projeto não entra no pipeline**.
+**`D75` P4 fatiada: `spec@3` + um setor por asset** · **`D76`/I15 projeto não entra no pipeline** ·
+**`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal**.
 
 ## Aberto
 
 Nada em aberto: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no repo do jogo).
 
-Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-013** (qualidade do LOD),
-**GAP-015** (`draft` em 4k) e **GAP-042** (regra do "menor secção").
+Gaps abertos que importam: **GAP-047** (parede cheia do lado fechado — próximo alvo), **GAP-004**
+(scanner da skill em Luau), **GAP-015** (`draft` em 4k) e **GAP-042** (regra do "menor secção").
 
 ## Próximos passos — em ordem
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **P4** — polimento visual: parede cheia do lado fechado (GAP-047) ou próxima fase (P6/produto) | 1 sessão | roadmap |
+| **1** | **GAP-047** — parede cheia do lado fechado do módulo (a P4 fechou ✔ com essa lacuna), ou arrancar a P6 | 1 sessão | roadmap |
 | **2** | Revisão visual dos LODs no Godot e o `.rbxlx` com o clipe no Studio (cliente real) | 1 sessão manual | consistência |
 | **3** | C12 nos destinos de malha que ganharam LOD (`kit_mesh` já republicado) | minutos | consistência |
 
@@ -153,8 +157,10 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 
 ## Armadilhas pagas (não repetir)
 
-1. **`edit`/`write` sobre UNC falham em arquivo que já existe** (`GetFileSecurityW EIO`) → o `write`
-   cria arquivo novo; para alterar, grave `<arquivo>.new` e `mv` por WSL.
+1. **O repo é ext4 e a sessão Windows o vê por UNC — não é alerta novo de cada sessão.** Medido em
+   11/11/2026: criar arquivo novo, apagar e `mv` funcionam; **modificar arquivo existente falha**
+   (`GetFileSecurityW EIO`), inclusive sobrescrever com `write`. Receita única: grave `<arquivo>.new`
+   e troque com `mv` por WSL. Em lote o UNC é ~75× mais lento — por isso comando roda por `wsl.exe`.
 2. **`convex_hull` do bmesh herda faces de entrada** → hull sobre **nuvem de pontos**, sem faces
    (D64). Recortar `hull["geom"]` não bastava: a face interior sobrevivia e o G7 reprovava.
 3. **Mudou a saída? Suba `VERSAO`/`PIPELINE_VERSION`** — senão o cache serve o artefato velho (D6).
@@ -177,7 +183,8 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 
 ## Como retomar
 
-> Leia `3DCreation/CONTINUAR.md`, `MAPA.md` e `DECISOES.md` §2 e §4. P0–P3.5, C5–C12 e a escala da P2
-> (D62) fechadas: 7 destinos/16 manifestos em `manifest@2` 0.2.6, `verify` 0 problemas. CI verde em
+> Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P5 fechadas: 7
+> destinos/16 manifestos em `manifest@3` 0.2.7, `verify` 0 problemas, CI verde em
 > `github.com/eudespatricio/3DCreation`; key do Roblox em `~/.config/forge3d/roblox.key`, fora do repo.
-> Próximo: **P5** (animação/retarget). Não reabra D3–D27 nem D52–D65.
+> Próximo: **GAP-047** (parede cheia do lado fechado), depois P6. Não reabra D3–D27, D52–D65 nem
+> D66–D76 sem fato novo. Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

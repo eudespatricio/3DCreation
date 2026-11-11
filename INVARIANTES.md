@@ -3,7 +3,8 @@
 **Regra:** quebrar qualquer item é **bug**, não escolha. Cada item tem comando de verificação.
 **Base:** P0 (documentos e contratos), 10/11/2026.
 
-Legenda: `[P0]` verificável hoje · `[P1]` depende da implementação (P1–P4) · `[P3]` depende da GPU.
+Legenda: `[P0]` documental · `[P1]`–`[P5]` fase em que o item entrou · `[P3]` depende de GPU. A
+tabela do fim diz, item a item, o que já é teste automatizado e o que ainda é manual.
 
 ---
 
@@ -36,8 +37,9 @@ Arquivo só aparece na pasta do jogo no passo `publish`, vindo de staging por `r
 ```bash
 forge3d run examples/lote_01.yaml --no-publish --json | python3 -c "import json,sys;print(json.load(sys.stdin)['published'])"
 ```
-Esperado: lista vazia. E `tests/invariants/test_i3_publish_atomico.py` prova que nenhum arquivo
-parcial aparece no destino durante o run.
+Esperado: lista vazia. `tests/test_atomico.py` prova as três coisas: thread observadora não vê
+arquivo parcial, `spy` em `os.replace` encontra o destino vazio antes do rename e falha no meio não
+deixa arquivo final (GAP-014 fechado na C14).
 
 ## I4 — Todo artefato publicado tem manifesto válido `[P1]`
 
@@ -52,7 +54,7 @@ Esperado: `exit=0` íntegro · `exit=3` com `FORGE-E-MANIFEST` após corromper.
 
 ## I5 — QC é portão, não aviso `[P1]`
 
-Reprovação em qualquer gate G1–G9 impede publicação. **Não existe flag de bypass.**
+Reprovação em qualquer gate G1–G10 impede publicação. **Não existe flag de bypass.**
 
 ```bash
 grep -rnE "force|skip.?qc|--no-verify" src/forge3d/cli/ || echo "OK: sem bypass"
@@ -119,10 +121,11 @@ forge3d run examples/lote_01.yaml --json | python3 -c "import json,sys;print(jso
 ```
 Esperado: igual ao total de tarefas; `trabalho_executado: 0`.
 
-## I12 — Nada roda sobre `/mnt/c` ou caminho UNC `[P0]`
+## I12 — Dados só em ext4, nunca em `/mnt/c` `[P0]`
 
-I/O lento e `edit` já falhou em UNC (medido no `conselho`). Exemplos, perfis e destinos padrão usam
-ext4 sob `/home`.
+O repo **mora** em ext4 sob `/home`; a sessão que roda no Windows o vê montado por UNC — esse é o
+acesso normal, não violação (custos medidos em `AGENTS.md` §Ambiente). Violação é spec, perfil,
+destino ou comando apontando para `/mnt/<letra>/`.
 
 ```bash
 grep -rnE '/mnt/[a-z]/|\\\\wsl' examples/ profiles/ schemas/ || echo "OK: nenhum caminho /mnt"
@@ -165,18 +168,18 @@ Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparec
 
 ## Estado da automação (P1, 10/11/2026)
 
-| Invariante | Como está |
+| Invariante | Como está (medido em 11/11/2026) |
 |---|---|
 | I1 determinismo | **automatizado** — `test_i1_determinismo` compara sha256 de 12 artefatos em 2 runs com cache limpo |
 | I2 spec inválida | **automatizado** — `test_i2_spec_invalida_sai_2_sem_tocar_provider` |
-| I3 publish atômico | **parcial** — `rename` + manifesto por último implementados; falta teste de observação (GAP-014) |
-| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (G1–G9) |
+| I3 publish atômico | **automatizado** — `tests/test_atomico.py`: thread observadora, `spy` em `os.replace`, falha no meio (GAP-014/C14) |
+| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (G1–G10) |
 | I5 QC sem bypass | **automatizado** — `test_i5_qc_nao_tem_bypass` (varre a fonte) |
-| I6 lock de GPU | usado pelo provider `mesh` (segundo job = exit 6); falta teste concorrente dedicado |
-| I7 licença | **automatizado** — preflight recusa modelo fora da allowlist; G8 verde no asset `mesh` |
+| I6 lock de GPU | **parcial** — `test_locks.py` cobre recusa e liberação; falta teste com dois *jobs* reais |
+| I7 licença | **parcial** — a allowlist comercial é asseverada em `test_concept.py`; falta exercitar a recusa |
 | I8 escala e pivô | **automatizado** — `test_i8_escala_e_pivo_conforme_perfil` |
-| I9 Blender pinado | `doctor` verifica 4.2.x; falta teste dedicado |
-| I10 proveniência | garantida pelo schema do manifesto; falta teste de campo obrigatório |
+| I9 Blender pinado | **parcial** — `doctor` mede e `post.py` recusa versão ≠ 4.2.x; falta teste dedicado |
+| I10 proveniência | **parcial** — o schema exige os campos; falta teste de campo nulo |
 | I11 idempotência | **automatizado** — `test_i11_idempotencia_rerun_nao_trabalha` |
 | I12 caminhos proibidos | **automatizado** — `test_i12_recusa_mnt_e_unc` |
 | I13 allowlist | **automatizado** — `test_i13_destino_fora_da_allowlist_falha` e `..._sai_2` |
@@ -185,13 +188,9 @@ Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparec
 
 ## Ciclo de vida deste arquivo
 
-`INVARIANTES.md` é **artefato de transição** (ver `skills/context-recovery/SKILL.md`, fase 3). Ele existe
-porque a implementação ainda não existe. Regra:
+Já cumpriu a função de artefato de transição: nasceu à frente da implementação e hoje cada item
+aponta para o teste que o cobre (tabela acima). Regra em vigor:
 
-1. cada `I<n>` vira `tests/invariants/test_i<n>_*.py` quando a fase correspondente chega;
-2. a linha é **apagada** deste arquivo quando o teste entra no CI — sobra só o comando;
-3. invariante que não vira teste em duas fases seguidas é **pergunta**, não dogma (vai para
-   `DECISOES.md` §4).
-
-Consequência desejada: este arquivo deve **encolher**. Se ele cresce, a verificação está sendo
-substituída por prosa — e prosa não reprova build.
+1. a prosa do item **encurta** quando o teste entra: sobra a definição em 2–3 linhas e o comando;
+2. item sem teste em duas fases seguidas é **pergunta**, não dogma (vai para `DECISOES.md` §4);
+3. o arquivo não cresce: teto 200 linhas; o que passa disso é verificação substituída por prosa.

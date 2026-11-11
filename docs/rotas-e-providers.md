@@ -106,7 +106,7 @@ Fluxo medido com o bule:
   512² (~2,8 s);
 - `run`: 23,3 s frio / 2,1 s cache hit; G1–G9 verdes; Godot 4.3 importa com AABB idêntico ao manifesto
   e `albedo_tex=true`;
-- `verify` reexecuta G1–G9 contra o perfil atual (C2/D32).
+- `verify` reexecuta G1–G10 contra o perfil atual (C2/D32; G10 desde D67).
 
 **Três requisitos que só apareceram rodando:**
 

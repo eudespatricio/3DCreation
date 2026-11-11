@@ -1,5 +1,5 @@
-# Dungeon modular — fatiada da P4: grade 2x2, um setor por item (D74/D75)
-# Foco: WFC com seed, layout valido e um setor por asset (1 draw call por setor).
+# Dungeon modular — portao da P4: grade 5x2 (10 setores), catalogo de 7 modulos (D74/D75/D77)
+# Foco: WFC com seed, colisao por peca (ucx, hull por caixa) e 1 draw call por setor.
 schema: forge3d/spec@3
 
 projeto: demo
@@ -9,12 +9,12 @@ estilo_global: lowpoly_lit
 
 paleta:
   - "#7d858f"   # chapa clara — paredes
-  - "#3b4048"   # chapa escura — pilares
+  - "#3b4048"   # chapa escura — bordas
   - "#1d2024"   # junta — piso
 
 politica:
   falha: continuar
-  custo_max_min: 5
+  custo_max_min: 10
   seed_base: 20261111
 
 lote:
@@ -22,43 +22,118 @@ lote:
     tipo: mapa_setor
     rota: modular
     prompt: >-
-      Setor (0,0) de uma dungeon modular 2x2: piso de junta escura, paredes de chapa
-      clara nos lados fechados e pilares de canto.
+      Setor (0,0) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
     modular:
-      grade: [2, 2]
-      modulos: [corredor, sala, curva]
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
       setor: [0, 0]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
     tags: [dungeon, setor, modular]
 
   - id: dungeon.setor.x1y0
     tipo: mapa_setor
     rota: modular
     prompt: >-
-      Setor (1,0) da mesma dungeon; o modulo e escolhido pelo layout da seed.
+      Setor (1,0) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
     modular:
-      grade: [2, 2]
-      modulos: [corredor, sala, curva]
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
       setor: [1, 0]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x2y0
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (2,0) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
+      setor: [2, 0]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x3y0
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (3,0) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
+      setor: [3, 0]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x4y0
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (4,0) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
+      setor: [4, 0]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
     tags: [dungeon, setor, modular]
 
   - id: dungeon.setor.x0y1
     tipo: mapa_setor
     rota: modular
     prompt: >-
-      Setor (0,1) da mesma dungeon; o modulo e escolhido pelo layout da seed.
+      Setor (0,1) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
     modular:
-      grade: [2, 2]
-      modulos: [corredor, sala, curva]
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
       setor: [0, 1]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
     tags: [dungeon, setor, modular]
 
   - id: dungeon.setor.x1y1
     tipo: mapa_setor
     rota: modular
     prompt: >-
-      Setor (1,1) da mesma dungeon; o modulo e escolhido pelo layout da seed.
+      Setor (1,1) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
     modular:
-      grade: [2, 2]
-      modulos: [corredor, sala, curva]
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
       setor: [1, 1]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x2y1
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (2,1) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
+      setor: [2, 1]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x3y1
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (3,1) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
+      setor: [3, 1]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x4y1
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (4,1) da dungeon modular 5x2; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [5, 2]
+      modulos: [reto_ns, reto_lo, curva_ne, curva_no, tres_bocas, quatro_bocas, beco]
+      setor: [4, 1]
+    colisao: ucx    # hull por caixa: piso, placa e paredes viram colisores separados
     tags: [dungeon, setor, modular]

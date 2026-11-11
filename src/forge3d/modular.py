@@ -32,19 +32,37 @@ LADOS = ("norte", "sul", "leste", "oeste")
 ABERTO = "aberto"
 FECHADO = "fechado"
 
-#: módulos da fatiada: três é o mínimo que produz escolha de verdade no WFC
+#: catálogo do portão: 7 módulos cobrem reta, curva, T, cruzamento e beco. Cada um fica com no
+#: máximo 6 caixas (placa + piso + até 4 paredes), dentro do `max_partes: 8` do perfil Godot —
+#: acima disso o `ucx` colapsa em um hull só e o piso deixa de ser colisor separado.
 CATALOGO: dict[str, dict] = {
-    "corredor": {
+    "reto_ns": {
         "sockets": (ABERTO, ABERTO, FECHADO, FECHADO),
         "descricao": "corredor reto norte-sul",
     },
-    "sala": {
-        "sockets": (ABERTO, ABERTO, ABERTO, ABERTO),
-        "descricao": "sala aberta nos quatro lados",
+    "reto_lo": {
+        "sockets": (FECHADO, FECHADO, ABERTO, ABERTO),
+        "descricao": "corredor reto leste-oeste",
     },
-    "curva": {
+    "curva_ne": {
         "sockets": (ABERTO, FECHADO, ABERTO, FECHADO),
         "descricao": "curva que dobra de norte para leste",
+    },
+    "curva_no": {
+        "sockets": (ABERTO, FECHADO, FECHADO, ABERTO),
+        "descricao": "curva que dobra de norte para oeste",
+    },
+    "tres_bocas": {
+        "sockets": (ABERTO, ABERTO, ABERTO, FECHADO),
+        "descricao": "T com norte, sul e leste abertos",
+    },
+    "quatro_bocas": {
+        "sockets": (ABERTO, ABERTO, ABERTO, ABERTO),
+        "descricao": "cruzamento aberto nos quatro lados",
+    },
+    "beco": {
+        "sockets": (ABERTO, FECHADO, FECHADO, FECHADO),
+        "descricao": "beco sem saida, aberto so ao norte",
     },
 }
 
@@ -192,7 +210,6 @@ def caixas_do_modulo(nome: str, tamanho: float, altura: float) -> list[dict]:
 
     * placa: ocupa o modulo inteiro (0..tam) e define o bbox que encaixa no setor vizinho;
     * piso: recuado ``esp`` e apoiado na placa (aresta de baixo dentro da face de cima da placa);
-    * pilares: recuados, apoiados na placa;
     * parede parcial: so no meio do lado fechado, apoiada no piso — nao alcanca canto nem vizinha.
 
     Sem cor: quem pinta e o provider (o mesmo vocabulario do blocky: cor + padrao).
@@ -234,16 +251,4 @@ def caixas_do_modulo(nome: str, tamanho: float, altura: float) -> list[dict]:
             {"nome": "parede_oeste", "min": [x0, meio0, 2 * esp], "max": [x1, meio1, alt], "papel": "parede"}
         )
 
-    # pilar de canto: recuado esp, apoiado na placa
-    p = round(tam * 0.06, 4)
-    interna = tam - esp - p
-    for cx, cy in ((esp, esp), (interna, esp), (esp, interna), (interna, interna)):
-        caixas.append(
-            {
-                "nome": f"pilar_{int(cx)}_{int(cy)}",
-                "min": [cx, cy, esp],
-                "max": [cx + p, cy + p, alt],
-                "papel": "pilar",
-            }
-        )
     return caixas

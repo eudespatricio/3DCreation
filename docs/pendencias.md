@@ -27,9 +27,12 @@ Nada pendente: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no rep
   frente — o projeto Roblox já está em LFS. O `pyproject.toml` foi sincronizado em 0.3.x e
   `tools/conformidade.py` acusa divergência entre `pyproject` e `__init__`.
 
-- **P4 — fatiada de 4 setores** em 11/11/2026: `spec@3` com bloco `modular` (D75), WFC próprio
-  (D74), 3 módulos de piso e um asset por setor (72–96 tris, 1 draw call, `verify` 0 problemas). Falta
-  do portão: 10 setores, catálogo maior e a parede fechada (GAP-047).
+- **P4 — portão cumprido** em 11/11/2026 (D77): `spec@3` com bloco `modular` (D75), WFC próprio
+  (D74), catálogo de 7 módulos e grade 5x2 = 10 setores (24–48 tris cada, 1 mesh/1 material, colisão
+  `ucx` por peça com 2–4 hulls). `verify` 0 problemas nos 8 destinos. Falta só a parede cheia do lado
+  fechado (GAP-047).
+- **Republicar `kit_mesh/arma.02`** quando a VRAM folgar: o lote ficou 1 bloqueado
+  (`VRAM livre 3278 MiB < 3500`) e aquele manifesto ficou na versão anterior; `verify` não acusa.
 - **P5 — LOD (GAP-013/GAP-046)** em 11/11/2026: critério de silhueta medido (IoU global, faixa
   vertical e bbox) em `tools/lod_qualidade.py`. O LOD do blocky foi reprovado (decimate vira espinho;
   ilha perde antebraço) e os exemplos passam a não pedir LOD de blocky; o LOD de malha gerada passa no

@@ -8,7 +8,8 @@
 no GitHub com 106. A `P2` fechou com `manifest@2`/D62 (glb em studs; package e `.rbxlx` em 6,6071
 studs); a `P5` fechou com o clipe `idle` por retarget tocando no Godot e no Roblox (`manifest@3`,
 D66/D67/D69) e com o LOD medido por silhueta (D71). `blocky`/`import` sem GPU; `mesh` com TripoSR +
-bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` em P4. Leia
+bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` fechada na P4
+(dungeon de 10 setores por seed, colisão por peça e 1 draw call por setor). Leia
 [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---

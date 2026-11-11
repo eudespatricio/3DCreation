@@ -12,7 +12,7 @@
 | **P1** ✔ | Rotas `blocky` + `import` de ponta a ponta | não | **concluída em 10/11/2026**: 2 runs byte-idênticos, rerun = 0 trabalho, QC G1–G9 verde |
 | **P2** | Perfil `roblox-r15` | não | um rig R15 importa no Studio com `Humanoid` e anima |
 | **P3** | Rota `mesh` com stack local | **sim** | 10 assets com QC aprovado, tempo e VRAM medidos e registrados |
-| **P4** | Rota `modular` (WFC) | não | uma dungeon de 10 setores com colisão por setor e seed fixa |
+| **P4** | Rota `modular` (WFC) | não | ✔ uma dungeon de 10 setores com colisão por peça e seed fixa |
 | **P5** | LOD de mesh, retarget, animação | sim | animação base tocando nos dois perfis |
 | **P6** | Índice, `gc`, CI e distribuição | não | `forge3d` instalável e `verify` rodando em CI de pull request |
 
@@ -132,11 +132,11 @@ run do CI (GAP-008) seguem.
 **Portão:** dungeon de 10 setores reproduzível por seed, com colisão funcional e sem infinito de
 draw calls por setor.
 
-**Estado em 11/11/2026 — fatiada de 4 setores:** `spec@3` com o bloco `modular` (D75), WFC próprio
-(D74) com 3 módulos e grade 2x2 seed 20261111 → layout `[[curva, sala], [sala, sala]]`; cada setor é
-um asset (72–96 tris, 1 draw call) e `verify` fecha 0 problemas. Falta do portão: **10 setores**,
-catálogo maior (hoje 3 módulos) e a parede fechada de verdade — o lado fechado hoje é parede
-**parcial** no meio do lado (GAP-047), porque caixas encostadas no limite do módulo quebram o G1.
+**Estado em 11/11/2026 — portão cumprido (D77):** `spec@3` com o bloco `modular` (D75), WFC próprio
+(D74), catálogo de **7 módulos** e grade **5x2 = 10 setores** (seed 20261111); cada setor é um asset
+de 24–48 tris com **1 draw call** (1 malha + 1 material) e **colisão por peça** (`ucx`: 2–4 hulls,
+chão 0,20 m e parede 2,00 m), `verify` 0 problemas. Falta só o polimento visual: a parede do lado
+fechado é **parcial** (GAP-047), porque caixas encostadas no limite do módulo quebram o G1.
 
 ## P5 — Polimento
 

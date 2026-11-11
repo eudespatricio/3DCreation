@@ -4,7 +4,7 @@
 escala (`manifest@2`, D62): package e `.rbxlx` medem **6,6071 studs** (D68). A C12 republicou
 **7 destinos, 16 manifestos** com `verify` **0 problemas**. A P5 fechou: clipe `idle` por retarget
 (D66) em `manifest@3` (D67), tocando no Godot e no Roblox (D69), e LOD medido por silhueta (D71).
-**136 verdes + 1 GPU (skip)** em 137 testes · CI no GitHub com **121 testes**.
+**138 verdes + 1 GPU (skip)** em 139 testes · CI no GitHub com **123 testes**.
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 
@@ -28,7 +28,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P2** | ✔ | R15 16 ossos, pivô por membro, `.rbxlx` nativo, upload Open Cloud, textura no Studio e a **escala** (`manifest@2`/D62) |
 | **P3** | ✔ | provider `i23d` (TripoSR), bake UV/textura próprio, kit corpo/capa/arma |
 | **P3.5** | ✔ | concept SD1.5 → TripoSR, split e A/B de 3 personagens híbridos |
-| **P4** | parcial | fatiada: `spec@3` + WFC + 3 módulos + 4 setores (D74/D75); falta 10 setores e parede fechada (GAP-047) |
+| **P4** | ✔ | `spec@3` + WFC + 7 módulos + 10 setores, colisão por peça e 1 draw call (D74/D75/D77); parede cheia fica em GAP-047 |
 | **P5** | ✔ | animação base tocando no Roblox (D66/D67/D69) e LOD medido por critério (D71: blocky sem LOD, mesh com LOD no prop e no personagem) |
 
 ## O que foi entregue nesta janela
@@ -70,8 +70,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 
 | Medida | Valor |
 |---|---|
-| Suíte | **136 verdes + 1 GPU (skip)** em **137 testes** |
-| CI no GitHub | **121 testes** (`tools/ci.sh`) + contexto + P0 |
+| Suíte | **138 verdes + 1 GPU (skip)** em **139 testes** |
+| CI no GitHub | **123 testes** (`tools/ci.sh`) + contexto + P0 |
 | Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
@@ -81,7 +81,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | LOD do blocky (decimate) | LOD1 IoU **0,76** frente / 0,98 lado; LOD2 **0,55** / 0,81 + espinhos no render → reprovado |
 | LOD de malha gerada | bule a 50%: IoU **0,993** frente / **0,994** lado, faixa **0,948**, bbox ≤ 0,09% → aprovado |
 | LOD de personagem mesh | `corpo.02` a 50%: IoU **0,980** frente / **0,987** lado, faixa **0,971**, bbox ≤ 0,11% → aprovado |
-| P4 — layout 2x2 (seed 20261111) | `[[curva, sala], [sala, sala]]`; 4 setores de **72–96 tris** publicados, `verify` 0 problemas |
+| P4 — layout 5x2 (seed 20261111) | 10 setores de **24–48 tris**, **1 mesh/1 material** e **2–4 hulls** de colisão por setor (chão 0,20 m, parede 2,00 m); `verify` 0 problemas |
 | Client do Studio | personagem padrão usa **Bone**, não Motor6D: a validação usa o rig do `.rbxlx` replicado do server |
 | Colisor após D64/D65 | desvio máximo **4,3e-4 m** num hull de 2,2 m (tolerância 1 mm/m); face interior do defeito desviava 1,8 m |
 | Package R15 v2 no Studio | `size=2,7086 × 6,6071 × 1,5196` studs · **16 Bones** · `surface=false` · `humanoid=false` |
@@ -118,7 +118,7 @@ Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-013** (
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **P4** — completar o portão: 10 setores, catálogo maior e parede fechada (GAP-047) | 1 sessão | roadmap |
+| **1** | **P4** — polimento visual: parede cheia do lado fechado (GAP-047) ou próxima fase (P6/produto) | 1 sessão | roadmap |
 | **2** | Revisão visual dos LODs no Godot e o `.rbxlx` com o clipe no Studio (cliente real) | 1 sessão manual | consistência |
 | **3** | C12 nos destinos de malha que ganharam LOD (`kit_mesh` já republicado) | minutos | consistência |
 
@@ -135,8 +135,8 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 136 verdes + 1 GPU
-bash tools/ci.sh                          # 121 testes + contexto + P0 (o que o GitHub roda)
+python -m pytest                          # 138 verdes + 1 GPU
+bash tools/ci.sh                          # 123 testes + contexto + P0 (o que o GitHub roda)
 bash tools/check-contexto.sh
 python tools/check-p0.py
 python tools/mcp_studio.py --estado       # Studio via MCP (precisa do MCP ligado)

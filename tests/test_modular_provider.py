@@ -25,7 +25,7 @@ def _item(setor: list[int] | None = None, seed: int = 20261111) -> dict:
         "lod": [100],
         "modular": {
             "grade": [2, 2],
-            "modulos": ["corredor", "sala", "curva"],
+            "modulos": ["reto_ns", "quatro_bocas", "curva_ne"],
             "setor": setor or [0, 0],
             "tamanho_modulo": 4.0,
         },
@@ -43,7 +43,10 @@ def test_gerar_escreve_o_setor_no_bruto_do_blocky(tmp_path: Path):
     assert len(modelo["modular"]["layout"]) == 2
     assert modelo["altura_m"] == pytest.approx(2.4)
     assert (tmp_path / modelo["atlas"]).is_file()
-    assert len(modelo["caixas"]) >= 5
+    # placa + piso sempre; parede so nos lados fechados (o modulo do setor (0,0) e aberto)
+    nomes = [c["nome"] for c in modelo["caixas"]]
+    assert nomes[:2] == ["placa", "piso"]
+    assert len(nomes) <= 8  # max_partes do perfil: ucx per-peça
     for caixa in modelo["caixas"]:
         assert caixa["uv"] and caixa["uv_topo"]  # o atlas preencheu
         assert caixa["cor"].startswith("#")
@@ -58,7 +61,7 @@ def test_gerar_e_deterministico(tmp_path: Path):
 
 
 def test_setores_diferentes_dao_modulos_do_layout(tmp_path: Path):
-    layout = modular.gerar_layout((2, 2), ["corredor", "sala", "curva"], 20261111)
+    layout = modular.gerar_layout((2, 2), ["reto_ns", "quatro_bocas", "curva_ne"], 20261111)
     for y in range(2):
         for x in range(2):
             bruto = ModularProvider().gerar(_item([x, y]), {}, tmp_path / f"{x}{y}")

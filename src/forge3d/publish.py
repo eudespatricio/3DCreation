@@ -9,43 +9,37 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from . import __version__, paths
-from .canonical import sha256_arquivo
-from .errors import erro_manifesto, erro_spec
+from . import __version__, locks
+from .cache import _dir_cache, ler_cache, salvar_cache  # noqa: F401
+from .errors import erro_manifesto
+from .index import _conexao, _indice_upsert, consultar, registrar_ledger  # noqa: F401
+from .verify import (  # noqa: F401
+    _VERSAO_POR_SCHEMA,
+    CAMPOS_PROVENIENCIA,
+    MANIFEST_SCHEMA_CACHE,
+    VERIFY_ASPECTOS,
+    _faltando_proveniencia,
+    _pedidos_verificar,
+    _schema_manifesto,
+    verificar,
+)
 
 __all__ = [
+    "consultar",
+    "ler_cache",
     "montar_manifesto",
     "publicar",
-    "salvar_cache",
-    "ler_cache",
-    "verificar",
-    "consultar",
     "registrar_ledger",
+    "salvar_cache",
+    "verificar",
 ]
-
-MANIFEST_SCHEMA_CACHE: dict[str, dict] = {}
-
-#: versao do contrato por `schema`; `manifest@1` continua aceito na leitura (D62)
-_VERSAO_POR_SCHEMA = {
-    "forge3d/manifest@1": "1",
-    "forge3d/manifest@2": "2",
-    "forge3d/manifest@3": "3",
-}
 
 
 def _agora() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _schema_manifesto(versao: str = "1") -> dict:
-    if versao not in MANIFEST_SCHEMA_CACHE:
-        arq = paths.raiz_dados() / "schemas" / f"manifest.v{versao}.schema.json"
-        MANIFEST_SCHEMA_CACHE[versao] = json.loads(arq.read_text(encoding="utf-8"))
-    return MANIFEST_SCHEMA_CACHE[versao]
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _unidades_export(perfil: dict, medidas: dict) -> dict:
@@ -70,16 +64,16 @@ def montar_manifesto(
     run_id: str,
     created_at: str | None = None,
 ) -> dict:
-    arquivos = []
-    for arq in resultado.get("arquivos", []):
-        arquivos.append(
-            {
-                "caminho": arq["caminho"],
-                "papel": arq["papel"],
-                "sha256": arq["sha256"],
-                "bytes": arq["bytes"],
-            }
-        )
+    """Monta o dicionario canonico de manifesto@3 a partir de item, resultado e QC."""
+    arquivos = [
+        {
+            "caminho": arq["caminho"],
+            "papel": arq["papel"],
+            "sha256": arq["sha256"],
+            "bytes": arq["bytes"],
+        }
+        for arq in resultado.get("arquivos", [])
+    ]
     medidas = relatorio_qc["medidas"]
     unidades_export = _unidades_export(perfil or {}, medidas)
     lods = [
@@ -117,7 +111,8 @@ def montar_manifesto(
         )
         versao_concept = f"{versao_concept}+{detalhe}"
         if concept.get("device"):
-            versao_concept = f"{versao_concept}+{str(concept['device']).replace(':', '').replace('/', '_')}"
+            dev = str(concept["device"]).replace(":", "").replace("/", "_")
+            versao_concept = f"{versao_concept}+{dev}"
         nome_modelo = str(concept.get("modelo", "sd15")).rstrip("/").split("/")[-1]
         providers["texture"] = {
             "name": f"concept/{nome_modelo}",
@@ -178,52 +173,36 @@ def montar_manifesto(
     }
 
 
-# ---------------------------------------------------------------- cache
+def _caminho_seguro(raiz: Path, nome: str) -> Path:
+    """Resolve ``nome`` dentro de ``raiz`` e recusa traversal / caminho absoluto."""
+    bruto = str(nome or "")
+    if not bruto or "\\" in bruto:
+        raise erro_manifesto(f"caminho invalido no manifesto: {nome!r}", arquivo=bruto)
+    rel = Path(bruto)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise erro_manifesto(f"caminho fora do destino: {nome!r}", arquivo=bruto)
+    raiz_res = raiz.resolve(strict=False)
+    alvo = (raiz_res / rel).resolve(strict=False)
+    if not alvo.is_relative_to(raiz_res) or alvo == raiz_res:
+        raise erro_manifesto(f"caminho fora do destino: {nome!r}", arquivo=bruto)
+    return alvo
 
 
-def _dir_cache(chave: str) -> Path:
-    return paths.dir_cache() / chave
-
-
-def salvar_cache(chave: str, origem: Path, entrada: dict) -> None:
-    base = _dir_cache(chave)
-    final = base / "final"
-    if final.exists():
-        shutil.rmtree(final)
-    final.mkdir(parents=True, exist_ok=True)
-    for arq in entrada["resultado"].get("arquivos", []):
-        shutil.copyfile(origem / arq["caminho"], final / arq["caminho"])
-    tmp = base / "entrada.json.tmp"
-    tmp.write_text(json.dumps(entrada, sort_keys=True, indent=1), encoding="utf-8")
-    os.replace(tmp, base / "entrada.json")
-
-
-def ler_cache(chave: str) -> tuple[Path, dict] | None:
-    base = _dir_cache(chave)
-    entrada = base / "entrada.json"
-    final = base / "final"
-    if not entrada.is_file() or not final.is_dir():
-        return None
+def _fsync_dir(pasta: Path) -> None:
     try:
-        dados = json.loads(entrada.read_text(encoding="utf-8"))
-    except ValueError:
-        return None
-    for arq in dados.get("resultado", {}).get("arquivos", []):
-        if not (final / arq["caminho"]).is_file():
-            return None
-    return final, dados
+        fd = os.open(pasta, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
-# ---------------------------------------------------------------- publicacao
-
-
-def _limpar_orfaos(destino: Path, manifesto: dict) -> list[str]:
-    """Remove do destino o arquivo do manifesto ANTERIOR que o novo nao lista mais.
-
-    Sem isso, um LOD que deixou de ser gerado continua na pasta e o consumidor importa lixo
-    (medido: `_LOD2.glb` de um android que passou a pedir [100, 50]). So mexe em arquivo que o
-    proprio Forge3D publicou e que estava no manifesto antigo.
-    """
+def _coletar_orfaos(destino: Path, manifesto: dict) -> list[Path]:
+    """Identifica arquivos do manifesto ANTERIOR ausentes no novo, garantindo escopo no destino."""
     anterior = destino / f"{manifesto['asset_id']}.manifest.json"
     if not anterior.is_file():
         return []
@@ -232,434 +211,65 @@ def _limpar_orfaos(destino: Path, manifesto: dict) -> list[str]:
     except ValueError:
         return []
     novos = {a["caminho"] for a in manifesto.get("files", [])}
-    removidos = []
+    orfaos: list[Path] = []
     for arq in antigo.get("files", []):
         nome = arq.get("caminho", "")
         if nome and nome not in novos:
-            alvo = destino / nome
-            if alvo.is_file():
-                alvo.unlink()
-                removidos.append(nome)
-    return removidos
+            orfaos.append(_caminho_seguro(destino, nome))
+    return orfaos
+
+
+def _escrever_texto_atomico(alvo: Path, tmp: Path, conteudo: str) -> None:
+    try:
+        with open(tmp, "w", encoding="utf-8") as fsai:
+            fsai.write(conteudo)
+            fsai.flush()
+            os.fsync(fsai.fileno())
+        os.replace(tmp, alvo)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def publicar(origem: Path, destino: Path, manifesto: dict, run_id: str) -> list[dict]:
-    """Copia staging->destino por rename, depois grava o manifesto. Devolve artefatos."""
-    destino.mkdir(parents=True, exist_ok=True)
-    publicados = []
-    _limpar_orfaos(destino, manifesto)
-    for arq in manifesto["files"]:
-        nome = arq["caminho"]
-        origem_arq = origem / nome
-        if not origem_arq.is_file():
-            raise erro_manifesto(f"arquivo ausente no staging: {nome}", arquivo=nome)
-        tmp = destino / f".{nome}.{run_id}.tmp"
-        with open(origem_arq, "rb") as fent, open(tmp, "wb") as fsai:
-            shutil.copyfileobj(fent, fsai)
-            fsai.flush()
-            os.fsync(fsai.fileno())
-        os.replace(tmp, destino / nome)
-        publicados.append(
-            {"id": manifesto["asset_id"], "caminho": nome, "sha256": arq["sha256"]}
+    """Copia staging->destino por rename, grava manifesto com fsync e remove orfaos por ultimo."""
+    with locks.lock_destino(destino, run_id):
+        destino.mkdir(parents=True, exist_ok=True)
+        orfaos = _coletar_orfaos(destino, manifesto)
+        publicados = []
+        for arq in manifesto["files"]:
+            nome = arq["caminho"]
+            origem_arq = _caminho_seguro(origem, nome)
+            alvo = _caminho_seguro(destino, nome)
+            if not origem_arq.is_file():
+                raise erro_manifesto(f"arquivo ausente no staging: {nome}", arquivo=nome)
+            alvo.parent.mkdir(parents=True, exist_ok=True)
+            tmp = alvo.parent / f".{alvo.name}.{run_id}.tmp"
+            try:
+                with open(origem_arq, "rb") as fent, open(tmp, "wb") as fsai:
+                    shutil.copyfileobj(fent, fsai)
+                    fsai.flush()
+                    os.fsync(fsai.fileno())
+                os.replace(tmp, alvo)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
+            publicados.append(
+                {"id": manifesto["asset_id"], "caminho": nome, "sha256": arq["sha256"]}
+            )
+
+        nome_manifesto = f"{manifesto['asset_id']}.manifest.json"
+        alvo_manifesto = _caminho_seguro(destino, nome_manifesto)
+        tmp_manifesto = destino / f".{nome_manifesto}.{run_id}.tmp"
+        _escrever_texto_atomico(
+            alvo_manifesto,
+            tmp_manifesto,
+            json.dumps(manifesto, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
         )
 
-    nome_manifesto = f"{manifesto['asset_id']}.manifest.json"
-    tmp = destino / f".{nome_manifesto}.{run_id}.tmp"
-    tmp.write_text(
-        json.dumps(manifesto, sort_keys=True, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
-    os.replace(tmp, destino / nome_manifesto)
-
-    _indice_upsert(manifesto, destino)
-    return publicados
-
-
-def _conexao() -> sqlite3.Connection:
-    paths.raiz_estado().mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(paths.arquivo_indice())
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute(
-        """
-        CREATE TABLE IF NOT EXISTS assets (
-            asset_id TEXT PRIMARY KEY, projeto TEXT, perfil TEXT, rota TEXT, determinism TEXT,
-            triangulos INTEGER, bytes INTEGER, materiais INTEGER, ossos INTEGER,
-            licenca TEXT, spec_hash TEXT, pipeline_version TEXT, destino TEXT,
-            publicado_em TEXT, tags TEXT
-        )
-        """
-    )
-    return con
-
-
-def _indice_upsert(manifesto: dict, destino: Path) -> None:
-    total = sum(a["bytes"] for a in manifesto["files"])
-    tags = " ".join(manifesto.get("tags") or [])
-    con = _conexao()
-    with con:
-        con.execute(
-            """
-            INSERT INTO assets (asset_id, projeto, perfil, rota, determinism, triangulos, bytes,
-                                materiais, ossos, licenca, spec_hash, pipeline_version, destino,
-                                publicado_em, tags)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(asset_id) DO UPDATE SET
-                projeto=excluded.projeto, perfil=excluded.perfil, rota=excluded.rota,
-                determinism=excluded.determinism, triangulos=excluded.triangulos,
-                bytes=excluded.bytes, materiais=excluded.materiais, ossos=excluded.ossos,
-                licenca=excluded.licenca, spec_hash=excluded.spec_hash,
-                pipeline_version=excluded.pipeline_version, destino=excluded.destino,
-                publicado_em=excluded.publicado_em, tags=excluded.tags
-            """,
-            (
-                manifesto["asset_id"],
-                manifesto["projeto"],
-                manifesto["perfil"],
-                manifesto.get("rota", ""),
-                manifesto["determinism"],
-                manifesto["geometry"]["triangulos"],
-                total,
-                manifesto["geometry"]["materiais"],
-                (manifesto.get("rig") or {}).get("ossos", 0),
-                manifesto["licenca"]["modelo"],
-                manifesto["spec_hash"],
-                manifesto["pipeline_version"],
-                str(destino),
-                manifesto["created_at"],
-                tags,
-            ),
-        )
-    con.close()
-
-
-def consultar(
-    projeto: str | None = None,
-    max_tris: int | None = None,
-    perfil: str | None = None,
-    tag: str | None = None,
-) -> list[dict]:
-    con = _conexao()
-    sql = "SELECT asset_id, projeto, perfil, rota, determinism, triangulos, bytes, materiais, ossos, licenca, destino, publicado_em FROM assets WHERE 1=1"
-    args: list = []
-    if projeto:
-        sql += " AND projeto = ?"
-        args.append(projeto)
-    if perfil:
-        sql += " AND perfil = ?"
-        args.append(perfil)
-    if max_tris:
-        sql += " AND triangulos <= ?"
-        args.append(max_tris)
-    if tag:
-        sql += " AND tags LIKE ?"
-        args.append(f"%{tag}%")
-    sql += " ORDER BY asset_id"
-    linhas = con.execute(sql, args).fetchall()
-    con.close()
-    colunas = [
-        "asset_id",
-        "projeto",
-        "perfil",
-        "rota",
-        "determinism",
-        "triangulos",
-        "bytes",
-        "materiais",
-        "ossos",
-        "licenca",
-        "destino",
-        "publicado_em",
-    ]
-    return [dict(zip(colunas, linha)) for linha in linhas]
-
-
-def registrar_ledger(evento: dict) -> None:
-    caminho = paths.arquivo_ledger()
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    with open(caminho, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"ts": _agora(), **evento}, sort_keys=True, ensure_ascii=False) + "\n")
-
-
-# ---------------------------------------------------------------- verificacao
-
-
-#: aspectos que o `verify --only` sabe recortar (I8/I10)
-VERIFY_ASPECTOS = ("manifesto", "hash", "escala", "pivo", "gates")
-
-#: campos de proveniencia que o I10 exige nao-nulos
-CAMPOS_PROVENIENCIA = ("spec_hash", "pipeline_version", "determinism", "created_at", "run_id")
-
-
-def _pedidos_verificar(only: str | None) -> set[str] | None:
-    """Aspectos pedidos em ``--only``; ``None`` = verificacao completa."""
-    if not only:
-        return None
-    pedidos = {t.strip().lower() for t in str(only).split(",") if t.strip()}
-    desconhecidos = sorted(pedidos - set(VERIFY_ASPECTOS))
-    if desconhecidos:
-        raise erro_spec(
-            f"--only com aspecto desconhecido: {', '.join(desconhecidos)} "
-            f"(aceitos: {', '.join(VERIFY_ASPECTOS)})",
-            aceitos=list(VERIFY_ASPECTOS),
-        )
-    return pedidos or None
-
-
-def _faltando_proveniencia(man: dict) -> list[str]:
-    """Campos de proveniencia ausentes ou vazios no manifesto (I10)."""
-    ausentes = [campo for campo in CAMPOS_PROVENIENCIA if not str(man.get(campo) or "").strip()]
-    geometria = (man.get("providers") or {}).get("geometry") or {}
-    for campo in ("name", "version"):
-        if not str(geometria.get(campo) or "").strip():
-            ausentes.append(f"providers.geometry.{campo}")
-    licenca = man.get("licenca") or {}
-    for campo in ("modelo", "notice"):
-        if not str(licenca.get(campo) or "").strip():
-            ausentes.append(f"licenca.{campo}")
-    return ausentes
-
-
-def verificar(destino: Path, only: str | None = None) -> dict:
-    """Portao de CI: manifesto+hash E reexecucao de G1-G10 contra o perfil atual.
-
-    O hash pega arquivo trocado; a reexecucao pega o caso mais sutil: o perfil do jogo mudou
-    (tolerancia, textura_max, mapa de ossos) e o manifesto antigo ficou mentindo.
-    """
-    import jsonschema
-
-    from . import profiles, qc
-
-    pedidos = _pedidos_verificar(only)
-
-    if not destino.is_dir():
-        raise erro_manifesto(f"destino inexistente: {destino}", destino=str(destino))
-
-    manifestos = sorted(destino.glob("*.manifest.json"))
-    if not manifestos:
-        raise erro_manifesto(f"nenhum manifesto em {destino}", destino=str(destino))
-
-    itens = []
-    erros: list[dict] = []
-    faltando: list[dict] = []
-    deltas_escala: list[float] = []
-    deltas_pivo: list[float] = []
-    for caminho in manifestos:
-        try:
-            man = json.loads(caminho.read_text(encoding="utf-8"))
-        except ValueError as exc:
-            erros.append({"manifesto": caminho.name, "erro": f"json invalido: {exc}"})
-            continue
-        # D62: cada versao de contrato tem o seu schema; versao desconhecida e erro, nao perdao
-        versao = _VERSAO_POR_SCHEMA.get(man.get("schema"))
-        if versao is None:
-            erros.append(
-                {"manifesto": caminho.name, "erro": f"schema desconhecido: {man.get('schema')!r}"}
-            )
-            continue
-        validador = jsonschema.Draft202012Validator(_schema_manifesto(versao))
-        problemas = [e.message for e in validador.iter_errors(man)][:5]
-        if problemas:
-            erros.append({"manifesto": caminho.name, "erro": "schema", "detalhes": problemas})
-            continue
-        checar_hash = pedidos is None or "hash" in pedidos
-        if checar_hash and not man["qc"]["aprovado"]:
-            erros.append({"manifesto": caminho.name, "erro": "manifesto publicado sem QC aprovado"})
-        for arq in (man["files"] if checar_hash else []):
-            alvo = destino / arq["caminho"]
-            if not alvo.is_file():
-                erros.append({"manifesto": caminho.name, "erro": f"arquivo ausente: {arq['caminho']}"})
-                continue
-            real = sha256_arquivo(alvo)
-            if real != arq["sha256"]:
-                erros.append(
-                    {
-                        "manifesto": caminho.name,
-                        "erro": f"hash divergente: {arq['caminho']}",
-                        "esperado": arq["sha256"],
-                        "medido": real,
-                    }
-                )
-
-        if pedidos is not None and "manifesto" in pedidos:
-            ausentes = _faltando_proveniencia(man)
-            if ausentes:
-                faltando.extend({"manifesto": caminho.name, "campo": c} for c in ausentes)
-                erros.append(
-                    {
-                        "manifesto": caminho.name,
-                        "erro": "proveniencia incompleta",
-                        "campos": ausentes,
-                    }
-                )
-
-        if pedidos is not None and not (pedidos & {"gates", "escala", "pivo"}):
-            # --only sem gate: nao abre o glb nem reexecuta QC
-            itens.append(
-                {
-                    "asset_id": man["asset_id"],
-                    "schema": man["schema"],
-                    "perfil": man["perfil"],
-                    "escala_saida": float(
-                        (man.get("unidades_export") or {}).get("escala_saida", 1.0)
-                    ),
-                    "triangulos": man["geometry"]["triangulos"],
-                    "arquivos": len(man["files"]),
-                    "licenca": man["licenca"]["modelo"],
-                    "qc_reexecutado": None,
-                }
-            )
-            continue
-
-        # --- reexecucao dos gates contra o perfil ATUAL (C2) ---
-        try:
-            perfil = profiles.carregar(man["perfil"])
-        except Exception as exc:  # noqa: BLE001 - perfil de terceiro nao derruba o verify
-            erros.append(
-                {"manifesto": caminho.name, "erro": f"perfil '{man.get('perfil')}' invalido: {exc}"}
-            )
-            continue
-
-        gates_antigos = {g["id"]: g for g in man["qc"]["gates"]}
-        medido_g2 = (gates_antigos.get("G2") or {}).get("medido", {})
-        medido_g9 = (gates_antigos.get("G9") or {}).get("medido", {})
-        # C7/GAP-037: manifesto anterior ao C2 nao tem pivo_regra e o G2 pularia o pivo
-        # em silencio; ausencia de regra e reprovacao, nao perdao.
-        if not medido_g2.get("pivo_regra"):
-            erros.append(
-                {
-                    "manifesto": caminho.name,
-                    "erro": "manifesto sem G2.pivo_regra (anterior ao C2): republique o asset",
-                }
-            )
-            continue
-        # D62: manifest@1 nao declara unidade — o arquivo dele esta em metros (escala 1.0).
-        escala = 1.0
-        if versao in ("2", "3"):
-            unidades = man["unidades_export"]
-            escala = float(unidades["escala_saida"])
-            metros = float(unidades["metros_por_unidade"])
-            if abs(escala * metros - 1.0) > 1e-3:
-                erros.append(
-                    {
-                        "manifesto": caminho.name,
-                        "erro": (
-                            f"unidades_export inconsistentes: escala_saida {escala} x "
-                            f"metros_por_unidade {metros} != 1"
-                        ),
-                    }
-                )
-            esperada = float((perfil.get("unidades") or {}).get("escala_saida", 1.0))
-            if abs(escala - esperada) > 1e-6:
-                erros.append(
-                    {
-                        "manifesto": caminho.name,
-                        "erro": (
-                            f"escala_saida {escala} do manifesto difere do perfil atual "
-                            f"({esperada}): republique o asset"
-                        ),
-                    }
-                )
-        item = {
-            "id": man["asset_id"],
-            "altura_metros": medido_g2.get("esperado_m"),
-            # D66: os clipes declarados no manifesto sao os que o verify exige de novo no glb
-            "animacoes_base": [a.get("nome") for a in man.get("animacoes") or []],
-            "pivot": medido_g2.get("pivo_regra"),
-            "limite_triangulos": medido_g9.get("limite"),
-            "auto_rig": bool(man.get("rig")),
-            "esqueleto": (man.get("rig") or {}).get("esqueleto"),
-            "colisao": (man.get("colisao") or {}).get("tipo", "none"),
-        }
-        if item["altura_metros"] is None or item["limite_triangulos"] is None:
-            erros.append(
-                {"manifesto": caminho.name, "erro": "manifesto sem G2/G9 para revalidar escala"}
-            )
-            continue
-
-        lod = {l["arquivo"]: l for l in man.get("lod", [])}
-        arquivos = []
-        for f in man["files"]:
-            arq = {"caminho": f["caminho"], "papel": f["papel"]}
-            if f["papel"] == "mesh":
-                arq.update(nivel=0, triangulos=man["geometry"]["triangulos"])
-            elif f["caminho"] in lod:
-                arq.update(
-                    nivel=lod[f["caminho"]]["nivel"],
-                    triangulos=lod[f["caminho"]]["triangulos"],
-                )
-            arquivos.append(arq)
-
-        malha = next((f for f in man["files"] if f["papel"] == "mesh"), None)
-        if malha is None:
-            erros.append({"manifesto": caminho.name, "erro": "manifesto sem arquivo de malha"})
-            continue
-        try:
-            gltf, binario = qc.ler_glb_bin(destino / malha["caminho"])
-            topo = qc.topologia(gltf, binario)
-        except Exception as exc:  # noqa: BLE001 - GLB de terceiro pode ser ilegivel
-            erros.append({"manifesto": caminho.name, "erro": f"malha ilegivel: {exc}"})
-            continue
-
-        resultado = {
-            "medidas": {
-                **topo,
-                "partes_colisao": int((man.get("colisao") or {}).get("partes", 0)),
-            },
-            "arquivos": arquivos,
-            "licenca": man.get("licenca") or {},
-            "determinism": man.get("determinism"),
-        }
-        try:
-            revalidado = qc.verificar(item, perfil, destino, resultado, escala_saida=escala)
-        except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto
-            erros.append({"manifesto": caminho.name, "erro": f"QC reexecutado falhou: {exc}"})
-            continue
-        gates_revalidados = {g["id"]: g for g in revalidado["gates"]}
-        medido_g2_novo = (gates_revalidados.get("G2") or {}).get("medido") or {}
-        if pedidos is None or "gates" in pedidos:
-            if not revalidado["aprovado"]:
-                falhas = [g for g in revalidado["gates"] if g["status"] == "falhou"]
-                erros.append(
-                    {
-                        "manifesto": caminho.name,
-                        "erro": "QC reexecutado reprovou",
-                        "gates": falhas,
-                    }
-                )
-        if pedidos is not None and (pedidos & {"escala", "pivo"}):
-            g2 = gates_revalidados.get("G2") or {}
-            if g2.get("status") == "falhou":
-                erros.append(
-                    {"manifesto": caminho.name, "erro": "G2 reprovou escala/pivo", "gates": [g2]}
-                )
-        if "escala" in (pedidos or set()):
-            deltas_escala.append(abs(float(medido_g2_novo.get("delta_pct") or 0.0)))
-        if "pivo" in (pedidos or set()):
-            deltas_pivo.append(abs(float(medido_g2_novo.get("desvio_pivo_m") or 0.0)) * 1000.0)
-        itens.append(
-            {
-                "asset_id": man["asset_id"],
-                "schema": man["schema"],
-                "perfil": man["perfil"],
-                "escala_saida": escala,
-                "triangulos": man["geometry"]["triangulos"],
-                "arquivos": len(man["files"]),
-                "licenca": man["licenca"]["modelo"],
-                "qc_reexecutado": revalidado["aprovado"],
-            }
-        )
-
-    relatorio = {
-        "ok": not erros,
-        "destino": str(destino),
-        "total": len(itens),
-        "itens": itens,
-        "erros": erros,
-    }
-    if pedidos is not None:
-        if "manifesto" in pedidos:
-            relatorio["faltando"] = faltando
-        if "escala" in pedidos:
-            relatorio["escala"] = {"delta_pct": round(max(deltas_escala or [0.0]), 3)}
-        if "pivo" in pedidos:
-            relatorio["pivo"] = {"delta_mm": round(max(deltas_pivo or [0.0]), 3)}
-    return relatorio
+        for orfao in orfaos:
+            if orfao.is_file():
+                orfao.unlink()
+        _fsync_dir(destino)
+        _indice_upsert(manifesto, destino)
+        return publicados

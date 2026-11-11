@@ -1,8 +1,8 @@
 """Implementacao dos subcomandos (argparse, sem dependencia extra).
 
-Quatorze comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query``
-``migrate`` ``allowlist`` ``gc`` ``export-r15`` ``export-anim`` ``upload-model``
-``upload-image`` ``upload-animation``.
+Contrato unico: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``migrate``
+``allowlist`` ``gc`` ``sync`` ``export-anim`` ``export-r15`` ``export-surface``
+``upload-model`` ``upload-image`` ``upload-animation`` ``mcp``.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .. import __version__, config, doctor, paths, pipeline, publish
 
-__all__ = ["despachar", "construir_parser"]
+__all__ = ["construir_parser", "despachar"]
 
 
 def _json(obj) -> None:
@@ -82,10 +82,26 @@ def construir_parser() -> argparse.ArgumentParser:
     g.add_argument("--dry-run", action="store_true")
     g.add_argument("--json", action="store_true")
 
+    sy = sub.add_parser("sync", help="sincroniza destino verificado para pasta externa (ex.: /mnt/...)")
+    sy.add_argument("origem")
+    sy.add_argument("--para", required=True, help="pasta de destino alvo")
+    sy.add_argument("--limpar", action="store_true", help="remove orfaos no destino alvo")
+    sy.add_argument("--rojo-lua", help="gera modulo Luau Assets.lua para Rojo com os assetIds")
+    sy.add_argument("--json", action="store_true")
+
     ea = sub.add_parser("export-anim", help="gera .rbxmx do KeyframeSequence (Animation do Roblox)")
     ea.add_argument("lote")
     ea.add_argument("--item", required=True)
-    ea.add_argument("--clipe", default="idle")
+    ea.add_argument(
+        "--clipe",
+        default="idle",
+        help="clipe ou lista separada por virgula (ex.: idle,walk,run,jump)",
+    )
+    ea.add_argument(
+        "--todos",
+        action="store_true",
+        help="exporta todos os clipes suportados em um unico .rbxmx",
+    )
     ea.add_argument("--saida")
     ea.add_argument("--json", action="store_true")
 
@@ -93,7 +109,17 @@ def construir_parser() -> argparse.ArgumentParser:
     e.add_argument("lote")
     e.add_argument("--item", required=True)
     e.add_argument("--saida")
+    e.add_argument("--texturas-dir", help="diretorio com texturas PBR para SurfaceAppearance")
     e.add_argument("--json", action="store_true")
+
+    es = sub.add_parser(
+        "export-surface",
+        help="gera .rbxmx do SurfaceAppearance PBR a partir de pasta ou manifesto",
+    )
+    es.add_argument("origem", help="diretorio publicado ou caminho para .manifest.json")
+    es.add_argument("--item", help="id do asset (opcional quando um manifesto e passado)")
+    es.add_argument("--saida", help="arquivo .rbxmx de saida (padrao ao lado da origem/asset)")
+    es.add_argument("--json", action="store_true")
 
     u = sub.add_parser("upload-model", help="sobe um .glb via Open Cloud Assets (Model)")
     u.add_argument("arquivo")
@@ -128,11 +154,13 @@ def construir_parser() -> argparse.ArgumentParser:
     i.add_argument("--max-espera", type=float, default=300.0)
     i.add_argument("--json", action="store_true")
 
+    sub.add_parser("mcp", help="servidor MCP (JSON-RPC 2.0 sobre stdio)")
+
     return p
 
 
 def despachar(argv: list[str]) -> int:
-    from ..errors import ForgeError
+    from ..errors import ForgeError, erro_interno
 
     parser = construir_parser()
     args = parser.parse_args(argv)
@@ -146,6 +174,19 @@ def despachar(argv: list[str]) -> int:
     except KeyboardInterrupt:  # pragma: no cover
         print("interrompido", file=sys.stderr)
         return 130
+    except Exception as exc:  # noqa: BLE001 - falha nao tratada segue o contrato CLI/JSON
+        interno = erro_interno(f"{type(exc).__name__}: {exc}")
+        if getattr(args, "json", False):
+            _json(
+                {
+                    "schema": "forge3d/report@1",
+                    "comando": args.cmd,
+                    "exit": interno.exit_code,
+                    "erro": interno.como_dict(),
+                }
+            )
+        print(f"erro: {interno}", file=sys.stderr)
+        return interno.exit_code
 
 
 def _executar(args) -> int:
@@ -167,16 +208,22 @@ def _executar(args) -> int:
         return _allowlist(args)
     if args.cmd == "gc":
         return _gc(args)
+    if args.cmd == "sync":
+        return _sync(args)
     if args.cmd == "export-r15":
         return _export_r15(args)
     if args.cmd == "export-anim":
         return _export_anim(args)
+    if args.cmd == "export-surface":
+        return _export_surface(args)
     if args.cmd == "upload-model":
         return _upload_model(args)
     if args.cmd == "upload-image":
         return _upload_image(args)
     if args.cmd == "upload-animation":
         return _upload_animation(args)
+    if args.cmd == "mcp":
+        return _mcp(args)
     raise SystemExit(2)  # pragma: no cover
 
 
@@ -372,6 +419,15 @@ def _upload_asset(args, asset_type: str) -> int:
         )
         print(f"  key: {'encontrada (nao impressa)' if relatorio['key_presente'] else 'ausente'}")
     else:
+        publish.registrar_ledger(
+            {
+                "evento": "upload",
+                "id": relatorio["nome"],
+                "asset_id": relatorio["asset_id"],
+                "asset_type": relatorio["asset_type"],
+                "arquivo": str(args.arquivo),
+            }
+        )
         print(
             f"{relatorio['asset_type']} assetId {relatorio['asset_id']}  "
             f"operation {relatorio['operation']}  moderacao {relatorio['moderation']}  "
@@ -393,11 +449,36 @@ def _upload_animation(args) -> int:
 
 
 def _export_anim(args) -> int:
-    from .. import rbx
+    from .. import profiles, rbx
+    from ..errors import erro_spec
 
-    relatorio = rbx.exportar_animacao(args.lote, args.item, args.clipe, saida=args.saida)
+    if args.todos:
+        relatorio = rbx.exportar_animacoes(
+            args.lote, args.item, list(profiles.ANIMACOES_SUPORTADAS), saida=args.saida
+        )
+    else:
+        clipes = list(dict.fromkeys(c.strip() for c in str(args.clipe).split(",") if c.strip()))
+        if not clipes:
+            raise erro_spec("export-anim: informe ao menos um clipe em --clipe ou use --todos")
+        if len(clipes) == 1:
+            relatorio = rbx.exportar_animacao(args.lote, args.item, clipes[0], saida=args.saida)
+        else:
+            desconhecidos = [c for c in clipes if c not in profiles.ANIMACOES_SUPORTADAS]
+            if desconhecidos:
+                raise erro_spec(
+                    f"export-anim: clipe(s) nao suportado(s): {', '.join(desconhecidos)}"
+                )
+            relatorio = rbx.exportar_animacoes(args.lote, args.item, clipes, saida=args.saida)
+
     if args.json:
         _json(relatorio)
+    elif "clipes" in relatorio:
+        nomes = ",".join(relatorio["clipes"])
+        kf_resumo = ", ".join(f"{k}:{v}" for k, v in relatorio["keyframes"].items())
+        print(
+            f"rbxmx {relatorio['saida']}  clipes {nomes}  "
+            f"keyframes ({kf_resumo})  {relatorio['bytes']} B"
+        )
     else:
         print(
             f"rbxmx {relatorio['saida']}  clipe {relatorio['clipe']}  "
@@ -409,13 +490,51 @@ def _export_anim(args) -> int:
 def _export_r15(args) -> int:
     from .. import rbx
 
-    relatorio = rbx.exportar_r15(args.lote, args.item, args.saida)
+    relatorio = rbx.exportar_r15(
+        args.lote, args.item, args.saida, texturas_dir=args.texturas_dir
+    )
     if args.json:
         _json(relatorio)
     else:
+        extra = "  +SurfaceAppearance" if relatorio.get("textura") else ""
         print(
             f"rbxlx {relatorio['saida']}  {relatorio['partes']} partes  "
-            f"{relatorio['motores']} motores  {relatorio['bytes']} B"
+            f"{relatorio['motores']} motores  {relatorio['bytes']} B{extra}"
+        )
+    return 0
+
+
+def _export_surface(args) -> int:
+    from .. import rbx
+
+    origem = Path(args.origem).expanduser()
+    item_id = (args.item or "").strip() or None
+    saida: str | Path | None = args.saida
+    if saida is None and origem.exists():
+        if origem.is_file():
+            nome_base = item_id
+            if not nome_base:
+                try:
+                    dados = json.loads(origem.read_text(encoding="utf-8"))
+                    if isinstance(dados, dict):
+                        nome_base = str(dados.get("asset_id") or dados.get("id") or "").strip() or None
+                except (OSError, ValueError):
+                    nome_base = None
+            if not nome_base:
+                nome_base = origem.stem.removesuffix(".manifest")
+            saida = origem.parent / f"{nome_base}_surface.rbxmx"
+        elif origem.is_dir():
+            nome_base = item_id or "surface"
+            saida = origem / f"{nome_base}_surface.rbxmx"
+
+    relatorio = rbx.exportar_surface_appearance(origem, item_id=item_id, saida=saida)
+    if args.json:
+        _json(relatorio)
+    else:
+        canais = ",".join(sorted(relatorio["mapas"]))
+        print(
+            f"rbxmx {relatorio['saida']}  canais {canais}  "
+            f"materiais {relatorio['materiais']}  {relatorio['bytes']} B"
         )
     return 0
 
@@ -435,6 +554,30 @@ def _gc(args) -> int:
         for alvo in relatorio["alvos"][:20]:
             print(f"  {alvo['tipo']:<8} {alvo['dias']:>6.1f}d  {alvo['caminho']}")
     return 0
+
+
+def _sync(args) -> int:
+    from .. import sync
+
+    relatorio = sync.executar(
+        args.origem, args.para, limpar=args.limpar, rojo_lua=args.rojo_lua
+    )
+    if args.json:
+        _json(relatorio)
+    else:
+        extra = f"  rojo={relatorio['rojo_lua']} ({relatorio['rojo_assets']})" if "rojo_lua" in relatorio else ""
+        print(
+            f"sync {relatorio['origem']} -> {relatorio['destino']}  "
+            f"{relatorio['ativos']} ativo(s), {len(relatorio['copiados'])} copiado(s), "
+            f"{len(relatorio['removidos'])} removido(s), {relatorio['bytes']} B{extra}"
+        )
+    return 0
+
+
+def _mcp(_args) -> int:
+    from .. import mcp_server
+
+    return mcp_server.servir()
 
 
 def _imprimir_plano(relatorio: dict) -> None:

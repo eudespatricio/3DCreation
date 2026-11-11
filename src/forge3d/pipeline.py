@@ -11,12 +11,25 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, animacao, config, doctor, locks, paths, plan, post, providers, publish, spec
+from . import (
+    __version__,
+    animacao,
+    config,
+    doctor,
+    locks,
+    paths,
+    plan,
+    post,
+    providers,
+    publish,
+    spec,
+)
 from .canonical import canon, sha256_arquivo, sha256_bytes
 from .errors import (
     EXIT_AMBIENTE,
     EXIT_OK,
     EXIT_PARCIAL,
+    EXIT_PROVIDER,
     EXIT_QC,
     EXIT_RECURSO,
     PRECEDENCIA,
@@ -252,7 +265,7 @@ def executar(
                     "razao": tarefa["razao"],
                 }
             )
-            codigos.append(EXIT_RECURSO if tarefa.get("codigo") == "FORGE-E-RECURSO" else 5)
+            codigos.append(EXIT_RECURSO if tarefa.get("codigo") == "FORGE-E-RECURSO" else EXIT_PROVIDER)
             continue
 
         try:

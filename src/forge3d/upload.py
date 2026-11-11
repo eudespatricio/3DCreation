@@ -11,6 +11,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -57,6 +58,10 @@ def chave_api(exigir: bool = True) -> str | None:
     if caminho is not None:
         if not caminho.is_file():
             raise erro_upload(f"arquivo da key nao existe: {caminho}")
+        if os.name == "posix" and (caminho.stat().st_mode & 0o077) != 0:
+            raise erro_upload(
+                f"permissao insegura em {caminho} (use chmod 600)", arquivo=str(caminho)
+            )
         valor = caminho.read_text(encoding="utf-8").strip()
         if valor:
             return valor
@@ -163,6 +168,11 @@ def executar(
     }
     request_json = json.dumps(request, separators=(",", ":"))
     base = (api_url or os.environ.get("FORGE3D_ROBLOX_API_URL") or API_PADRAO).rstrip("/")
+    partes_url = urllib.parse.urlsplit(base)
+    if partes_url.scheme != "https" and not (
+        partes_url.scheme == "http" and partes_url.hostname in ("127.0.0.1", "localhost", "::1")
+    ):
+        raise erro_upload(f"URL Open Cloud exige https:// (recebido: {base})")
     url = f"{base}/assets/v1/assets"
     if dry_run:
         return {

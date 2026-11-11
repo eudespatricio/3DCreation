@@ -6,7 +6,9 @@ pipeline mentir sobre o que escreveu, o QC descobre.
 
 from __future__ import annotations
 
+import base64
 import json
+import math
 import struct
 from pathlib import Path
 
@@ -71,6 +73,7 @@ def analisar(gltf: dict) -> dict:
     vertices = 0
     primitivas = 0
     sem_uv = 0
+    prim_tris: list[int] = []
     minimos = [float("inf")] * 3
     maximos = [float("-inf")] * 3
 
@@ -92,10 +95,13 @@ def analisar(gltf: dict) -> dict:
             indices = prim.get("indices")
             if modo != 4:
                 continue
+            tris_prim = 0
             if indices is not None and indices < len(accessors):
-                triangulos += int(accessors[indices].get("count", 0)) // 3
+                tris_prim = int(accessors[indices].get("count", 0)) // 3
             elif pos is not None and pos < len(accessors):
-                triangulos += int(accessors[pos].get("count", 0)) // 3
+                tris_prim = int(accessors[pos].get("count", 0)) // 3
+            triangulos += tris_prim
+            prim_tris.append(tris_prim)
 
     tem_bbox = minimos[0] != float("inf")
     bbox = (
@@ -114,6 +120,7 @@ def analisar(gltf: dict) -> dict:
         "triangulos": triangulos,
         "vertices": vertices,
         "primitivas": primitivas,
+        "prim_tris": prim_tris,
         "sem_uv": sem_uv,
         "bbox_m": [round(v, 6) for v in bbox],
         "min": [round(v, 6) for v in minimos] if tem_bbox else [0, 0, 0],
@@ -289,30 +296,29 @@ def convexidade(
     """Mede se cada parte do colisor e convexa (GAP-038/C8).
 
     Convexidade e propriedade de componente conexa, nao do arquivo: dois hulls soltos no
-    mesmo GLB sao convexos; a uniao nao e. Por isso mede por componente.
+    mesmo GLB sao convexos; a uniao nao e. Por isso mede por componente, soldando vertices
+    duplicados pelo exportador (1e-5 m) antes da contagem de custo.
     """
-    posicoes: list[tuple] = []
-    triangulos: list[tuple] = []
-    for malha in gltf.get("meshes", []):
-        for prim in malha.get("primitives", []):
-            if int(prim.get("mode", 4)) != 4:
-                continue
-            pos_idx = (prim.get("attributes") or {}).get("POSITION")
-            if pos_idx is None:
-                continue
-            base = len(posicoes)
-            posicoes.extend(
-                (float(p[0]), float(p[1]), float(p[2]))
-                for p in _accessor(gltf, binario, int(pos_idx))
-            )
-            idx = prim.get("indices")
-            if idx is not None:
-                ids = [int(v[0]) for v in _accessor(gltf, binario, int(idx))]
-            else:
-                ids = list(range(len(posicoes) - base))
-            for k in range(0, len(ids) - 2, 3):
-                triangulos.append((base + ids[k], base + ids[k + 1], base + ids[k + 2]))
+    pos_brutas, tris_brutos = malha(gltf, binario)
+    if not tris_brutos:
+        return {"medida": True, "partes": 0, "concavas": 0, "convexo": True}
 
+    mapa: dict[tuple[float, float, float], int] = {}
+    posicoes: list[tuple[float, float, float]] = []
+    solda: list[int] = []
+    for p in pos_brutas:
+        chave = (round(p[0], 5), round(p[1], 5), round(p[2], 5))
+        idx = mapa.get(chave)
+        if idx is None:
+            idx = len(posicoes)
+            mapa[chave] = idx
+            posicoes.append(p)
+        solda.append(idx)
+    triangulos = [
+        (solda[a], solda[b], solda[c])
+        for a, b, c in tris_brutos
+        if solda[a] != solda[b] and solda[b] != solda[c] and solda[c] != solda[a]
+    ]
     if not triangulos:
         return {"medida": True, "partes": 0, "concavas": 0, "convexo": True}
 
@@ -321,7 +327,7 @@ def convexidade(
             "medida": False,
             "partes": 0,
             "concavas": 0,
-            "convexo": True,
+            "convexo": False,
             "motivo": "custo acima do teto; republique com colisor menor",
         }
 
@@ -371,6 +377,99 @@ def _png_dimensoes(caminho: Path) -> tuple[int, int]:
         raise erro_qc(f"textura nao e PNG: {caminho}", arquivo=str(caminho))
     largura, altura = struct.unpack(">II", cabecalho[16:24])
     return largura, altura
+
+
+def _dimensoes_bytes_imagem(dados: bytes) -> tuple[int, int] | None:
+    if len(dados) >= 24 and dados[:8] == b"\x89PNG\r\n\x1a\n":
+        return struct.unpack(">II", dados[16:24])
+    if len(dados) >= 4 and dados[:2] == b"\xff\xd8":
+        i = 2
+        while i + 4 <= len(dados):
+            if dados[i] != 0xFF:
+                break
+            marcador = dados[i + 1]
+            i += 2
+            if marcador in (0xD8, 0xD9, 0x01) or 0xD0 <= marcador <= 0xD7:
+                continue
+            if i + 2 > len(dados):
+                break
+            seg_len = struct.unpack(">H", dados[i : i + 2])[0]
+            if marcador in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                if i + 7 <= len(dados):
+                    altura, largura = struct.unpack(">HH", dados[i + 3 : i + 7])
+                    return largura, altura
+                break
+            i += seg_len
+    return None
+
+
+def _imagens_embutidas(gltf: dict, binario: bytes, textura_max: int) -> list[dict]:
+    vistas = gltf.get("bufferViews", [])
+    resultado = []
+    for idx, im in enumerate(gltf.get("images", [])):
+        dados = b""
+        if "bufferView" in im and int(im["bufferView"]) < len(vistas):
+            bv = vistas[int(im["bufferView"])]
+            off = int(bv.get("byteOffset", 0))
+            tam = int(bv.get("byteLength", 0))
+            dados = binario[off : off + tam]
+        elif isinstance(im.get("uri"), str) and im["uri"].startswith("data:"):
+            partes = im["uri"].split(",", 1)
+            if len(partes) == 2 and ";base64" in partes[0]:
+                try:
+                    dados = base64.b64decode(partes[1])
+                except ValueError:
+                    dados = b""
+        dims = _dimensoes_bytes_imagem(dados)
+        if dims is None:
+            resultado.append({"indice": idx, "px": None, "pot": False, "valida": False})
+            continue
+        w, h = dims
+        pot = _pot(w) and _pot(h)
+        resultado.append(
+            {
+                "indice": idx,
+                "px": [w, h],
+                "pot": pot,
+                "valida": pot and max(w, h) <= textura_max,
+            }
+        )
+    return resultado
+
+
+def _uv_status(gltf: dict, binario: bytes) -> dict:
+    fora = 0
+    total = 0
+    acessores = gltf.get("accessors", [])
+    for malha_gltf in gltf.get("meshes", []):
+        for prim in malha_gltf.get("primitives", []):
+            ti = (prim.get("attributes") or {}).get("TEXCOORD_0")
+            if ti is None or int(ti) >= len(acessores):
+                continue
+            acc = acessores[int(ti)]
+            if "bufferView" not in acc:
+                continue
+            comp = int(acc.get("componentType", 5126))
+            norm = bool(acc.get("normalized", False))
+            escala_uv = 1.0
+            if norm and comp == 5121:
+                escala_uv = 1.0 / 255.0
+            elif norm and comp == 5123:
+                escala_uv = 1.0 / 65535.0
+            for u_raw, v_raw in _accessor(gltf, binario, int(ti)):
+                u = float(u_raw) * escala_uv
+                v = float(v_raw) * escala_uv
+                total += 1
+                if (
+                    not math.isfinite(u)
+                    or not math.isfinite(v)
+                    or u < -1e-4
+                    or u > 1.0 + 1e-4
+                    or v < -1e-4
+                    or v > 1.0 + 1e-4
+                ):
+                    fora += 1
+    return {"total_uv": total, "fora_intervalo": fora}
 
 
 def _pot(n: int) -> bool:
@@ -496,9 +595,10 @@ def verificar(
     gltf, binario = ler_glb_bin(pasta / malha["caminho"])
     info = analisar(gltf)
 
-    # G1 geometria sa
-    nao_manifold = int(medidas.get("nao_manifold", 0))
-    degeneradas = int(medidas.get("degeneradas", 0))
+    # G1 geometria sa — mede o GLB real em Python puro tambem no `run`, sem confiar so em medidas
+    topo = topologia(gltf, binario) if gltf.get("meshes") else {"nao_manifold": 0, "degeneradas": 0}
+    nao_manifold = max(int(medidas.get("nao_manifold", 0)), topo["nao_manifold"])
+    degeneradas = max(int(medidas.get("degeneradas", 0)), topo["degeneradas"])
     gates.append(
         {
             "id": "G1",
@@ -527,60 +627,83 @@ def verificar(
     tolerancia_m = float(v["pivo_delta_mm"]) / 1000.0
     regra = item["pivot"]
     desvio_pivo = _desvio_pivo(regra, info["min"][1] / escala, info["max"][1] / escala)
+    desvio_xz: float | None = None
+    if desvio_pivo is not None and gltf.get("meshes"):
+        desvio_xz = max(
+            abs((info["min"][0] + info["max"][0]) / 2.0),
+            abs((info["min"][2] + info["max"][2]) / 2.0),
+        ) / escala
+        desvio_pivo = max(desvio_pivo, desvio_xz)
     pivo_ok = desvio_pivo is None or desvio_pivo <= tolerancia_m
+    medido_g2: dict = {
+        "altura_m": round(altura, 6),
+        "altura_export": round(altura_export, 6),
+        "esperado_m": alvo,
+        "delta_pct": round(delta_pct, 3),
+        "desvio_pivo_m": None if desvio_pivo is None else round(desvio_pivo, 6),
+        "pivo_regra": regra,
+        "escala_saida": escala,
+    }
+    if desvio_xz is not None:
+        medido_g2["desvio_xz_m"] = round(desvio_xz, 6)
     gates.append(
         {
             "id": "G2",
             "status": "ok" if delta_pct <= float(v["escala_delta_pct"]) and pivo_ok else "falhou",
-            "medido": {
-                "altura_m": round(altura, 6),
-                "altura_export": round(altura_export, 6),
-                "esperado_m": alvo,
-                "delta_pct": round(delta_pct, 3),
-                "desvio_pivo_m": None if desvio_pivo is None else round(desvio_pivo, 6),
-                "pivo_regra": regra,
-                "escala_saida": escala,
-            },
+            "medido": medido_g2,
             "limite": {"escala_delta_pct": v["escala_delta_pct"], "pivo_delta_mm": v["pivo_delta_mm"]},
             "codigo": None if (delta_pct <= float(v["escala_delta_pct"]) and pivo_ok) else "FORGE-E-QC",
         }
     )
 
     # G3 UV
+    uv_info = _uv_status(gltf, binario) if gltf.get("meshes") else {"total_uv": 0, "fora_intervalo": 0}
+    uv_ok = info["sem_uv"] == 0 and info["primitivas"] > 0 and uv_info["fora_intervalo"] == 0
     gates.append(
         {
             "id": "G3",
-            "status": "ok" if info["sem_uv"] == 0 and info["primitivas"] > 0 else "falhou",
-            "medido": {"primitivas": info["primitivas"], "sem_uv": info["sem_uv"]},
-            "limite": {"sem_uv_max": 0},
-            "codigo": None if info["sem_uv"] == 0 and info["primitivas"] else "FORGE-E-QC",
+            "status": "ok" if uv_ok else "falhou",
+            "medido": {
+                "primitivas": info["primitivas"],
+                "sem_uv": info["sem_uv"],
+                "uv_fora_intervalo": uv_info["fora_intervalo"],
+            },
+            "limite": {"sem_uv_max": 0, "fora_intervalo_max": 0},
+            "codigo": None if uv_ok else "FORGE-E-QC",
         }
     )
 
-    # G4 textura
+    # G4 textura (mede PNGs irmaos E imagens embutidas no GLB)
+    textura_max = int(perfil["material"]["textura_max"])
     texturas = [a for a in arquivos if a["papel"] == "textura"]
     detalhes_tex = []
     tex_ok = True
     for arq in texturas:
         largura, altura_px = _png_dimensoes(pasta / arq["caminho"])
         pot = _pot(largura) and _pot(altura_px)
-        dentro = max(largura, altura_px) <= int(perfil["material"]["textura_max"])
+        dentro = max(largura, altura_px) <= textura_max
         tex_ok = tex_ok and pot and dentro
         detalhes_tex.append({"arquivo": arq["caminho"], "px": [largura, altura_px], "pot": pot})
+    embutidas = _imagens_embutidas(gltf, binario, textura_max)
+    for emb in embutidas:
+        tex_ok = tex_ok and bool(emb["valida"])
+    if gltf.get("meshes") and info["com_textura"] > 0 and not texturas and not embutidas:
+        tex_ok = False
     gates.append(
         {
             "id": "G4",
             "status": "ok" if tex_ok else "falhou",
-            "medido": {"texturas": detalhes_tex},
-            "limite": {"ppm_max": perfil["material"]["textura_max"], "pot": True},
+            "medido": {"texturas": detalhes_tex, "embutidas": embutidas},
+            "limite": {"ppm_max": textura_max, "pot": True},
             "codigo": None if tex_ok else "FORGE-E-QC",
         }
     )
 
     # G5 material
     mat_ok = (
-        info["materiais"] <= int(v["materiais_max"])
-        and info["com_textura"] >= 1
+        info["materiais"] >= 1
+        and info["materiais"] <= int(v["materiais_max"])
+        and info["com_textura"] == info["materiais"]
         and not info["imagens_externas"]
     )
     gates.append(
@@ -601,15 +724,25 @@ def verificar(
     if item.get("auto_rig"):
         esqueleto = item.get("esqueleto") or perfil["rig"]["esqueleto_padrao"]
         mapa = set(perfil["rig"].get("mapas", {}).get(esqueleto, []))
-        fora = sorted(set(info["nomes_ossos"]) - mapa) if mapa else []
+        presentes = set(info["nomes_ossos"])
+        fora = sorted(presentes - mapa) if mapa else []
+        faltando = sorted(mapa - presentes) if mapa else []
         rig_ok = (
-            info["ossos"] > 0 and info["ossos"] <= int(perfil["rig"]["max_ossos"]) and not fora
+            info["ossos"] > 0
+            and info["ossos"] <= int(perfil["rig"]["max_ossos"])
+            and not fora
+            and not faltando
         )
         gates.append(
             {
                 "id": "G6",
                 "status": "ok" if rig_ok else "falhou",
-                "medido": {"ossos": info["ossos"], "fora_do_mapa": fora, "esqueleto": esqueleto},
+                "medido": {
+                    "ossos": info["ossos"],
+                    "fora_do_mapa": fora,
+                    "faltando_no_mapa": faltando,
+                    "esqueleto": esqueleto,
+                },
                 "limite": {"max_ossos": perfil["rig"]["max_ossos"]},
                 "codigo": None if rig_ok else "FORGE-E-QC",
             }
@@ -631,18 +764,18 @@ def verificar(
             and (pasta / arquivo_col["caminho"]).is_file()
         )
         nomes = []
-        convexo = {"medida": False, "partes": 0, "concavas": 0, "convexo": True}
+        convexo = {"medida": False, "partes": 0, "concavas": 0, "convexo": False}
         if arquivo_col is not None:
             try:
                 gltf_col, binario_col = ler_glb_bin(pasta / arquivo_col["caminho"])
-                nomes = analisar(gltf_col)["colisores"]
+                nomes = [n.get("name", "") for n in gltf_col.get("nodes", []) if "mesh" in n]
                 convexo = convexidade(gltf_col, binario_col)
             except ForgeError:
                 nomes = []
         # perfil sem convencao de nome (ex.: roblox-r15) nao tem como exigir prefixo;
-        # perfil que declara prefixo continua exigindo que todos os nos o usem
+        # perfil que declara prefixo continua exigindo que todos os nos de malha o usem
         prefixo = perfil["colisao"].get("prefixo")
-        prefixo_ok = all(n.startswith(prefixo) for n in nomes) if (prefixo and nomes) else True
+        prefixo_ok = bool(nomes) and all(n.startswith(prefixo) for n in nomes) if prefixo else True
         # C8: colisor concavo passa no teste de existencia e reprova aqui
         convexo_ok = bool(convexo["convexo"])
         gates.append(
@@ -674,7 +807,7 @@ def verificar(
         }
     )
 
-    # G9 orcamento
+    # G9 orcamento (inclui limites por parte/primitiva quando o perfil declara)
     limite_tri = int(item["limite_triangulos"])
     bytes_max = int(v["bytes_max_kb"]) * 1024
     maiores = []
@@ -683,7 +816,16 @@ def verificar(
         tamanho = caminho.stat().st_size if caminho.is_file() else 0
         if tamanho > bytes_max:
             maiores.append({"arquivo": arq["caminho"], "bytes": tamanho})
-    tri_ok = info["triangulos"] <= limite_tri and not maiores
+    partes_max = v.get("partes_max")
+    tri_parte_max = v.get("triangulos_por_parte_max")
+    prim_tris = info.get("prim_tris") or []
+    partes_ok = True if (partes_max is None or not gltf.get("meshes")) else info["primitivas"] <= int(partes_max)
+    tri_parte_ok = (
+        True
+        if (tri_parte_max is None or not prim_tris)
+        else max(prim_tris) <= int(tri_parte_max)
+    )
+    tri_ok = info["triangulos"] <= limite_tri and not maiores and partes_ok and tri_parte_ok
     gates.append(
         {
             "id": "G9",
@@ -691,9 +833,20 @@ def verificar(
             "medido": {
                 "triangulos": info["triangulos"],
                 "limite": limite_tri,
+                "primitivas": info["primitivas"],
+                "max_tris_primitiva": max(prim_tris) if prim_tris else 0,
                 "acima_do_tamanho": maiores,
             },
-            "limite": {"limite_triangulos": limite_tri, "bytes_max_kb": v["bytes_max_kb"]},
+            "limite": {
+                "limite_triangulos": limite_tri,
+                "bytes_max_kb": v["bytes_max_kb"],
+                **({"partes_max": int(partes_max)} if partes_max is not None else {}),
+                **(
+                    {"triangulos_por_parte_max": int(tri_parte_max)}
+                    if tri_parte_max is not None
+                    else {}
+                ),
+            },
             "codigo": None if tri_ok else "FORGE-E-QC",
         }
     )

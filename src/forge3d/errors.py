@@ -86,6 +86,10 @@ def erro_manifesto(msg: str, **det) -> ForgeError:
     return ForgeError("FORGE-E-MANIFEST", msg, EXIT_QC, det)
 
 
+def erro_interno(msg: str, **det) -> ForgeError:
+    return ForgeError("FORGE-E-INTERNO", msg, EXIT_AMBIENTE, det)
+
+
 def exit_agregado(codigos: list[int], total: int) -> int:
     """Combina exit codes de varios itens pela precedencia do contrato."""
     if not codigos:

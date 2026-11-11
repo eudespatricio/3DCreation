@@ -49,7 +49,7 @@ def validar_caminho(caminho: Path, campo: str = "destino") -> None:
             f"{campo} aponta para caminho UNC de rede: {bruto}. Rode sobre ext4 sob /home.",
             campo=campo,
         )
-    if bruto.startswith("/mnt/") or "/mnt/" in bruto:
+    if bruto == "/mnt" or bruto.startswith("/mnt/"):
         raise erro_path(
             f"{campo} aponta para /mnt (drvfs): {bruto}. I/O lento e hash instavel; use ext4 sob /home.",
             campo=campo,
@@ -72,8 +72,8 @@ def _ler_documento() -> dict:
 
 
 def carregar() -> list[Path]:
-    """Raizes autorizadas: as do arquivo + o sandbox do proprio utilitario."""
-    raizes = [paths.dir_saida(), paths.raiz_estado()]
+    """Raizes autorizadas: as do arquivo + o sandbox de saida do proprio utilitario."""
+    raizes = [paths.dir_saida()]
     for bruta in _ler_documento().get("raizes", []):
         try:
             raizes.append(normalizar(bruta))

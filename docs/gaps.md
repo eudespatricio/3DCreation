@@ -13,7 +13,6 @@
 | ~~GAP-045~~ | ~~Playback do clipe no Roblox não verificado~~ | P5 | **P5 ✔** | `Animation` **116049702979137** (`Priority=Core`) tocando no rig Motor6D no **client** do Play mode: Head anda **0,0949 / 0,0662 studs** em duas execuções (Idle dava 0,0002); `KeyframeSequence` no `.rbxlx`, `.rbxmx` e `upload-animation` no caminho |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
-| GAP-046 | **LOD de personagem `mesh` não foi medido**: o critério só foi exercitado no prop (bule); corpo/capa/arma mesh seguem sem LOD | P5 | P5 | um personagem `mesh` com LOD1 medido pelo critério de silhueta (IoU ≥ 0,85, faixa ≥ 0,75) |
 | GAP-015 | `draft` (LLM) não existe; Ollama mede 4.096 tokens efetivos | P0 | P6 | prompt cabendo em 4k com teste de truncamento |
 | GAP-018 | `query --tag` existe, mas as tags não são indexadas por tabela própria (LIKE) | P1 | P4 | tabela `tags` normalizada quando o índice passar de ~1.000 assets |
 | GAP-019 | Uma execução da suíte e2e deu `ERROR` em 3 fixtures (`test_i2`, `test_i13`, `test_rota_import`) com stdout não-JSON, e **não reproduziu** em 3 execuções seguintes (26/26 verdes) | P1 | P1.5 | reproduzir com `-p no:randomly` e capturar o stderr do subprocesso; até lá, tratar suite vermelha como real |
@@ -60,6 +59,7 @@
 | ~~GAP-020~~ | ~~Personagem sem clipe de animação~~ | P0 | **P5 ✔** | `idle` gerado (D66) e declarado em `manifest@3` (D67); o lado Roblox fica em GAP-045 |
 | ~~GAP-044~~ | ~~Rig `.rbxlx` acima do glb~~ | P2 | **P5 ✔** | causa real: o tamanho da Part não permutava Y/Z (**D68**) e o rig esticava para 6,8086; corrigido, o rig mede **6,6071 × 2,7086 × 1,5196 studs**, idêntico ao package. `tests/test_rbx.py::test_export_r15_normaliza_a_altura_para_a_spec` |
 | ~~GAP-013~~ | ~~LOD de `blocky` sem critério visual~~ | P1 | **P5 ✔** | critério medido (IoU ≥ 0,85, faixa ≥ 0,75, bbox ≤ 2%) em `tools/lod_qualidade.py`; blocky de 300 tris não gera LOD (decimate 0,76/0,55 e ilha com faixa 0,65); bule mesh LOD1 50% passa com 0,993/0,994/0,948 (D71) |
+| ~~GAP-046~~ | ~~LOD de personagem `mesh` não medido~~ | P5 | **P5 ✔** | `personagem.sentinel.corpo.02` LOD1 50% (3.978 tris): IoU **0,9800** frente / **0,9865** lado, faixa **0,9712**, bbox ≤ 0,11% — no critério de D71 |
 
 ## Como um gap nasce
 

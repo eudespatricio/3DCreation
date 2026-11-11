@@ -4,12 +4,12 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P0`–`P1`, `P2`, `P3` (mesh para prop) e `P3.5` (concept local + A/B de 3 personagens
-híbridos) — **99 verdes + 1 GPU (skip)** em 100 testes e CI no GitHub com 84. A `P2` fechou em
-11/11/2026 com `manifest@2`: o glb do `roblox-r15` sai em studs, o package mede
-`2,7086 × 6,6071 × 1,5196` studs no Studio e o `.rbxlx` fica na mesma escala (D62).
-`blocky`/`import` sem GPU; `mesh` com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**;
-kit corpo/capa/arma. `modular` em P4. Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
+**Estado:** `P0`–`P1`, `P2`, `P3`, `P3.5` e `P5` — **121 verdes + 1 GPU (skip)** em 122 testes e CI
+no GitHub com 106. A `P2` fechou com `manifest@2`/D62 (glb em studs; package e `.rbxlx` em 6,6071
+studs); a `P5` fechou com o clipe `idle` por retarget tocando no Godot e no Roblox (`manifest@3`,
+D66/D67/D69) e com o LOD medido por silhueta (D71). `blocky`/`import` sem GPU; `mesh` com TripoSR +
+bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` em P4. Leia
+[`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---
 

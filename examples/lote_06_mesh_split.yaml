@@ -27,7 +27,8 @@ lote:
     material: pbr
     colisao: convex
     seed: 20261111
-    lod: [100]
+    # GAP-046: personagem mesh com LOD medido pelo criterio de silhueta (D71)
+    lod: [100, 50]
     tags: [kit, corpo, mesh]
 
   - id: personagem.sentinel.capa.02

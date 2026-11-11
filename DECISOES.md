@@ -173,6 +173,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | GAP-013 — LOD do blocky (decimate) | LOD1 50%: IoU **0,7636** frente / 0,9773 lado; LOD2 25%: **0,5483** / 0,8146 e bbox +3,2%; render mostra espinhos no lugar de braços, pernas e pés | `tools/lod_qualidade.py` + `docs/preview/lod/android_lod1_frente.png`, 11/11/2026 |
 | GAP-013 — LOD do blocky (ilha) | LOD1 52%: IoU **0,8653** / 0,9837, mas **faixa vertical 0,654** e o antebraço some no render; a 25% não há caixa suficiente | medidas em 11/11/2026 |
 | P5 — LOD de malha gerada (bule) | LOD1 50% (3.980 tris): IoU **0,9931** frente / **0,9942** lado, faixa **0,948**, bbox ≤ 0,09% | `tools/lod_qualidade.py` sobre `teapot_exemplo`, 11/11/2026 |
+| P5 — LOD de personagem mesh (GAP-046) | `corpo.02` LOD1 50% (3.978 tris): IoU **0,9800** frente / **0,9865** lado, faixa **0,9712**, bbox ≤ 0,11% | `tools/lod_qualidade.py` sobre `kit_mesh`, 11/11/2026 |
 | Publish limpa órfão | o `_LOD2.glb` do android ficou no destino quando o exemplo passou a pedir `[100, 50]`; `publicar` agora remove o arquivo do manifesto anterior que o novo não lista (teste em `tests/test_atomico.py`) | 11/11/2026 |
 | CI após P5/D68 | run **42960740797** `success` em `7b739f3` e **42961348850** em `9245091`; job com **96 testes** + contexto + P0 | API do Actions em 11/11/2026 |
 
@@ -197,7 +198,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D11 | **GPU é opcional e serializada**: lock de exclusividade, descarregamento declarado por provider, indisponibilidade **bloqueia** a tarefa (não falha o lote) | 6 GB não comportam dois modelos residentes; `CUDA OOM` intermitente é o pior modo de falha |
 | D12 | **Manifesto + índice SQLite + ledger append-only** | origem, licença e versão precisam sobreviver ao asset; `query` por demanda exige índice |
 | D13 | **LLM só como front-end opcional `forge3d draft`**, nunca no caminho crítico | lote já é declarativo; LLM no caminho crítico adiciona não-determinismo e 4k de contexto útil |
-| D14 | **Animação e retarget fora da v0.** Rig = transferência de template determinística (bpy) | UniRig/RigNet em 6 GB é caro e instável; `animacoes_base` do lote fica reservado, sem promessa |
+| D14 | **Animação e retarget fora da v0.** Rig = transferência de template determinística (bpy) — **superada em P5** (D66/D69): o clipe base é procedural e determinístico, e o retarget é tabela no perfil | UniRig/RigNet em 6 GB é caro e instável; a animação que entrou em P5 é senoide de 5 chaves, não modelo generativo |
 | D15 | **Blender 4.2.x pinado**, invocado por `subprocess`, entrada/saída por arquivo JSON | API do `bpy` e parâmetros do exportador mudam entre versões; stdout do Blender é ruidoso |
 | D16 | **Python 3.12 via `uv`** para o pacote; 3.14 do sistema não é usado | wheels de ML não existem para 3.14; 3.12 já é o padrão do ecossistema (`ia_trader`, `dark_studio`) |
 | D17 | **Preflight obrigatório** (`forge3d doctor`) com modelos de falha nomeados | 80% do tempo perdido em pipeline é ambiente, não algoritmo |

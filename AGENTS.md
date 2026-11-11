@@ -9,7 +9,7 @@ Leia nesta ordem, antes de qualquer ação:
 
 ## Regras duras
 
-- **Documento e verificação antes de código.** P1–P5 já estão implementadas: mudar código de
+- **Documento e verificação antes de código.** P1–P6 já estão implementadas: mudar código de
   pipeline, instalar modelo ou baixar peso exige autorização explícita do operador (D1).
 - **Não invente número.** Fato medido, medido por terceiro e estimativa são rótulos diferentes e
   vivem separados (`DECISOES.md` §1). Se não mediu, escreva `[estimado]`.
@@ -61,7 +61,7 @@ forge3d plan     examples/lote_01.yaml  # plano sem GPU, sem escrita
 forge3d run      examples/lote_01.yaml  # executa + QC + publish
 forge3d verify   <destino>              # portão de CI
 bash tools/check-contexto.sh            # tetos de MAPA/AGENTS/INVARIANTES/CONTINUAR/CONSELHOS
-python -m pytest                        # suíte completa (138 verdes + 1 GPU skip)
+python -m pytest                        # suíte completa (157 verdes + 1 GPU skip)
 bash tools/ci.sh                        # o que o GitHub roda: testes + contexto + P0
 ```
 

@@ -4,8 +4,9 @@
 escala (`manifest@2`, D62): package e `.rbxlx` medem **6,6071 studs** (D68). A C12 republicou
 **7 destinos, 16 manifestos** com `verify` **0 problemas**. A P4 saiu com `spec@3` + WFC (D74/D75).
 A P5 fechou: clipe `idle` por retarget (D66) em `manifest@3` (D67), tocando no Godot e no Roblox
-(D69), e LOD medido por silhueta (D71). **138 verdes + 1 GPU (skip)** em 139 testes · CI no GitHub
-com **123 testes**.
+(D69), e LOD medido por silhueta (D71). A P6 fechou o produto (D80/D81): `migrate`, `verify` no CI
+de PR e wheel instalável. **157 verdes + 1 GPU (skip)** em 158 testes · CI no GitHub com **141
+testes** em 3 jobs.
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 
@@ -142,8 +143,10 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 138 verdes + 1 GPU
-bash tools/ci.sh                          # 123 testes + contexto + P0 (o que o GitHub roda)
+python -m pytest                          # 157 verdes + 1 GPU
+bash tools/ci.sh                          # 141 testes + contexto + P0 (job `portoes`)
+bash tools/ci_verify.sh                   # pipeline real + verify (job `verificar`, precisa Blender)
+bash tools/ci_dist.sh                     # wheel em venv limpo (job `distribuicao`)
 bash tools/check-contexto.sh
 python tools/check-p0.py
 python tools/mcp_studio.py --estado       # Studio via MCP (precisa do MCP ligado)

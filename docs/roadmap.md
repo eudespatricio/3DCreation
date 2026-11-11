@@ -170,7 +170,7 @@ consumidor não-Python, como estava.
 A P6 era a **última fase do plano**: não há P7 prevista. O que sobra não é fase — é backlog e
 operação:
 
-- **backlog** em `docs/gaps.md` (11 abertos; os de fase vencida estão marcados como backlog);
+- **backlog** em `docs/gaps.md` (10 abertos; os de fase vencida estão marcados como backlog);
 - **operação real**: rodar a esteira num projeto de jogo e medir o custo por asset;
 - **adaptador HTTP** só se aparecer consumidor não-Python;
 - revisão visual manual (LODs no Godot, clipe no Studio).

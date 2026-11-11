@@ -120,7 +120,7 @@ silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo**
 
 Nada em aberto: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no repo do jogo).
 
-**Plano de fases completo (P0–P6).** O que sobra é **backlog, não fase**: os 11 gaps de
+**Plano de fases completo (P0–P6).** O que sobra é **backlog, não fase**: os 10 gaps de
 `docs/gaps.md` (os de fase vencida valem como backlog) e a seção §Depois da P6 do `docs/roadmap.md`.
 
 ## Próximos passos — em ordem

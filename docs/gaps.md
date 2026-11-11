@@ -13,8 +13,6 @@
 |---|---|---|---|---|
 | GAP-004 | A skill `context-recovery` **deste repo** tem só `SKILL.md` + templates: não há scanner (nem Luau — o `scan_repo.py` citado é do projeto `conselho`) | P0 | backlog | lens Python/Blender produzindo `radiografia.md`, se o operador quiser |
 | GAP-042 | `empunhadura` foi simplificada para **20 % da altura** (D58); a regra do perfil — "menor secção transversal na faixa inferior 30 %" — não está implementada | P3 | P4 | regra geométrica implementada em função única e medida pelo G2 com o mesmo critério |
-| ~~GAP-020~~ | ~~Personagem sai com rig e sem clipe de animação~~ | P0 | **P5 ✔** | clipe `idle` por retarget (D66) nos dois esqueletos, `GODOT_ANIM_OK`, e o `Animation` **116049702979137** (`Priority=Core`) tocando no client do Studio (D69) |
-| ~~GAP-045~~ | ~~Playback do clipe no Roblox não verificado~~ | P5 | **P5 ✔** | `Animation` **116049702979137** (`Priority=Core`) tocando no rig Motor6D no **client** do Play mode: Head anda **0,0949 / 0,0662 studs** em duas execuções (Idle dava 0,0002); `KeyframeSequence` no `.rbxlx`, `.rbxmx` e `upload-animation` no caminho |
 | GAP-015 | `draft` (LLM) não existe; Ollama mede 4.096 tokens efetivos | P0 | P6 | prompt cabendo em 4k com teste de truncamento |
 | GAP-018 | `query --tag` existe, mas as tags não são indexadas por tabela própria (LIKE) | P1 | P4 | tabela `tags` normalizada quando o índice passar de ~1.000 assets |
 | GAP-019 | Uma execução da suíte e2e deu `ERROR` em 3 fixtures (`test_i2`, `test_i13`, `test_rota_import`) com stdout não-JSON, e **não reproduziu** em 3 execuções seguintes (26/26 verdes) | P1 | P1.5 | reproduzir com `-p no:randomly` e capturar o stderr do subprocesso; até lá, tratar suite vermelha como real |
@@ -28,6 +26,7 @@
 
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
+| ~~GAP-045~~ | ~~Playback do clipe no Roblox não verificado~~ | P5 | **P5 ✔** | `Animation` **116049702979137** (`Priority=Core`) tocando no rig Motor6D no **client** do Play mode: Head anda **0,0949 / 0,0662 studs** em duas execuções (Idle dava 0,0002); `KeyframeSequence` no `.rbxlx`, `.rbxmx` e `upload-animation` no caminho |
 | ~~GAP-001~~ | ~~Allowlist de destino (Q2)~~ | P0 | **P0.5 ✔** | fechado por **D23**: allowlist global + sandbox próprio, sem bypass |
 | ~~GAP-002~~ | ~~Local do estado (Q6)~~ | P0 | **P0.5 ✔** | fechado por **D24**: tudo em `$FORGE3D_HOME`, nada no repo do jogo |
 | ~~GAP-003~~ | ~~Teto de contexto sem script~~ | P0 | **P0.5 ✔** | `tools/check-contexto.sh`, sem dependência, verde |
@@ -57,7 +56,7 @@
 | ~~GAP-043~~ | ~~`manifest@1` não declara a unidade do arquivo~~ | P2 | **C15 ✔** | `manifest@2` com `unidades_export`; `verify` aceita `@1` (escala 1.0) e `@2` (escala declarada); schema `schemas/manifest.v2.schema.json` + 13 testes em `tests/test_unidades.py` |
 | ~~GAP-006~~ | ~~Roblox: faltava a escala do package~~ | P0 | **P2 ✔** | medido em 11/11/2026: package `2,7086 × 6,6071 × 1,5196` studs (asset **134628989553440**) e `.rbxlx` `6,6071 × 2,7086 × 1,5196` studs — a mesma escala, fixada por D62 |
 | ~~GAP-007~~ | ~~Animação reservada e não implementada~~ | P0 | **P5 ✔** | clipe `idle` embutido no glb dos dois esqueletos, retarget por `rig.retarget` (D66) e validado no Godot 4.3 headless (`GODOT_ANIM_OK`, 2,042 s, movimento 0,0697) |
-| ~~GAP-020~~ | ~~Personagem sem clipe de animação~~ | P0 | **P5 ✔** | `idle` gerado (D66) e declarado em `manifest@3` (D67); o lado Roblox fica em GAP-045 |
+| ~~GAP-020~~ | ~~Personagem sem clipe de animação~~ | P0 | **P5 ✔** | `idle` gerado (D66) e declarado em `manifest@3` (D67); o lado Roblox fechou em **GAP-045** (D69) |
 | ~~GAP-044~~ | ~~Rig `.rbxlx` acima do glb~~ | P2 | **P5 ✔** | causa real: o tamanho da Part não permutava Y/Z (**D68**) e o rig esticava para 6,8086; corrigido, o rig mede **6,6071 × 2,7086 × 1,5196 studs**, idêntico ao package. `tests/test_rbx.py::test_export_r15_normaliza_a_altura_para_a_spec` |
 | ~~GAP-009~~ | ~~Nome do produto indefinido (Q1)~~ | P0 | **Q1 ✔** | decisão **D72**: o produto continua `forge3d`; a marca, se houver, na vitrine |
 | ~~GAP-010~~ | ~~Q7 (git normal × LFS) indefinida~~ | P0 | **Q7 ✔** | decisão **D73**: LFS no repo do jogo (`*.glb`, `*.png`, `*.rbxm`, `*.blend`…), antes do primeiro asset |

@@ -25,7 +25,7 @@ from pathlib import Path
 from .. import paths
 from .base import RawAsset
 
-VERSAO = "0.1.4"
+VERSAO = "0.1.5"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
 VRAM_MINIMA_MB = 3500
@@ -67,6 +67,33 @@ def dir_modelos() -> Path:
     if env:
         return Path(env).expanduser().resolve()
     return Path.home() / ".cache" / "forge3d" / "modelos"
+
+
+def pesos_triposr() -> Path | None:
+    """Onde os pesos do TripoSR estao de fato (GAP-040/C10).
+
+    O preflight olhava so o cache HF e dizia "ausentes" com os pesos no disco apontado
+    por ``FORGE3D_MODELOS``. A ordem e: caminho explicito do env, cache HF e, por
+    ultimo, o diretorio padrao de modelos do Forge3D.
+    """
+    candidatos: list[Path] = []
+    explicito = os.environ.get("FORGE3D_MODELOS")
+    if explicito:
+        base = dir_modelos()
+        candidatos += [base / "TripoSR", base / "models--stabilityai--TripoSR"]
+        candidatos += sorted(p for p in base.glob("*TripoSR*") if p.is_dir())
+    candidatos.append(_cache_hf() / "models--stabilityai--TripoSR")
+    if not explicito:
+        base = dir_modelos()
+        candidatos += [base / "TripoSR", base / "models--stabilityai--TripoSR"]
+    vistos: set[Path] = set()
+    for caminho in candidatos:
+        if caminho in vistos:
+            continue
+        vistos.add(caminho)
+        if caminho.is_dir():
+            return caminho
+    return None
 
 
 def _cache_hf() -> Path:
@@ -166,6 +193,55 @@ def _diagnostico() -> dict:
     return resultado
 
 
+def _politica_rembg() -> str:
+    """Politica de remocao de fundo que entra na versao/cache (C9).
+
+    ``auto2`` decide por procedencia e canal alfa; ``on``/``off`` sao override explicito
+    por ``FORGE3D_I23D_REMOVER_FUNDO``.
+    """
+    bruto = os.environ.get("FORGE3D_I23D_REMOVER_FUNDO", "").strip().lower()
+    if bruto in ("1", "true", "sim"):
+        return "on"
+    if bruto in ("0", "false", "nao"):
+        return "off"
+    return "auto2"
+
+
+def _alfa_util(imagem: Path) -> tuple[bool, str]:
+    """A imagem ja tem fundo transparente? Le o canal alfa e o metadado do PNG (GAP-039)."""
+    try:
+        from PIL import Image
+    except ImportError:  # pragma: no cover - Pillow e dependencia do nucleo (D26)
+        return False, "sem-pillow"
+    try:
+        with Image.open(imagem) as img:
+            tem_alfa = img.mode in ("RGBA", "LA", "PA") or "transparency" in img.info
+            if not tem_alfa:
+                return False, "sem-alfa"
+            alfa = img.convert("RGBA").getchannel("A")
+            histograma = alfa.histogram()
+            total = sum(histograma) or 1
+            fracao = sum(histograma[:250]) / total
+    except (OSError, ValueError):
+        return False, "ilegivel"
+    return fracao >= 0.01, f"alfa={fracao:.1%}"
+
+
+def _decidir_rembg(imagem: Path, concept_meta: dict | None) -> tuple[bool, str]:
+    """Decide remover fundo por procedencia/alfa, com override explicito por env (C9)."""
+    politica = _politica_rembg()
+    if politica == "on":
+        return True, "env=1"
+    if politica == "off":
+        return False, "env=0"
+    if concept_meta is not None:
+        return True, "concept"
+    tem_alfa, detalhe = _alfa_util(imagem)
+    if tem_alfa:
+        return False, f"imagem com fundo transparente ({detalhe})"
+    return True, f"fundo opaco ({detalhe})"
+
+
 class MeshProvider:
     nome = "mesh"
     determinism = "D2"  # image-to-3D nunca é D1 (D7)
@@ -174,11 +250,7 @@ class MeshProvider:
     @property
     def versao(self) -> str:
         """Versao efetiva: entra na chave de cache (D6) e muda com as opcoes de env."""
-        rembg = os.environ.get("FORGE3D_I23D_REMOVER_FUNDO", "").strip().lower() in (
-            "1",
-            "true",
-            "sim",
-        )
+        rembg = _politica_rembg()
         mc = os.environ.get("FORGE3D_MC_RESOLUTION", "256").strip()
         tex = os.environ.get("FORGE3D_TEX_PX", "512").strip()
         concept = (
@@ -190,7 +262,7 @@ class MeshProvider:
         c_g = os.environ.get("FORGE3D_CONCEPT_GUIDANCE", "7.5").strip()
         dev = _device().replace(":", "").replace("/", "_")
         return (
-            f"{VERSAO}+mc{mc}+tex{tex}+rembg{int(rembg)}+concept{concept}"
+            f"{VERSAO}+mc{mc}+tex{tex}+rembg{rembg}+concept{concept}"
             f"+c{c_w}x{c_h}s{c_step}g{c_g}+dev{dev}"
         )
 
@@ -250,9 +322,13 @@ class MeshProvider:
             if livre is not None and livre < VRAM_MINIMA_MB:
                 return False, f"P3: VRAM livre {livre} MiB < {VRAM_MINIMA_MB} MiB exigidos"
 
-        pesos = _cache_hf() / "models--stabilityai--TripoSR"
-        if not pesos.is_dir():
-            return False, f"P3: pesos do TripoSR ausentes em {pesos}"
+        pesos = pesos_triposr()
+        if pesos is None:
+            return False, (
+                f"P3: pesos do TripoSR ausentes em "
+                f"{_cache_hf() / 'models--stabilityai--TripoSR'} e em {dir_modelos()} "
+                "(GAP-040: o preflight respeita FORGE3D_MODELOS)"
+            )
 
         return True, (
             f"pronto (TripoSR, torch {diagnostico.get('torch', '?')}, venv {dir_venv().name})"
@@ -340,9 +416,7 @@ class MeshProvider:
             "--device",
             _device(),
         ]
-        remover_fundo = concept_meta is not None or os.environ.get(
-            "FORGE3D_I23D_REMOVER_FUNDO", ""
-        ).strip() in ("1", "true", "sim")
+        remover_fundo, motivo_rembg = _decidir_rembg(imagem, concept_meta)
         if remover_fundo:
             comando.append("--remover-fundo")
 
@@ -400,6 +474,8 @@ class MeshProvider:
             encoding="utf-8",
         )
 
+        resultado["rembg"] = remover_fundo
+        resultado["rembg_motivo"] = motivo_rembg
         resultado["tempo_provider_s"] = round(time.monotonic() - t0, 3)
         resultado_path.write_text(
             json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
@@ -416,6 +492,8 @@ class MeshProvider:
                 "tempos_s": resultado.get("tempos_s"),
                 "vram_pico_mb": resultado.get("vram_pico_mb"),
                 "faces": resultado.get("faces"),
+                "rembg": remover_fundo,
+                "rembg_motivo": motivo_rembg,
                 "concept": concept_meta,
             },
         )

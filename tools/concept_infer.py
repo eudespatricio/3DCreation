@@ -58,6 +58,28 @@ def _revisao_local(caminho: str) -> str:
     return Path(caminho).name
 
 
+LIMITE_TOKENS_CLIP = 77
+
+
+def truncar_prompt(
+    tokenizer, texto: str, limite: int = LIMITE_TOKENS_CLIP
+) -> tuple[str, int, int]:
+    """Trunca o prompt no limite do CLIP: devolve (texto, tokens_antes, tokens_depois).
+
+    O diffusers trunca em silencio; aqui o corte e explicito e volta no JSON (C11).
+    """
+    ids = list(tokenizer(texto, truncation=False, add_special_tokens=True)["input_ids"])
+    antes = len(ids)
+    if antes <= limite:
+        return texto, antes, antes
+    ids = ids[:limite]
+    eos = getattr(tokenizer, "eos_token_id", None)
+    if eos is not None:
+        ids[-1] = eos
+    novo = tokenizer.decode(ids, skip_special_tokens=True).strip()
+    return novo, antes, len(ids)
+
+
 def main() -> int:
     args = _args()
     resultado: dict = {
@@ -107,9 +129,18 @@ def main() -> int:
             pipe.enable_vae_slicing()
         t_carregar = time.monotonic()
 
+        prompt_efetivo, tokens_antes, tokens_depois = truncar_prompt(
+            pipe.tokenizer, args.prompt
+        )
+        resultado["prompt"] = args.prompt
+        resultado["prompt_efetivo"] = prompt_efetivo
+        resultado["prompt_tokens"] = tokens_antes
+        resultado["prompt_tokens_efetivo"] = tokens_depois
+        resultado["prompt_truncado"] = tokens_antes > tokens_depois
+
         gerador = torch.Generator(device=args.device).manual_seed(args.seed)
         imagem = pipe(
-            prompt=args.prompt,
+            prompt=prompt_efetivo,
             negative_prompt=args.negative or None,
             num_inference_steps=args.passos,
             guidance_scale=args.guidance,

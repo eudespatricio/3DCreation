@@ -158,15 +158,30 @@ def _resolver_defaults(doc: dict, perfil: dict, avisos: list[dict]) -> None:
         item.setdefault("tags", [])
         if item["auto_rig"] and "esqueleto" not in item:
             item["esqueleto"] = profiles.esqueleto_padrao(perfil)
-        if item.get("animacoes_base"):
+        pedidas = [str(a) for a in (item.get("animacoes_base") or [])]
+        desconhecidas = [a for a in pedidas if a not in profiles.ANIMACOES_SUPORTADAS]
+        if desconhecidas:
             avisos.append(
                 {
                     "codigo": "FORGE-W-ANIM",
                     "mensagem": (
-                        f"{item['id']}: 'animacoes_base' e reservado (D14) e nao gera animacao nesta fase"
+                        f"{item['id']}: clipe(s) {', '.join(desconhecidas)} sem gerador nesta fase "
+                        f"(P5 gera: {', '.join(profiles.ANIMACOES_SUPORTADAS)})"
                     ),
                 }
             )
+        if pedidas:
+            esqueleto = item.get("esqueleto") or profiles.esqueleto_padrao(perfil)
+            if not profiles.retarget(perfil, esqueleto):
+                avisos.append(
+                    {
+                        "codigo": "FORGE-W-ANIM",
+                        "mensagem": (
+                            f"{item['id']}: perfil sem 'rig.retarget' para '{esqueleto}'; "
+                            "o clipe nao sera gerado"
+                        ),
+                    }
+                )
 
 
 # ---------------------------------------------------------------- validacao
@@ -270,6 +285,15 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                         "mensagem": "capa e peca estatica (auto_rig false) para montar no osso",
                     }
                 )
+
+        if item.get("animacoes_base") and not item.get("auto_rig"):
+            erros.append(
+                {
+                    "id": iid,
+                    "regra": "B14",
+                    "mensagem": "animacoes_base exige auto_rig: sem rig nao ha o que animar",
+                }
+            )
 
     if erros:
         raise erro_spec(

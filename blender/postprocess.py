@@ -9,13 +9,14 @@ Etapas: construir geometria -> rig -> normalizar escala/pivo -> LOD -> colisor -
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import traceback
 
 import bmesh
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Quaternion, Vector
 
 # faces de um cubo por indice de vertice; a orientacao e corrigida depois por recalc
 FACES_CUBO = (
@@ -657,10 +658,77 @@ def _ilhas(bm) -> list:
     return ilhas
 
 
+# ------------------------------------------------------------------ animacao base (D66)
+
+FPS_ANIMACAO = 24
+SEGUNDOS_IDLE = 2.0
+
+#: Motores do `idle`: (osso semantico, amplitude em graus no eixo local X, defasagem no ciclo).
+#: O eixo X local e o de flexao do perfil (positivo = para a frente); amplitudes pequenas para
+#: ler como respiracao, nao como pose. O retarget (perfil `rig.retarget`) resolve o nome do osso
+#: em cada esqueleto, entao o mesmo clipe roda em `godot-humanoid@1` e `r15@1`.
+MOTORES_IDLE = (
+    ("coluna", 0.8, 0.0),
+    ("tronco", 1.6, 0.0),
+    ("cabeca", -1.2, 0.12),
+    ("braco_e", 2.0, 0.25),
+    ("braco_d", 2.0, 0.75),
+)
+
+
+def animar(rig_obj, perfil: dict, esqueleto: str, pedidas: list[str]) -> list[dict]:
+    """Cria as acoes dos clipes pedidos e devolve o que foi gerado.
+
+    O clipe e deterministico (D1): senoide de 5 chaves por osso, 2 s a 24 fps, sem seed.
+    """
+    mapa = ((perfil.get("rig") or {}).get("retarget") or {}).get(esqueleto) or {}
+    if not mapa:
+        return []
+    cena = bpy.context.scene
+    cena.render.fps = FPS_ANIMACAO
+    total = int(round(SEGUNDOS_IDLE * FPS_ANIMACAO))
+    rig_obj.animation_data_create()
+    geradas: list[dict] = []
+    for nome_clip in pedidas:
+        if nome_clip != "idle":
+            continue
+        acao = bpy.data.actions.new("idle")
+        acao.use_fake_user = True
+        rig_obj.animation_data.action = acao
+        for pb in rig_obj.pose.bones:
+            pb.rotation_mode = "QUATERNION"
+            pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        ossos_usados: list[str] = []
+        for semantico, amplitude, defasagem in MOTORES_IDLE:
+            osso = mapa.get(semantico)
+            if not osso or osso not in rig_obj.pose.bones:
+                continue
+            pb = rig_obj.pose.bones[osso]
+            ossos_usados.append(osso)
+            for i in range(5):
+                fracao = i / 4.0
+                angulo = math.radians(
+                    amplitude * math.sin(2.0 * math.pi * (fracao + defasagem))
+                )
+                pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0), angulo)
+                pb.keyframe_insert("rotation_quaternion", frame=1 + round(fracao * total))
+        cena.frame_start = 1
+        cena.frame_end = 1 + total
+        geradas.append(
+            {
+                "nome": "idle",
+                "duracao_s": round(total / FPS_ANIMACAO, 3),
+                "ossos": ossos_usados,
+                "frames": total,
+            }
+        )
+    return geradas
+
+
 # ------------------------------------------------------------------ export
 
 
-def exportar(caminho: str, objetos: list, com_rig: bool) -> None:
+def exportar(caminho: str, objetos: list, com_rig: bool, com_animacao: bool = False) -> None:
     bpy.ops.object.select_all(action="DESELECT")
     for obj in objetos:
         obj.select_set(True)
@@ -674,7 +742,9 @@ def exportar(caminho: str, objetos: list, com_rig: bool) -> None:
         "export_yup": True,
         "export_materials": "EXPORT",
         "export_skins": com_rig,
-        "export_animations": False,
+        "export_animations": com_animacao,
+        "export_animation_mode": "ACTIONS",
+        "export_rest_position_armature": True,
         "export_texcoords": True,
         "export_normals": True,
         "export_draco_mesh_compression_enable": False,
@@ -765,6 +835,13 @@ def processar(job: dict) -> dict:
         mod = obj.modifiers.new("armature", "ARMATURE")
         mod.object = rig_obj
 
+    # --- animacao base (D66) ---
+    animacoes_pedidas = [str(a) for a in (item.get("animacoes_base") or [])]
+    animacoes_geradas: list[dict] = []
+    if rig_obj is not None and animacoes_pedidas:
+        esqueleto = item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao") or ""
+        animacoes_geradas = animar(rig_obj, perfil, esqueleto, animacoes_pedidas)
+
     # --- medicao do LOD0 ---
     # A malha neste ponto esta na unidade do ARQUIVO (studs no roblox-r15). O relatorio guarda as
     # duas: `bbox_export` na unidade do arquivo e `bbox_m` em metros, porque o contrato manda
@@ -780,6 +857,7 @@ def processar(job: dict) -> dict:
         "escala_saida": escala_saida,
         "materiais": len(obj.data.materials),
         "ossos": len(rig_obj.data.bones) if rig_obj is not None else 0,
+        "animacoes": animacoes_geradas,
         "pivo_regra": origem_regra,
         "aabb_min": [minimo.x / escala_saida, minimo.z / escala_saida, -maximo.y / escala_saida],
         "aabb_max": [maximo.x / escala_saida, maximo.z / escala_saida, -minimo.y / escala_saida],
@@ -799,7 +877,7 @@ def processar(job: dict) -> dict:
         nome = job["nome_arquivo"] if nivel == 0 else f"{job['nome_base']}_LOD{nivel}.glb"
         caminho = os.path.join(saida_dir, nome)
         selecionados = [alvo_obj] + ([rig_obj] if rig_obj is not None else [])
-        exportar(caminho, selecionados, rig_obj is not None)
+        exportar(caminho, selecionados, rig_obj is not None, com_animacao=bool(animacoes_geradas))
         arquivos.append(
             {
                 "caminho": nome,

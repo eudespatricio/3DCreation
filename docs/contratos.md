@@ -82,14 +82,14 @@ nunca aparece em manifesto publicado (I14).
 | B12 | `parte: corpo/capa` exige `personagem_humanoide`; `parte: arma` exige `prop_equipavel` | erro |
 | B13 | `parte: capa` é peça estática (`auto_rig: false`) | erro |
 
-## 3. `manifest@1`/`@2` — a saída
+## 3. `manifest@1`/`@2`/`@3` — a saída
 
 Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o Forge3D instalado.
 `@2` acrescenta `unidades_export` (D62); `@1` continua aceito na leitura.
 
 | Campo | Tipo | Conteúdo |
 |---|---|---|
-| `schema` | string | `forge3d/manifest@1` (legado) · `forge3d/manifest@2` |
+| `schema` | string | `forge3d/manifest@1` (legado) · `@2` (unidades) · `@3` (animação) |
 | `asset_id` / `projeto` / `perfil` / `rota` | string | identidade, alvo e técnica de geração |
 | `tags` | string[] | rótulos do item; consultáveis por `forge3d query --tag` |
 | `spec_hash` | string | `sha256:` do spec canônico que originou o asset |
@@ -97,7 +97,8 @@ Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o 
 | `determinism` | string | `D1` \| `D2` \| `D3` |
 | `providers` | objeto | `geometry` e `texture`: `{name, version, license, seed}` |
 | `geometry` | objeto | `triangulos`, `vertices`, `bbox_m[3]` (**sempre em metros**), `materiais` |
-| `unidades_export` | objeto | só `@2`: `{metros_por_unidade, escala_saida}` — a unidade do arquivo |
+| `unidades_export` | objeto | `@2`+: `{metros_por_unidade, escala_saida}` — a unidade do arquivo |
+| `animacoes` | objeto[] | só `@3`: `{nome, duracao_s, ossos}` — clipes embutidos no glb (vazio se não há) |
 | `rig` | objeto\|null | `{esqueleto, ossos}` |
 | `lod` | objeto[] | `{nivel, triangulos, arquivo}` |
 | `colisao` | objeto | `{tipo, partes, arquivo}` |
@@ -133,6 +134,23 @@ Regras que o `verify` aplica:
 - `manifest@2` **exige** `unidades_export` (o schema reprova sem ele);
 - `escala_saida × metros_por_unidade` tem que dar `1` (tolerância `1e-3`, do arredondamento do perfil);
 - `escala_saida` declarada tem que ser a do perfil atual — se o perfil mudou, o asset é republicado.
+
+### 3.2 `animacoes` (manifest@3, D66/D67)
+
+O clipe base viaja **dentro do glb**; o manifesto declara o que existe para o consumidor não precisar
+abrir o arquivo. Medido em 11/11/2026:
+
+```json
+"animacoes": [
+  {"nome": "idle", "duracao_s": 2.042,
+   "ossos": ["Head", "LeftUpperArm", "LowerTorso", "RightUpperArm", "UpperTorso"]}
+]
+```
+
+- o G10 exige que todo clipe pedido em `animacoes_base` exista, dure mais de 0,2 s e **mova** pelo
+  menos um osso do rig (não basta o canal existir — o export amostra todos os ossos);
+- o `verify` republica o G10 com a lista de clipes do manifesto: um glb sem o clipe declarado reprova;
+- `manifest@1`/`@2` continuam válidos sem o campo; quem lê `@3` pode confiar que a lista é a verdade.
 
 ## 4. Saída do CLI (`--json`)
 

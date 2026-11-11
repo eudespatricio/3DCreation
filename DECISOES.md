@@ -161,6 +161,9 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | C12 — hull do colisor (defeito real) | `convex_hull` herda faces de ENTRADA: o colisor da malha gerada saiu com face interior e o G7 reprovou (desvio de 1,8 m numa face de um colisor de 2,2 m de diâmetro) | 3 lotes mesh (`lote_05`, `lote_06`, `lote_08`), 11/11/2026 |
 | C12 — colisor depois do fix (D64/D65) | hull sobre **nuvem de pontos**; desvio máximo residual **4,3e-4 m** (sub-milímetro) em 438 faces, dentro da tolerância de 1 mm/m | colisor de `personagem.sentinel.concept.01`, 11/11/2026 |
 | C12 — destinos republicados | **7 destinos, 16 manifestos** em `manifest@2` 0.2.6; `verify` **0 problemas** em todos | `verify` em todos os destinos, 11/11/2026 |
+| P5 — clipe `idle` por retarget (D66) | duração **2,042 s**; move `{UpperTorso, LowerTorso, Head, LeftUpperArm, RightUpperArm}` no `r15@1` e `{Chest, Spine1, Head, UpperArm.L, UpperArm.R}` no `godot-humanoid@1` | 48 canais no glb do R15 (o export amostra os 16 ossos) e 69 no android; `qc.animacoes` em 11/11/2026 |
+| P5 — clipe no Godot 4.3 (headless) | `GODOT_ANIM_OK clipes=[idle] duracao=2.042 tracks=5 movimento=0.0697` (R15) e `tracks=7 movimento=0.0697` (android) | `tools/godot_anim_check.gd` em 11/11/2026 |
+| P5 — manifest@3 | `r15`, `android`, `lote_01`, `kit_sentinel` em @3 0.2.7; `kit_mesh`, `sentinel_concept`, `teapot_exemplo` seguem em @2 0.2.6 (mesh exige GPU; o desktop estava com 4,7 GB de VRAM e o provider bloqueia) | `verify` 0 problemas nos 7 destinos, 11/11/2026 |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
 end-to-end (implementado, execução pendente), A/B de 10 assets, qualidade de personagem com capa,
@@ -237,6 +240,9 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D64 | **Hull do colisor em nuvem de pontos**: o `geom` do `convex_hull` carrega faces de entrada que ficam dentro do hull; alimentar o hull só com os vértices (sem faces) devolve a superfície convexa | medido em 11/11/2026: o colisor da malha gerada saiu com face interior (desvio de 1,8 m) e o G7 reprovou os 3 lotes mesh; depois do fix o desvio máximo caiu para 4,3e-4 m |
 | D65 | **Convexidade medida com tolerância de escala**: 1 mm por metro de diâmetro da parte (antes: 1e-6 do diâmetro). Concavidade real desvia em ordem de centímetro | um hull legítimo de malha gerada tem regiões quase coplanares e o triangulador do Blender deixa sub-milímetro (4,3e-4 m em 2,2 m); o gate continua pegando a face interior do C8 |
 | D62 | **Escala de export declarada no manifesto**: `manifest@2` ganha `unidades_export` (`metros_por_unidade`, `escala_saida`); o `glb` do `roblox-r15` sai em studs e `bbox_m` continua em metros | medido: package 1,850 studs × `.rbxlx` 6,478 studs (3,57×); `manifest@1` não tem como declarar a unidade, e a alternativa (importar com escala 3,5714 na UI) é passo manual que o consumidor esquece |
+
+| D66 | **Animação base por retarget semântico**: o perfil declara `rig.retarget` (osso semântico → osso do esqueleto); o `idle` é gerado no `bpy` como senoide de 5 chaves (2 s a 24 fps) e embutido no glb. O G10 mede **movimento real** (quanto o osso saiu da rotação inicial), não só a existência do canal | o mesmo clipe tem que rodar em `godot-humanoid@1` (23 ossos) e `r15@1` (16 ossos) sem nome de osso igual; procedural e determinístico, sem modelo generativo de animação (o que D14 evitava) |
+| D67 | **`manifest@3` declara `animacoes`**: lista `{nome, duracao_s, ossos}` dos clipes embutidos no glb; `manifest@1`/`@2` continuam aceitos na leitura e `qc.gates` passa a aceitar `G10` | o consumidor precisa saber que o asset tem clipe sem abrir o glb; contrato silencioso é o que o `verify` existe para impedir |
 
 ## 3. Rejeitados (e por quê)
 

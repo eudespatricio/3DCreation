@@ -37,6 +37,7 @@ for rel in (
     "schemas/spec.v2.schema.json",
     "schemas/manifest.v1.schema.json",
     "schemas/manifest.v2.schema.json",
+    "schemas/manifest.v3.schema.json",
 ):
     try:
         s = json.loads((ROOT / rel).read_text(encoding="utf-8"))
@@ -96,6 +97,7 @@ print("== manifestos de exemplo ==")
 for rel_man, rel_schema, rotulo in (
     ("examples/manifest.exemplo.json", "schemas/manifest.v1.schema.json", "manifest@1"),
     ("examples/manifest.exemplo.v2.json", "schemas/manifest.v2.schema.json", "manifest@2"),
+    ("examples/manifest.exemplo.v3.json", "schemas/manifest.v3.schema.json", "manifest@3"),
 ):
     try:
         man = json.loads((ROOT / rel_man).read_text(encoding="utf-8"))

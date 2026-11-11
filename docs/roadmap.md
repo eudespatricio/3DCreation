@@ -136,6 +136,11 @@ draw calls por setor.
 LOD para mesh gerada (com critério visual, não decimate cego), retarget entre `godot-humanoid@1` e
 `r15@1`, animação base opcional. Fecha D14 e o GAP de animação.
 
+**Estado em 11/11/2026 — animação base fechada:** clipe `idle` procedural (2,042 s) embutido no glb,
+retarget por `rig.retarget` (D66) e declarado em `manifest@3` (D67); G10 mede movimento real; Godot 4.3
+headless confirma o clipe nos dois esqueletos. **Falta da P5:** LOD de mesh com critério visual
+(GAP-013) e o clipe tocando no Roblox (KeyframeSequence, GAP-045).
+
 ## P6 — Produto
 
 Índice consultável (`query`), `gc`, `migrate` de spec, CI de pull request com `verify`, distribuição

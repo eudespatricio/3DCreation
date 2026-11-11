@@ -42,6 +42,14 @@ rig:
   esqueleto_padrao: "r15@1"
   max_ossos: 24
   raiz: HumanoidRootPart
+  # D66: retarget da animacao base — osso semantico -> nome da parte R15.
+  retarget:
+    "r15@1":
+      tronco: UpperTorso
+      coluna: LowerTorso
+      cabeca: Head
+      braco_e: LeftUpperArm
+      braco_d: RightUpperArm
   mapas:
     "r15@1":
       - HumanoidRootPart

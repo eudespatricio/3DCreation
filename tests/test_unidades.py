@@ -3,7 +3,7 @@
 O que estes testes provam, sem Blender e sem Studio:
 
 * o perfil Roblox declara a unidade (studs) e o Godot nao escala;
-* o manifesto sai como ``manifest@2`` com ``unidades_export`` e ``geometry.bbox_m`` em metros;
+* o manifesto sai como ``manifest@3`` com ``unidades_export`` e ``geometry.bbox_m`` em metros;
 * o G2 mede o GLB em unidades do arquivo e compara com a altura em metros, dividindo pela escala;
 * ``verify`` aceita ``manifest@1`` antigo (escala 1.0) e reprova ``@2`` inconsistente.
 """
@@ -92,8 +92,9 @@ def _relatorio(escala: float = 1.0) -> dict:
     }
 
 
-def _schema_v2() -> dict:
-    return json.loads((RAIZ / "schemas" / "manifest.v2.schema.json").read_text(encoding="utf-8"))
+def _schema(versao: str) -> dict:
+    arq = RAIZ / "schemas" / f"manifest.v{versao}.schema.json"
+    return json.loads(arq.read_text(encoding="utf-8"))
 
 
 def _manifesto(perfil: dict, escala: float = 1.0) -> dict:
@@ -113,28 +114,28 @@ def _manifesto(perfil: dict, escala: float = 1.0) -> dict:
 
 def test_manifesto_roblox_declara_unidades_export_em_studs():
     man = _manifesto(ROBLOX, ESCALA_STUD)
-    assert man["schema"] == "forge3d/manifest@2"
+    assert man["schema"] == "forge3d/manifest@3"
     assert man["unidades_export"] == {
         "metros_por_unidade": METROS_POR_STUD,
         "escala_saida": ESCALA_STUD,
     }
     # bbox_m continua em metros: o consumidor converte pela unidade declarada
     assert man["geometry"]["bbox_m"] == [0.52, 1.85, 0.4]
-    jsonschema.validate(man, _schema_v2())
+    jsonschema.validate(man, _schema("3"))
 
 
 def test_manifesto_godot_fica_em_metros():
     man = _manifesto(GODOT, 1.0)
-    assert man["schema"] == "forge3d/manifest@2"
+    assert man["schema"] == "forge3d/manifest@3"
     assert man["unidades_export"] == {"metros_por_unidade": 1.0, "escala_saida": 1.0}
-    jsonschema.validate(man, _schema_v2())
+    jsonschema.validate(man, _schema("3"))
 
 
-def test_manifesto_v2_sem_unidades_export_reprova():
+def test_manifesto_v3_sem_unidades_export_reprova():
     man = _manifesto(ROBLOX, ESCALA_STUD)
     man.pop("unidades_export")
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(man, _schema_v2())
+        jsonschema.validate(man, _schema("3"))
 
 
 # ------------------------------------------------------------------ G2
@@ -172,7 +173,7 @@ def _info(altura_studs: float = 6.60714, deslocamento_studs: float = 0.0) -> dic
 
 
 def _verificar(tmp_path: Path, monkeypatch, info: dict, perfil: dict, **kwargs) -> dict:
-    monkeypatch.setattr(qc, "ler_glb", lambda _caminho: {})
+    monkeypatch.setattr(qc, "ler_glb_bin", lambda _caminho: ({}, b""))
     monkeypatch.setattr(qc, "analisar", lambda _gltf: dict(info))
     (tmp_path / "a.glb").write_bytes(b"x")
     resultado = {
@@ -253,6 +254,7 @@ def test_verify_aceita_manifesto_v1_antigo(tmp_path):
     man = json.loads((destino / "a.b.manifest.json").read_text(encoding="utf-8"))
     man["schema"] = "forge3d/manifest@1"
     man.pop("unidades_export")
+    man.pop("animacoes")
     (destino / "a.b.manifest.json").write_text(json.dumps(man), encoding="utf-8")
     erros = _erros(destino)
     # passa pelo schema @1 e chega ao QC (o GLB falso e ilegivel, o contrato nao foi recusado)

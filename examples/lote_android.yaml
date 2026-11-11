@@ -34,4 +34,5 @@ lote:
     esqueleto: godot-humanoid@1
     colisao: convex
     lod: [100, 50, 25]
+    animacoes_base: [idle]
     tags: [mob, android, humanoid, scifi]

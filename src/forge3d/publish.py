@@ -30,7 +30,11 @@ __all__ = [
 MANIFEST_SCHEMA_CACHE: dict[str, dict] = {}
 
 #: versao do contrato por `schema`; `manifest@1` continua aceito na leitura (D62)
-_VERSAO_POR_SCHEMA = {"forge3d/manifest@1": "1", "forge3d/manifest@2": "2"}
+_VERSAO_POR_SCHEMA = {
+    "forge3d/manifest@1": "1",
+    "forge3d/manifest@2": "2",
+    "forge3d/manifest@3": "3",
+}
 
 
 def _agora() -> str:
@@ -131,7 +135,7 @@ def montar_manifesto(
         rig = {"esqueleto": item.get("esqueleto") or "", "ossos": int(medidas["ossos"])}
 
     return {
-        "schema": "forge3d/manifest@2",
+        "schema": "forge3d/manifest@3",
         "asset_id": item["id"],
         "projeto": spec_doc["projeto"],
         "perfil": perfil_nome,
@@ -149,6 +153,15 @@ def montar_manifesto(
         },
         # D62: o glb do roblox-r15 sai em studs; quem consome le a unidade aqui, nunca supoe metro
         "unidades_export": unidades_export,
+        # D66: clipes embutidos no glb (nome, duracao, ossos animados)
+        "animacoes": [
+            {
+                "nome": str(c["nome"]),
+                "duracao_s": float(c["duracao_s"]),
+                "ossos": [str(o) for o in c.get("ossos") or []],
+            }
+            for c in medidas.get("animacoes") or []
+        ],
         "rig": rig,
         "lod": lods,
         "colisao": {
@@ -421,7 +434,7 @@ def verificar(destino: Path) -> dict:
             continue
         # D62: manifest@1 nao declara unidade — o arquivo dele esta em metros (escala 1.0).
         escala = 1.0
-        if versao == "2":
+        if versao in ("2", "3"):
             unidades = man["unidades_export"]
             escala = float(unidades["escala_saida"])
             metros = float(unidades["metros_por_unidade"])
@@ -449,6 +462,8 @@ def verificar(destino: Path) -> dict:
         item = {
             "id": man["asset_id"],
             "altura_metros": medido_g2.get("esperado_m"),
+            # D66: os clipes declarados no manifesto sao os que o verify exige de novo no glb
+            "animacoes_base": [a.get("nome") for a in man.get("animacoes") or []],
             "pivot": medido_g2.get("pivo_regra"),
             "limite_triangulos": medido_g9.get("limite"),
             "auto_rig": bool(man.get("rig")),

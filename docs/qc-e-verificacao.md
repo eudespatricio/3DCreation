@@ -29,6 +29,7 @@ Duas consequências:
 | **G7** | Colisão | presença, nº de partes, prefixo `UCX_`, convexidade, dentro da AABB visual | parse de nodes + `bpy` para convexidade | `≤ 15` partes | erro |
 | **G8** | Licença | modelo na allowlist, `uso_comercial: true`, `NOTICE` presente | manifesto + allowlist | obrigatório | erro |
 | **G9** | Orçamento | triângulos vs `limite_triangulos`, bytes por arquivo, nº de primitivos | parse do `.glb` | tri `≤` orçamento · `≤ 2048 KB` | erro |
+| **G10** | Animação | clipes pedidos em `animacoes_base` existem, duração > 0,2 s e canais em ossos do rig | parse de `animations` do `.glb` | clipe presente · ≥ 1 canal | erro |
 
 **G1 mede topologia soldada.** O glTF divide vértice em cada costura de UV; sem soldar, todo asset
 importado pareceria ter borda aberta. Efeito colateral: duas peças que compartilham **canto exato**

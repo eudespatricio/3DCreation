@@ -1,11 +1,11 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5, C5–C11 e C12 fechadas.** A P2 fechou pela
-escala: `manifest@2` com `unidades_export` (D62) e o glb do `roblox-r15` sai em studs — package medido
-no Studio em **6,6071 studs**, contra 6,8086 de extensão do `.rbxlx` (mesma escala; os 3,05 % ficam em
-GAP-044). A C12 fechou o passivo dos destinos: **7 destinos, 16 manifestos** em `manifest@2` 0.2.6,
-`verify` **0 problemas**. **101 verdes + 1 GPU (skip)** em 102 testes · CI no GitHub com **86 testes**
-(run 42956720067 verde em `a21e944`).
+**Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5 e C5–C12 fechadas; P5-A (animação base)
+fechada.** A P2 fechou pela escala (`manifest@2`, D62): package medido em **6,6071 studs** contra
+6,8086 do `.rbxlx`. A C12 republicou **7 destinos, 16 manifestos** com `verify` **0 problemas**. A P5-A
+entregou o clipe `idle` procedural (2,042 s) por retarget (D66) em `manifest@3` (D67), validado no
+Godot 4.3 headless nos dois esqueletos. **111 verdes + 1 GPU (skip)** em 112 testes · CI no GitHub com
+**96 testes**.
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 
@@ -30,7 +30,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P3** | ✔ | provider `i23d` (TripoSR), bake UV/textura próprio, kit corpo/capa/arma |
 | **P3.5** | ✔ | concept SD1.5 → TripoSR, split e A/B de 3 personagens híbridos |
 | **P4** | pendente | rota `modular` (WFC) |
-| **P5** | pendente | animação e retarget |
+| **P5** | parcial | animação base ✔ (D66/D67); falta LOD de mesh (GAP-013) e o clipe no Roblox (GAP-045) |
 
 ## O que foi entregue nesta janela
 
@@ -51,14 +51,20 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   (desvio de 1,8 m; **D64** — hull em nuvem de pontos) e a convexidade media com tolerância apertada
   demais (1e-6 do diâmetro; **D65** — 1 mm/m). O colisor do concept caiu de "concavo" para desvio
   máximo de **4,3e-4 m**. `PIPELINE_VERSION` **0.2.6**.
+- **P5-A — animação base (D66/D67)** — `rig.retarget` nos perfis mapeia osso semântico → osso do
+  esqueleto; o `idle` é gerado no `bpy` (5 chaves, 2 s a 24 fps) e embutido no glb; G10 mede
+  **movimento real**; `manifest@3` declara `animacoes`; `tests/test_animacao.py` + e2e do R15 com o
+  clipe; Godot 4.3 headless confirma nos dois esqueletos. `PIPELINE_VERSION` **0.2.7**.
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **101 verdes + 1 GPU (skip)** em **102 testes** |
-| CI no GitHub | **86 testes** (`tools/ci.sh`) + contexto + P0 |
-| Destinos no sandbox | **7 destinos, 16 manifestos**, todos `manifest@2` 0.2.6, `verify` **0 problemas** |
+| Suíte | **111 verdes + 1 GPU (skip)** em **112 testes** |
+| CI no GitHub | **96 testes** (`tools/ci.sh`) + contexto + P0 |
+| Destinos no sandbox | **7 destinos, 16 manifestos**, `verify` **0 problemas** (4 destinos em @3 0.2.7; 3 de malha em @2 0.2.6 por VRAM) |
+| Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
+| Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
 | Colisor após D64/D65 | desvio máximo **4,3e-4 m** num hull de 2,2 m (tolerância 1 mm/m); face interior do defeito desviava 1,8 m |
 | Package R15 v2 no Studio | `size=2,7086 × 6,6071 × 1,5196` studs · **16 Bones** · `surface=false` · `humanoid=false` |
 | glb do R15 | `bbox = 2,70855 × 6,60709 × 1,519631` studs para `bbox_m = [0,7584; 1,85; 0,4255]` m |
@@ -77,7 +83,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 separada · `D52` colisor é hull fechado · `D53` G7 mede convexidade · `D54` CLIP 77 ·
 `D55` rembg por alfa · `D56` CI no GitHub · `D57` delegação no `agentapi` · `D58` empunhadura 20 % ·
 `D59` `flock` é o dono do lock · `D60` validação no Roblox via MCP · **`D62` `manifest@2` declara a
-unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tolerância de 1 mm/m**.
+unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tolerância de 1 mm/m** ·
+**`D66` animação base por retarget** · **`D67` `manifest@3` declara `animacoes`**.
 
 ## Aberto
 
@@ -94,9 +101,10 @@ glb).
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **P5** animação/retarget: clipe base no glb + retarget `godot-humanoid@1` × `r15@1` + validação no Godot e no Studio | 2–3 sessões | GAP-007/GAP-020/D14 |
-| **2** | **P4** rota `modular` (WFC) | 1–2 sessões | roadmap |
-| **3** | GAP-044: normalizar as caixas do `export-r15` | 1 sessão | coerência rig × glb |
+| **1** | Republish dos 3 destinos de malha em 0.2.7 quando a VRAM liberar | minutos | consistência de contrato |
+| **2** | **P5-B**: `KeyframeSequence` do `idle` tocando no rig `.rbxlx` no Studio (GAP-045) + LOD de mesh com critério visual (GAP-013) | 1–2 sessões | P5 |
+| **3** | **P4** rota `modular` (WFC) | 1–2 sessões | roadmap |
+| **4** | GAP-044: normalizar as caixas do `export-r15` | 1 sessão | coerência rig × glb |
 
 ## Comandos
 
@@ -111,13 +119,17 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 101 verdes + 1 GPU
-bash tools/ci.sh                          # 86 testes + contexto + P0 (o que o GitHub roda)
+python -m pytest                          # 111 verdes + 1 GPU
+bash tools/ci.sh                          # 96 testes + contexto + P0 (o que o GitHub roda)
 bash tools/check-contexto.sh
 python tools/check-p0.py
 python tools/mcp_studio.py --estado       # Studio via MCP (precisa do MCP ligado)
 python tools/r15_escala_studio.py         # Size/bones/textura do package R15 no Studio
 python tools/conformidade.py              # tetos, I14, I12
+
+# clipe base no Godot 4.3 headless (precisa de --path com o projeto minimo)
+godot --headless --path tools/godot_project \
+  --script "$PWD/tools/godot_anim_check.gd" -- <glb> idle
 ```
 
 ## Armadilhas pagas (não repetir)

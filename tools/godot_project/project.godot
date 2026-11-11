@@ -1,0 +1,8 @@
+; Projeto minimo do Forge3D para rodar o check de animacao no Godot headless.
+; Uso: godot --headless --path tools/godot_project --script <repo>/tools/godot_anim_check.gd -- <glb> idle
+config_version=5
+
+[application]
+
+config/name="forge3d_anim_check"
+config/features=PackedStringArray("4.3")

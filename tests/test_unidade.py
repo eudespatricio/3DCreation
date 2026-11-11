@@ -100,10 +100,16 @@ def test_lod_fora_de_ordem_falha_regra_b4():
 
 
 def test_animacoes_base_gera_aviso_nao_erro():
+    """D66: `idle` tem gerador (sem aviso); clipe sem gerador avisa e nao reprova."""
+    doc = spec.carregar_arquivo(EXEMPLO)
+    doc["lote"][2]["animacoes_base"] = ["walk"]
+    _spec, _perfil, avisos = spec.preparar(doc)
+    assert any(a["codigo"] == "FORGE-W-ANIM" and "walk" in a["mensagem"] for a in avisos)
+
     doc = spec.carregar_arquivo(EXEMPLO)
     doc["lote"][2]["animacoes_base"] = ["idle"]
     _spec, _perfil, avisos = spec.preparar(doc)
-    assert any(a["codigo"] == "FORGE-W-ANIM" for a in avisos)
+    assert not [a for a in avisos if a["codigo"] == "FORGE-W-ANIM"], avisos
 
 
 def _spec_mesh() -> dict:

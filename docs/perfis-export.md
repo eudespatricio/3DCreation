@@ -140,6 +140,21 @@ perfil e a validação de rig confere nome a nome, não "parece razoável".
 
 Nome de arquivo é **determinístico a partir do `id`**: nada de timestamp, nada de sufixo `_final_v2`.
 
+### 5.1 Retarget da animação base (D66)
+
+O clipe `idle` é gerado no Blender em **espaço semântico** e materializado por `rig.retarget` do perfil:
+
+| Osso semântico | `godot-humanoid@1` | `r15@1` |
+|---|---|---|
+| `coluna` | `Spine1` | `LowerTorso` |
+| `tronco` | `Chest` | `UpperTorso` |
+| `cabeca` | `Head` | `Head` |
+| `braco_e` | `UpperArm.L` | `LeftUpperArm` |
+| `braco_d` | `UpperArm.R` | `RightUpperArm` |
+
+Medido: o mesmo clipe move exatamente esses cinco ossos nos dois esqueletos; no Godot 4.3 headless o
+R15 importa com 5 tracks e o android com 7, ambos com 0,0697 rad de amplitude máxima.
+
 ## 6. Incertezas declaradas
 
 | # | Incerteza | Como fecha |

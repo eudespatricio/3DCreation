@@ -11,7 +11,7 @@
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
 | GAP-044 | **Rig `.rbxlx` 3,05 % acima do glb**: o `export-r15` monta as Parts com as caixas brutas do `blocky` (1,906 m) e o pós-processo normaliza a malha para 1,850 m | P2 | P5 | `export-r15` aplicar a mesma normalização de altura do pós-processo (ou o `blocky` nascer na altura declarada); diferença medida ≤ 0,5 % |
 | GAP-042 | `empunhadura` foi simplificada para **20 % da altura** (D58); a regra do perfil — "menor secção transversal na faixa inferior 30 %" — não está implementada | P3 | P4 | regra geométrica implementada em função única e medida pelo G2 com o mesmo critério |
-| GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
+| GAP-045 | **O clipe `idle` não toca no Roblox**: o package é 1 `MeshPart` (o importador descarta animação glTF) e o `.rbxlx` nativo só tem Parts + Motor6D, sem `KeyframeSequence` | P5 | P5 | `KeyframeSequence` gerado a partir do clipe e tocando no rig `.rbxlx` no Studio via MCP |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
 | GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada — **venceu em P2 sem ser avaliado** | P1 | P5 | critério visual registrado para `_LOD1`/`_LOD2` |
@@ -57,6 +57,8 @@
 | ~~GAP-040~~ | ~~`preflight` ignorava `FORGE3D_MODELOS`~~ | P3 | **C10 ✔** | `pesos_triposr()` procura env, cache HF e dir padrão; teste dedicado |
 | ~~GAP-043~~ | ~~`manifest@1` não declara a unidade do arquivo~~ | P2 | **C15 ✔** | `manifest@2` com `unidades_export`; `verify` aceita `@1` (escala 1.0) e `@2` (escala declarada); schema `schemas/manifest.v2.schema.json` + 13 testes em `tests/test_unidades.py` |
 | ~~GAP-006~~ | ~~Roblox: faltava a escala do package~~ | P0 | **P2 ✔** | medido em 11/11/2026: package `2,7086 × 6,6071 × 1,5196` studs (asset **134628989553440**) contra `.rbxlx` 6,8086 studs de extensão — mesma escala, fixada por D62; resíduo em GAP-044 |
+| ~~GAP-007~~ | ~~Animação reservada e não implementada~~ | P0 | **P5 ✔** | clipe `idle` embutido no glb dos dois esqueletos, retarget por `rig.retarget` (D66) e validado no Godot 4.3 headless (`GODOT_ANIM_OK`, 2,042 s, movimento 0,0697) |
+| ~~GAP-020~~ | ~~Personagem sem clipe de animação~~ | P0 | **P5 ✔** | `idle` gerado (D66) e declarado em `manifest@3` (D67); o lado Roblox fica em GAP-045 |
 
 ## Como um gap nasce
 

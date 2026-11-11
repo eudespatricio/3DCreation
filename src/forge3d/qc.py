@@ -390,6 +390,71 @@ def _desvio_pivo(regra: str, minimo_y: float, maximo_y: float) -> float | None:
     return None
 
 
+def animacoes(gltf: dict, binario: bytes) -> list[dict]:
+    """Le os clipes do glTF: nome, duracao em segundos e ossos efetivamente animados.
+
+    Canal que nao aponta para um joint do skin e ignorado: o que interessa ao gate e motion de
+    esqueleto, nao transform de objeto.
+    """
+    acessores = gltf.get("accessors", [])
+    nos = gltf.get("nodes", [])
+    skins = gltf.get("skins", [])
+    ossos_do_rig: set[str] = set()
+    if skins:
+        ossos_do_rig = {
+            nos[i].get("name", "")
+            for i in skins[0].get("joints", [])
+            if isinstance(i, int) and i < len(nos)
+        }
+    clipes = []
+    for animacao in gltf.get("animations", []):
+        duracao = 0.0
+        ossos: set[str] = set()
+        movendo: set[str] = set()
+        canais = 0
+        for canal in animacao.get("channels", []):
+            alvo = canal.get("target") or {}
+            indice = alvo.get("node")
+            amostradores = animacao.get("samplers") or []
+            amostrador = amostradores[int(canal.get("sampler", 0))] if amostradores else {}
+            entrada = amostrador.get("input")
+            if isinstance(entrada, int) and entrada < len(acessores):
+                maximo = acessores[entrada].get("max")
+                if maximo:
+                    duracao = max(duracao, float(maximo[0]))
+            nome = ""
+            if isinstance(indice, int) and indice < len(nos):
+                nome = nos[indice].get("name", "")
+            if nome not in ossos_do_rig:
+                continue
+            ossos.add(nome)
+            canais += 1
+            # canal de rotacao existe sempre (o export amostra todos os ossos); o que
+            # interessa ao gate e algum valor diferente da rotacao inicial.
+            saida = amostrador.get("output")
+            if alvo.get("path") == "rotation" and isinstance(saida, int) and saida < len(acessores):
+                try:
+                    valores = _accessor(gltf, binario, saida)
+                except Exception:  # noqa: BLE001 - accessor de terceiro pode nao ser VEC4 float
+                    valores = []
+                if valores:
+                    base = valores[0]
+                    for valor in valores[1:]:
+                        if any(abs(float(c) - float(b)) > 1e-5 for b, c in zip(base, valor)):
+                            movendo.add(nome)
+                            break
+        clipes.append(
+            {
+                "nome": animacao.get("name") or f"anim{len(clipes)}",
+                "duracao_s": round(duracao, 3),
+                "ossos": sorted(ossos),
+                "movendo": sorted(movendo),
+                "canais": canais,
+            }
+        )
+    return clipes
+
+
 def escala_do_perfil(perfil: dict) -> float:
     """Fator entre metro e unidade do arquivo exportado (D62). Perfil sem o campo = 1.0."""
     valor = float((perfil.get("unidades") or {}).get("escala_saida", 1.0))
@@ -423,7 +488,7 @@ def verificar(
     if malha is None:
         raise erro_qc("nenhum arquivo de malha no resultado do pos-processo", id=item["id"])
 
-    gltf = ler_glb(pasta / malha["caminho"])
+    gltf, binario = ler_glb_bin(pasta / malha["caminho"])
     info = analisar(gltf)
 
     # G1 geometria sa
@@ -628,6 +693,25 @@ def verificar(
         }
     )
 
+    # G10 animacao (D66)
+    clipes = animacoes(gltf, binario)
+    pedidos = [str(a) for a in (item.get("animacoes_base") or [])]
+    por_nome = {c["nome"]: c for c in clipes}
+    faltando = [n for n in pedidos if n not in por_nome]
+    invalidos = [
+        c["nome"] for c in clipes if c["duracao_s"] <= 0.2 or c["canais"] < 1 or not c["movendo"]
+    ]
+    anim_ok = not faltando and not invalidos
+    gates.append(
+        {
+            "id": "G10",
+            "status": "ok" if anim_ok else "falhou",
+            "medido": {"clipes": clipes, "pedidos": pedidos, "faltando": faltando},
+            "limite": {"duracao_min_s": 0.2, "canais_min": 1},
+            "codigo": None if anim_ok else "FORGE-E-QC",
+        }
+    )
+
     limpos = []
     for g in gates:
         if g.get("codigo") is None:
@@ -648,6 +732,7 @@ def verificar(
             "escala_saida": escala,
             "materiais": info["materiais"],
             "ossos": info["ossos"],
+            "animacoes": clipes,
             "partes_colisao": int(medidas.get("partes_colisao", 0)),
         },
     }

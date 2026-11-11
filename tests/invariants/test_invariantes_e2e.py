@@ -261,7 +261,7 @@ def test_r15_blocky_gera_16_ossos_com_nomes_r15(tmp_path):
     destino = home / ".local" / "state" / "forge3d" / "saida" / "r15"
     manifesto = json.loads((destino / "personagem.r15.guard.01.manifest.json").read_text())
     assert manifesto["rig"] == {"esqueleto": "r15@1", "ossos": 16}
-    gltf = qc.ler_glb(destino / "personagem.r15.guard.01.glb")
+    gltf, binario_glb = qc.ler_glb_bin(destino / "personagem.r15.guard.01.glb")
     nomes = qc.analisar(gltf)["nomes_ossos"]
     assert len(nomes) == 16
     assert "HumanoidRootPart" in nomes
@@ -270,8 +270,16 @@ def test_r15_blocky_gera_16_ossos_com_nomes_r15(tmp_path):
 
     # D62 (opcao A da P2): o glb do roblox-r15 sai em studs e o manifesto declara a unidade.
     # `geometry.bbox_m` continua em metros; o arquivo tem 1,85 m * 3,5714 = 6,607 studs.
-    assert manifesto["schema"] == "forge3d/manifest@2"
+    assert manifesto["schema"] == "forge3d/manifest@3"
     assert manifesto["unidades_export"] == {"metros_por_unidade": 0.28, "escala_saida": 3.5714}
+
+    # D66: o clipe base `idle` embutido no glb, retargetado para os 16 ossos do R15
+    assert [a["nome"] for a in manifesto["animacoes"]] == ["idle"]
+    clipe = manifesto["animacoes"][0]
+    assert clipe["duracao_s"] > 1.5
+    ossos_movendo = set(clipe["ossos"])
+    assert {"UpperTorso", "LowerTorso", "Head", "LeftUpperArm", "RightUpperArm"} <= ossos_movendo
+    assert len(qc.animacoes(gltf, binario_glb)[0]["movendo"]) >= 5
     assert abs(manifesto["geometry"]["bbox_m"][1] - 1.85) / 1.85 * 100 <= 0.5
     altura_studs = qc.analisar(gltf)["bbox_m"][1]
     assert abs(altura_studs - 6.607) / 6.607 * 100 <= 0.5, altura_studs

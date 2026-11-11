@@ -9,11 +9,23 @@ import yaml
 from . import paths
 from .errors import erro_ambiente
 
-__all__ = ["carregar", "caminho_perfil", "perfis_disponiveis", "FRACAO_EMPUNHADURA"]
+__all__ = [
+    "carregar",
+    "caminho_perfil",
+    "perfis_disponiveis",
+    "escala_saida",
+    "retarget",
+    "FRACAO_EMPUNHADURA",
+    "ANIMACOES_SUPORTADAS",
+]
 
 #: Regra numerica da `empunhadura` (D58): fracao da altura medida a partir da base.
 #: Uma regra so, usada pelo blocky (pivo declarado) e pelo QC (G2). Antes havia 10% e 20%.
 FRACAO_EMPUNHADURA = 0.20
+
+#: Clipes base que a fase P5 gera de fato: procedurais e determinísticos (D66).
+#: Pedir clipe fora desta lista não é erro: vira aviso `FORGE-W-ANIM`.
+ANIMACOES_SUPORTADAS = ("idle",)
 
 _BLOCOS_OBRIGATORIOS = ("unidades", "eixos", "pivot", "colisao", "rig", "material", "validacao")
 
@@ -84,3 +96,17 @@ def esqueleto_padrao(perfil: dict) -> str:
 
 def mapas_esqueleto(perfil: dict) -> dict:
     return perfil["rig"].get("mapas", {})
+
+
+def escala_saida(perfil: dict) -> float:
+    """Fator entre metro e unidade do arquivo exportado (D62). Perfil sem o campo = 1.0."""
+    valor = float((perfil.get("unidades") or {}).get("escala_saida", 1.0))
+    if valor <= 0:
+        raise erro_ambiente(f"perfil com escala_saida invalida: {valor}")
+    return valor
+
+
+def retarget(perfil: dict, esqueleto: str) -> dict:
+    """Osso semantico -> nome do osso do esqueleto (D66). Perfil antigo devolve ``{}``."""
+    mapas = (perfil.get("rig") or {}).get("retarget") or {}
+    return dict(mapas.get(esqueleto) or {})

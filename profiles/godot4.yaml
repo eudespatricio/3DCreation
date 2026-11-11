@@ -37,6 +37,15 @@ lod:
 rig:
   esqueleto_padrao: "godot-humanoid@1"
   max_ossos: 64
+  # D66: retarget da animacao base — osso semantico -> nome do osso neste esqueleto.
+  # O mesmo clipe e materializado nos dois esqueletos por esta tabela, nunca por nome igual.
+  retarget:
+    "godot-humanoid@1":
+      tronco: Chest
+      coluna: Spine1
+      cabeca: Head
+      braco_e: UpperArm.L
+      braco_d: UpperArm.R
   mapas:
     "godot-humanoid@1":
       - Root

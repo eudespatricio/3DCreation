@@ -27,4 +27,5 @@ lote:
     esqueleto: r15@1
     colisao: convex
     lod: [100]
+    animacoes_base: [idle]
     tags: [roblox, r15, guard]

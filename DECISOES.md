@@ -142,6 +142,9 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Trabalho paralelo (worktree) | 3 itens revisados e integrados: atomicidade do publish, helpers de VRAM/PID, linter de conformidade. A reescrita do `lock_gpu` com `unlink` antes do `flock` foi **rejeitada** (corrida de inode) e refeita | revisão em 11/11/2026 |
 | Suíte após o paralelo | **86 verdes + 1 GPU (skip)** em **17,2 s**; CI em **71 testes** | `pytest` e `tools/ci.sh` em 11/11/2026 |
 
+| P8 — package no Studio GUI | `size=0,758 × 1,850 × 0,426` studs, **16 Bones**, `surface=false`, `humanoid=false`, `TextureID=rbxassetid://75934318775024` | Command Bar do Studio 63eb6055af4e4688, 11/11/2026 |
+| P8 — escala do rig `.rbxlx` | **6,478 studs** de extensão vertical (17 Parts), contra 1,850 studs do package: **3,57×** | `medir_rbxlx` sobre `saida/r15/personagem.r15.guard.01.rbxlx`, 11/11/2026 |
+
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
 end-to-end (implementado, execução pendente), A/B de 10 assets, qualidade de personagem com capa,
 comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.

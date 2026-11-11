@@ -144,10 +144,10 @@ Nome de arquivo é **determinístico a partir do `id`**: nada de timestamp, nada
 
 | # | Incerteza | Como fecha |
 |---|---|---|
-| U1 | Escala exata do importador Roblox (0,28 m/stud e opção de escala na UI) | teste real no Studio, P2 |
-| U2 | `SurfaceAppearance`/PBR por glTF no importador Roblox | teste real, P2 |
+| ~~U1~~ | **Fechada (11/11/2026):** o importador 3D usa **1 unidade glTF = 1 stud**. O MeshPart saiu com `0,758 × 1,850 × 0,426` studs para um bbox de `0,758 × 1,85 × 0,426` m, enquanto o `.rbxlx` sai com **6,478 studs** (régua 0,28 m/stud) — divergência de **3,57×**, decisão em Q3 | `r15_gui_oneliner.lua` + `medir_rbxlx` no Studio 63eb6055af4e4688 |
+| ~~U2~~ | **Fechada (11/11/2026):** o package importado **não** traz `SurfaceAppearance`; só `TextureID` (`rbxassetid://75934318775024`). Perfil corrigido para `material.modelo: texture` | Studio GUI, mesmo teste |
 | ~~U3~~ | **Fechada (10/11/2026):** Godot 4.3 aplicou `TEXTURE_FILTER_NEAREST_WITH_MIPMAPS` (`filtro=2`) | import real do android |
-| U4 | `Humanoid` aceita rig vindo de glTF importado como `Model`? | teste no Studio, P2 |
+| ~~U4~~ | **Fechada (11/11/2026):** o package é **1 MeshPart + 16 Bones, sem `Humanoid`**; o rig R15 jogável é o `.rbxlx` nativo (D47/D50) | Studio GUI, mesmo teste |
 | U5 | LOD separado em `MeshInstance3D` vs `ImporterMesh` no Godot 4.2 | teste de import, P5 |
 
 Enquanto não fechadas, o perfil carrega o valor com comentário `# [verificar]` e o QC **não** falha

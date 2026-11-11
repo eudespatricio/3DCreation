@@ -8,7 +8,9 @@ formato: [glb, rbxlx]
 
 unidades:
   metros_por_unidade: 1.0        # geracao em metros
-  metros_por_stud: 0.28          # [verificar] U1: conversao studs = metros / 0.28
+  metros_por_stud: 0.28          # [medido 11/11/2026] vale para o .rbxlx (Parts, 6,478 studs);
+                                 # o importador 3D do Studio usa 1 unidade glTF = 1 stud -> o
+                                 # package saiu com 1,850 studs (3,57x menor). Decisao em Q3.
   arredondar_studs: 0.001
 
 eixos:
@@ -57,7 +59,8 @@ rig:
       - RightFoot
 
 material:
-  modelo: surface_appearance     # [verificar] U2: PBR da Roblox nao vem por glTF
+  modelo: texture                # [medido 11/11/2026] U2: glTF nao trouxe SurfaceAppearance;
+                                 # o MeshPart importado tem so TextureID
   textura_max: 1024
   pot: true
   filtro: linear                 # pixel art na Roblox e limitada; nao prometer nearest

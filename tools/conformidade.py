@@ -4,7 +4,10 @@
 Verifica:
 (a) Tetos de linhas de CONTINUAR.md (200), MAPA.md (60), AGENTS.md (80), INVARIANTES.md (200);
 (b) Nomes de franquia proibidos em examples/, profiles/ e schemas/ (I14);
-(c) Que nenhum caminho /mnt ou UNC aparece em examples/, profiles/, schemas/ e docs/ (I12).
+(c) Que nenhum caminho /mnt ou UNC aparece em examples/, profiles/, schemas/ e docs/ (I12);
+(d) Que pyproject.toml e __init__.py dizem a mesma versao;
+(e) Que nome de projeto de jogo e caminho /home/<user>/ fixo nao entram em src/,
+    profiles/, examples/ e schemas/ (I15): o pipeline e do utilitario, o projeto e consumidor.
 
 Stdlib apenas.
 Saida: exit 0 se limpo, exit 1 com uma linha por violacao.
@@ -37,6 +40,12 @@ RE_CAMINHO_PROIBIDO = re.compile(
     r"/mnt/[a-zA-Z]/|\\\\wsl|\\\\\\\\[a-zA-Z0-9_.-]+",
     re.IGNORECASE,
 )
+
+# I15: nome de projeto de jogo nao entra no pipeline (o projeto e consumidor, nao preset)
+RE_PROJETO = re.compile(r"gamezero|game-zero|jogo-roblox|jogo_roblox|jogoroblox", re.IGNORECASE)
+
+# I15: caminho pessoal fixo em codigo/perfil/exemplo/schema (usa raiz de estado ou variavel)
+RE_HOME_FIXO = re.compile(r"/home/[a-z0-9_.-]+/", re.IGNORECASE)
 
 EXTENSOES_TEXTO = {".yaml", ".yml", ".json", ".md", ".txt", ".toml", ".py", ".sh"}
 
@@ -103,6 +112,32 @@ def verificar_conformidade(raiz: Path) -> list[str]:
                     if match:
                         violacoes.append(
                             f"I12: caminho proibido '{match.group(0)}' encontrado em {rel}:{num_l}"
+                        )
+            except OSError:
+                continue
+
+    # (e) nome de projeto de jogo e caminho /home fixo em src/ e nos contratos
+    dirs_projeto = ["src", "profiles", "examples", "schemas"]
+    for d_nome in dirs_projeto:
+        dir_path = raiz / d_nome
+        for arq in _arquivos_no_diretorio(dir_path):
+            if "__pycache__" in arq.parts:
+                continue
+            try:
+                linhas = arq.read_text(encoding="utf-8", errors="replace").splitlines()
+                rel = arq.relative_to(raiz)
+                for num_l, linha in enumerate(linhas, 1):
+                    achado = RE_PROJETO.search(linha)
+                    if achado:
+                        violacoes.append(
+                            f"I15: nome de projeto '{achado.group(0)}' em {rel}:{num_l} "
+                            "(projeto e consumidor; entra por perfil/spec/allowlist)"
+                        )
+                    achado = RE_HOME_FIXO.search(linha)
+                    if achado:
+                        violacoes.append(
+                            f"I15: caminho pessoal fixo '{achado.group(0)}' em {rel}:{num_l} "
+                            "(use ~ ou a raiz de estado)"
                         )
             except OSError:
                 continue

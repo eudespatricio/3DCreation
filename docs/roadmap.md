@@ -54,7 +54,8 @@ Godot (GAP-011) — o portão desceu de "entra no jogo" para "QC + manifesto", e
 **Portão (todos):**
 - `forge3d run examples/lote_01.yaml` duas vezes ⇒ **hashes idênticos** (I1);
 - segunda execução ⇒ `trabalho_executado: 0` (I11);
-- os 3 assets do exemplo entram no GameZero **sem ajuste manual** de escala, pivô ou material;
+- os 3 assets do exemplo entram num projeto Godot consumidor **sem ajuste manual** de escala, pivô
+  ou material;
 - `verify` pega um `.glb` alterado à mão ⇒ `exit 3`;
 - spec com erro ⇒ `exit 2` sem tocar em provider.
 

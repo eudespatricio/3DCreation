@@ -151,6 +151,18 @@ grep -rniE "minecraft|fortnite|zelda|mario|pokemon|call of duty" examples/ profi
 Esperado: `OK: nenhuma franquia`. `minecraft_bedrock` é aceito **só** como alias legado de entrada,
 com aviso de depreciação, e nunca aparece em manifesto publicado.
 
+## I15 — Projeto de jogo não entra no pipeline `[P1]`
+
+O Forge3D é genérico: `src/`, `profiles/`, `examples/` e `schemas/` não citam nome de projeto de
+jogo nem caminho pessoal fixo (`/home/<user>/`). Projeto entra por **perfil** (plataforma), **spec**
+(o lote dele) e **allowlist** (o destino autorizado) — nunca por código, preset ou exemplo.
+
+```bash
+python tools/conformidade.py; echo "exit=$?"
+```
+Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparecer em `DECISOES.md`
+(ledger de fato medido) e em `pendencias.md` (ação do operador), não nos contratos.
+
 ## Estado da automação (P1, 10/11/2026)
 
 | Invariante | Como está |
@@ -169,6 +181,7 @@ com aviso de depreciação, e nunca aparece em manifesto publicado.
 | I12 caminhos proibidos | **automatizado** — `test_i12_recusa_mnt_e_unc` |
 | I13 allowlist | **automatizado** — `test_i13_destino_fora_da_allowlist_falha` e `..._sai_2` |
 | I14 IP neutro | **automatizado** — `tools/check-p0.py` |
+| I15 projeto fora do pipeline | **automatizado** — `tools/conformidade.py` (item e) + `tests/test_conformidade.py` |
 
 ## Ciclo de vida deste arquivo
 

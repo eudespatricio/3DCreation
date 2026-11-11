@@ -105,7 +105,7 @@ unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tol
 **`D66` animação base por retarget** · **`D67` `manifest@3` declara `animacoes`** · **`D68` Part
 permuta tamanho como centro** · **`D69` clipe do Roblox com `Priority=Core`** · **`D71` LOD medido por
 silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo** · **`D74` WFC próprio** ·
-**`D75` P4 fatiada: `spec@3` + um setor por asset**.
+**`D75` P4 fatiada: `spec@3` + um setor por asset** · **`D76`/I15 projeto não entra no pipeline**.
 
 ## Aberto
 

@@ -22,10 +22,10 @@ Nada pendente: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no rep
 
 - **Q1/D72 e Q7/D73** em 11/11/2026: o produto continua `forge3d` (a marca, se houver, na vitrine) e
   os assets dos jogos vão para **Git LFS** (`*.glb`, `*.png`, `*.rbxm/rbxmx`, `*.blend`, `*.fbx`,
-  áudio, fontes) antes do primeiro asset real. Ação do operador no **GameZero** (155 MB de assets no
-  `.git`, sem `.gitattributes`): decidir se migra a história ou aplica LFS daqui pra frente — o
-  `jogo-roblox` já está em LFS. O `pyproject.toml` foi sincronizado em 0.3.0 e `tools/conformidade.py`
-  agora acusa divergência entre `pyproject` e `__init__`.
+  áudio, fontes) antes do primeiro asset real. Ação do operador no projeto Godot consumidor (155 MB
+  de assets no `.git`, sem `.gitattributes`): decidir se migra a história ou aplica LFS daqui pra
+  frente — o projeto Roblox já está em LFS. O `pyproject.toml` foi sincronizado em 0.3.x e
+  `tools/conformidade.py` acusa divergência entre `pyproject` e `__init__`.
 
 - **P4 — fatiada de 4 setores** em 11/11/2026: `spec@3` com bloco `modular` (D75), WFC próprio
   (D74), 3 módulos de piso e um asset por setor (72–96 tris, 1 draw call, `verify` 0 problemas). Falta

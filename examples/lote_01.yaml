@@ -80,6 +80,6 @@ lote:
 #  - id: weapon.dagger.old.01     # rota import: asset feito a mao (P1)
 #    tipo: prop_equipavel
 #    rota: import
-#    origem: /home/eudespatricio/3DCreation/examples/origem/dagger.blend
+#    origem: examples/origem/dagger.blend
 #    altura_metros: 0.35
 #    pivot: empunhadura

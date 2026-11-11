@@ -81,6 +81,13 @@ def test_conformidade_caso_com_violacoes_plantadas(tmp_path: Path):
         '{"path": "\\\\\\\\wsl$\\\\Ubuntu\\\\home"}\n', encoding="utf-8"
     )
 
+    # (e) Nome de projeto de jogo e caminho pessoal fixo (I15)
+    (repo / "src").mkdir()
+    (repo / "src" / "engine.py").write_text(
+        '# preset do GameZero\nDESTINO = "/home/eudespatricio/jogo"\n', encoding="utf-8"
+    )
+    (repo / "examples" / "projeto.yaml").write_text("projeto: jogo-roblox\n", encoding="utf-8")
+
     violacoes = verificar_conformidade(repo)
     assert len(violacoes) >= 6
 
@@ -92,6 +99,9 @@ def test_conformidade_caso_com_violacoes_plantadas(tmp_path: Path):
     assert any("I14:" in v and "zelda" in v.lower() for v in violacoes)
     assert any("I12:" in v and "/mnt/c/" in v for v in violacoes)
     assert any("I12:" in v and "\\\\wsl" in v for v in violacoes)
+    assert any("I15:" in v and "gamezero" in v.lower() for v in violacoes)
+    assert any("I15:" in v and "jogo-roblox" in v.lower() for v in violacoes)
+    assert any("I15:" in v and "/home/eudespatricio/" in v for v in violacoes)
 
     # Executa via subprocesso CLI para verificar saida e exit code
     script = RAIZ_REPO / "tools" / "conformidade.py"

@@ -48,7 +48,7 @@ para acontecer com a segunda engine.
 | `unidades.metros_por_unidade` | `1.0` (Blender) · conversão `studs = metros / 0.28` | 1 stud ≈ 0,28 m; arredondar na geração, nunca no importador `[verificar]` |
 | `eixos` | up `+Y`, frente `−Z` | igual ao glTF; Roblox usa +Y up, −Z frente |
 | `aplicar_transforms` | `true` | `MeshPart` com escala aplicada quebra `Motor6D` |
-| `pivot` | `base` no blocky; por **membro** (junta) adiado `[verificar]` | pivô errado = membro gira em torno do ponto errado |
+| `pivot` | `base` no objeto; membros = **16 bone heads R15** (validado no Studio) | pivô errado = membro gira em torno do ponto errado |
 | `colisao` | hull por parte, no máximo 1 por parte | Roblox calcula colisão por `MeshPart`; colisor separado não é importado como tal `[verificar]` |
 | `rig.esqueleto` | `r15@1` — 15 partes + `HumanoidRootPart` | nomes exigidos pelo `Humanoid` |
 | `rig.max_ossos` | `24` | acima do R15 há solução mais barata |

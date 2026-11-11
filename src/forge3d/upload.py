@@ -19,12 +19,19 @@ from .errors import erro_recurso, erro_upload
 
 API_PADRAO = "https://apis.roblox.com"
 TAMANHO_MAX = 20 * 1024 * 1024
-TIPOS = {
+TIPOS_MODEL = {
     ".glb": "model/gltf-binary",
     ".gltf": "model/gltf+json",
     ".fbx": "model/fbx",
     ".rbxm": "model/x-rbxm",
     ".rbxmx": "model/x-rbxm",
+}
+TIPOS_IMAGEM = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".bmp": "image/bmp",
+    ".tga": "image/tga",
 }
 
 __all__ = ["chave_api", "executar"]
@@ -102,6 +109,7 @@ def _http(url: str, key: str, dados: bytes | None = None, content_type: str | No
 def executar(
     arquivo: str | Path,
     *,
+    asset_type: str = "Model",
     nome: str | None = None,
     descricao: str | None = None,
     creator_id: str | None = None,
@@ -117,9 +125,16 @@ def executar(
         raise erro_upload(f"GLB nao encontrado: {caminho}")
     if caminho.stat().st_size > TAMANHO_MAX:
         raise erro_upload(f"arquivo maior que 20 MB: {caminho.stat().st_size} B")
-    content_type = TIPOS.get(caminho.suffix.lower())
-    if content_type is None:
-        raise erro_upload(f"formato nao suportado para Model: {caminho.suffix}")
+    if asset_type == "Model":
+        content_type = TIPOS_MODEL.get(caminho.suffix.lower())
+        if content_type is None:
+            raise erro_upload(f"formato nao suportado para Model: {caminho.suffix}")
+    elif asset_type in ("Image", "Decal"):
+        content_type = TIPOS_IMAGEM.get(caminho.suffix.lower())
+        if content_type is None:
+            raise erro_upload(f"formato nao suportado para {asset_type}: {caminho.suffix}")
+    else:
+        raise erro_upload(f"asset_type nao suportado: {asset_type}")
     if intervalo <= 0 or max_espera <= 0:
         raise erro_upload("intervalo e max-espera precisam ser > 0")
 
@@ -127,7 +142,7 @@ def executar(
     nome = nome or caminho.stem
     descricao = descricao or "Modelo gerado pelo Forge3D (R15/blocky)."
     request = {
-        "assetType": "Model",
+        "assetType": asset_type,
         "displayName": nome,
         "description": descricao,
         "creationContext": {"creator": creator},
@@ -143,6 +158,7 @@ def executar(
             "arquivo": str(caminho),
             "bytes": caminho.stat().st_size,
             "content_type": content_type,
+            "asset_type": asset_type,
             "creator": creator,
             "nome": nome,
             "request": request,
@@ -178,6 +194,7 @@ def executar(
         "operation": op_id,
         "moderation": (asset.get("moderationResult") or {}).get("moderationState"),
         "bytes": caminho.stat().st_size,
+        "asset_type": asset_type,
         "nome": nome,
         "creator": creator,
         "url": url,

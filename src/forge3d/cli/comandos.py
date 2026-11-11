@@ -1,6 +1,6 @@
 """Implementacao dos subcomandos (argparse, sem dependencia extra).
 
-Dez comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist`` ``gc`` ``export-r15`` ``upload-model``.
+Onze comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist`` ``gc`` ``export-r15`` ``upload-model`` ``upload-image``.
 """
 
 from __future__ import annotations
@@ -85,6 +85,17 @@ def construir_parser() -> argparse.ArgumentParser:
     u.add_argument("--max-espera", type=float, default=300.0)
     u.add_argument("--json", action="store_true")
 
+    i = sub.add_parser("upload-image", help="sobe PNG/JPG via Open Cloud Assets (Image)")
+    i.add_argument("arquivo")
+    i.add_argument("--nome")
+    i.add_argument("--descricao")
+    i.add_argument("--creator-id")
+    i.add_argument("--creator-type", choices=["user", "group"])
+    i.add_argument("--dry-run", action="store_true")
+    i.add_argument("--intervalo", type=float, default=2.0)
+    i.add_argument("--max-espera", type=float, default=300.0)
+    i.add_argument("--json", action="store_true")
+
     return p
 
 
@@ -126,6 +137,8 @@ def _executar(args) -> int:
         return _export_r15(args)
     if args.cmd == "upload-model":
         return _upload_model(args)
+    if args.cmd == "upload-image":
+        return _upload_image(args)
     raise SystemExit(2)  # pragma: no cover
 
 
@@ -248,11 +261,12 @@ def _allowlist(args) -> int:
     return 0 if removido else 2
 
 
-def _upload_model(args) -> int:
+def _upload_asset(args, asset_type: str) -> int:
     from .. import upload
 
     relatorio = upload.executar(
         args.arquivo,
+        asset_type=asset_type,
         nome=args.nome,
         descricao=args.descricao,
         creator_id=args.creator_id,
@@ -267,16 +281,25 @@ def _upload_model(args) -> int:
         print("dry-run: nenhum request enviado")
         print(f"  POST {relatorio['url']}")
         print(
-            f"  creator {relatorio['creator']}  nome {relatorio['nome']}  "
-            f"{relatorio['bytes']} B  {relatorio['content_type']}"
+            f"  tipo {relatorio['asset_type']}  creator {relatorio['creator']}  "
+            f"nome {relatorio['nome']}  {relatorio['bytes']} B  {relatorio['content_type']}"
         )
         print(f"  key: {'encontrada (nao impressa)' if relatorio['key_presente'] else 'ausente'}")
     else:
         print(
-            f"assetId {relatorio['asset_id']}  operation {relatorio['operation']}  "
-            f"moderacao {relatorio['moderation']}  {relatorio['bytes']} B"
+            f"{relatorio['asset_type']} assetId {relatorio['asset_id']}  "
+            f"operation {relatorio['operation']}  moderacao {relatorio['moderation']}  "
+            f"{relatorio['bytes']} B"
         )
     return 0
+
+
+def _upload_model(args) -> int:
+    return _upload_asset(args, "Model")
+
+
+def _upload_image(args) -> int:
+    return _upload_asset(args, "Image")
 
 
 def _export_r15(args) -> int:

@@ -71,8 +71,8 @@ Studio, **`R15_STUDIO_PASS motores=15 partes=16`** valida o pivô por membro; o 
 base` e os bone heads ficam nos joints (D47). O **`forge3d export-r15`** gera um `.rbxlx` nativo
 (16 Parts + 15 Motor6D, `R15_RBXLX_PASS`) sem upload. O `upload-model` sobe o `.glb` como `Model`
 via Open Cloud (free); o upload real foi aprovado (asset 136741921517312) e o Studio carrega **1
-MeshPart com 16 Bones R15**. Faltam textura (TextureID sem conteúdo), pivôs nos Bones, escala/stud
-e U1–U4.
+MeshPart com 16 Bones R15**; o atlas subiu como Image 75934318775024 (Approved) e o TextureID foi
+setado. O headless não carrega asset privado; faltam GUI/textura, pivôs nos Bones, escala/stud e U1–U4.
 
 **Portão:** modelo importado no Studio com `Humanoid`, membros girando no pivô certo, textura correta,
 e o documento `perfis-export.md` sem nenhum `[verificar]` pendente nesse perfil.
@@ -88,7 +88,7 @@ D2, `doctor` medindo a venv certa, allowlist de licença aplicada e `verify` ree
 - Godot 4.3 importou com AABB idêntico ao manifesto e `albedo_tex=true`, sem ajuste manual;
 - `run` 23,3 s frio / 2,1 s cache hit; VRAM pico 2.378 MiB;
 - kit corpo/capa/arma (blocky, `spec@2`) publicado e montado no Godot;
-- 50 verdes + 1 GPU (manual); `doctor` diz `mesh: pronto`.
+- 51 verdes + 1 GPU (manual); `doctor` diz `mesh: pronto`.
 
 **Residual (P3.5):** A/B de 10 assets (Q8; 3 personagens feitos), convexidade do colisor no
 `verify` (GAP-038), R15/Studio (P2). Concept, capa e split fecharam.

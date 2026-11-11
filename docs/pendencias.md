@@ -3,13 +3,13 @@
 > Regra: item sem critério de aceitação não entra aqui — vira conversa.
 > Prioridade: **A** = destrava a fase seguinte · **B** = correção que já morde · **C** = dívida aceitável.
 
-Última revisão: 10/11/2026 (P3/P3.5 com 3 personagens híbridos; R15 parcial; 50 verdes + 1 GPU (manual)).
+Última revisão: 10/11/2026 (P3/P3.5 com 3 personagens híbridos; R15 parcial; 51 verdes + 1 GPU (manual)).
 
 ## 1. Bloqueiam a próxima fase (P2/P4)
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P8 | **Roblox P2**: textura/bones no Studio | **Upload real aprovado** (asset 136741921517312); `InsertService` carrega **1 MeshPart com 16 Bones R15**; a textura 126102198021602 não tem conteúdo; faltam pivôs nos Bones, escala/stud e U1–U4 (Q3/GAP-006) | textura carregada, pivôs nos Bones, U1–U4 sem `[verificar]`, escala/stud | **B** |
+| P8 | **Roblox P2**: GUI, textura e bones | Asset 136741921517312 (1 MeshPart + 16 Bones) e **Image 75934318775024 Approved** com `TextureID` setado; o servidor headless não carrega asset privado; faltam GUI, pivôs nos Bones, escala/stud e U1–U4 (Q3/GAP-006) | textura visível no Studio GUI, pivôs nos Bones, U1–U4 sem `[verificar]` | **B** |
 
 ## 2. Correções que já mordem
 
@@ -28,7 +28,7 @@
 | # | Pergunta | Contexto medido | Prio |
 |---|---|---|---|
 | Q9 | delegação: chave de API × `agentapi` | `agentapi` é sessão agêntica com execução de ferramenta (GAP-030) | B |
-| Q3 | escala/rig Roblox | upload real aprovado (1 MeshPart + 16 Bones); textura, pivôs nos Bones, escala/stud e U1–U4 pendentes | B |
+| Q3 | escala/rig Roblox | upload real + Image aprovada; GUI/textura, pivôs nos Bones, escala/stud e U1–U4 pendentes | B |
 | Q1 | nome definitivo do produto | `forge3d` é provisório | C |
 | Q7 | assets no git do jogo: normal × LFS | primeiro asset real ainda não integrado | C |
 

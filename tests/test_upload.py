@@ -97,3 +97,12 @@ def test_upload_model_contra_servidor_local(tmp_path, monkeypatch):
     assert b'name="fileContent"' in corpo
     assert b"model/gltf-binary" in corpo
     assert b"glTF" in corpo
+
+def test_upload_image_dry_run(tmp_path):
+    p = tmp_path / "atlas.png"
+    p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 32)
+    rel = upload.executar(p, asset_type="Image", creator_id="123", dry_run=True)
+    assert rel["asset_type"] == "Image"
+    assert rel["content_type"] == "image/png"
+    assert rel["request"]["assetType"] == "Image"
+    assert rel["bytes"] == p.stat().st_size

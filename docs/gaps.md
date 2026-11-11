@@ -13,9 +13,9 @@
 | GAP-039 | `rembg` é opcional e explícito; concept com fundo não neutro falha ou entra com fundo | P3 | P3.5 | provider decide rembg por alfa/metadado e registra a decisão na versão |
 | GAP-040 | `preflight` do `mesh` checa pesos no cache HF fixo, ignorando `FORGE3D_MODELOS` | P3 | P3.5 | preflight respeita `FORGE3D_MODELOS` e caminho local de pesos |
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
-| GAP-006 | Roblox: pivô/`.rbxlx` validados; **upload real aprovado (asset 136741921517312): 1 MeshPart + 16 Bones R15**; faltam textura (`TextureID` sem conteúdo), pivôs nos Bones, escala/stud e U1–U4 | P0 | P2 | textura carregada, pivôs nos Bones, U1–U4 sem `[verificar]`; escala/stud |
+| GAP-006 | Roblox: upload real aprovado (asset 136741921517312, 1 MeshPart + 16 Bones); **textura separada aprovada (Image 75934318775024) e `TextureID` setado**; servidor headless não carrega asset privado; faltam GUI, pivôs nos Bones, escala/stud e U1–U4 | P0 | P2 | ver textura no Studio GUI, pivôs nos Bones, U1–U4 sem `[verificar]`; escala/stud |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
-| GAP-008 | CI **configurado** (`tools/ci.sh` + `.github/workflows/ci.yml`: 35 testes + P0 + contexto), primeira execução no GitHub pendente | P0 | P1.5 | primeiro run verde em PR; suíte Blender/GPU local documentada |
+| GAP-008 | CI **configurado** (`tools/ci.sh` + `.github/workflows/ci.yml`: 36 testes + P0 + contexto), primeira execução no GitHub pendente | P0 | P1.5 | primeiro run verde em PR; suíte Blender/GPU local documentada |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
 | GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada | P1 | P2 | critério visual registrado para `_LOD1`/`_LOD2` |

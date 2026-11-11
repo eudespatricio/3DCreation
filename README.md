@@ -5,7 +5,7 @@
 > atômica num destino autorizado.
 
 **Estado:** `P1`, `P3` (mesh para prop), `P3.5` (concept local + A/B de 3 personagens híbridos) e
-`P2` parcial (R15 com 16 ossos, pivô por membro, `.rbxlx` nativo e upload Open Cloud) — 50 verdes +
+`P2` parcial (R15 com 16 ossos, pivô por membro, `.rbxlx` nativo e upload Open Cloud) — 51 verdes +
 1 GPU (manual). `blocky`/`import` sem GPU; `mesh`
 com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` em P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
@@ -40,6 +40,7 @@ forge3d gc --manter-dias 30          # retenção de cache/runs/staging (não to
 forge3d export-r15 examples/lote_09_r15.yaml --item personagem.r15.guard.01  # .rbxlx nativo
 forge3d upload-model <arquivo.glb> --creator-id <id> --dry-run  # request sem rede
 forge3d upload-model <arquivo.glb> --creator-id <id>           # Open Cloud Model (free)
+forge3d upload-image <atlas.png> --creator-id <id>             # Open Cloud Image (textura)
 ```
 
 Branching no pipe é por **código de saída estável** ([`docs/contratos.md`](docs/contratos.md) §5):
@@ -123,7 +124,7 @@ O que faz diferença em produção, e não está num "script que chama modelo":
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-python -m pytest -q                     # 50 + 1 GPU (manual); P3-A, concept, gc, rbxlx, upload
+python -m pytest -q                     # 51 + 1 GPU (manual); P3-A, concept, gc, rbxlx, upload
 bash tools/check-contexto.sh            # tetos de contexto
 python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
 
@@ -155,10 +156,13 @@ Se preferir um passo a passo interativo — key oculta, creator ID e dry-run —
 A key também pode vir de `FORGE3D_ROBLOX_API_KEY`; nunca commite. O upload cria um **package de
 MeshParts**, não um rig R15; o `.rbxlx` nativo continua sendo o rig.
 
-**Upload real validado:** `assetId 136741921517312` (moderação **Approved**, 39.068 B).
-`InsertService:LoadAsset` no Studio carrega **1 MeshPart com 16 Bones R15**; a textura derivada
-(`126102198021602`) ainda falha com “No asset content representation”, então o MeshPart aparece sem
-textura. Veja [`docs/preview/r15_asset_insert.log`](docs/preview/r15_asset_insert.log).
+**Upload real validado:** `assetId 136741921517312` (Model, **Approved**, 39.068 B).
+`InsertService:LoadAsset` no Studio carrega **1 MeshPart com 16 Bones R15**. A textura do Model
+falhou; o atlas 64×64 foi extraído e subiu como **Image `75934318775024`** (Approved), com
+`TextureID` setado no MeshPart. O servidor **headless** do `run-in-roblox` não carrega assets
+privados (“No asset content representation”), então a textura precisa ser conferida no Studio GUI
+logado. Logs: [`r15_asset_insert.log`](docs/preview/r15_asset_insert.log) e
+[`r15_texture_apply.log`](docs/preview/r15_texture_apply.log).
 
 `bash tools/ci.sh` roda o portão de pull request sem GPU/Blender (unidade + concept + gc + contexto +
 P0); a suíte completa com Blender/GPU continua local. O workflow está em `.github/workflows/ci.yml`.

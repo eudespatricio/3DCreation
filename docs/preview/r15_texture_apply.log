@@ -1,0 +1,16 @@
+# Textura R15 via Open Cloud — 10/11/2026
+#
+# Atlas extraído do GLB: /tmp/r15_texture.png (64×64, 843 B)
+# assetId: 75934318775024 (Image, moderação Approved)
+# operation: 54a53bb6-e04c-4534-9f36-4120b62db493
+#
+# MeshPart do Model 136741921517312:
+#   TextureID antes  rbxassetid://126102198021602 (textura do upload, sem conteúdo)
+#   TextureID depois rbxassetid://75934318775024  (Image separada, Approved)
+#   TEXTURE_APPLY_OK
+#
+# O servidor headless do run-in-roblox ainda registra:
+#   ContentId rbxassetid://75934318775024 failed due to:
+#     No asset content representation found while do_not_fallback_to_baseline is set to true.
+# O asset está Approved e o metadata GET funciona; a falha é do asset delivery no servidor
+# sem sessão do usuário. A verificação visual precisa do Studio GUI logado.

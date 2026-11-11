@@ -71,7 +71,9 @@ Assets API (20 MB por chamada; `.glb`/`.gltf`/`.fbx`). A key vem de `FORGE3D_ROB
 rede. O resultado é um **package de MeshParts**, não um rig R15 — o `.rbxlx` nativo continua sendo
 o rig; o upload resolve a malha, e a montagem do package no rig é o passo seguinte. O upload real
 foi aprovado (asset 136741921517312): no Studio, `InsertService` carrega 1 MeshPart com 16 Bones
-R15; a textura derivada ainda não tem conteúdo.
+R15. A textura derivada falhou; o atlas 64×64 subiu como **Image 75934318775024** (Approved) e o
+`TextureID` foi setado. O servidor headless não carrega asset privado; a conferência visual é no
+Studio GUI.
 
 **Probe em 10/11/2026:** um `prop_estatico` blocky publica e `verify` passa com este perfil
 (48 tris, 1 colisor). O `personagem_humanoide` com `auto_rig: true` e `esqueleto: r15@1` publica

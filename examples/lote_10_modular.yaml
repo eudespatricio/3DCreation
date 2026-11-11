@@ -1,0 +1,64 @@
+# Dungeon modular — fatiada da P4: grade 2x2, um setor por item (D74/D75)
+# Foco: WFC com seed, layout valido e um setor por asset (1 draw call por setor).
+schema: forge3d/spec@3
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/modular
+estilo_global: lowpoly_lit
+
+paleta:
+  - "#7d858f"   # chapa clara — paredes
+  - "#3b4048"   # chapa escura — pilares
+  - "#1d2024"   # junta — piso
+
+politica:
+  falha: continuar
+  custo_max_min: 5
+  seed_base: 20261111
+
+lote:
+  - id: dungeon.setor.x0y0
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (0,0) de uma dungeon modular 2x2: piso de junta escura, paredes de chapa
+      clara nos lados fechados e pilares de canto.
+    modular:
+      grade: [2, 2]
+      modulos: [corredor, sala, curva]
+      setor: [0, 0]
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x1y0
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (1,0) da mesma dungeon; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [2, 2]
+      modulos: [corredor, sala, curva]
+      setor: [1, 0]
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x0y1
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (0,1) da mesma dungeon; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [2, 2]
+      modulos: [corredor, sala, curva]
+      setor: [0, 1]
+    tags: [dungeon, setor, modular]
+
+  - id: dungeon.setor.x1y1
+    tipo: mapa_setor
+    rota: modular
+    prompt: >-
+      Setor (1,1) da mesma dungeon; o modulo e escolhido pelo layout da seed.
+    modular:
+      grade: [2, 2]
+      modulos: [corredor, sala, curva]
+      setor: [1, 1]
+    tags: [dungeon, setor, modular]

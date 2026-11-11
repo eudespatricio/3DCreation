@@ -27,6 +27,9 @@ Nada pendente: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no rep
   `jogo-roblox` já está em LFS. O `pyproject.toml` foi sincronizado em 0.3.0 e `tools/conformidade.py`
   agora acusa divergência entre `pyproject` e `__init__`.
 
+- **P4 — fatiada de 4 setores** em 11/11/2026: `spec@3` com bloco `modular` (D75), WFC próprio
+  (D74), 3 módulos de piso e um asset por setor (72–96 tris, 1 draw call, `verify` 0 problemas). Falta
+  do portão: 10 setores, catálogo maior e a parede fechada (GAP-047).
 - **P5 — LOD (GAP-013/GAP-046)** em 11/11/2026: critério de silhueta medido (IoU global, faixa
   vertical e bbox) em `tools/lod_qualidade.py`. O LOD do blocky foi reprovado (decimate vira espinho;
   ilha perde antebraço) e os exemplos passam a não pedir LOD de blocky; o LOD de malha gerada passa no

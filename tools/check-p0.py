@@ -35,6 +35,7 @@ schemas = {}
 for rel in (
     "schemas/spec.v1.schema.json",
     "schemas/spec.v2.schema.json",
+    "schemas/spec.v3.schema.json",
     "schemas/manifest.v1.schema.json",
     "schemas/manifest.v2.schema.json",
     "schemas/manifest.v3.schema.json",
@@ -57,6 +58,7 @@ LOTES = (
     ("examples/lote_07_cape.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_09_r15.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_03_kit.yaml", "schemas/spec.v2.schema.json", "spec@2"),
+    ("examples/lote_10_modular.yaml", "schemas/spec.v3.schema.json", "spec@3"),
 )
 for rel, schema_rel, rotulo in LOTES:
     try:

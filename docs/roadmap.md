@@ -131,6 +131,12 @@ run do CI (GAP-008) seguem.
 **Portão:** dungeon de 10 setores reproduzível por seed, com colisão funcional e sem infinito de
 draw calls por setor.
 
+**Estado em 11/11/2026 — fatiada de 4 setores:** `spec@3` com o bloco `modular` (D75), WFC próprio
+(D74) com 3 módulos e grade 2x2 seed 20261111 → layout `[[curva, sala], [sala, sala]]`; cada setor é
+um asset (72–96 tris, 1 draw call) e `verify` fecha 0 problemas. Falta do portão: **10 setores**,
+catálogo maior (hoje 3 módulos) e a parede fechada de verdade — o lado fechado hoje é parede
+**parcial** no meio do lado (GAP-047), porque caixas encostadas no limite do módulo quebram o G1.
+
 ## P5 — Polimento
 
 LOD para mesh gerada (com critério visual, não decimate cego), retarget entre `godot-humanoid@1` e

@@ -66,6 +66,7 @@ CAMPOS_CANONICOS_ITEM = (
 SPEC_SCHEMAS = {
     "forge3d/spec@1": "spec.v1.schema.json",
     "forge3d/spec@2": "spec.v2.schema.json",
+    "forge3d/spec@3": "spec.v3.schema.json",
 }
 _SPEC_SCHEMA_CACHE: dict[str, dict] = {}
 
@@ -139,8 +140,8 @@ def _normalizar(doc: dict, avisos: list[dict]) -> None:
         # prompt vazio conta como ausente
         if isinstance(item.get("prompt"), str) and not item["prompt"].strip():
             item.pop("prompt")
-        # seed herda a base do lote quando a rota exige
-        if item.get("rota") == "mesh" and "seed" not in item:
+        # seed herda a base do lote quando a rota exige (mesh e modular: o layout e por seed)
+        if item.get("rota") in ("mesh", "modular") and "seed" not in item:
             base = (doc.get("politica") or {}).get("seed_base")
             if base is not None:
                 item["seed"] = base
@@ -155,6 +156,9 @@ def _resolver_defaults(doc: dict, perfil: dict, avisos: list[dict]) -> None:
         item.setdefault("colisao", profiles.colisao_padrao(perfil, tipo))
         item.setdefault("lod", [100])
         item.setdefault("auto_rig", False)
+        if item.get("rota") == "modular":
+            # mapa_setor nao exige altura no schema; o modulo tem pe-direito proprio
+            item.setdefault("altura_metros", 2.4)
         item.setdefault("tags", [])
         if item["auto_rig"] and "esqueleto" not in item:
             item["esqueleto"] = profiles.esqueleto_padrao(perfil)
@@ -226,9 +230,53 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
             erros.append({"id": iid, "regra": "B1", "mensagem": "id duplicado no lote"})
         ids.add(iid)
 
-        if item.get("rota") == "mesh" and "seed" not in item:
+        if item.get("rota") in ("mesh", "modular") and "seed" not in item:
             erros.append(
-                {"id": iid, "regra": "B2", "mensagem": "rota mesh exige 'seed' (ou politica.seed_base)"}
+                {
+                    "id": iid,
+                    "regra": "B2",
+                    "mensagem": f"rota {item['rota']} exige 'seed' (ou politica.seed_base)",
+                }
+            )
+
+        bloco_modular = item.get("modular")
+        if item.get("rota") == "modular":
+            if not isinstance(bloco_modular, dict) or "grade" not in bloco_modular:
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "B15",
+                        "mensagem": "rota modular exige o bloco 'modular' com 'grade' e 'modulos'",
+                    }
+                )
+            else:
+                nx, ny = (int(v) for v in bloco_modular["grade"])
+                setor = bloco_modular.get("setor") or [0, 0]
+                if not (0 <= int(setor[0]) < nx and 0 <= int(setor[1]) < ny):
+                    erros.append(
+                        {
+                            "id": iid,
+                            "regra": "B16",
+                            "mensagem": f"setor {setor} fora da grade {nx}x{ny}",
+                        }
+                    )
+                from . import modular as _modular
+
+                fora = [m for m in bloco_modular.get("modulos") or [] if m not in _modular.CATALOGO]
+                if fora:
+                    erros.append(
+                        {
+                            "id": iid,
+                            "regra": "B17",
+                            "mensagem": (
+                                f"modulo(s) fora do catalogo: {', '.join(fora)} "
+                                f"(tem: {', '.join(sorted(_modular.CATALOGO))})"
+                            ),
+                        }
+                    )
+        elif bloco_modular is not None:
+            erros.append(
+                {"id": iid, "regra": "B15", "mensagem": "'modular' so existe na rota modular"}
             )
 
         if item.get("rota") == "import":

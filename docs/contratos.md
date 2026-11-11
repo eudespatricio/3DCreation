@@ -225,6 +225,23 @@ publicou ou veio do cache.
 | `FORGE-W-ALIAS` | alias legado de estilo usado | — |
 | `FORGE-W-ANIM` | `animacoes_base` com clipe sem gerador nesta fase | — |
 | `FORGE-W-LOD` | LOD de `blocky` abaixo de 50% (perde a silhueta, medido em GAP-013) | — |
+
+### spec@3 — bloco `modular` (D75)
+
+Aditivo sobre `spec@2`: um item com `rota: modular` declara
+
+```yaml
+modular:
+  grade: [2, 2]                                  # colunas x linhas, em setores
+  modulos: [corredor, sala, curva]               # catálogo sorteável pelo WFC
+  setor: [0, 0]                                  # setor exportado por este item (default 0,0)
+  tamanho_modulo: 4.0                            # lado em metros (default 4,0)
+```
+
+Regras: `B15` — `modular` só existe na rota `modular`, e a rota `modular` exige o bloco com `grade`;
+`B16` — `setor` dentro da grade; `B17` — nomes de módulo do catálogo (`corredor`, `sala`, `curva`);
+`B2` vale para `modular` também (seed vem de `politica.seed_base` quando ausente). `altura_metros`
+default **2,4 m** (pé-direito) quando a rota é `modular` e o item não declara.
 | `FORGE-W-QC` | gate em estado `warn` | — |
 
 ## 7. Compatibilidade

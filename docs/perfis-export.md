@@ -44,7 +44,7 @@ para acontecer com a segunda engine.
 
 | Chave | Valor | Nota |
 |---|---|---|
-| `formato` | `glb` | Roblox importa via 3D Importer; validar versão do Studio `[verificar]` |
+| `formato` | `glb` + **`rbxlx` nativo** | `glb` via 3D Importer; `rbxlx` é Parts+Motor6D, sem upload |
 | `unidades.metros_por_unidade` | `1.0` (Blender) · conversão `studs = metros / 0.28` | 1 stud ≈ 0,28 m; arredondar na geração, nunca no importador `[verificar]` |
 | `eixos` | up `+Y`, frente `−Z` | igual ao glTF; Roblox usa +Y up, −Z frente |
 | `aplicar_transforms` | `true` | `MeshPart` com escala aplicada quebra `Motor6D` |
@@ -52,10 +52,16 @@ para acontecer com a segunda engine.
 | `colisao` | hull por parte, no máximo 1 por parte | Roblox calcula colisão por `MeshPart`; colisor separado não é importado como tal `[verificar]` |
 | `rig.esqueleto` | `r15@1` — 15 partes + `HumanoidRootPart` | nomes exigidos pelo `Humanoid` |
 | `rig.max_ossos` | `24` | acima do R15 há solução mais barata |
-| `material.modelo` | `SurfaceAppearance` (base color + normal + roughness) | PBR na Roblox é `SurfaceAppearance`, que **não vem por glTF** `[verificar]` |
+| `material.modelo` | `SurfaceAppearance` (base color + normal + roughness) | PBR na Roblox é `SurfaceAppearance`, que **não vem por glTF** `[verificar]`; o `.rbxlx` usa cor por Part |
 | `material.textura_max` | `1024` | limite prático de tamanho de imagem |
 | `lod` | `nenhum` | Roblox tem `RenderFidelity` próprio; LOD exportado é ignorado |
 | `validacao` | escala `1 %` (arredondamento de stud) · pivô por junta `2 mm` · tri/parte `≤ 10.000` · partes `≤ 15` | |
+
+**Export nativo:** `forge3d export-r15 <lote> --item <id>` monta um place `.rbxlx` com **16
+Parts** (agregando as caixas de cada osso) e **15 Motor6D** com `CFrame`/`C0`/`C1` no joint. O
+arquivo abre direto no Studio — `R15_RBXLX_PASS partes=16 motores=15` — sem upload, sem 3D
+Importer e sem textura (as Part usam a cor do blocky). Textura/atlas e `MeshPart` continuam no
+`glb` e em P8.
 
 **Probe em 10/11/2026:** um `prop_estatico` blocky publica e `verify` passa com este perfil
 (48 tris, 1 colisor). O `personagem_humanoide` com `auto_rig: true` e `esqueleto: r15@1` publica

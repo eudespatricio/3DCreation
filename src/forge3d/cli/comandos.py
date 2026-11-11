@@ -1,6 +1,6 @@
 """Implementacao dos subcomandos (argparse, sem dependencia extra).
 
-Oito comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist`` ``gc``.
+Nove comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist`` ``gc`` ``export-r15``.
 """
 
 from __future__ import annotations
@@ -68,6 +68,12 @@ def construir_parser() -> argparse.ArgumentParser:
     g.add_argument("--dry-run", action="store_true")
     g.add_argument("--json", action="store_true")
 
+    e = sub.add_parser("export-r15", help="gera .rbxlx R15 nativo (Parts+Motor6D) do blocky")
+    e.add_argument("lote")
+    e.add_argument("--item", required=True)
+    e.add_argument("--saida")
+    e.add_argument("--json", action="store_true")
+
     return p
 
 
@@ -105,6 +111,8 @@ def _executar(args) -> int:
         return _allowlist(args)
     if args.cmd == "gc":
         return _gc(args)
+    if args.cmd == "export-r15":
+        return _export_r15(args)
     raise SystemExit(2)  # pragma: no cover
 
 
@@ -225,6 +233,20 @@ def _allowlist(args) -> int:
     else:
         print("removido" if removido else "nao estava na allowlist")
     return 0 if removido else 2
+
+
+def _export_r15(args) -> int:
+    from .. import rbx
+
+    relatorio = rbx.exportar_r15(args.lote, args.item, args.saida)
+    if args.json:
+        _json(relatorio)
+    else:
+        print(
+            f"rbxlx {relatorio['saida']}  {relatorio['partes']} partes  "
+            f"{relatorio['motores']} motores  {relatorio['bytes']} B"
+        )
+    return 0
 
 
 def _gc(args) -> int:

@@ -5,7 +5,8 @@
 > atômica num destino autorizado.
 
 **Estado:** `P1`, `P3` (mesh para prop), `P3.5` (concept local + A/B de 3 personagens híbridos) e
-`P2` parcial (R15 com 16 ossos e pivô por membro no Studio) — 47 verdes + 1 GPU (manual). `blocky`/`import` sem GPU; `mesh`
+`P2` parcial (R15 com 16 ossos, pivô por membro e `.rbxlx` nativo no Studio) — 48 verdes + 1 GPU
+(manual). `blocky`/`import` sem GPU; `mesh`
 com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` em P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
@@ -36,6 +37,7 @@ forge3d verify <destino>   --json    # portão de CI: hash + G1–G9 reexecutado
 forge3d query  --max-tris 100 --json # "by demand": o que já existe
 forge3d doctor                       # diagnóstico do ambiente
 forge3d gc --manter-dias 30          # retenção de cache/runs/staging (não toca no publicado)
+forge3d export-r15 examples/lote_09_r15.yaml --item personagem.r15.guard.01  # .rbxlx nativo
 ```
 
 Branching no pipe é por **código de saída estável** ([`docs/contratos.md`](docs/contratos.md) §5):
@@ -119,7 +121,7 @@ O que faz diferença em produção, e não está num "script que chama modelo":
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-python -m pytest -q                     # 47 + 1 GPU (manual); P3-A, concept, gc e invariantes
+python -m pytest -q                     # 48 + 1 GPU (manual); P3-A, concept, gc, rbxlx e invariantes
 bash tools/check-contexto.sh            # tetos de contexto
 python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
 
@@ -129,8 +131,9 @@ blender --background --factory-startup --python tools/render_preview.py -- \
 ```
 
 R15: `run-in-roblox` 0.3.2 no Studio passou `R15_STUDIO_PASS motores=15 partes=16` (log
-[`docs/preview/r15_studio_test.log`](docs/preview/r15_studio_test.log)); o import do GLB/textura no
-Studio segue manual (P8).
+[`docs/preview/r15_studio_test.log`](docs/preview/r15_studio_test.log)). O `forge3d export-r15`
+gera um **`.rbxlx` nativo** (16 Parts + 15 Motor6D, com CFrame e pivô no joint) que abre direto no
+Studio — `R15_RBXLX_PASS partes=16 motores=15`; textura/MeshPart e escala/stud seguem em P8.
 
 `bash tools/ci.sh` roda o portão de pull request sem GPU/Blender (unidade + concept + gc + contexto +
 P0); a suíte completa com Blender/GPU continua local. O workflow está em `.github/workflows/ci.yml`.

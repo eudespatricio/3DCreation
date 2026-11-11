@@ -3,13 +3,13 @@
 > Regra: item sem critério de aceitação não entra aqui — vira conversa.
 > Prioridade: **A** = destrava a fase seguinte · **B** = correção que já morde · **C** = dívida aceitável.
 
-Última revisão: 10/11/2026 (P3/P3.5 com 3 personagens híbridos; R15 parcial; 47 verdes + 1 GPU (manual)).
+Última revisão: 10/11/2026 (P3/P3.5 com 3 personagens híbridos; R15 parcial; 48 verdes + 1 GPU (manual)).
 
 ## 1. Bloqueiam a próxima fase (P2/P4)
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P8 | **Roblox P2**: import do GLB no Studio | **Pivô por membro validado no Studio** (`R15_STUDIO_PASS motores=15 partes=16`); 16 bone heads no GLB conferem; faltam import da malha/textura, escala/stud e U1–U4 (Q3/GAP-006) | GLB importado com textura no Studio, U1–U4 sem `[verificar]`, escala/stud | **B** |
+| P8 | **Roblox P2**: textura/escala no Studio | **Pivô por membro e `.rbxlx` nativo (16 Parts+15 Motor6D) validados no Studio**; faltam textura/MeshPart, escala/stud e U1–U4 (Q3/GAP-006) | GLB/MeshPart com textura no Studio, U1–U4 sem `[verificar]`, escala/stud | **B** |
 
 ## 2. Correções que já mordem
 
@@ -28,7 +28,7 @@
 | # | Pergunta | Contexto medido | Prio |
 |---|---|---|---|
 | Q9 | delegação: chave de API × `agentapi` | `agentapi` é sessão agêntica com execução de ferramenta (GAP-030) | B |
-| Q3 | escala/rig Roblox | pivô por membro validado no Studio; escala/stud e import de malha/textura pendentes | B |
+| Q3 | escala/rig Roblox | pivô e `.rbxlx` nativo validados; textura/MeshPart, escala/stud e U1–U4 pendentes | B |
 | Q1 | nome definitivo do produto | `forge3d` é provisório | C |
 | Q7 | assets no git do jogo: normal × LFS | primeiro asset real ainda não integrado | C |
 
@@ -42,6 +42,8 @@
 - **P3-C** venvs consolidadas: `~/.venvs/triposr` (5,8 GB) removida; só `venv-i23d` (torch 2.4.1).
 - **P3-D** kit blocky corpo/capa/arma: `examples/lote_03_kit.yaml`, 3 assets publicados e montados no
   Godot (`Chest`, `Hand.R`).
+- **P2 export nativo** — `forge3d export-r15` gera `.rbxlx` com 16 Parts + 15 Motor6D, sem upload;
+  abre no Studio e passa `R15_RBXLX_PASS partes=16 motores=15`; textura/MeshPart seguem em P8.
 - **P2 pivô por membro** — R15 com 16 ossos; `R15_STUDIO_PASS motores=15 partes=16` no Studio e bone
   heads do GLB nos joints (D47); import de malha/textura segue em P8.
 - **P7** A/B de **3 personagens híbridos**: .02/.05/.04 + capa .03 + arma `blocky` .01, `AB_OK`,

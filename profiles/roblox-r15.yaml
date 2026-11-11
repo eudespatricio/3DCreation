@@ -4,7 +4,7 @@ schema: forge3d/profile@1
 perfil: roblox-r15
 versao: 1
 
-formato: [glb]
+formato: [glb, rbxlx]
 
 unidades:
   metros_por_unidade: 1.0        # geracao em metros

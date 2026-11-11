@@ -1,0 +1,19 @@
+# export-r15 nativo (.rbxlx) — Roblox Studio 63eb6055af4e4688 — 10/11/2026
+#
+# 1) forge3d export-r15 examples/lote_09_r15.yaml \
+#      --item personagem.r15.guard.01 --saida /tmp/r15_cli.rbxlx
+#    -> 16 partes, 15 motores, 18.479 B (sem upload, sem textura)
+#
+# 2) run-in-roblox run --script tools/r15_rbxlx_test.lua \
+#      --place-file %TEMP%\forge3d_r15_native.rbxlx ... --oneshot
+#
+# O place gerado abre direto no Studio: Workspace.Forge3DR15, 16 Parts, 15 Motor6D e
+# Humanoid. O teste confere os pivôs (C0 no joint) e a rotação de 30°.
+#
+[2026-11-11T00:37:51Z INFO] studio server 969502fa-000c-47f7-b1ab-41ba7f6c8323 started
+[2026-11-11T00:37:51Z INFO] R15_RBXLX_PASS partes=16 motores=15
+[2026-11-11T00:37:56Z INFO] studio server 969502fa-000c-47f7-b1ab-41ba7f6c8323 stopped
+[2026-11-11T00:37:56Z INFO] now exiting as --oneshot was set to true.
+#
+# Nota: Part usa CFrame (Position nao era aplicado e os Parts ficavam na origem); o
+# Motor6D usa C0/C1 no joint. Textura/atlas e MeshPart continuam no GLB, nao neste .rbxlx.

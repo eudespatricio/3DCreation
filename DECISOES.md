@@ -139,6 +139,9 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Colisor após correção | hull reconstruído só com `hull["geom"]`; G7/convexidade verde nos 12 invariantes | `test_invariantes_e2e.py` em 10/11/2026 |
 | `.rbxlx` no caminho default | **18.479 B**, 16 partes, 15 motores em `saida/r15/personagem.r15.guard.01.rbxlx` | `export-r15` em 10/11/2026 |
 
+| Trabalho paralelo (worktree) | 3 itens revisados e integrados: atomicidade do publish, helpers de VRAM/PID, linter de conformidade. A reescrita do `lock_gpu` com `unlink` antes do `flock` foi **rejeitada** (corrida de inode) e refeita | revisão em 11/11/2026 |
+| Suíte após o paralelo | **86 verdes + 1 GPU (skip)** em **17,2 s**; CI em **71 testes** | `pytest` e `tools/ci.sh` em 11/11/2026 |
+
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
 end-to-end (implementado, execução pendente), A/B de 10 assets, qualidade de personagem com capa,
 comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
@@ -207,7 +210,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D54 | **Prompt do concept é medido e truncado no limite CLIP (77)** dentro da venv, com aviso em stderr e contagem no JSON; o sufixo não repete trecho já presente no prompt | o diffusers truncava em silêncio e `game asset concept art` ia duas vezes nos prompts do lote |
 | D55 | **`rembg` decidido pelo provider** por procedência (`concept`) ou canal alfa, com `FORGE3D_I23D_REMOVER_FUNDO` ainda mandando; a política (`rembgauto2`) entra na versão/cache e o motivo no resultado | `rembg` era opt-in por env e imagem opaca de origem ficava com fundo |
 | D56 | **CI roda no GitHub em repo público**; `tools/ci.sh` é a fonte do job e cobre os testes de C5–C11 | primeiro run verde em 42942191684; GAP-008 fechado |
-| D57 | **Delegação fica no `agentapi` e exige a IDE aberta**; não se adiciona chave de API e `tools/delegar.py` não ganha caminho headless | decisão do operador em 11/11/2026 (fecha Q9/C6): custo por token e mais um segredo não pagam um front-end opcional que nunca está no caminho crítico (D13) || D58 | **`empunhadura` é 20 % da altura a partir da base**, uma regra numérica única: o blocky declara o pivô nessa fração (`FRACAO_EMPUNHADURA`) e o G2 mede o desvio contra ela | medido: a mesma regra dava 10 % no blocky e 20 % no `postprocess`, e o G2 não media nenhum dos dois; a intenção do perfil ("menor secção") fica em GAP-042 |
+| D57 | **Delegação fica no `agentapi` e exige a IDE aberta**; não se adiciona chave de API e `tools/delegar.py` não ganha caminho headless | decisão do operador em 11/11/2026 (fecha Q9/C6): custo por token e mais um segredo não pagam um front-end opcional que nunca está no caminho crítico (D13) || D58 | **`empunhadura` é 20 % da altura a partir da base**, uma regra numérica única: o blocky declara o pivô nessa fração (`FRACAO_EMPUNHADURA`) e o G2 mede o desvio contra ela | medido: a mesma regra dava 10 % no blocky e 20 % no `postprocess`, e o G2 não media nenhum dos dois; a intenção do perfil ("menor secção") fica em GAP-042 || D59 | **`flock` é o dono do lock de GPU**; `pid_ativo` e `vram_livre_mb` são **diagnóstico**, nunca condição de posse. `lock_gpu` não faz `unlink` do arquivo de lock | a versão paralela removia o arquivo e reabria antes do `flock`: dois processos podiam flockar inodes diferentes e quebrar a exclusividade do D11 |
 
 ## 3. Rejeitados (e por quê)
 

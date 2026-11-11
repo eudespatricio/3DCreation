@@ -15,7 +15,6 @@
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
 | GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada | P1 | P2 | critério visual registrado para `_LOD1`/`_LOD2` |
-| GAP-014 | I3 (publish atômico) tem implementação, mas não teste de observação durante o run | P1 | P1.5 | teste que falha se algum arquivo parcial aparecer no destino |
 | GAP-015 | `draft` (LLM) não existe; Ollama mede 4.096 tokens efetivos | P0 | P6 | prompt cabendo em 4k com teste de truncamento |
 | GAP-018 | `query --tag` existe, mas as tags não são indexadas por tabela própria (LIKE) | P1 | P4 | tabela `tags` normalizada quando o índice passar de ~1.000 assets |
 | GAP-019 | Uma execução da suíte e2e deu `ERROR` em 3 fixtures (`test_i2`, `test_i13`, `test_rota_import`) com stdout não-JSON, e **não reproduziu** em 3 execuções seguintes (26/26 verdes) | P1 | P1.5 | reproduzir com `-p no:randomly` e capturar o stderr do subprocesso; até lá, tratar suite vermelha como real |
@@ -49,6 +48,7 @@
 | ~~GAP-036~~ | ~~Personagem com capa / split do input mesh~~ | P3 | **P3.5 ✔** | híbrido corpo .02 + capa .03 + arma `blocky` .01 montado no Godot (`CHAR_CAPE_OK`); capa/arma mesh .02 isoladas ficam D39 |
 | ~~GAP-041~~ | ~~Capa/arma no split mesh~~ | P3.5 | **P3.5 ✔** | D39/D40: arma vai para `blocky`; capa .03 reconhecível no conjunto; previews `docs/preview/p3_char_cape_*` |
 | ~~GAP-029~~ | ~~Qualidade do reconstructor~~ | P3 | **P3.5 ✔** | 3 personagens híbridos (.02/.05/.04 + capa .03 + arma blocky .01), `AB_OK`, G1–G9; `docs/preview/p3_ab_3personagens.png` |
+| ~~GAP-014~~ | ~~I3 sem teste de observação durante o run~~ | P1 | **C14 ✔** | `tests/test_atomico.py`: thread observadora não vê arquivo parcial, `spy` em `os.replace` prova destino vazio antes do rename, falha injetada não deixa arquivo final |
 | ~~GAP-016~~ | ~~Sem política de retenção do cache~~ | P0 | **P6 parcial ✔** | `forge3d gc --manter-dias 30`, 2 testes; publicado/índice/ledger intocados |
 | ~~GAP-008~~ | ~~CI nunca rodou no GitHub~~ | P0 | **C5–C11 ✔** | repo público `github.com/eudespatricio/3DCreation`; run **42942191684** `success` em `cc89da4` e **PR #1** verde nos dois gatilhos (`push` e `pull_request`), merge `7e24615`; job = `tools/ci.sh` com 53 testes + contexto + P0 |
 | ~~GAP-037~~ | ~~`verify` pulava o pivô de manifesto antigo~~ | P3 | **C7 ✔** | `verify` reprova manifesto sem `G2.pivo_regra`; `tests/test_correcoes.py` |

@@ -1,7 +1,7 @@
 # CONTINUAR — handoff de sessão
 
 **Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3/P3.5 fechadas para prop, concept→mesh e 3
-personagens híbridos com capa; P2 parcial (R15 16 ossos, pivô, `.rbxlx`, Model/Image aprovados; falta GUI).** 68 verdes + 1 GPU
+personagens híbridos com capa; P2 parcial (R15 16 ossos, pivô, `.rbxlx`, Model/Image aprovados; falta GUI).** 86 verdes + 1 GPU
 (skip; manual passa) · assets com UV+textura aprovados no QC e importados no Godot 4.3.
 
 Revisão da janela: [`docs/revisao-janela-2026-11-10.md`](docs/revisao-janela-2026-11-10.md).
@@ -67,7 +67,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 
 | Medida | Valor |
 |---|---|
-| Suíte | **68 verdes + 1 GPU (skip; manual passa)** (24 unidade + 2 P3-A + 6 concept + 2 gc + 1 rbxlx + 3 upload + 17 C5–C11 + 1 e2e rápido + 12 invariantes) em **18,0 s** |
+| Suíte | **86 verdes + 1 GPU (skip; manual passa)** (24 unidade + 2 P3-A + 6 concept + 2 gc + 1 rbxlx + 3 upload + 17 C5–C11 + 18 do paralelo + 1 e2e rápido + 12 invariantes) em **17,2 s** |
 | E2E rápido | **2,0 s** (alvo <30 s) |
 | TripoSR — inferência (bule) | load **7,7 s** · forward **1,2 s** · extração **3,8 s** · total **12,6 s** · VRAM pico **2.378 MiB** |
 | `run` mesh — bule | **23,3 s** frio · **2,1 s** cache hit |
@@ -91,7 +91,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | P2 — pivô por membro (Studio) | **`R15_STUDIO_PASS motores=15 partes=16`**; 16 bone heads no GLB (H=1,85 m) |
 | P2 — export nativo `.rbxlx` | **16 Parts + 15 Motor6D**, 18.479 B; `R15_RBXLX_PASS partes=16 motores=15` |
 | P2 — upload Open Cloud | Model 136741921517312 (Approved, 1 MeshPart + 16 Bones) + Image 75934318775024 (Approved); `TextureID` setado; headless sem asset privado; 3 testes |
-| gc / CI | `gc` 2 testes; `tools/ci.sh` **53 testes** + contexto + P0; GitHub run **42942191684** verde |
+| gc / CI | `gc` 2 testes; `tools/ci.sh` **71 testes** + contexto + P0; GitHub run **42949131625** verde |
 | Venv concept | **5,6 GB** · diffusers 0.31.0 · transformers 4.44.2 · torch 2.4.1+cu121 |
 | Probe Roblox (sem Studio) | prop blocky publica/verifica; humanoid falha em `pivot: junta`; blocky não gera nomes R15 |
 

@@ -1,12 +1,13 @@
 # CONTINUAR — handoff de sessão
 
 **Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3/P3.5 fechadas para prop, concept→mesh e 3
-personagens híbridos com capa; P2 parcial (R15 com 16 ossos, pivô e `.rbxlx` nativo).** 51 verdes + 1 GPU
+personagens híbridos com capa; P2 parcial (R15 16 ossos, pivô, `.rbxlx`, Model/Image aprovados; falta GUI).** 51 verdes + 1 GPU
 (skip; manual passa) · assets com UV+textura aprovados no QC e importados no Godot 4.3.
 
+Revisão da janela: [`docs/revisao-janela-2026-11-10.md`](docs/revisao-janela-2026-11-10.md).
 **Para a próxima janela:** leia [`docs/pendencias.md`](docs/pendencias.md) (o que falta, com critério),
 [`docs/gaps.md`](docs/gaps.md) (lacunas) e [`DECISOES.md`](DECISOES.md) §1–§2 e §4. Verificação rápida:
-`python -m pytest tests/test_e2e_rapido.py -q` (2,0 s) e `python -m pytest -q` (11,5 s).
+`python -m pytest tests/test_e2e_rapido.py -q` (2,0 s) e `python -m pytest -q` (16,0 s).
 
 ---
 
@@ -27,7 +28,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P1** | ✔ | rotas `blocky` e `import` de ponta a ponta: validar → planejar → gerar → Blender → QC G1–G9 → cache → publicar → índice → ledger |
 | **P3** | **✔ parcial** | provider `i23d` real (TripoSR) + bake UV/textura próprio + venv única + kit corpo/capa/arma; prop e **3 personagens híbridos** com G1–G9 |
 | **P3.5** | **✔** | concept SD1.5 → TripoSR → UV/bake: sentinela sem `origem`, split 3 concepts e **A/B de 3 personagens híbridos** (.02/.05/.04 + capa .03 + arma blocky), `AB_OK` |
-| **P2** | **parcial** | `roblox-r15`: R15 16 ossos, pivô e `.rbxlx` nativo; **upload real aprovado (1 MeshPart + 16 Bones)**; faltam textura, pivôs nos Bones, escala/stud e U1–U4 |
+| **P2** | **parcial** | `roblox-r15`: R15 16 ossos, pivô e `.rbxlx`; **Model 136741921517312 (1 MeshPart + 16 Bones) e Image 75934318775024 aprovados**; falta ver textura no GUI, pivôs nos Bones, escala/stud e U1–U4 |
 | **P4** | pendente | rota `modular` (WFC) |
 | **P5** | pendente | animação e retarget |
 
@@ -108,13 +109,12 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 
 | # | Pergunta | Trava | Fecha em |
 |---|---|---|---|
-| **Q8** | qualidade do reconstructor para **personagem com capa** (TripoSR × SF3D) | a qualidade de personagem | P3.5, com 3 personagens |
-| Q3 | escala/rig Roblox (0,28 m/stud) | perfil Roblox | P2, teste no Studio |
+| Q3 | escala/rig Roblox (0,28 m/stud) | perfil Roblox | P2, GUI do Studio |
 | Q1 | nome definitivo do produto | publicar o pacote | antes do release |
 | Q7 | assets no git do jogo (normal × LFS) | primeiro asset real | antes de integrar |
 | Q9 | delegação: chave de API × `agentapi` | uso seguro em execução | P4 |
 
-Gaps abertos que importam: **GAP-006** (pivô por membro/Studio R15), **GAP-008** (primeiro run do
+Gaps abertos que importam: **GAP-006** (GUI/textura/bones/escala R15), **GAP-008** (primeiro run do
 CI no GitHub), **GAP-037** (verify de manifesto antigo sem `pivo_regra`), **GAP-038** (convexidade
 no G7), **GAP-039** (rembg explícito), **GAP-040** (`FORGE3D_MODELOS`).
 
@@ -175,7 +175,7 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 `docs/gaps.md` · `docs/pendencias.md` · `schemas/` (`spec.v1`, `spec.v2`, `manifest.v1`) ·
 `src/forge3d/` (15 módulos) · `blender/postprocess.py` · `tools/` (`i23d_infer`, `concept_infer`,
 `setup_concept_venv`, `normalize_mesh`, `render_preview`, `delegar`, `torchmcubes_shim`, `check-*`) ·
-`tests/` · `examples/` (`lote_01`, `lote_03_kit`, `lote_04_mesh`, `lote_05_mesh_concept`) ·
+`tests/` · `examples/` (`lote_01`, `lote_03_kit`, `lote_04_mesh`, `lote_05_mesh_concept`, `lote_06_mesh_split`, `lote_07_cape`, `lote_08_ab_hybrid`, `lote_09_r15`) ·
 `docs/preview/p3_sentinel_*` · `p3_split_*` · `p3_char_cape_*` · `p3_ab_3personagens.png` ·
 `src/forge3d/gc.py` · `tools/ci.sh` · `.github/workflows/ci.yml` · `tools/r15_studio_test.lua` ·
 `docs/preview/r15_studio_test.log` · `r15_rbxlx_test.log` · `src/forge3d/rbx.py` ·
@@ -193,8 +193,8 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 ## Como retomar
 
 > Leia `3DCreation/CONTINUAR.md`, `MAPA.md` e `DECISOES.md` §2 e §4. P0, P0.5 e P1 estão fechadas;
-> P3 está fechada **para prop** (bule com UV+textura, G1–G9 verdes, importado no Godot 4.3) e para o
-> **kit blocky** corpo/capa/arma. P3.5 fechou o **concept local → mesh** com o sentinela sem `origem`
-> (7.940 tris, G1–G9, Godot com AABB idêntico). Próximo: split do input mesh (GAP-036/037) e
-> qualidade de personagem **com capa** (Q8/GAP-029); depois Roblox P2 (Q3/GAP-006) e `gc`/CI.
-> Não reabra D3–D26; SF3D está encerrado (D27) e não deve ser reinstalado.
+> P3/P3.5 fecharam prop, concept, split e **3 personagens híbridos**. P2 está parcial: R15 16 ossos,
+> pivô, `.rbxlx` e upload **Model 136741921517312 + Image 75934318775024** aprovados. Falta o GUI
+> logado para ver a textura, testar os pivôs nos 16 Bones, escala/stud e U1–U4.
+> Próximo: P8/GAP-006; depois primeiro run do CI (GAP-008), C5–C11 e animação. Não reabra D3–D26;
+> SF3D encerrado (D27); key em `~/.config/forge3d/roblox.key`, fora do repo.

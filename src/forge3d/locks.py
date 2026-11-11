@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -16,7 +18,7 @@ from pathlib import Path
 from . import paths
 from .errors import erro_recurso
 
-__all__ = ["caminho_lock", "estado", "lock_gpu"]
+__all__ = ["caminho_lock", "estado", "lock_gpu", "pid_ativo", "vram_livre_mb"]
 
 try:  # pragma: no cover - plataforma
     import fcntl
@@ -26,6 +28,39 @@ except ImportError:  # pragma: no cover
 
 def caminho_lock() -> Path:
     return paths.dir_locks() / "gpu.lock"
+
+
+def pid_ativo(pid: int) -> bool:
+    """O processo ainda existe? Diagnostico de lock orfao — NAO decide posse do lock."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def vram_livre_mb() -> int | None:
+    """VRAM livre em MiB via ``nvidia-smi``; None quando nao ha GPU nem ferramenta."""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return None
+    try:
+        saida = subprocess.run(
+            [exe, "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        ).stdout.strip()
+        linhas = saida.splitlines()
+        if not linhas:
+            return None
+        return int(linhas[0].strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
 
 
 def estado() -> dict:

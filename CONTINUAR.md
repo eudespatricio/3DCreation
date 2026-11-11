@@ -78,7 +78,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | CI no GitHub | **152 testes** em `portoes` + `verificar` (pipeline, `verify` e a regressão de orientação) + `distribuicao` |
 | Instalação | wheel de **0.3.7** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
 | `forge3d migrate` | `lote_01` @1→@3 e `lote_03_kit` @2→@3 com `parte` e comentários intactos; `--saida`/`--em-lugar`; **10 testes** |
-| Herói elfo (caso real, `mesh`) | **27,7 s**, VRAM **2.378 MB**, 7.958 tris, G1–G10 ok, `verify` 0; saía **de cabeça para baixo** → corrigido pelo sinal de contato (D84/0.3.8); republicação pendente de VRAM |
+| Heróis do teste (11/11/2026) | `mesh` elfo: **27,7 s**, VRAM **2.378 MB**, 7.958 tris, G1–G10 ok; cabeça-para-baixo corrigida em **0.3.8** (`invertido: false`). R15 blocky: **300 tris**, **16 ossos**, `idle` **2,042 s**, `.rbxlx` 16 partes/15 motores; `verify` 0 nos dois |
 | Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |

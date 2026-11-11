@@ -90,7 +90,20 @@ CLIENT_CMP publico head_rel=0.1106 | nosso head_rel=0.0000   (3 versoes do asset
 ```
 
 O controle com a animacao publica **publica** `507766666` move a Head 0,11 studs no mesmo personagem,
-entao a medicao funciona — o nosso asset e que nao e aplicado. Ja tentado: poses por nome de parte
+entao a medicao funciona — o nosso asset e que nao era aplicado. Ja tentado: poses por nome de parte
 (v1), por nome de junta (v2) e pose completa com as 15 juntas (v3, asset 76679193157451, 30.226 B).
-O `Motor6D.Transform` fica zero com `WeightCurrent=1` e `Length=2.0`. Falta descobrir a convencao que
-o Animator espera (o caminho mais curto e abrir o asset no Animation Editor e ver o que ele mostra).
+O `Motor6D.Transform` fica zero com `WeightCurrent=1` e `Length=2.0`.
+
+**Resolvido: era a prioridade.** O KeyframeSequence publico tem `Priority = Enum.AnimationPriority.Core`;
+o nosso tinha `Idle` (0). Gerada a v4 com `Priority=Core` (asset **116049702979137**, 30.229 B), o rig
+Motor6D do `.rbxlx` (replicado do server para o client) toca:
+
+```
+CLIENT_RIG v4_core   head=0.0949  (2a execucao: 0.0662)
+CLIENT_RIG v3_completa head=0.0003
+CLIENT_RIG v2_juntas   head=0.0002
+CLIENT_RIG v1_partes   head=0.0133 (ruido)
+```
+
+O personagem padrao do Studio usa **Bone**, nao Motor6D — por isso a primeira tentativa no personagem
+do jogador nao media nada; a validacao usa o rig do `.rbxlx` criado no server e animado no client.

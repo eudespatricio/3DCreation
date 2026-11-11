@@ -112,7 +112,9 @@ def _sequencia_xml(clipe: dict, referent: int) -> tuple[list[str], int]:
         "<Properties>",
         f'<string name="Name">{escape(str(clipe["nome"]))}</string>',
         '<bool name="Loop">true</bool>',
-        '<token name="Priority">0</token>',
+        # Core (1000): prioridade acima das animacoes padrao do personagem. Com Idle (0) o track
+        # carrega e nao e aplicado por cima do que o Humanoid ja toca (medido no client).
+        '<token name="Priority">1000</token>',
         "</Properties>",
     ]
     referent += 1
@@ -270,6 +272,7 @@ def ler_place(caminho: str | Path) -> dict:
                 {
                     "nome": props.findtext("string[@name='Name']") or "",
                     "loop": (props.findtext("bool[@name='Loop']") or "false") == "true",
+                    "priority": int(props.findtext("token[@name='Priority']") or 0),
                     "chaves": chaves,
                 }
             )

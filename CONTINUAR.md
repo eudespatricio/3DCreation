@@ -31,7 +31,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P3** | ✔ | provider `i23d` (TripoSR), bake UV/textura próprio, kit corpo/capa/arma |
 | **P3.5** | ✔ | concept SD1.5 → TripoSR, split e A/B de 3 personagens híbridos |
 | **P4** | pendente | rota `modular` (WFC) |
-| **P5** | parcial | animação base ✔ (D66/D67) e `KeyframeSequence` no `.rbxlx` ✔ (D69); falta publicar como `Animation` (GAP-045) e o LOD de mesh (GAP-013) |
+| **P5** | parcial | animação base ✔ (D66/D67), `KeyframeSequence`/`Animation` ✔ tocando no Roblox (D69); falta o LOD de mesh (GAP-013) |
 
 ## O que foi entregue nesta janela
 
@@ -58,11 +58,10 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   clipe; Godot 4.3 headless confirma nos dois esqueletos. `PIPELINE_VERSION` **0.2.7**.
 - **P5-B — clipe no Roblox (D69)** — `animacao.py` é a definição única; o `export-r15` grava um
   `KeyframeSequence` (5 chaves, pose completa com as 15 juntas, nome de junta R15) no `.rbxlx`, o
-  `export-anim` gera o
-  `.rbxmx` e o `upload-animation` sobe como `Animation` (**83693072870629**, Approved); o
-  `GetKeyframeSequenceAsync` devolve as 5 poses. A sonda `tools/r15_anim_studio.py` reconstrói o rig no
-  Studio e mede a Head andando **0,1091 studs**. **Playback não verificado**: a sonda de servidor do
-  MCP não mede o `Animator` (controle com animação pública também dá zero).
+  `export-anim` gera o `.rbxmx` e o `upload-animation` sobe como `Animation`
+  (**116049702979137**, Approved). **Playback medido no client do Play mode**: a Head anda
+  **0,0949 / 0,0662 studs** em duas execuções. O que destravou foi `Priority=Core` — com `Idle` a track
+  carrega (`Weight=1`, `Length=2.0`) e não aplica; o nome da pose (parte × junta) não era o problema.
 
 ## Números medidos nesta máquina
 
@@ -74,8 +73,9 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
 | Clipe no rig Roblox (MCP) | Head anda **0,1091 studs** entre t=0 e t=0,5; maior delta de parte 0,1253 |
-| Animation no Roblox | asset **83693072870629** Approved (10.581 B); `GetKeyframeSequenceAsync` = 5 keyframes, poses `Root/Waist/Neck/LeftShoulder/RightShoulder` |
-| Play mode via MCP | **não mede**: `Animator` fica com `Transform=0` até com animação pública (controle) — precisa de cliente/janela |
+| Animation no Roblox | asset **116049702979137** (30.229 B, Approved, `Priority=Core`); `GetKeyframeSequenceAsync` = 5 keyframes, 15 poses |
+| Playback no client | Head anda **0,0949 / 0,0662 studs** no rig Motor6D do `.rbxlx`; com `Idle` (v2/v3) 0,0002 |
+| Client do Studio | personagem padrão usa **Bone**, não Motor6D: a validação usa o rig do `.rbxlx` replicado do server |
 | Colisor após D64/D65 | desvio máximo **4,3e-4 m** num hull de 2,2 m (tolerância 1 mm/m); face interior do defeito desviava 1,8 m |
 | Package R15 v2 no Studio | `size=2,7086 × 6,6071 × 1,5196` studs · **16 Bones** · `surface=false` · `humanoid=false` |
 | glb do R15 | `bbox = 2,70855 × 6,60709 × 1,519631` studs para `bbox_m = [0,7584; 1,85; 0,4255]` m |
@@ -105,15 +105,15 @@ unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tol
 | Q7 | assets no git do jogo: normal × LFS | primeiro asset real |
 
 Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-013** (qualidade do LOD),
-**GAP-015** (`draft` em 4k), **GAP-042** (regra do "menor secção"), **GAP-045** (clipe no Roblox).
+**GAP-015** (`draft` em 4k), **GAP-042** (regra do "menor secção").
 
 ## Próximos passos — em ordem
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Validar o `Animation` 83693072870629 tocando no Play mode **com cliente** (janela real) ou no Animation Editor; a sonda de servidor do MCP não mede | 1 sessão manual | GAP-045 |
-| **2** | LOD de mesh com critério visual (GAP-013) | 1 sessão | P5 |
-| **3** | **P4** rota `modular` (WFC) | 1–2 sessões | roadmap |
+| **1** | LOD de mesh com critério visual (GAP-013) | 1 sessão | P5 |
+| **2** | **P4** rota `modular` (WFC) | 1–2 sessões | roadmap |
+| **3** | Levantar o `.rbxlx` no Studio para o rig com o clipe (validação visual com cliente real) | manual | P5 |
 
 ## Comandos
 

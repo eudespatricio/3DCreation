@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
 | GAP-042 | `empunhadura` foi simplificada para **20 % da altura** (D58); a regra do perfil — "menor secção transversal na faixa inferior 30 %" — não está implementada | P3 | P4 | regra geométrica implementada em função única e medida pelo G2 com o mesmo critério |
-| GAP-045 | **Playback do clipe no Roblox não verificado**: o `KeyframeSequence` vai no `.rbxlx` (D69), o asset `Animation` sobe pelo Open Cloud e volta com as 5 poses (`GetKeyframeSequenceAsync`), mas a sonda de **server datamodel** do MCP não mede o `Animator`: com animação **pública** de controle o `Motor6D.Transform` também fica zero | P5 | P5 | Play mode com cliente (janela real) ou Animation Editor tocando o `Animation` 83693072870629; medir/screenshot |
+| ~~GAP-045~~ | ~~Playback do clipe no Roblox não verificado~~ | P5 | **P5 ✔** | `Animation` **116049702979137** (`Priority=Core`) tocando no rig Motor6D no **client** do Play mode: Head anda **0,0949 / 0,0662 studs** em duas execuções (Idle dava 0,0002); `KeyframeSequence` no `.rbxlx`, `.rbxmx` e `upload-animation` no caminho |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
 | GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada — **venceu em P2 sem ser avaliado** | P1 | P5 | critério visual registrado para `_LOD1`/`_LOD2` |

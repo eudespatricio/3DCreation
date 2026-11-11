@@ -80,6 +80,8 @@ def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
     assert len(place["clipes"]) == 1
     clipe = place["clipes"][0]
     assert clipe["nome"] == "idle" and clipe["loop"] is True
+    # Core: com Idle (0) o Animator nao aplica a track por cima do que o Humanoid ja toca
+    assert clipe["priority"] == 1000
     assert [c["tempo"] for c in clipe["chaves"]] == [0.0, 0.5, 1.0, 1.5, 2.0]
 
     esperado = animacao.clipes(profiles.carregar("roblox-r15"), "r15@1", ["idle"])[0]

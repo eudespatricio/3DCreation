@@ -15,7 +15,6 @@
 
 | # | Correção | Sintoma hoje | Aceitação | Prio |
 |---|---|---|---|---|
-| C6 | `tools/delegar.py` depende da IDE aberta | falha com mensagem clara, mas não tem caminho sem IDE | decisão entre chave de API e `agentapi` registrada (Q9) — **decisão do operador, única pendência de código** | **C** |
 | C12 | Assets publicados antes de 11/11/2026 têm manifesto sem `pivo_regra` e colisor côncavo | `forge3d verify` nesses destinos agora reprova (`C7`/`C8` funcionando como portão) | republicar os destinos antigos (`lote_01`, `lote_03_kit`, `lote_06`, `r15`) ou aceitar o destino como arquivo morto | **B** |
 
 ## 3. Decisões que precisam do operador
@@ -29,6 +28,8 @@
 
 ## 4. Fechado nesta janela (não reabrir)
 
+- **C6/Q9** decidido em 11/11/2026 por **D57**: `delegar.py` fica no `agentapi`, que exige a IDE
+  (Antigravity) aberta; sem chave de API e sem caminho headless.
 - **C5–C11** fechados em 11/11/2026: 10 execuções seguidas do e2e (C5); `verify` reprova manifesto
   sem `pivo_regra` (C7); G7 mede convexidade por componente e o `convex_hull` foi corrigido — o gate
   achou colisor com 22–146 arestas não-manifold (C8); `rembg` decidido por procedência/alfa (C9);

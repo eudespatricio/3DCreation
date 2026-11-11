@@ -19,6 +19,11 @@
 Conclusão operacional: **o canal existe, mas depende do Antigravity estar aberto.** Sem ele, o cliente
 falha com mensagem acionável em vez de tentar e travar.
 
+**Decidido em 11/11/2026 (D57, fecha Q9/C6):** a delegação fica no `agentapi` e **exige a IDE aberta**.
+Não se adiciona chave de API — o custo por token e mais um segredo não pagam uma função que é
+front-end opcional (D13) e nunca está no caminho crítico. Rodar `delegar.py` sem a IDE devolve
+`FORGE-E-AMBIENTE` com a instrução: é o comportamento aceito, não um defeito aberto.
+
 ## 2. O que delegar (e por quê)
 
 | Tipo | Por que é seguro delegar | Formato de retorno |

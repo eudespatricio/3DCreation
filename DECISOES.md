@@ -207,6 +207,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D54 | **Prompt do concept é medido e truncado no limite CLIP (77)** dentro da venv, com aviso em stderr e contagem no JSON; o sufixo não repete trecho já presente no prompt | o diffusers truncava em silêncio e `game asset concept art` ia duas vezes nos prompts do lote |
 | D55 | **`rembg` decidido pelo provider** por procedência (`concept`) ou canal alfa, com `FORGE3D_I23D_REMOVER_FUNDO` ainda mandando; a política (`rembgauto2`) entra na versão/cache e o motivo no resultado | `rembg` era opt-in por env e imagem opaca de origem ficava com fundo |
 | D56 | **CI roda no GitHub em repo público**; `tools/ci.sh` é a fonte do job e cobre os testes de C5–C11 | primeiro run verde em 42942191684; GAP-008 fechado |
+| D57 | **Delegação fica no `agentapi` e exige a IDE aberta**; não se adiciona chave de API e `tools/delegar.py` não ganha caminho headless | decisão do operador em 11/11/2026 (fecha Q9/C6): custo por token e mais um segredo não pagam um front-end opcional que nunca está no caminho crítico (D13) |
 
 ## 3. Rejeitados (e por quê)
 
@@ -236,6 +237,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | ~~Q6~~ | **Resolvida em 10/11/2026 por D24** — estado central em `$FORGE3D_HOME`, nada no repo do jogo | — | — |
 | Q7 | Assets versionados no git do jogo: direto × Git LFS | antes do primeiro asset real no GameZero | nada técnico |
 | Q8 | Qualidade do reconstructor para personagem com capa: TripoSR × SF3D | P3 fechada para prop (bule) com TripoSR; A/B de 10 assets e personagem continuam abertos | Rota `mesh`, D18 |
+| ~~Q9~~ | **Resolvida em 11/11/2026 por D57** — delegação no `agentapi`, que exige a IDE aberta; sem chave de API e sem caminho headless | — | — |
 
 ## 5. Herdado do projeto `conselho` (aplicado aqui)
 

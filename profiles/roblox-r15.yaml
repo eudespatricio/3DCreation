@@ -20,7 +20,7 @@ aplicar_transforms: true         # MeshPart com escala aplicada quebra Motor6D
 pivot:
   prop_estatico: base
   prop_equipavel: empunhadura
-  personagem_humanoide: junta   # por MEMBRO: origem na junta (ombro, quadril), nao na base
+  personagem_humanoide: base    # [verificar] pivo por membro (junta) adiado; base ate o R15 completo
   criatura: junta
   modulo_cenario: base
   mapa_setor: centro

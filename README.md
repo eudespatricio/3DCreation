@@ -4,9 +4,9 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P1`, `P3` (mesh para prop) e `P3.5` (concept local + híbrido com capa) — 44 verdes +
-1 GPU (manual). `blocky`/`import` sem GPU; `mesh` com TripoSR + bake UV/textura e concept SD1.5
-**sem `origem`**; kit corpo/capa/arma. `modular` em P4.
+**Estado:** `P1`, `P3` (mesh para prop), `P3.5` (concept local + A/B de 3 personagens híbridos) e
+`P2` parcial (R15 com 16 ossos) — 47 verdes + 1 GPU (manual). `blocky`/`import` sem GPU; `mesh`
+com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` em P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---
@@ -35,6 +35,7 @@ forge3d run    lote_01.yaml --json   # gera, verifica QC e publica no destino au
 forge3d verify <destino>   --json    # portão de CI: hash + G1–G9 reexecutados
 forge3d query  --max-tris 100 --json # "by demand": o que já existe
 forge3d doctor                       # diagnóstico do ambiente
+forge3d gc --manter-dias 30          # retenção de cache/runs/staging (não toca no publicado)
 ```
 
 Branching no pipe é por **código de saída estável** ([`docs/contratos.md`](docs/contratos.md) §5):
@@ -118,7 +119,7 @@ O que faz diferença em produção, e não está num "script que chama modelo":
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
 
-python -m pytest -q                     # 44 + 1 GPU (manual); P3-A, concept e invariantes
+python -m pytest -q                     # 47 + 1 GPU (manual); P3-A, concept, gc e invariantes
 bash tools/check-contexto.sh            # tetos de contexto
 python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
 
@@ -127,13 +128,17 @@ blender --background --factory-startup --python tools/render_preview.py -- \
   ~/.local/state/forge3d/saida/android/mob.android.sentinel.01.glb docs/preview/meu_asset --pose
 ```
 
+`bash tools/ci.sh` roda o portão de pull request sem GPU/Blender (unidade + concept + gc + contexto +
+P0); a suíte completa com Blender/GPU continua local. O workflow está em `.github/workflows/ci.yml`.
+
 Os testes de invariante rodam o Blender de verdade: provam escala, pivô, hash idêntico entre execuções,
 detecção de arquivo adulterado e reexecução dos gates no `verify`, idempotência e recusa de
 destino fora da allowlist. Assets de aceitação: `prop.bule.exemplo.01` (prop, 7.960 tris) e
 `personagem.sentinel.concept.01` (concept→mesh sem `origem`, 7.940 tris) e o corpo do split
 `personagem.sentinel.corpo.02` (7.954 tris), todos com textura 512², G1–G9 verdes e AABB idêntico
 no Godot 4.3. O híbrido corpo .02 + capa .03 + arma blocky monta com `CHAR_CAPE_OK`; capa/arma mesh
-.02 isoladas seguem blobs (D39).
+.02 isoladas seguem blobs (D39). O A/B de **3 personagens** (.02/.05/.04) monta com `AB_OK` — veja
+[`docs/preview/p3_ab_3personagens.png`](docs/preview/p3_ab_3personagens.png).
 
 ## Documentos
 

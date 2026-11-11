@@ -207,7 +207,7 @@ mais é stdlib-leve. Isso mantém `forge3d plan` rodando em CI sem instalar meio
 │
 ├── pyproject.toml
 ├── src/forge3d/
-│   ├── cli/            comandos.py (7 subcomandos) · main.py
+│   ├── cli/            comandos.py (8 subcomandos: inclui gc) · main.py
 │   ├── paths.py        três raízes: dados, config, estado (D24)
 │   ├── config.py       allowlist de destino + guarda de caminho (D23)
 │   ├── spec.py         normalização, schema, regras B1–B10

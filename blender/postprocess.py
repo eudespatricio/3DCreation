@@ -255,6 +255,14 @@ def reparar_malha(obj) -> dict:
     bm.from_mesh(obj.data)
     bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-5)
     bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=list(bm.edges))
+    # sliver de area 1e-9 sobrevive ao dissolve_degenerate (que olha aresta) e vira aresta de 3
+    # faces no G1; remover a face e seguro porque ela nao cobre area util
+    slivers = [f for f in bm.faces if f.calc_area() < 1e-8]
+    if slivers:
+        bmesh.ops.delete(bm, geom=slivers, context="FACES")
+        soltos = [v for v in bm.verts if not v.link_faces]
+        if soltos:
+            bmesh.ops.delete(bm, geom=soltos, context="VERTS")
     ilhas = _remover_ilhas_de_uma_face(bm)
     bordas = [e for e in bm.edges if len(e.link_faces) == 1]
     if bordas:
@@ -271,6 +279,7 @@ def reparar_malha(obj) -> dict:
         "vertices_depois": len(obj.data.vertices),
         "faces_depois": len(obj.data.polygons),
         "ilhas_removidas": ilhas,
+        "slivers_removidos": len(slivers),
         "bordas_preenchidas": len(bordas),
     }
 
@@ -354,7 +363,10 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
         )
         info["centro_area"] = round(centro, 3)
         info["areas"] = [round(a, 6) for a in areas]
-        if total > 0 and centro < n * 0.48:
+        razao_ends = (areas[-1] / areas[0]) if areas and areas[0] > 0 else 0.0
+        info["razao_topo_base"] = round(razao_ends, 3)
+        # cabeca fina em cima => topo menor que a base; se o topo for bem maior, esta invertido
+        if total > 0 and (razao_ends > 1.5 or centro < n * 0.48):
             # espelha Z: mantem frente (+Y) e lados (+-X), corrige cabeca para cima
             for v in obj.data.vertices:
                 v.co.z = -v.co.z

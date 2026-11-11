@@ -48,7 +48,7 @@ para acontecer com a segunda engine.
 | `unidades.metros_por_unidade` | `1.0` (Blender) · conversão `studs = metros / 0.28` | 1 stud ≈ 0,28 m; arredondar na geração, nunca no importador `[verificar]` |
 | `eixos` | up `+Y`, frente `−Z` | igual ao glTF; Roblox usa +Y up, −Z frente |
 | `aplicar_transforms` | `true` | `MeshPart` com escala aplicada quebra `Motor6D` |
-| `pivot` | por **membro**: origem na junta (ombro, quadril), não na base | pivô errado = membro gira em torno do ponto errado |
+| `pivot` | `base` no blocky; por **membro** (junta) adiado `[verificar]` | pivô errado = membro gira em torno do ponto errado |
 | `colisao` | hull por parte, no máximo 1 por parte | Roblox calcula colisão por `MeshPart`; colisor separado não é importado como tal `[verificar]` |
 | `rig.esqueleto` | `r15@1` — 15 partes + `HumanoidRootPart` | nomes exigidos pelo `Humanoid` |
 | `rig.max_ossos` | `24` | acima do R15 há solução mais barata |
@@ -57,12 +57,11 @@ para acontecer com a segunda engine.
 | `lod` | `nenhum` | Roblox tem `RenderFidelity` próprio; LOD exportado é ignorado |
 | `validacao` | escala `1 %` (arredondamento de stud) · pivô por junta `2 mm` · tri/parte `≤ 10.000` · partes `≤ 15` | |
 
-**Probe em 10/11/2026 (sem Studio):** um `prop_estatico` blocky publica e `verify` passa com
-este perfil (48 tris, 1 colisor). O `personagem_humanoide` com `auto_rig` falha em `pivot: junta`
-(fora do enum de `spec@1`/`spec@2`) e o provider blocky não gera os nomes R15 — o caminho R15
-ainda não existe no código. `colisao.prefixo` estava ausente e o G7 estourava `KeyError`; o QC foi
-corrigido para não exigir prefixo quando o perfil não declara um. Studio continua pendente
-(GAP-006).
+**Probe em 10/11/2026:** um `prop_estatico` blocky publica e `verify` passa com este perfil
+(48 tris, 1 colisor). O `personagem_humanoide` com `auto_rig: true` e `esqueleto: r15@1` publica
+**300 tris com 16 ossos/nomes R15** (`HumanoidRootPart`…`RightFoot`), G1–G9, `verify` ok e
+`R15_OK` no Godot. O perfil usa `pivot: base`; pivô por membro, escala/stud e Studio continuam
+pendentes (GAP-006). `colisao.prefixo` ausente não estoura mais o G7.
 
 ### Esqueleto `r15@1` (Rig)
 

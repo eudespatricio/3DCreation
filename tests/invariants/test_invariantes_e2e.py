@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from forge3d import qc
+
 RAIZ = Path(__file__).resolve().parents[2]
 EXEMPLO = RAIZ / "examples" / "lote_01.yaml"
 
@@ -243,6 +245,28 @@ def test_kit_corpo_capa_arma_publica_e_verifica(tmp_path):
     assert arma["rig"] is None
     assert capa["colisao"]["tipo"] == "none"
     assert arma["colisao"]["tipo"] == "convex"
+
+    codigo, saida = _rodar(["verify", str(destino)], env)
+    assert codigo == 0 and saida["ok"] is True, saida
+
+def test_r15_blocky_gera_16_ossos_com_nomes_r15(tmp_path):
+    """P2: o blocky com `esqueleto: r15@1` produz os 16 nomes de parte do R15 e passa no G6."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = _ambiente(home)
+    lote = RAIZ / "examples" / "lote_09_r15.yaml"
+    codigo, relatorio = _rodar(["run", str(lote)], env)
+    assert codigo == 0, relatorio["itens"]
+
+    destino = home / ".local" / "state" / "forge3d" / "saida" / "r15"
+    manifesto = json.loads((destino / "personagem.r15.guard.01.manifest.json").read_text())
+    assert manifesto["rig"] == {"esqueleto": "r15@1", "ossos": 16}
+    gltf = qc.ler_glb(destino / "personagem.r15.guard.01.glb")
+    nomes = qc.analisar(gltf)["nomes_ossos"]
+    assert len(nomes) == 16
+    assert "HumanoidRootPart" in nomes
+    assert "LeftHand" in nomes
+    assert manifesto["qc"]["aprovado"] is True
 
     codigo, saida = _rodar(["verify", str(destino)], env)
     assert codigo == 0 and saida["ok"] is True, saida

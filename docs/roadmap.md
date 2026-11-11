@@ -65,6 +65,10 @@ Godot (GAP-011) — o portão desceu de "entra no jogo" para "QC + manifesto", e
 **Entrega:** `profiles/roblox-r15.yaml` completo, rig `r15@1`, conversão de escala, colisão por parte,
 e o teste real no Studio que fecha U1–U4.
 
+**Estado em 10/11/2026 — parcial:** o blocky remapeia para as **16 partes R15** (`HumanoidRootPart`…
+`RightFoot`), publica 300 tris com G1–G9 e `verify`, e o GLB/Godot mostra 16 ossos (`R15_OK`). O
+perfil usa `pivot: base`; pivô por membro, escala/stud e Studio continuam pendentes.
+
 **Portão:** modelo importado no Studio com `Humanoid`, membros girando no pivô certo, textura correta,
 e o documento `perfis-export.md` sem nenhum `[verificar]` pendente nesse perfil.
 
@@ -79,10 +83,10 @@ D2, `doctor` medindo a venv certa, allowlist de licença aplicada e `verify` ree
 - Godot 4.3 importou com AABB idêntico ao manifesto e `albedo_tex=true`, sem ajuste manual;
 - `run` 23,3 s frio / 2,1 s cache hit; VRAM pico 2.378 MiB;
 - kit corpo/capa/arma (blocky, `spec@2`) publicado e montado no Godot;
-- 44 verdes + 1 GPU (manual); `doctor` diz `mesh: pronto`.
+- 47 verdes + 1 GPU (manual); `doctor` diz `mesh: pronto`.
 
-**Residual (P3.5):** 10 assets com A/B (Q8), concept provider (GAP-026), personagem com capa
-(GAP-029/GAP-036), split do input mesh (GAP-037), convexidade do colisor no `verify` (GAP-038).
+**Residual (P3.5):** A/B de 10 assets (Q8; 3 personagens feitos), convexidade do colisor no
+`verify` (GAP-038), R15/Studio (P2). Concept, capa e split fecharam.
 
 **Portão:**
 - 10 assets gerados com QC aprovado e **tempo/VRAM medidos nesta máquina** (entram em `DECISOES.md` §1);
@@ -103,9 +107,9 @@ proveniencia (modelo, revisao, seed) no manifesto.
 **1,000387×1,8×0,729638 m**, G1–G9 verdes, `providers.texture` (`concept/sd15`, revisao, seed) e Godot
 4.3 com AABB idêntico. A orientação de humanoide ganhou o perfil de área (D37).
 
-**Portao:** cumprido para 1 GLB, para o **mecanismo de split** (3 concepts) e para **1 personagem
-híbrido** com capa (corpo .02 + capa .03 + arma blocky, `CHAR_CAPE_OK`). Falta o A/B de **3
-personagens** (P7/Q8), Roblox P2 (P8) e `gc`/CI (C3/GAP-008).
+**Portao:** cumprido para o concept sem `origem`, o split (3 concepts) e o **A/B de 3 personagens**
+híbridos (.02/.05/.04 + capa .03 + arma blocky, `AB_OK`). R15/Studio (P2), `gc` (feito) e primeiro
+run do CI (GAP-008) seguem.
 
 
 ## P4 — Rota `modular`
@@ -124,7 +128,8 @@ LOD para mesh gerada (com critério visual, não decimate cego), retarget entre 
 ## P6 — Produto
 
 Índice consultável (`query`), `gc`, `migrate` de spec, CI de pull request com `verify`, distribuição
-(`uv tool install`), e — só se houver consumidor não-Python — o adaptador HTTP.
+(`uv tool install`), e — só se houver consumidor não-Python — o adaptador HTTP. **Feito:**
+`forge3d gc` (D45) e `tools/ci.sh` + workflow sem GPU/Blender (D46/GAP-008 configurado).
 
 ## Caminho crítico
 

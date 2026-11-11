@@ -101,6 +101,13 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P3.5 — personagem híbrido | corpo .02 + capa .03 + arma `blocky` .01; Godot `CHAR_CAPE_OK`; AABB corpo **1,114836×1,8×0,906218**, capa **0,531849×1,3×0,355717**, arma **0,209×0,95×0,0666** | `godot --headless` em 10/11/2026 |
 | P3.5 — qualidade do conjunto | corpo/capa/arma reconhecíveis no híbrido; capa/arma mesh .02 isoladas seguem blobs (D39) | previews `docs/preview/p3_char_cape_*` em 10/11/2026 |
 
+| P3.5 — A/B 3 personagens | corpos .02/.05/.04 (**7.954/7.950/7.960 tris**) + capa .03 + arma blocky .01; Godot `AB_OK`; imagem `docs/preview/p3_ab_3personagens.png` | `run` do lote_08 + Godot em 10/11/2026 |
+| P3.5 — scout .05 | **7.950 tris**; orientação `razao_topo_base=5,071` → invertido; G1 0 | `resultado.json` em 10/11/2026 |
+| P3.5 — sliver no G1 | face de área **2,96e-9 m²** deixava 3 arestas não-manifold; remover faces < 1e-8 resolveu | `resultado.json` em 10/11/2026 |
+| P2 — R15 blocky | **300 tris**, **16 ossos** R15 (todos no mapa), G1–G9, `verify` ok; Godot `R15_OK`; Studio pendente | `run`/`godot` em 10/11/2026 |
+| gc | remove cache/runs/staging > 30 dias; **2 testes**; não toca `saida/`, índice nem ledger | `tests/test_gc.py` em 10/11/2026 |
+| CI | `tools/ci.sh` roda **32 testes** + contexto + P0; workflow em `.github/workflows/ci.yml` | `bash tools/ci.sh` em 10/11/2026 |
+
 | Custo concept→mesh | **40 s estimados × 37,2 s reais** (erro -7%) | `plan` × `run` em 10/11/2026 |
 
 | P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |
@@ -157,6 +164,12 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D38 | **Fallback CPU** para `mesh`/concept via `FORGE3D_DEVICE=cpu` (lento, sem VRAM); não é o caminho de aceitação | GPU compartilhada nesta máquina; o fallback validou o encadeamento em 71,4 s |
 | D39 | **Split mesh**: o corpo gerado é viável; capa/arma finas e isoladas **não** são confiáveis no TripoSR. O mecanismo de 3 itens/3 concepts fica; para capa/arma usáveis, a rota `blocky` (kit P3-D) ou um modelo especializado | medido: corpo reconhecível; capa e arma publicadas mas blobs (GAP-041) |
 | D40 | **Kit híbrido para personagem com capa**: corpo `mesh` + capa `mesh` (prompt de capa vazia + negativo de pessoa) + arma `blocky`; montagem estática no Godot. A capa/arma mesh isoladas não são o produto | medido: `CHAR_CAPE_OK`, 3 assets reconhecíveis; capa/arma .02 blobs (D39) |
+| D41 | **R15 no blocky**: templates godot são remapeados para as 16 partes R15; o perfil `roblox-r15` usa `pivot: base` até o pivô por membro existir | medido: 16 ossos, G6/verify ok; `pivot: junta` não é valor de spec e o Studio não está disponível |
+| D42 | **Sliver de área < 1e-8 m² é removido** no `reparar_malha` antes do G1 | medido: face 2,96e-9 deixava 3 arestas não-manifold e o `dissolve_degenerate` não pegava |
+| D43 | **Orientação por duas pistas**: `razao_topo_base > 1,5` ou centro de área < 48% → espelha Z | medido: sentinela/heavy pelo centro; scout `razao=5,071` com centro 6,136 (sem a pista nova ficava de cabeça para baixo) |
+| D44 | **A/B de 3 personagens híbridos**: .02/.05/.04 + capa .03 + arma `blocky` .01; 3 corpos distintos, mesmo kit | 3 personagens reconhecíveis/fechados, `AB_OK`; P7/Q8 fechados para 3 personagens |
+| D45 | **`gc` por idade** em cache/runs/staging; publicado, índice e ledger ficam intocados | `tests/test_gc.py`; `C3`/GAP-016 fechados |
+| D46 | **CI sem GPU/Blender**: `tools/ci.sh` roda unidade/concept/gc + contexto + P0; a suíte Blender/GPU continua local | GAP-008 configurado; primeira execução no GitHub pendente |
 
 
 

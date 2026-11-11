@@ -17,7 +17,7 @@ import sys
 import yaml
 from jsonschema import Draft202012Validator
 
-ROOT = pathlib.Path("/home/eudespatricio/3DCreation")
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 erros = []
 
 
@@ -53,6 +53,7 @@ LOTES = (
     ("examples/lote_05_mesh_concept.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_06_mesh_split.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_07_cape.yaml", "schemas/spec.v1.schema.json", "spec@1"),
+    ("examples/lote_09_r15.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_03_kit.yaml", "schemas/spec.v2.schema.json", "spec@2"),
 )
 for rel, schema_rel, rotulo in LOTES:

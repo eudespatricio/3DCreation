@@ -25,7 +25,7 @@ from pathlib import Path
 from .. import paths
 from .base import RawAsset
 
-VERSAO = "0.1.2"
+VERSAO = "0.1.4"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
 VRAM_MINIMA_MB = 3500

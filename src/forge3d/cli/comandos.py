@@ -1,6 +1,6 @@
 """Implementacao dos subcomandos (argparse, sem dependencia extra).
 
-Sete comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist``.
+Oito comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist`` ``gc``.
 """
 
 from __future__ import annotations
@@ -63,6 +63,11 @@ def construir_parser() -> argparse.ArgumentParser:
     a.add_argument("caminho", nargs="?")
     a.add_argument("--json", action="store_true")
 
+    g = sub.add_parser("gc", help="remove cache/runs/staging antigos; nao toca no publicado")
+    g.add_argument("--manter-dias", type=int, default=30)
+    g.add_argument("--dry-run", action="store_true")
+    g.add_argument("--json", action="store_true")
+
     return p
 
 
@@ -98,6 +103,8 @@ def _executar(args) -> int:
         return _query(args)
     if args.cmd == "allowlist":
         return _allowlist(args)
+    if args.cmd == "gc":
+        return _gc(args)
     raise SystemExit(2)  # pragma: no cover
 
 
@@ -218,6 +225,23 @@ def _allowlist(args) -> int:
     else:
         print("removido" if removido else "nao estava na allowlist")
     return 0 if removido else 2
+
+
+def _gc(args) -> int:
+    from .. import gc
+
+    relatorio = gc.executar(args.manter_dias, aplicar=not args.dry_run)
+    if args.json:
+        _json(relatorio)
+    else:
+        acao = "removidos" if relatorio["aplicado"] else "seriam removidos"
+        print(
+            f"{relatorio['total']} alvo(s) {acao} com mais de {relatorio['manter_dias']} dias "
+            f"({relatorio['bytes'] / (1024**2):.1f} MB)"
+        )
+        for alvo in relatorio["alvos"][:20]:
+            print(f"  {alvo['tipo']:<8} {alvo['dias']:>6.1f}d  {alvo['caminho']}")
+    return 0
 
 
 def _imprimir_plano(relatorio: dict) -> None:

@@ -74,6 +74,53 @@ OSSOS_HUMANOIDE = [
 ]
 
 
+#: R15 (Roblox) — 16 partes. O blocky usa os mesmos templates de caixa, remapeando o osso.
+OSSOS_R15 = [
+    ("HumanoidRootPart", None, (0.0, 0.0, 0.0), (0.0, 0.0, 0.05)),
+    ("LowerTorso", "HumanoidRootPart", (0.0, 0.0, 0.44), (0.0, 0.0, 0.52)),
+    ("UpperTorso", "LowerTorso", (0.0, 0.0, 0.52), (0.0, 0.0, 0.78)),
+    ("Head", "UpperTorso", (0.0, 0.0, 0.78), (0.0, 0.0, 1.00)),
+    ("LeftUpperArm", "UpperTorso", (0.10, 0.0, 0.76), (0.17, 0.0, 0.60)),
+    ("LeftLowerArm", "LeftUpperArm", (0.17, 0.0, 0.60), (0.17, 0.0, 0.44)),
+    ("LeftHand", "LeftLowerArm", (0.17, 0.0, 0.44), (0.17, 0.0, 0.36)),
+    ("RightUpperArm", "UpperTorso", (-0.10, 0.0, 0.76), (-0.17, 0.0, 0.60)),
+    ("RightLowerArm", "RightUpperArm", (-0.17, 0.0, 0.60), (-0.17, 0.0, 0.44)),
+    ("RightHand", "RightLowerArm", (-0.17, 0.0, 0.44), (-0.17, 0.0, 0.36)),
+    ("LeftUpperLeg", "LowerTorso", (0.065, 0.0, 0.44), (0.065, 0.0, 0.235)),
+    ("LeftLowerLeg", "LeftUpperLeg", (0.065, 0.0, 0.235), (0.065, 0.0, 0.065)),
+    ("LeftFoot", "LeftLowerLeg", (0.065, 0.0, 0.065), (0.065, 0.12, 0.02)),
+    ("RightUpperLeg", "LowerTorso", (-0.065, 0.0, 0.44), (-0.065, 0.0, 0.235)),
+    ("RightLowerLeg", "RightUpperLeg", (-0.065, 0.0, 0.235), (-0.065, 0.0, 0.065)),
+    ("RightFoot", "RightLowerLeg", (-0.065, 0.0, 0.065), (-0.065, 0.12, 0.02)),
+]
+
+#: osso do template godot -> parte R15 que recebe a caixa
+MAPA_OSSO_R15 = {
+    "Hips": "LowerTorso",
+    "Spine": "UpperTorso",
+    "Spine1": "UpperTorso",
+    "Chest": "UpperTorso",
+    "Neck": "Head",
+    "Head": "Head",
+    "Shoulder.L": "LeftUpperArm",
+    "UpperArm.L": "LeftUpperArm",
+    "LowerArm.L": "LeftLowerArm",
+    "Hand.L": "LeftHand",
+    "Shoulder.R": "RightUpperArm",
+    "UpperArm.R": "RightUpperArm",
+    "LowerArm.R": "RightLowerArm",
+    "Hand.R": "RightHand",
+    "UpperLeg.L": "LeftUpperLeg",
+    "LowerLeg.L": "LeftLowerLeg",
+    "Foot.L": "LeftFoot",
+    "UpperLeg.R": "RightUpperLeg",
+    "LowerLeg.R": "RightLowerLeg",
+    "Foot.R": "RightFoot",
+    "Toe.L": "LeftFoot",
+    "Toe.R": "RightFoot",
+}
+
+
 # ---------------------------------------------------------------- cores
 
 
@@ -464,6 +511,13 @@ class BlockyProvider:
 
         ossos: list[dict] = []
         if item.get("auto_rig"):
+            if item.get("esqueleto") == "r15@1":
+                # R15: 16 partes; as caixas do template godot sao remapeadas para as partes R15
+                for caixa in caixas:
+                    caixa["osso"] = MAPA_OSSO_R15.get(caixa.get("osso"), caixa.get("osso"))
+                tabela = OSSOS_R15
+            else:
+                tabela = OSSOS_HUMANOIDE
             ossos = [
                 {
                     "nome": nome,
@@ -471,7 +525,7 @@ class BlockyProvider:
                     "cabeca": [round(v * altura, 4) for v in cabeca],
                     "cauda": [round(v * altura, 4) for v in cauda],
                 }
-                for (nome, pai, cabeca, cauda) in OSSOS_HUMANOIDE
+                for (nome, pai, cabeca, cauda) in tabela
             ]
 
         modelo = {

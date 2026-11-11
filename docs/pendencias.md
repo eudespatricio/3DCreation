@@ -3,20 +3,18 @@
 > Regra: item sem critério de aceitação não entra aqui — vira conversa.
 > Prioridade: **A** = destrava a fase seguinte · **B** = correção que já morde · **C** = dívida aceitável.
 
-Última revisão: 10/11/2026 (P3 fechada para prop + kit blocky; 44 verdes + 1 GPU (manual)).
+Última revisão: 10/11/2026 (P3/P3.5 com 3 personagens híbridos; R15 parcial; 47 verdes + 1 GPU (manual)).
 
-## 1. Bloqueiam a próxima fase (P3.5/P4)
+## 1. Bloqueiam a próxima fase (P2/P4)
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P7 | **Qualidade de personagem com capa/tecido** | o híbrido corpo .02 + capa .03 + arma `blocky` monta no Godot (`CHAR_CAPE_OK`); capa/arma mesh .02 isoladas seguem blobs | **1 personagem** híbrido reconhecível; 3 personagens para o A/B | **A** |
-| P8 | **Roblox P2**: validar o perfil no Studio | segundo perfil de export nunca foi testado; probe 10/11 mostrou que **prop** publica/verifica, mas humanoid falha em `pivot: junta` (fora do enum) e o blocky não gera nomes R15 (Q3/GAP-006) | import no Studio, U1–U4 sem `[verificar]`, R15 com `HumanoidRootPart` e membros nos nomes R15 | **B** |
+| P8 | **Roblox P2**: Studio + pivô por membro | R15 com 16 ossos/nomes já publica e verifica (GLB/Godot); faltam pivô por membro, escala/stud e teste no Studio (Q3/GAP-006) | import no Studio, U1–U4 sem `[verificar]`, pivô por membro | **B** |
 
 ## 2. Correções que já mordem
 
 | # | Correção | Sintoma hoje | Aceitação | Prio |
 |---|---|---|---|---|
-| C3 | Sem `gc` de cache e ledger | cache cresce sem teto (orçamento declarado: 20 GB) | `forge3d gc --manter-dias 30` testado | **B** |
 | C5 | Flake não reproduzido na suíte e2e (GAP-019) | uma execução deu `ERROR` em 3 fixtures e não repetiu | 10 execuções seguidas verdes, ou causa identificada | **C** |
 | C6 | `tools/delegar.py` depende da IDE aberta | falha com mensagem clara, mas não tem caminho sem IDE | decisão entre chave de API e `agentapi` registrada (Q9) | **C** |
 | C7 | `verify` de manifesto antigo sem `pivo_regra` pula o pivô (GAP-037) | asset publicado antes do C2 não tem a regra no relatório | todo manifesto novo tem `pivo_regra`; `verify` reprova a ausência | **B** |
@@ -29,7 +27,6 @@
 
 | # | Pergunta | Contexto medido | Prio |
 |---|---|---|---|
-| Q8 | reconstrutor/qualidade: TripoSR × SF3D | **TripoSR escolhido para prop** (bule em 23,3 s) e **sentinela sem capa** (37,2 s, G1–G9 verdes); SF3D encerrado por **D27** (8 min/imagem); **1 híbrido** com capa montado (D40), faltam 3 para o A/B (GAP-029) | **A** |
 | Q9 | delegação: chave de API × `agentapi` | `agentapi` é sessão agêntica com execução de ferramenta (GAP-030) | B |
 | Q3 | escala/rig Roblox | perfil escrito, nunca validado no Studio | B |
 | Q1 | nome definitivo do produto | `forge3d` é provisório | C |
@@ -45,6 +42,10 @@
 - **P3-C** venvs consolidadas: `~/.venvs/triposr` (5,8 GB) removida; só `venv-i23d` (torch 2.4.1).
 - **P3-D** kit blocky corpo/capa/arma: `examples/lote_03_kit.yaml`, 3 assets publicados e montados no
   Godot (`Chest`, `Hand.R`).
+- **P7** A/B de **3 personagens híbridos**: .02/.05/.04 + capa .03 + arma `blocky` .01, `AB_OK`,
+  G1–G9; imagem `docs/preview/p3_ab_3personagens.png`.
+- **C3** `forge3d gc --manter-dias 30` com 2 testes; não toca publicado/índice/ledger.
+- **Q8** TripoSR escolhido: 3 personagens híbridos medidos; SF3D encerrado (D27).
 - **P5** split do input mesh: 3 concepts → **corpo 7.954 / capa 4.972 / arma 1.988 tris** publicados
   (`personagem.sentinel.*.02`) e montados no Godot (`SPLIT_OK`); corpo utilizável, capa/arma blobs
   (GAP-041).
@@ -52,7 +53,7 @@
   `personagem.sentinel.concept.01` **sem `origem`** (7.940 tris, 37,2 s, G1–G9, `providers.texture`
   `concept/sd15`, importado no Godot com AABB idêntico).
 - **C1** `doctor` do `mesh`: reporta `pronto (TripoSR, torch 2.4.1+cu121, venv venv-i23d)`.
-- **C4** `MAPA.md` reorganizado: **48/60 linhas**, 12 de folga; spec@2 e rota mesh entram no mapa.
+- **C4** `MAPA.md` reorganizado: **49/60 linhas**, 11 de folga; spec@2, mesh, concept, split e gc entram no mapa.
 - **C2** `verify` reexecuta G1–G9 contra o perfil atual, com topologia em Python puro; manifesto com
   `esperado_m` adulterado reprova em G2.
 - **SF3D** encerrado em 6 GB (GAP-032/033/034/035 fechados por **D27**); não reinstalar.

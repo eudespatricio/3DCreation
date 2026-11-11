@@ -8,21 +8,19 @@
 
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
-| GAP-029 | Qualidade do reconstructor: bule reconhecível, cadeira blob; **sentinela (personagem sem capa) reconhecível**, personagem com capa não revalidado | P3 | P3.5 | 3 personagens com capa, malha fechada e reconhecível, sem fusão de capa/corpo |
 | GAP-037 | `verify` de manifesto antigo (sem `pivo_regra` no G2) **pula** a checagem de pivô | P3 | P3.5 | todo manifesto publicado tem `pivo_regra`, ou `verify` reprova a ausência |
 | GAP-038 | G7 reexecuta presença/prefixo do colisor, mas **não mede convexidade** | P1 | P3.5 | `verify` mede convexidade (`bpy` ou Python puro) e reprova colisor não convexo |
 | GAP-039 | `rembg` é opcional e explícito; concept com fundo não neutro falha ou entra com fundo | P3 | P3.5 | provider decide rembg por alfa/metadado e registra a decisão na versão |
 | GAP-040 | `preflight` do `mesh` checa pesos no cache HF fixo, ignorando `FORGE3D_MODELOS` | P3 | P3.5 | preflight respeita `FORGE3D_MODELOS` e caminho local de pesos |
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
-| GAP-006 | Escala/rig Roblox não verificados (U1–U4); probe 10/11: prop passa, humanoid falha em `pivot: junta` e o blocky não gera nomes R15 | P0 | P2 | teste real no Studio; `[verificar]` removido do perfil; `pivot: junta` e esqueleto R15 implementados |
+| GAP-006 | Roblox: R15 com 16 nomes/ossos implementado e verificado no GLB/Godot; **pivô por membro, escala/stud e Studio pendentes** | P0 | P2 | teste real no Studio; U1–U4 sem `[verificar]`; pivô por membro |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
-| GAP-008 | Sem CI configurado (testes existem, pipeline não) | P0 | P1.5 | `pytest` + `check-contexto.sh` rodando em pull request |
+| GAP-008 | CI **configurado** (`tools/ci.sh` + `.github/workflows/ci.yml`: 32 testes + P0 + contexto), primeira execução no GitHub pendente | P0 | P1.5 | primeiro run verde em PR; suíte Blender/GPU local documentada |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
 | GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada | P1 | P2 | critério visual registrado para `_LOD1`/`_LOD2` |
 | GAP-014 | I3 (publish atômico) tem implementação, mas não teste de observação durante o run | P1 | P1.5 | teste que falha se algum arquivo parcial aparecer no destino |
 | GAP-015 | `draft` (LLM) não existe; Ollama mede 4.096 tokens efetivos | P0 | P6 | prompt cabendo em 4k com teste de truncamento |
-| GAP-016 | Sem política de retenção do ledger e do cache (`gc`) | P0 | P6 | `gc`/rotação documentada e testada |
 | GAP-018 | `query --tag` existe, mas as tags não são indexadas por tabela própria (LIKE) | P1 | P4 | tabela `tags` normalizada quando o índice passar de ~1.000 assets |
 | GAP-019 | Uma execução da suíte e2e deu `ERROR` em 3 fixtures (`test_i2`, `test_i13`, `test_rota_import`) com stdout não-JSON, e **não reproduziu** em 3 execuções seguintes (26/26 verdes) | P1 | P1.5 | reproduzir com `-p no:randomly` e capturar o stderr do subprocesso; até lá, tratar suite vermelha como real |
 | GAP-020 | Personagem sai com rig e sem clipe de animação (D14): no Godot ele é estático até alguém animar | P0 | P5 | clipe `idle` gerado ou retarget validado |
@@ -54,6 +52,8 @@
 | ~~GAP-026~~ | ~~Sem provider de concept text-to-image~~ | P0 | **P3.5 ✔** | sentinela publicada **sem `origem`**, `providers.texture` (`concept/sd15`, revisão, seed), G1–G9 e Godot 4.3 |
 | ~~GAP-036~~ | ~~Personagem com capa / split do input mesh~~ | P3 | **P3.5 ✔** | híbrido corpo .02 + capa .03 + arma `blocky` .01 montado no Godot (`CHAR_CAPE_OK`); capa/arma mesh .02 isoladas ficam D39 |
 | ~~GAP-041~~ | ~~Capa/arma no split mesh~~ | P3.5 | **P3.5 ✔** | D39/D40: arma vai para `blocky`; capa .03 reconhecível no conjunto; previews `docs/preview/p3_char_cape_*` |
+| ~~GAP-029~~ | ~~Qualidade do reconstructor~~ | P3 | **P3.5 ✔** | 3 personagens híbridos (.02/.05/.04 + capa .03 + arma blocky .01), `AB_OK`, G1–G9; `docs/preview/p3_ab_3personagens.png` |
+| ~~GAP-016~~ | ~~Sem política de retenção do cache~~ | P0 | **P6 parcial ✔** | `forge3d gc --manter-dias 30`, 2 testes; publicado/índice/ledger intocados |
 
 ## Como um gap nasce
 

@@ -1,0 +1,48 @@
+# A/B — 3 personagens híbridos: dois corpos novos (concept->mesh) para juntar ao sentinela .02.
+# Para o scout, o negativo evita close-up:
+#   FORGE3D_CONCEPT_NEGATIVO="close-up, portrait, cropped, bust, person, human, blurry, low quality" \
+#     forge3d run examples/lote_08_ab_hybrid.yaml
+# A capa .03 e a arma blocky .01 sao compartilhadas no kit.
+schema: forge3d/spec@1
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/kit_mesh
+estilo_global: lowpoly_lit
+
+politica:
+  falha: continuar
+  custo_max_min: 10
+  seed_base: 20261113
+
+lote:
+  - id: personagem.sentinel.scout.05
+    tipo: personagem_humanoide
+    rota: mesh
+    prompt: >-
+      full body wide shot of an original humanoid robot scout standing on the ground,
+      entire body visible head to toe, T-pose, arms extended, white and blue armor with
+      a cyan visor, plain neutral background, game asset concept art
+    altura_metros: 1.80
+    pivot: base
+    limite_triangulos: 8000
+    material: pbr
+    colisao: convex
+    seed: 20261116
+    lod: [100]
+    tags: [kit, corpo, mesh, scout]
+
+  - id: personagem.sentinel.heavy.04
+    tipo: personagem_humanoide
+    rota: mesh
+    prompt: >-
+      full body front view of an original humanoid robot heavy trooper, T-pose, arms extended,
+      red and dark gray armor with a yellow core, game asset concept art
+    altura_metros: 1.90
+    pivot: base
+    limite_triangulos: 8000
+    material: pbr
+    colisao: convex
+    seed: 20261114
+    lod: [100]
+    tags: [kit, corpo, mesh, heavy]

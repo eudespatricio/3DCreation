@@ -1,0 +1,30 @@
+# Probe R15 (P2): blocky humanoid com os 16 nomes de parte do R15.
+# Ainda nao e o R15 completo (pivo por membro e validacao no Studio ficam para P2).
+schema: forge3d/spec@1
+
+projeto: demo
+perfil: roblox-r15
+destino_exportacao: ~/.local/state/forge3d/saida/r15
+estilo_global: blocky_voxel
+
+paleta: ["#7d858f", "#3b4048", "#1d2024", "#ff6a1f", "#38e8ff"]
+
+politica:
+  falha: continuar
+  custo_max_min: 5
+  seed_base: 20261115
+
+lote:
+  - id: personagem.r15.guard.01
+    tipo: personagem_humanoide
+    rota: blocky
+    prompt: >-
+      Guarda R15 de teste: chassi cinza, juntas escuras e nucleo laranja.
+    altura_metros: 1.85
+    pivot: base
+    limite_triangulos: 3000
+    auto_rig: true
+    esqueleto: r15@1
+    colisao: convex
+    lod: [100]
+    tags: [roblox, r15, guard]

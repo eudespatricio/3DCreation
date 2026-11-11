@@ -17,12 +17,11 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import time
 from pathlib import Path
 
-from .. import paths
+from .. import locks, paths
 from .base import RawAsset
 
 VERSAO = "0.1.5"
@@ -111,19 +110,7 @@ def script_inferencia() -> Path:
 
 
 def _vram_livre_mb() -> int | None:
-    exe = shutil.which("nvidia-smi")
-    if not exe:
-        return None
-    try:
-        saida = subprocess.run(
-            [exe, "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-            capture_output=True,
-            text=True,
-            timeout=20,
-        ).stdout.strip()
-        return int(saida.splitlines()[0])
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return None
+    return locks.vram_livre_mb()
 
 
 def _diagnostico() -> dict:

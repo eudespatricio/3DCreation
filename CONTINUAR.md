@@ -75,8 +75,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 
 | Medida | Valor |
 |---|---|
-| Suíte | **167 verdes + 1 GPU (skip)** em **168 testes** |
-| CI no GitHub | **151 testes** em **3 jobs**: `portoes` (ci.sh + contexto + P0), `verificar` e `distribuicao` |
+| Suíte | **168 verdes + 1 GPU (skip)** em **169 testes** |
+| CI no GitHub | **152 testes** em **3 jobs**: `portoes` (ci.sh + contexto + P0), `verificar` e `distribuicao` |
 | Instalação | wheel de **0.3.7** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
 | `forge3d migrate` | `lote_01` @1→@3 e `lote_03_kit` @2→@3 com `parte` e comentários intactos; `--saida`/`--em-lugar`; **10 testes** |
 | Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
@@ -145,8 +145,8 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 167 verdes + 1 GPU
-bash tools/ci.sh                          # 151 testes + contexto + P0 (job `portoes`)
+python -m pytest                          # 168 verdes + 1 GPU
+bash tools/ci.sh                          # 152 testes + contexto + P0 (job `portoes`)
 bash tools/ci_verify.sh                   # pipeline real + verify (job `verificar`, precisa Blender)
 bash tools/ci_dist.sh                     # wheel em venv limpo (job `distribuicao`)
 bash tools/check-contexto.sh

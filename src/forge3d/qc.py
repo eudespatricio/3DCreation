@@ -10,7 +10,7 @@ import json
 import struct
 from pathlib import Path
 
-from .errors import erro_qc
+from .errors import ForgeError, erro_qc
 from .profiles import FRACAO_EMPUNHADURA
 
 __all__ = [
@@ -637,7 +637,7 @@ def verificar(
                 gltf_col, binario_col = ler_glb_bin(pasta / arquivo_col["caminho"])
                 nomes = analisar(gltf_col)["colisores"]
                 convexo = convexidade(gltf_col, binario_col)
-            except erro_qc:
+            except ForgeError:
                 nomes = []
         # perfil sem convencao de nome (ex.: roblox-r15) nao tem como exigir prefixo;
         # perfil que declara prefixo continua exigindo que todos os nos o usem

@@ -14,7 +14,7 @@ from pathlib import Path
 import jsonschema
 
 from . import __version__, config, paths, post, profiles, providers
-from .errors import erro_ambiente
+from .errors import ForgeError, erro_ambiente
 
 __all__ = ["checar", "exigir"]
 
@@ -122,7 +122,7 @@ def _checar_python() -> dict:
 def _checar_script_blender() -> dict:
     try:
         return _item("blender_script", True, str(post.script()))
-    except erro_ambiente as exc:
+    except ForgeError as exc:
         return _item("blender_script", False, exc.mensagem)
 
 
@@ -160,7 +160,7 @@ def _versao_blender() -> str | None:
     """Versao do Blender em string (I9); ``None`` quando ausente."""
     try:
         maior, menor, micro = post.versao()
-    except erro_ambiente:
+    except ForgeError:
         return None
     return f"{maior}.{menor}.{micro}"
 

@@ -13,7 +13,7 @@ import subprocess
 from pathlib import Path
 
 from . import paths
-from .errors import erro_ambiente, erro_bpy
+from .errors import ForgeError, erro_ambiente, erro_bpy
 
 __all__ = ["binario", "versao", "script", "executar", "preflight"]
 
@@ -65,7 +65,7 @@ def versao() -> tuple[int, int, int]:
 def preflight() -> tuple[bool, str]:
     try:
         v = versao()
-    except erro_ambiente as exc:
+    except ForgeError as exc:
         return False, exc.mensagem
     if v[:2] < VERSAO_MIN or v[:2] >= VERSAO_MAX:
         return False, f"blender {v[0]}.{v[1]} nao suportado (pinado em 4.2.x)"

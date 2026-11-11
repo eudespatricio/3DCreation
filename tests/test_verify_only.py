@@ -90,3 +90,19 @@ def test_doctor_expoe_blender_e_modelos_aptos():
     assert resultado["modelos_aptos"], "allowlist comercial vazia"
     assert any("TripoSR" in modelo for modelo in resultado["modelos_aptos"])
     assert all("hunyuan" not in modelo.lower() for modelo in resultado["modelos_aptos"])
+
+
+def test_sem_blender_o_doctor_responde_em_vez_de_derrubar(monkeypatch):
+    """D17: ambiente faltando vira razao legivel. `erro_ambiente` e funcao, nao excecao — o
+    `except erro_ambiente` dava TypeError e o doctor morria justamente no caso sem Blender."""
+    from forge3d import post
+    from forge3d.errors import erro_ambiente
+
+    def sem_blender():
+        raise erro_ambiente("blender nao encontrado")
+
+    monkeypatch.setattr(post, "binario", sem_blender)
+    ok, detalhe = post.preflight()
+    assert ok is False
+    assert "blender" in detalhe
+    assert doctor.checar()["blender"] is None

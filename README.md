@@ -4,7 +4,7 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P0`–`P6` — **157 verdes + 1 GPU (skip)** em 158 testes; CI no GitHub com **141 testes
+**Estado:** `P0`–`P6` — **168 verdes + 1 GPU (skip)** em 169 testes; CI no GitHub com **152 testes
 em 3 jobs** (`portoes`, `verificar` com Blender 4.2.0 pinado por sha256 e `distribuicao`). `blocky`/
 `import` sem GPU; `mesh` com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**; kit
 corpo/capa/arma; `modular` com dungeon de 10 setores por seed, colisão por peça e 1 draw call;

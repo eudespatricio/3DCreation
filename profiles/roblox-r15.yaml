@@ -50,6 +50,12 @@ rig:
       cabeca: Head
       braco_e: LeftUpperArm
       braco_d: RightUpperArm
+      antebraco_e: LeftLowerArm
+      antebraco_d: RightLowerArm
+      perna_e: LeftUpperLeg
+      perna_d: RightUpperLeg
+      canela_e: LeftLowerLeg
+      canela_d: RightLowerLeg
   mapas:
     "r15@1":
       - HumanoidRootPart
@@ -79,7 +85,7 @@ material:
 validacao:
   escala_delta_pct: 1.0          # arredondamento de stud tolera mais
   pivo_delta_mm: 2.0
-  materiais_max: 8
+  materiais_max: 1
   bytes_max_kb: 4096
   nao_manifold_max: 0
   faces_degeneradas_max: 0

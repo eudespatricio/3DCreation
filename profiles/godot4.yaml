@@ -46,6 +46,12 @@ rig:
       cabeca: Head
       braco_e: UpperArm.L
       braco_d: UpperArm.R
+      antebraco_e: LowerArm.L
+      antebraco_d: LowerArm.R
+      perna_e: UpperLeg.L
+      perna_d: UpperLeg.R
+      canela_e: LowerLeg.L
+      canela_d: LowerLeg.R
   mapas:
     "godot-humanoid@1":
       - Root

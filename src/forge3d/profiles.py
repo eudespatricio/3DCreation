@@ -23,9 +23,9 @@ __all__ = [
 #: Uma regra so, usada pelo blocky (pivo declarado) e pelo QC (G2). Antes havia 10% e 20%.
 FRACAO_EMPUNHADURA = 0.20
 
-#: Clipes base que a fase P5 gera de fato: procedurais e determinísticos (D66).
+#: Clipes base procedurais e determinísticos suportados pelo pipeline (D66 / Fase B).
 #: Pedir clipe fora desta lista não é erro: vira aviso `FORGE-W-ANIM`.
-ANIMACOES_SUPORTADAS = ("idle",)
+ANIMACOES_SUPORTADAS = ("idle", "walk", "run", "jump")
 
 _BLOCOS_OBRIGATORIOS = ("unidades", "eixos", "pivot", "colisao", "rig", "material", "validacao")
 

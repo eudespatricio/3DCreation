@@ -20,10 +20,25 @@ ROBLOX = profiles.carregar("roblox-r15")
 # ------------------------------------------------------------------ retarget
 
 
+CHAVES_RETARGET_ESPERADAS = {
+    "tronco",
+    "coluna",
+    "cabeca",
+    "braco_e",
+    "braco_d",
+    "antebraco_e",
+    "antebraco_d",
+    "perna_e",
+    "perna_d",
+    "canela_e",
+    "canela_d",
+}
+
+
 def test_retarget_cobre_os_dois_esqueletos():
     for perfil, esqueleto in ((GODOT, "godot-humanoid@1"), (ROBLOX, "r15@1")):
         mapa = profiles.retarget(perfil, esqueleto)
-        assert set(mapa) == {"tronco", "coluna", "cabeca", "braco_e", "braco_d"}
+        assert set(mapa) == CHAVES_RETARGET_ESPERADAS
         assert all(v in perfil["rig"]["mapas"][esqueleto] for v in mapa.values()), mapa
 
 
@@ -62,11 +77,20 @@ def test_spec_aceita_idle_sem_aviso_de_animacao():
     assert not [a for a in avisos if a["codigo"] == "FORGE-W-ANIM"], avisos
 
 
+def test_spec_aceita_todos_os_quatro_clipes_suportados():
+    from forge3d import spec
+
+    pedidos = ["idle", "walk", "run", "jump"]
+    spec_doc, _perfil, avisos = spec.preparar(_doc({"animacoes_base": pedidos}))
+    assert spec_doc["lote"][0]["animacoes_base"] == pedidos
+    assert not [a for a in avisos if a["codigo"] == "FORGE-W-ANIM"], avisos
+
+
 def test_spec_avisa_clipe_sem_gerador():
     from forge3d import spec
 
-    _spec_doc, _perfil, avisos = spec.preparar(_doc({"animacoes_base": ["walk"]}))
-    assert any(a["codigo"] == "FORGE-W-ANIM" and "walk" in a["mensagem"] for a in avisos), avisos
+    _spec_doc, _perfil, avisos = spec.preparar(_doc({"animacoes_base": ["dance"]}))
+    assert any(a["codigo"] == "FORGE-W-ANIM" and "dance" in a["mensagem"] for a in avisos), avisos
 
 
 def test_spec_reprova_animacao_sem_rig():
@@ -111,7 +135,48 @@ def test_clipe_sem_retarget_ou_sem_gerador_e_vazio():
 
     assert animacao.clipes(GODOT, "r15@1", ["idle"]) == []
     assert animacao.clipes(GODOT, "godot-humanoid@1", []) == []
-    assert animacao.clipes(GODOT, "godot-humanoid@1", ["walk"]) == []
+    assert animacao.clipes(GODOT, "godot-humanoid@1", ["dance"]) == []
+
+
+def test_multi_clipes_walk_run_jump_sao_deterministicos_e_movem_11_ossos():
+    from forge3d import animacao
+
+    pedidos = ["idle", "walk", "run", "jump"]
+    for perfil, esqueleto in ((GODOT, "godot-humanoid@1"), (ROBLOX, "r15@1")):
+        a = animacao.clipes(perfil, esqueleto, pedidos)
+        b = animacao.clipes(perfil, esqueleto, pedidos)
+        assert a == b
+        assert [c["nome"] for c in a] == pedidos
+        mapa = profiles.retarget(perfil, esqueleto)
+        todos_ossos = sorted(set(mapa.values()))
+
+        for clipe in a:
+            assert clipe["duracao_s"] >= 1.6
+            chaves = clipe["chaves"]
+            assert chaves[0]["segundos"] == 0.0
+            # loop fechado: primeira e última chave têm as mesmas poses
+            p0 = {(p["osso"], p["eixo"]): p["graus"] for p in chaves[0]["poses"]}
+            p_fim = {(p["osso"], p["eixo"]): p["graus"] for p in chaves[-1]["poses"]}
+            for k in p0:
+                assert p0[k] == pytest.approx(p_fim[k], abs=1e-4)
+
+            if clipe["nome"] in ("walk", "run", "jump"):
+                assert clipe["ossos"] == todos_ossos
+                # todo osso retargetado precisa ter excursão > 0 graus
+                for osso in todos_ossos:
+                    vals = [p["graus"] for ch in chaves for p in ch["poses"] if p["osso"] == osso]
+                    assert max(vals) - min(vals) > 1.0, (clipe["nome"], osso, vals)
+
+        # Biomecânica básica: joelhos só dobram para trás (<= 0) e cotovelos para frente (>= 0)
+        por_nome = {c["nome"]: c for c in a}
+        for clipe_nome in ("walk", "run", "jump"):
+            cl = por_nome[clipe_nome]
+            for canela in (mapa["canela_e"], mapa["canela_d"]):
+                vals = [p["graus"] for ch in cl["chaves"] for p in ch["poses"] if p["osso"] == canela]
+                assert max(vals) <= 1e-6, (esqueleto, clipe_nome, canela, vals)
+            for antebraco in (mapa["antebraco_e"], mapa["antebraco_d"]):
+                vals = [p["graus"] for ch in cl["chaves"] for p in ch["poses"] if p["osso"] == antebraco]
+                assert min(vals) >= -1e-6, (esqueleto, clipe_nome, antebraco, vals)
 
 
 # ------------------------------------------------------------------ G10

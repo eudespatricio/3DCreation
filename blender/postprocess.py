@@ -16,7 +16,14 @@ import traceback
 
 import bmesh
 import bpy
-from mathutils import Matrix, Quaternion, Vector
+from mathutils import Matrix, Vector
+
+_BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
+if _BLENDER_DIR not in sys.path:
+    sys.path.insert(0, _BLENDER_DIR)
+
+import autorig
+import bake_pbr
 
 # faces de um cubo por indice de vertice; a orientacao e corrigida depois por recalc
 FACES_CUBO = (
@@ -58,6 +65,7 @@ def objetos_malha() -> list:
 def material_atlas(atlas: str) -> "bpy.types.Material":
     mat = bpy.data.materials.new("forge3d_atlas")
     mat.use_nodes = True
+    mat.use_backface_culling = True
     nt = mat.node_tree
     bsdf = nt.nodes.get("Principled BSDF")
     tex = nt.nodes.new("ShaderNodeTexImage")
@@ -184,7 +192,7 @@ def importar_fonte(arquivo: str) -> None:
 # ------------------------------------------------------------------ malha gerada (P3-A)
 
 
-TEX_PX_GERADA = 512
+TEX_PX_GERADA = 1024
 
 
 def _selecionar(obj) -> None:
@@ -328,8 +336,17 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
     ordem = sorted(range(3), key=lambda i: extensao[i])
     profundidade = ordem[0]
     sobra = [i for i in range(3) if i != profundidade]
-    altura = max(sobra, key=lambda i: extensao[i])
-    largura = min(sobra, key=lambda i: extensao[i])
+    # Em T-pose, a envergadura horizontal (X) frequentemente >= altura (Z): se o eixo fino de
+    # profundidade ja e Y (glTF +Y up importado no Blender) e Z nao esta achatado, preserva Z up.
+    if (
+        tipo in ("personagem_humanoide", "criatura")
+        and profundidade == 1
+        and extensao[2] >= 0.55 * extensao[0]
+    ):
+        altura, largura = 2, 0
+    else:
+        altura = max(sobra, key=lambda i: extensao[i])
+        largura = min(sobra, key=lambda i: extensao[i])
     destinos = (largura, profundidade, altura)
     linhas = []
     for origem in destinos:
@@ -378,11 +395,17 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
         area_base_fina = _extensao_faixa(obj, minimo.z, minimo.z + fatia)
         area_topo_fina = _extensao_faixa(obj, maximo.z - fatia, maximo.z)
         invertido_contato = area_base_fina > 0 and area_topo_fina > 3.0 * area_base_fina
+        upright_contato = area_topo_fina > 0 and area_base_fina > 3.0 * area_topo_fina
         info["contato_base"] = round(area_base_fina, 6)
         info["contato_topo"] = round(area_topo_fina, 6)
         info["invertido_contato"] = invertido_contato
-        # cabeca fina em cima => topo menor que a base; se o topo for bem maior, esta invertido
-        if total > 0 and (razao_ends > 1.5 or centro < n * 0.48 or invertido_contato):
+        # cabeca fina em cima => topo menor que a base; capa/saia longa pode puxar centro < 0,48*n
+        # mesmo com base firme e topo 10x menor (razao_ends << 0,5) -> nao inverter falso-positivo
+        deve_inverter = invertido_contato or (
+            not upright_contato
+            and (razao_ends > 1.5 or (centro < n * 0.48 and razao_ends >= 0.5))
+        )
+        if total > 0 and deve_inverter:
             # espelha Z: mantem frente (+Y) e lados (+-X), corrige cabeca para cima
             for v in obj.data.vertices:
                 v.co.z = -v.co.z
@@ -402,7 +425,17 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
             info["invertido"] = False
     return info
 
-def desdobrar_uv(obj, margem: float = 0.003) -> str:
+def suavizar_por_angulo(obj, angulo_graus: float = 45.0) -> dict:
+    """Smooth shading por angulo (Blender 4.2): solda normais suaves e mantem arestas vivas."""
+    obj.data.shade_smooth()
+    obj.data.set_sharp_from_angle(angle=math.radians(angulo_graus))
+    obj.data.update()
+    sharp = obj.data.attributes.get("sharp_edge")
+    arestas_vivas = sum(1 for d in sharp.data if d.value) if sharp is not None else 0
+    return {"angulo_graus": angulo_graus, "arestas_vivas": arestas_vivas}
+
+
+def desdobrar_uv(obj, margem: float = 0.008) -> str:
     _selecionar(obj)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
@@ -427,6 +460,7 @@ def assar_cor_vertices(obj, png: str, px: int) -> dict:
     obj.data.materials.clear()
     mat = bpy.data.materials.new("forge3d_bake")
     mat.use_nodes = True
+    mat.use_backface_culling = True
     nt = mat.node_tree
     bsdf = nt.nodes.get("Principled BSDF")
     if "Roughness" in bsdf.inputs:
@@ -551,6 +585,8 @@ def medir_geometria(obj) -> dict:
 def clonar_malha(obj, nome: str):
     novo = bpy.data.objects.new(nome, obj.data.copy())
     bpy.context.collection.objects.link(novo)
+    for vg in obj.vertex_groups:
+        novo.vertex_groups.new(name=vg.name)
     return novo
 
 
@@ -793,47 +829,8 @@ def _ilhas(bm) -> list:
 
 
 def animar(rig_obj, clipes: list[dict]) -> list[dict]:
-    """Aplica as chaves dos clipes que vieram no job. O movimento nao e decidido aqui.
-
-    `clipes` ja vem em osso do esqueleto (`rig.retarget` no perfil) e em graus no eixo local; o
-    script so vira quaternion e insere keyframe.
-    """
-    if not clipes:
-        return []
-    cena = bpy.context.scene
-    rig_obj.animation_data_create()
-    geradas: list[dict] = []
-    for clipe in clipes:
-        cena.render.fps = int(clipe.get("fps") or 24)
-        acao = bpy.data.actions.new(str(clipe["nome"]))
-        acao.use_fake_user = True
-        rig_obj.animation_data.action = acao
-        for pb in rig_obj.pose.bones:
-            pb.rotation_mode = "QUATERNION"
-            pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
-        for chave in clipe.get("chaves") or []:
-            for pose in chave.get("poses") or []:
-                osso = pose.get("osso")
-                if not osso or osso not in rig_obj.pose.bones:
-                    continue
-                eixo = str(pose.get("eixo") or "X").upper()
-                vetor = {"X": (1.0, 0.0, 0.0), "Y": (0.0, 1.0, 0.0), "Z": (0.0, 0.0, 1.0)}.get(
-                    eixo, (1.0, 0.0, 0.0)
-                )
-                pb = rig_obj.pose.bones[osso]
-                pb.rotation_quaternion = Quaternion(vetor, math.radians(float(pose.get("graus", 0.0))))
-                pb.keyframe_insert("rotation_quaternion", frame=int(chave["frame"]))
-        cena.frame_start = 1
-        cena.frame_end = 1 + int(round(float(clipe["duracao_s"]) * cena.render.fps))
-        geradas.append(
-            {
-                "nome": str(clipe["nome"]),
-                "duracao_s": float(clipe["duracao_s"]),
-                "ossos": list(clipe.get("ossos") or []),
-                "frames": cena.frame_end - 1,
-            }
-        )
-    return geradas
+    """Aplica as chaves dos clipes que vieram no job. O movimento nao e decidido aqui."""
+    return autorig.aplicar_animacoes_multi(rig_obj, clipes)
 
 
 # ------------------------------------------------------------------ export
@@ -885,7 +882,8 @@ def processar(job: dict) -> dict:
 
     rig_obj = None
     info_gerada: dict = {}
-    textura_gerada: dict | None = None
+    texturas_geradas: list[dict] = []
+    nome_base = str(job["nome_base"])
     if bruto["schema"] == "forge3d/bruto-blocky@1":
         obj, grupos = construir_blocky(bruto, bruto_dir)
         if bruto.get("ossos"):
@@ -898,25 +896,43 @@ def processar(job: dict) -> dict:
             info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
         info_gerada["reparo_inicial"] = reparar_malha(obj)
         if obj.data.color_attributes:
-            # malha gerada: corta o orcamento ANTES do UV/bake; o bake roda em 512 px
-            info_gerada["triangulos_antes_decimate"] = malha_triangulada(obj)
-            info_gerada["triangulos_pos_decimate"] = decimar(
-                obj, int(item["limite_triangulos"])
-            )
-            info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
-            info_gerada["uv"] = desdobrar_uv(obj)
             px = int(bruto.get("textura_px") or TEX_PX_GERADA)
-            nome_png = f"{job['nome_base']}_baseColor.png"
-            info_gerada["bake"] = assar_cor_vertices(
-                obj, os.path.join(saida_dir, nome_png), max(64, min(px, 1024))
+            res_bake = bake_pbr.executar_bake_high_low(
+                obj,
+                saida_dir,
+                nome_base,
+                px,
+                int(item["limite_triangulos"]),
+                reparar_malha,
+                decimar,
+                lambda o, a=45.0: suavizar_por_angulo(o, angulo_graus=a),
+                desdobrar_uv,
             )
-            textura_gerada = {"caminho": nome_png, "papel": "textura"}
+            bake_meta = res_bake["bake"]
+            info_gerada["triangulos_antes_decimate"] = bake_meta["triangulos_high"]
+            info_gerada["triangulos_pos_decimate"] = bake_meta["triangulos_low"]
+            info_gerada["reparo_pos_decimate"] = bake_meta["reparo"]
+            info_gerada["smooth"] = bake_meta["smooth"]
+            info_gerada["uv"] = bake_meta["uv"]
+            info_gerada["bake"] = bake_meta
+            texturas_geradas.extend(res_bake["arquivos_textura"])
         elif not obj.data.uv_layers:
             raise RuntimeError(
                 "malha importada sem UV e sem cor por vertice: nao ha como assar textura"
             )
+        if bool(item.get("auto_rig")) and item.get("tipo") in ("personagem_humanoide", "criatura"):
+            esq = str(
+                item.get("esqueleto")
+                or (perfil.get("rig") or {}).get("esqueleto_padrao")
+                or "godot-humanoid@1"
+            )
+            rig_obj, grupos = autorig.auto_rigar_humanoide(obj, esq, criar_armadura)
     else:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
+
+    obj.name = nome_base
+    if obj.data is not None:
+        obj.data.name = nome_base
 
     # --- normalizacao de escala e pivo ---
     # D62: a geometria e construida em metros. No perfil roblox-r15 o arquivo exportado tem que
@@ -942,9 +958,11 @@ def processar(job: dict) -> dict:
         transformar_armadura(rig_obj, escala, -pivo)
 
     if rig_obj is not None and grupos:
-        obj.parent = rig_obj
-        mod = obj.modifiers.new("armature", "ARMATURE")
-        mod.object = rig_obj
+        if obj.parent is not rig_obj:
+            obj.parent = rig_obj
+        if not any(m.type == "ARMATURE" for m in obj.modifiers):
+            mod = obj.modifiers.new("armature", "ARMATURE")
+            mod.object = rig_obj
 
     # --- animacao base (D66/D69) ---
     animacoes_geradas: list[dict] = []
@@ -981,13 +999,31 @@ def processar(job: dict) -> dict:
         if nivel == 0:
             alvo_obj = obj
         else:
-            alvo_obj = clonar_malha(obj, f"forge3d_lod{nivel}")
+            alvo_obj = clonar_malha(obj, f"{nome_base}_LOD{nivel}")
+            if alvo_obj.data is not None:
+                alvo_obj.data.name = f"{nome_base}_LOD{nivel}"
+            if rig_obj is not None and grupos:
+                alvo_obj.parent = rig_obj
+                mod_lod = alvo_obj.modifiers.new("armature", "ARMATURE")
+                mod_lod.object = rig_obj
             info_lod = aplicar_lod(alvo_obj, pct)
             medidas_base.setdefault("lod_modo", {})[str(nivel)] = info_lod
         nome = job["nome_arquivo"] if nivel == 0 else f"{job['nome_base']}_LOD{nivel}.glb"
         caminho = os.path.join(saida_dir, nome)
         selecionados = [alvo_obj] + ([rig_obj] if rig_obj is not None else [])
         exportar(caminho, selecionados, rig_obj is not None, com_animacao=bool(animacoes_geradas))
+        bytes_max_kb = int((perfil.get("validacao") or {}).get("bytes_max_kb") or 0)
+        if nivel == 0 and bytes_max_kb > 0 and texturas_geradas:
+            bake_pbr.ajustar_resolucao_orcamento(
+                alvo_obj,
+                saida_dir,
+                texturas_geradas,
+                caminho,
+                bytes_max_kb * 1024,
+                lambda c=caminho, s=selecionados: exportar(
+                    c, s, rig_obj is not None, com_animacao=bool(animacoes_geradas)
+                ),
+            )
         arquivos.append(
             {
                 "caminho": nome,
@@ -1023,19 +1059,26 @@ def processar(job: dict) -> dict:
             }
         )
 
-    if textura_gerada:
+    for tex in texturas_geradas:
         arquivos.append(
             {
-                "caminho": textura_gerada["caminho"],
-                "papel": textura_gerada["papel"],
-                "bytes": os.path.getsize(os.path.join(saida_dir, textura_gerada["caminho"])),
+                "caminho": tex["caminho"],
+                "papel": tex["papel"],
+                "bytes": int(
+                    tex.get("bytes")
+                    or os.path.getsize(os.path.join(saida_dir, tex["caminho"]))
+                ),
             }
         )
 
     if info_gerada:
         medidas_base["gerada"] = info_gerada
     medidas_base["partes_colisao"] = len(colisores)
-    medidas_base["esqueleto"] = item.get("esqueleto") if rig_obj is not None else None
+    medidas_base["esqueleto"] = (
+        (item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao"))
+        if rig_obj is not None
+        else None
+    )
     medidas_base["lod"] = [{"nivel": a["nivel"], "triangulos": a["triangulos"]} for a in arquivos if a["papel"] in ("mesh", "lod")]
 
     resultado = {

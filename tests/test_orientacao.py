@@ -66,3 +66,54 @@ def test_personagem_invertido_com_prop_grande_e_corrigido():
     assert info["invertido"] is True, info
     assert info["invertido_contato"] is True, info
     assert info["contato_topo"] > 3.0 * info["contato_base"], info
+
+
+@pytest.mark.blender
+@pytest.mark.lento
+def test_personagem_tpose_envergadura_maior_que_altura_nao_tomba(tmp_path: Path):
+    """T-pose larga (envergadura X > altura Z) nao pode ser tombada de lado por canonicalizar."""
+    script = tmp_path / "mk_tpose.py"
+    glb = tmp_path / "tpose.glb"
+    script.write_text(
+        f"""
+import bpy
+bpy.ops.wm.read_factory_settings(use_empty=True)
+partes = []
+for loc, scale in [
+    ((0.0, 0.0, 0.03), (0.30, 0.14, 0.03)),   # sola larga
+    ((0.0, -0.14, 0.64), (0.32, 0.03, 0.62)), # capa longa puxando centro_area < 0.48*n
+    ((0.0, 0.0, 0.70), (0.20, 0.10, 0.65)),   # corpo vertical (topo z=1.35)
+    ((0.0, 0.0, 1.50), (0.09, 0.09, 0.12)),   # cabeca z=1.62 (altura total 1.62)
+    ((0.0, 0.0, 1.25), (0.95, 0.07, 0.07)),   # bracos T-pose (envergadura 1.90 > 1.62)
+]:
+    bpy.ops.mesh.primitive_cube_add(size=2.0, location=loc)
+    o = bpy.context.active_object
+    o.scale = scale
+    partes.append(o)
+bpy.ops.object.select_all(action="DESELECT")
+for o in partes:
+    o.select_set(True)
+bpy.context.view_layer.objects.active = partes[0]
+bpy.ops.object.join()
+bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+bpy.ops.object.mode_set(mode="EDIT")
+bpy.ops.mesh.select_all(action="SELECT")
+bpy.ops.mesh.subdivide(number_cuts=5)
+bpy.ops.object.mode_set(mode="OBJECT")
+bpy.ops.export_scene.gltf(filepath={str(glb)!r}, export_format="GLB")
+""",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [BLENDER, "--background", "--factory-startup", "--python", str(script)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+    assert glb.is_file(), proc.stderr[-1000:]
+    info = _canonicalizar(glb)
+    assert info["altura_eixo"] == "Z", info
+    assert info["largura_eixo"] == "X", info
+    assert info["invertido"] is False, info
+

@@ -41,8 +41,9 @@ Electron/Node, não tem CLI estável de export e adiciona um runtime inteiro por
 caixas; o `.bbmodel` sai como **export opcional** (`--emitir-bbmodel`) para revisão humana.
 
 **Onde o LLM entra (e onde não entra):** o LLM pode propor a *hierarquia de membros e a paleta* a partir
-do `prompt` no modo `forge3d draft`. Ele **não** escreve coordenada: caixa é geometria, e geometria
-ruim é detectável mas cara. Coordenada vem de template por `tipo` + parâmetros numéricos.
+do `prompt` no modo `draft` — **previsto, não implementado** (GAP-015; hoje o lote é escrito à mão).
+Ele **não** escreve coordenada: caixa é geometria, e geometria ruim é detectável mas cara.
+Coordenada vem de template por `tipo` + parâmetros numéricos.
 
 **Determinismo:** D1. Mesma entrada ⇒ mesmo `sha256`, inclusive do atlas. Ordem de dicionário, ordem
 de face e arredondamento de vértice são fixados (sem `set` iterado, sem float livre).

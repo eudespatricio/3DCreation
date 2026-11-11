@@ -1,0 +1,24 @@
+# Fixture do I5: o QC TEM que reprovar, e nada pode ser publicado.
+# O G9 compara os triangulos medidos com `limite_triangulos`, cujo minimo no schema e 50. O
+# personagem blocky tem ~300 tris, entao 50 reprova por construcao: `run` sai 3 e o destino
+# nao chega a existir. (Prop blocky tem 24 tris e passaria; por isso o tipo e humanoide.)
+schema: forge3d/spec@3
+
+projeto: fixture
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/fixture_qc
+
+estilo_global: blocky_voxel
+
+politica:
+  falha: abortar
+  custo_max_min: 5
+
+lote:
+  - id: fixture.reprovado.01
+    tipo: personagem_humanoide
+    rota: blocky
+    prompt: boneco que reprova no G9 de proposito
+    altura_metros: 1.80
+    limite_triangulos: 50
+    tags: [fixture, qc]

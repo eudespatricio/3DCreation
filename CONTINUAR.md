@@ -66,18 +66,20 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   provando 0 problemas no íntegro e exit 3 no adulterado) e `distribuicao` (wheel → venv limpo → CLI
   fora do repo). `query` ganhou teste de índice e filtros. **Sem bump de versão**: a saída dos assets
   não mudou (D6).
+- **Revisão da doc (D82)** — o CLI contra os `.md` tinha **10 de 15** invariantes com comando que
+  não roda. `verify --only` e as chaves `blender`/`modelos_aptos` do `doctor` **foram implementados**;
+  I3/I4/I6/I11/I13 corrigidos (+2 fixtures). `tests/test_doc_comandos.py` reprova doc que cita
+  verbo/flag inexistente — o portão que faltava.
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **157 verdes + 1 GPU (skip)** em **158 testes** |
-| CI no GitHub | **141 testes** em **3 jobs**: `portoes` (ci.sh + contexto + P0), `verificar` e `distribuicao` |
+| Suíte | **167 verdes + 1 GPU (skip)** em **168 testes** |
+| CI no GitHub | **151 testes** em **3 jobs**: `portoes` (ci.sh + contexto + P0), `verificar` e `distribuicao` |
 | Instalação | wheel de **0.3.7** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
 | `forge3d migrate` | `lote_01` @1→@3 e `lote_03_kit` @2→@3 com `parte` e comentários intactos; `--saida`/`--em-lugar`; **10 testes** |
-| Repo por UNC (sessão Windows) | criar, apagar e `mv` funcionam; **modificar arquivo existente falha** com `GetFileSecurityW EIO` |
-| I/O em lote por UNC | **200 arquivos pequenos: 906 ms** vs **12 ms** em ext4 (~75×); 50 MB: **3,38 s** vs 0,03 s |
-| Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
+| Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
 | Clipe no rig Roblox (MCP) | Head anda **0,1091 studs** entre t=0 e t=0,5; maior delta de parte 0,1253 |
@@ -113,7 +115,7 @@ silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo**
 **`D75` P4 fatiada: `spec@3` + um setor por asset** · **`D76`/I15 projeto não entra no pipeline** ·
 **`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
 **`D79` parede cheia no lado fechado** · **`D80` `migrate` textual, sem inventar valor** ·
-**`D81` CI de PR com Blender pinado por sha256 e `verify`**.
+**`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado**.
 
 ## Aberto
 
@@ -143,8 +145,8 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 157 verdes + 1 GPU
-bash tools/ci.sh                          # 141 testes + contexto + P0 (job `portoes`)
+python -m pytest                          # 167 verdes + 1 GPU
+bash tools/ci.sh                          # 151 testes + contexto + P0 (job `portoes`)
 bash tools/ci_verify.sh                   # pipeline real + verify (job `verificar`, precisa Blender)
 bash tools/ci_dist.sh                     # wheel em venv limpo (job `distribuicao`)
 bash tools/check-contexto.sh

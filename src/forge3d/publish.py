@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import __version__, paths
 from .canonical import sha256_arquivo
-from .errors import erro_manifesto
+from .errors import erro_manifesto, erro_spec
 
 __all__ = [
     "montar_manifesto",
@@ -382,7 +382,43 @@ def registrar_ledger(evento: dict) -> None:
 # ---------------------------------------------------------------- verificacao
 
 
-def verificar(destino: Path) -> dict:
+#: aspectos que o `verify --only` sabe recortar (I8/I10)
+VERIFY_ASPECTOS = ("manifesto", "hash", "escala", "pivo", "gates")
+
+#: campos de proveniencia que o I10 exige nao-nulos
+CAMPOS_PROVENIENCIA = ("spec_hash", "pipeline_version", "determinism", "created_at", "run_id")
+
+
+def _pedidos_verificar(only: str | None) -> set[str] | None:
+    """Aspectos pedidos em ``--only``; ``None`` = verificacao completa."""
+    if not only:
+        return None
+    pedidos = {t.strip().lower() for t in str(only).split(",") if t.strip()}
+    desconhecidos = sorted(pedidos - set(VERIFY_ASPECTOS))
+    if desconhecidos:
+        raise erro_spec(
+            f"--only com aspecto desconhecido: {', '.join(desconhecidos)} "
+            f"(aceitos: {', '.join(VERIFY_ASPECTOS)})",
+            aceitos=list(VERIFY_ASPECTOS),
+        )
+    return pedidos or None
+
+
+def _faltando_proveniencia(man: dict) -> list[str]:
+    """Campos de proveniencia ausentes ou vazios no manifesto (I10)."""
+    ausentes = [campo for campo in CAMPOS_PROVENIENCIA if not str(man.get(campo) or "").strip()]
+    geometria = (man.get("providers") or {}).get("geometry") or {}
+    for campo in ("name", "version"):
+        if not str(geometria.get(campo) or "").strip():
+            ausentes.append(f"providers.geometry.{campo}")
+    licenca = man.get("licenca") or {}
+    for campo in ("modelo", "notice"):
+        if not str(licenca.get(campo) or "").strip():
+            ausentes.append(f"licenca.{campo}")
+    return ausentes
+
+
+def verificar(destino: Path, only: str | None = None) -> dict:
     """Portao de CI: manifesto+hash E reexecucao de G1-G10 contra o perfil atual.
 
     O hash pega arquivo trocado; a reexecucao pega o caso mais sutil: o perfil do jogo mudou
@@ -391,6 +427,8 @@ def verificar(destino: Path) -> dict:
     import jsonschema
 
     from . import profiles, qc
+
+    pedidos = _pedidos_verificar(only)
 
     if not destino.is_dir():
         raise erro_manifesto(f"destino inexistente: {destino}", destino=str(destino))
@@ -401,6 +439,9 @@ def verificar(destino: Path) -> dict:
 
     itens = []
     erros: list[dict] = []
+    faltando: list[dict] = []
+    deltas_escala: list[float] = []
+    deltas_pivo: list[float] = []
     for caminho in manifestos:
         try:
             man = json.loads(caminho.read_text(encoding="utf-8"))
@@ -419,9 +460,10 @@ def verificar(destino: Path) -> dict:
         if problemas:
             erros.append({"manifesto": caminho.name, "erro": "schema", "detalhes": problemas})
             continue
-        if not man["qc"]["aprovado"]:
+        checar_hash = pedidos is None or "hash" in pedidos
+        if checar_hash and not man["qc"]["aprovado"]:
             erros.append({"manifesto": caminho.name, "erro": "manifesto publicado sem QC aprovado"})
-        for arq in man["files"]:
+        for arq in (man["files"] if checar_hash else []):
             alvo = destino / arq["caminho"]
             if not alvo.is_file():
                 erros.append({"manifesto": caminho.name, "erro": f"arquivo ausente: {arq['caminho']}"})
@@ -436,6 +478,36 @@ def verificar(destino: Path) -> dict:
                         "medido": real,
                     }
                 )
+
+        if pedidos is not None and "manifesto" in pedidos:
+            ausentes = _faltando_proveniencia(man)
+            if ausentes:
+                faltando.extend({"manifesto": caminho.name, "campo": c} for c in ausentes)
+                erros.append(
+                    {
+                        "manifesto": caminho.name,
+                        "erro": "proveniencia incompleta",
+                        "campos": ausentes,
+                    }
+                )
+
+        if pedidos is not None and not (pedidos & {"gates", "escala", "pivo"}):
+            # --only sem gate: nao abre o glb nem reexecuta QC
+            itens.append(
+                {
+                    "asset_id": man["asset_id"],
+                    "schema": man["schema"],
+                    "perfil": man["perfil"],
+                    "escala_saida": float(
+                        (man.get("unidades_export") or {}).get("escala_saida", 1.0)
+                    ),
+                    "triangulos": man["geometry"]["triangulos"],
+                    "arquivos": len(man["files"]),
+                    "licenca": man["licenca"]["modelo"],
+                    "qc_reexecutado": None,
+                }
+            )
+            continue
 
         # --- reexecucao dos gates contra o perfil ATUAL (C2) ---
         try:
@@ -541,15 +613,28 @@ def verificar(destino: Path) -> dict:
         except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto
             erros.append({"manifesto": caminho.name, "erro": f"QC reexecutado falhou: {exc}"})
             continue
-        if not revalidado["aprovado"]:
-            falhas = [g for g in revalidado["gates"] if g["status"] == "falhou"]
-            erros.append(
-                {
-                    "manifesto": caminho.name,
-                    "erro": "QC reexecutado reprovou",
-                    "gates": falhas,
-                }
-            )
+        gates_revalidados = {g["id"]: g for g in revalidado["gates"]}
+        medido_g2_novo = (gates_revalidados.get("G2") or {}).get("medido") or {}
+        if pedidos is None or "gates" in pedidos:
+            if not revalidado["aprovado"]:
+                falhas = [g for g in revalidado["gates"] if g["status"] == "falhou"]
+                erros.append(
+                    {
+                        "manifesto": caminho.name,
+                        "erro": "QC reexecutado reprovou",
+                        "gates": falhas,
+                    }
+                )
+        if pedidos is not None and (pedidos & {"escala", "pivo"}):
+            g2 = gates_revalidados.get("G2") or {}
+            if g2.get("status") == "falhou":
+                erros.append(
+                    {"manifesto": caminho.name, "erro": "G2 reprovou escala/pivo", "gates": [g2]}
+                )
+        if "escala" in (pedidos or set()):
+            deltas_escala.append(abs(float(medido_g2_novo.get("delta_pct") or 0.0)))
+        if "pivo" in (pedidos or set()):
+            deltas_pivo.append(abs(float(medido_g2_novo.get("desvio_pivo_m") or 0.0)) * 1000.0)
         itens.append(
             {
                 "asset_id": man["asset_id"],
@@ -563,4 +648,18 @@ def verificar(destino: Path) -> dict:
             }
         )
 
-    return {"ok": not erros, "destino": str(destino), "total": len(itens), "itens": itens, "erros": erros}
+    relatorio = {
+        "ok": not erros,
+        "destino": str(destino),
+        "total": len(itens),
+        "itens": itens,
+        "erros": erros,
+    }
+    if pedidos is not None:
+        if "manifesto" in pedidos:
+            relatorio["faltando"] = faltando
+        if "escala" in pedidos:
+            relatorio["escala"] = {"delta_pct": round(max(deltas_escala or [0.0]), 3)}
+        if "pivo" in pedidos:
+            relatorio["pivo"] = {"delta_mm": round(max(deltas_pivo or [0.0]), 3)}
+    return relatorio

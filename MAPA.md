@@ -28,7 +28,7 @@
 | `src/forge3d/` + `src/forge3d/cli/` | `spec` `plan` `qc` `publish` `pipeline` `doctor` `locks` `canonical` `config` `paths` `gc` `rbx` `upload` `migrate` + 14 subcomandos | implementação |
 | `src/forge3d/providers/` | `base` `blocky` `importer` `mesh` | adicionar rota |
 | `src/forge3d/post.py` + `blender/postprocess.py` | subprocesso + script `bpy` (LOD, colisor, rig, UV+bake) | pós-processo, textura, rig |
-| `tests/` | `test_unidade.py` · `test_unidades.py` · `test_animacao.py` · `test_lod.py` · `test_modular.py` · `test_modular_provider.py` · `test_atomico.py` · `test_convexidade.py` · `test_pivo.py` · `test_locks.py` · `test_concept.py` · `test_p3_bake.py` · `test_rbx.py` · `test_upload.py` · `test_gc.py` · `test_migrate.py` · `test_query.py` · `invariants/` · `fixtures/` | portão de CI |
+| `tests/` | `test_unidade.py` · `test_unidades.py` · `test_animacao.py` · `test_lod.py` · `test_modular.py` · `test_modular_provider.py` · `test_atomico.py` · `test_convexidade.py` · `test_pivo.py` · `test_locks.py` · `test_concept.py` · `test_p3_bake.py` · `test_rbx.py` · `test_upload.py` · `test_gc.py` · `test_migrate.py` · `test_query.py` · `test_verify_only.py` · `test_doc_comandos.py` · `invariants/` · `fixtures/` | portão de CI |
 | `~/.venvs/concept` | venv do SD1.5/diffusers (cópia da i23d; pin de transformers diferente) | gerar concept |
 | `$FORGE3D_HOME` | `cache` `runs` `staging` `locks` `indice.sqlite` `ledger.jsonl` `saida/` | depurar run |
 | `~/.config/forge3d/allowlist.yaml` | destinos autorizados (D23) | publicar em projeto de jogo |

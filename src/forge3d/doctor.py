@@ -25,7 +25,14 @@ def _item(nome: str, ok: bool, detalhe: str, critico: bool = True) -> dict:
 
 def _checar_schemas() -> dict:
     falhas = []
-    for nome in ("spec.v1.schema.json", "spec.v2.schema.json", "manifest.v1.schema.json"):
+    for nome in (
+        "spec.v1.schema.json",
+        "spec.v2.schema.json",
+        "spec.v3.schema.json",
+        "manifest.v1.schema.json",
+        "manifest.v2.schema.json",
+        "manifest.v3.schema.json",
+    ):
         arq = paths.raiz_dados() / "schemas" / nome
         if not arq.is_file():
             falhas.append(f"{nome} ausente")
@@ -34,7 +41,7 @@ def _checar_schemas() -> dict:
             jsonschema.Draft202012Validator.check_schema(json.loads(arq.read_text(encoding="utf-8")))
         except jsonschema.SchemaError as exc:
             falhas.append(f"{nome}: {exc.message}")
-    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1/spec@2 e manifest@1 validos")
+    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1..@3 e manifest@1..@3 validos")
 
 
 def _checar_perfis() -> dict:
@@ -139,8 +146,23 @@ def checar() -> dict:
         "estado": str(paths.raiz_estado()),
         "config": str(paths.raiz_config()),
         "dados": str(paths.raiz_dados()),
+        # I7/I9: chaves de topo estaveis para o pipe (o `checks` continua detalhado)
+        "blender": _versao_blender(),
+        "modelos_aptos": sorted(
+            {v["modelo"] for v in providers.LICENCAS.values() if v.get("uso_comercial")},
+            key=str.lower,
+        ),
         "checks": checks,
     }
+
+
+def _versao_blender() -> str | None:
+    """Versao do Blender em string (I9); ``None`` quando ausente."""
+    try:
+        maior, menor, micro = post.versao()
+    except erro_ambiente:
+        return None
+    return f"{maior}.{menor}.{micro}"
 
 
 def _checar_blender() -> dict:

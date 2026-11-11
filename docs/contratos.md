@@ -189,6 +189,11 @@ abrir o arquivo. Medido em 11/11/2026:
 
 `estado` ∈ `publicado` · `aprovado_nao_publicado` · `reprovado` · `bloqueado` · `falhou` · `cache_hit`.
 
+**`verify --only`** recorta o escopo sem mudar o exit code: `manifesto` (proveniência, acrescenta
+`faltando[]` e não abre o glb), `hash` (QC aprovado + sha256 dos arquivos), `escala`/`pivo` (reexecuta
+o G2 e devolve `escala.delta_pct` / `pivo.delta_mm`) e `gates` (G1–G10). Aspecto desconhecido sai `2`
+com `FORGE-E-SPEC`. Sem `--only`, o comportamento é o completo.
+
 ## 5. Exit codes
 
 | Código | Significado | O pipe deve |
@@ -242,7 +247,7 @@ Regras: `B15` — `modular` só existe na rota `modular`, e a rota `modular` exi
 `B16` — `setor` dentro da grade; `B17` — nomes de módulo do catálogo (`corredor`, `sala`, `curva`);
 `B2` vale para `modular` também (seed vem de `politica.seed_base` quando ausente). `altura_metros`
 default **2,4 m** (pé-direito) quando a rota é `modular` e o item não declara.
-| `FORGE-W-QC` | gate em estado `warn` | — |
+| `FORGE-W-QC` | reservado: gate em `warn` **não emite código** hoje (só `falhou` vira `FORGE-E-QC`) | — |
 
 ## 7. Compatibilidade
 

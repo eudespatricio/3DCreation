@@ -102,3 +102,11 @@ def test_ciclo_completo_em_um_asset(tmp_path):
     # 5. verifica integridade
     codigo, saida = _cli(["verify", str(destino)], env)
     assert codigo == 0 and saida["ok"] is True, saida
+
+    # 6. --only recorta o veredito e devolve a medida (I8/I10)
+    codigo, saida = _cli(["verify", str(destino), "--only=escala,pivo"], env)
+    assert codigo == 0 and saida["ok"] is True, saida
+    assert saida["escala"]["delta_pct"] <= 0.5
+    assert saida["pivo"]["delta_mm"] <= 1.0
+    codigo, saida = _cli(["verify", str(destino), "--only=manifesto"], env)
+    assert codigo == 0 and saida["faltando"] == [], saida

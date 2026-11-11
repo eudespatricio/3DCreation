@@ -1,0 +1,21 @@
+# Fixture do I13: destino fora da allowlist.
+# `plan` tambem resolve o destino, entao tem que sair 2 com FORGE-E-DESTINO antes de gerar nada.
+schema: forge3d/spec@3
+
+projeto: fixture
+perfil: godot4
+destino_exportacao: /tmp/fora-da-allowlist
+
+estilo_global: blocky_voxel
+
+politica:
+  falha: abortar
+  custo_max_min: 5
+
+lote:
+  - id: fixture.destino.fora.01
+    tipo: prop_estatico
+    rota: blocky
+    prompt: bloco cujo destino nao esta autorizado
+    altura_metros: 0.50
+    tags: [fixture, allowlist]

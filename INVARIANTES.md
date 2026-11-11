@@ -35,9 +35,9 @@ Esperado: `exit=2` e código `FORGE-E-SPEC`.
 Arquivo só aparece na pasta do jogo no passo `publish`, vindo de staging por `rename`.
 
 ```bash
-forge3d run examples/lote_01.yaml --no-publish --json | python3 -c "import json,sys;print(json.load(sys.stdin)['published'])"
+forge3d run examples/lote_01.yaml --nao-publicar --json | python3 -c "import json,sys;print(json.load(sys.stdin)['resumo']['publicados'])"
 ```
-Esperado: lista vazia. `tests/test_atomico.py` prova as três coisas: thread observadora não vê
+Esperado: `0` (os itens ficam `aprovado_nao_publicado`). `tests/test_atomico.py` prova as três coisas: thread observadora não vê
 arquivo parcial, `spy` em `os.replace` encontra o destino vazio antes do rename e falha no meio não
 deixa arquivo final (GAP-014 fechado na C14).
 
@@ -48,7 +48,9 @@ errado ou hash divergente = falha.
 
 ```bash
 forge3d verify <destino>; echo "exit=$?"
-python3 -c "print(0)" # hash de um arquivo alterado à mão deve derrubar o verify
+TMP=$(mktemp -d); cp -a <destino>/. "$TMP"/
+printf 'x' >> "$(find "$TMP" -name '*.glb' -print -quit)"   # um byte trocado no glb
+forge3d verify "$TMP"; echo "exit=$?"; rm -rf "$TMP"
 ```
 Esperado: `exit=0` íntegro · `exit=3` com `FORGE-E-MANIFEST` após corromper.
 
@@ -68,9 +70,10 @@ Dois processos com rota `mesh` não coexistem: o segundo sai `6` com `FORGE-E-RE
 estourar VRAM.
 
 ```bash
-forge3d run tests/fixtures/lote_mesh.yaml --json & forge3d run tests/fixtures/lote_mesh.yaml --json; echo "exit=$?"
+python -m pytest tests/test_locks.py -k concorrencia; echo "exit=$?"
 ```
-Esperado: um completa; o outro `exit=6`. VRAM de pico registrada no manifesto.
+Esperado: o lock recusa a segunda entrada (teste verde). Num host com GPU, dois `run` de rota `mesh`
+ao mesmo tempo dão um `exit=0` e outro `exit=6` (`FORGE-E-RECURSO`), com a VRAM de pico no manifesto.
 
 ## I7 — Licença é gate `[P3]`
 
@@ -117,7 +120,7 @@ Esperado: `[]`.
 Segunda execução idêntica reporta zero misses e não toca nenhum arquivo.
 
 ```bash
-forge3d run examples/lote_01.yaml --json | python3 -c "import json,sys;print(json.load(sys.stdin)['cache_hits'])"
+forge3d run examples/lote_01.yaml --json | python3 -c "import json,sys;print(json.load(sys.stdin)['resumo']['cache_hits'])"
 ```
 Esperado: igual ao total de tarefas; `trabalho_executado: 0`.
 
@@ -138,9 +141,9 @@ Esperado: `OK: nenhum caminho /mnt`.
 `FORGE-E-DESTINO`.
 
 ```bash
-forge3d publish --destino /tmp/qualquer --json; echo "exit=$?"
+forge3d plan tests/fixtures/lote_destino_fora.yaml --json; echo "exit=$?"
 ```
-Esperado: `exit=2`.
+Esperado: `exit=2` com `FORGE-E-DESTINO` (o `plan` também resolve o destino).
 
 ## I14 — IP neutro em asset publicado `[P0]`
 

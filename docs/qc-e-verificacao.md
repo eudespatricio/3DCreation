@@ -61,7 +61,7 @@ Vai para `.forge/staging/<id>/relatorio_qc.json` e é embutido no manifesto:
     {"id": "G2", "status": "falhou", "medido": {"altura_m": 3.42, "esperado_m": 1.10, "delta_pct": 210.9}},
     {"id": "G9", "status": "ok",    "medido": {"triangulos": 780, "limite": 800}}
   ],
-  "codigo": "FORGE-E-SCALE"
+  "codigo": "FORGE-E-QC"
 }
 ```
 

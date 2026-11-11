@@ -352,6 +352,6 @@ def _resumo(itens: list[dict], resumo_plano: dict) -> dict:
     }
 
 
-def verificar(destino: str | Path) -> dict:
+def verificar(destino: str | Path, only: str | None = None) -> dict:
     alvo = config.normalizar(destino)
-    return publish.verificar(alvo)
+    return publish.verificar(alvo, only=only)

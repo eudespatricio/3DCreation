@@ -51,6 +51,10 @@ def construir_parser() -> argparse.ArgumentParser:
 
     ve = sub.add_parser("verify", help="portao de CI: manifesto integro + hash conferido")
     ve.add_argument("destino")
+    ve.add_argument(
+        "--only",
+        help="verifica so estes aspectos: manifesto,hash,escala,pivo,gates (virgula)",
+    )
     ve.add_argument("--json", action="store_true")
 
     q = sub.add_parser("query", help="consulta o indice de assets publicados")
@@ -234,7 +238,7 @@ def _run(args) -> int:
 
 
 def _verify(args) -> int:
-    relatorio = pipeline.verificar(args.destino)
+    relatorio = pipeline.verificar(args.destino, only=getattr(args, "only", None))
     if args.json:
         _json(relatorio)
     else:
@@ -244,6 +248,12 @@ def _verify(args) -> int:
             print(f"  ok   {item['asset_id']:<32} {item['triangulos']:>6} tris  {item['licenca']}")
         for erro in relatorio["erros"]:
             print(f"  FALHA {erro.get('manifesto', '?')}: {erro.get('erro')}")
+        if "faltando" in relatorio:
+            print(f"  proveniencia: {len(relatorio['faltando'])} campo(s) faltando")
+        if "escala" in relatorio:
+            print(f"  escala: delta {relatorio['escala']['delta_pct']} %")
+        if "pivo" in relatorio:
+            print(f"  pivo: desvio {relatorio['pivo']['delta_mm']} mm")
     return 0 if relatorio["ok"] else 3
 
 

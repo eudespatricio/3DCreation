@@ -11,6 +11,6 @@ PY="${PYTHON:-.venv/bin/python}"
     tests/test_atomico.py tests/test_locks.py tests/test_conformidade.py \
     tests/test_unidades.py tests/test_animacao.py tests/test_lod.py \
     tests/test_modular.py tests/test_modular_provider.py tests/test_migrate.py \
-    tests/test_query.py -q
+    tests/test_query.py tests/test_verify_only.py tests/test_doc_comandos.py -q
 bash tools/check-contexto.sh
 "$PY" tools/check-p0.py

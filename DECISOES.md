@@ -164,6 +164,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P5 — clipe `idle` por retarget (D66) | duração **2,042 s**; move `{UpperTorso, LowerTorso, Head, LeftUpperArm, RightUpperArm}` no `r15@1` e `{Chest, Spine1, Head, UpperArm.L, UpperArm.R}` no `godot-humanoid@1` | 48 canais no glb do R15 (o export amostra os 16 ossos) e 69 no android; `qc.animacoes` em 11/11/2026 |
 | P5 — clipe no Godot 4.3 (headless) | `GODOT_ANIM_OK clipes=[idle] duracao=2.042 tracks=5 movimento=0.0697` (R15) e `tracks=7 movimento=0.0697` (android) | `tools/godot_anim_check.gd` em 11/11/2026 |
 | P5 — manifest@3 | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, todos com `verify` **0 problemas** | `verify` nos 7 destinos, 11/11/2026 |
+| CI após P5/D68 | run **42960740797** `success` em `7b739f3` e **42961348850** em `9245091`; job com **96 testes** + contexto + P0 | API do Actions em 11/11/2026 |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
 end-to-end (implementado, execução pendente), A/B de 10 assets, qualidade de personagem com capa,

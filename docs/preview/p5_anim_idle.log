@@ -1,0 +1,57 @@
+# P5-A — clipe idle gerado e validado (11/11/2026)
+
+Maquina: WSL2 Ubuntu, Blender 4.2.0, Godot 4.3.stable, Studio 16c88345 (MCP).
+
+## 1. Geracao (bpy, dentro do `run`)
+
+```
+forge3d run examples/lote_09_r15.yaml     # perfil roblox-r15, animacoes_base: [idle]
+forge3d run examples/lote_android.yaml    # perfil godot4,   animacoes_base: [idle]
+```
+
+Reportado no `resultado.json` do pos-processo:
+
+```
+idle  duracao_s=2.042  frames=48  ossos=[UpperTorso, LowerTorso, Head, LeftUpperArm, RightUpperArm]
+```
+
+No glb do R15 o export amostra os 16 ossos: 48 canais (16 x rotacao/posicao/escala), dos quais
+5 tem movimento real (`qc.animacoes`):
+
+```
+nome=idle duracao_s=2.042 canais=48
+ossos=["Head","HumanoidRootPart","LeftFoot","LeftHand","LeftLowerArm","LeftLowerLeg",
+       "LeftUpperArm","LeftUpperLeg","LowerTorso","RightFoot","RightHand","RightLowerArm",
+       "RightLowerLeg","RightUpperArm","RightUpperLeg","UpperTorso"]
+movendo=["Head","LeftUpperArm","LowerTorso","RightUpperArm","UpperTorso"]
+```
+
+No android (`godot-humanoid@1`, 23 ossos): 69 canais e `movendo=[Chest, Head, Spine1, UpperArm.L,
+UpperArm.R]` — exatamente a tabela `rig.retarget` dos perfis (D66).
+
+## 2. Godot 4.3 headless
+
+```
+godot --headless --path tools/godot_project \
+  --script "$PWD/tools/godot_anim_check.gd" -- <glb> idle
+```
+
+```
+R15    GODOT_ANIM_OK clipes=["idle"] | idle duracao=2.042 tracks=5 movimento=0.0697
+android GODOT_ANIM_OK clipes=["idle"] | idle duracao=2.042 tracks=7 movimento=0.0697
+```
+
+`movimento` e a maior variacao de chave entre tracks de rotacao/posicao (rad/m): o clipe move o
+esqueleto de verdade, nao esta so declarado.
+
+## 3. Studio (MCP) — sondas para a P5-B
+
+```
+KeyframeSequenceProvider:RegisterKeyframeSequence(seq) -> ok, hash=767d8182be0b55a6e2687acc36207d11
+InsertService:LoadLocalAsset("\\\\wsl.localhost\\...\\personagem.r15.guard.01.rbxlx")
+  -> falhou: "lacking capability RobloxScript"
+```
+
+Consequencia para GAP-045: da para registrar um `KeyframeSequence` na sessao do Studio, mas **nao**
+da para inserir o `.rbxlx` do disco por MCP. A validacao do rig tera que ser feita reconstruindo as
+Parts/Motor6D no Luau a partir do JSON do export (mesmos dados do arquivo).

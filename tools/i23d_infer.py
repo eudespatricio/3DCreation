@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import sys
 import time
 import traceback
 from pathlib import Path
@@ -50,8 +48,85 @@ def _args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _limpar_ruido_alfa(imagem, alfa_minimo: int = 24):
+    """Zera pixels quase transparentes (< ``alfa_minimo``) sem alterar RGB restante."""
+    from PIL import Image
+
+    rgba = imagem.convert("RGBA")
+    raw = bytearray(rgba.tobytes())
+    for i in range(0, len(raw), 4):
+        if raw[i + 3] < alfa_minimo:
+            raw[i] = 0
+            raw[i + 1] = 0
+            raw[i + 2] = 0
+            raw[i + 3] = 0
+    return Image.frombytes("RGBA", rgba.size, bytes(raw))
+
+
+def _desmultiplicar_alfa(imagem, alfa_minimo: int = 24):
+    """Desfaz pre-multiplicacao do rembg (Image.composite) e zera ruido < ``alfa_minimo``."""
+    from PIL import Image
+
+    rgba = imagem.convert("RGBA")
+    raw = bytearray(rgba.tobytes())
+    for i in range(0, len(raw), 4):
+        a = raw[i + 3]
+        if a < alfa_minimo:
+            raw[i] = 0
+            raw[i + 1] = 0
+            raw[i + 2] = 0
+            raw[i + 3] = 0
+        elif a < 255:
+            # rembg.naive_cutout usa Image.composite(..., 0, mask), que multiplica RGB por alpha.
+            raw[i] = min(255, round(raw[i] * 255 / a))
+            raw[i + 1] = min(255, round(raw[i + 1] * 255 / a))
+            raw[i + 2] = min(255, round(raw[i + 2] * 255 / a))
+    return Image.frombytes("RGBA", rgba.size, bytes(raw))
+
+
+def _erodir_alfa_seguro(
+    rgba,
+    alfa_minimo: int = 24,
+    razao_opaca_minima: float = 0.08,
+):
+    """Erode 1px na mascara alfa apenas se a area opaca restante ficar >= ``razao_opaca_minima``."""
+    from PIL import ImageFilter
+
+    alfa = rgba.getchannel("A")
+    alfa_erodido = alfa.filter(ImageFilter.MinFilter(3))
+    dados = alfa_erodido.tobytes()
+    total = max(len(dados), 1)
+    opacos = sum(1 for val in dados if val >= alfa_minimo)
+    if opacos / total < razao_opaca_minima:
+        return rgba
+    resultado = rgba.copy()
+    resultado.putalpha(alfa_erodido)
+    return resultado
+
+
+def _compor_cutout_neutro(
+    imagem,
+    *,
+    desmultiplicar: bool,
+    alfa_minimo: int = 24,
+    razao_opaca_minima: float = 0.08,
+):
+    """Compoe recorte RGBA sobre cinza neutro (128, 128, 128) sem halo escuro."""
+    from PIL import Image
+
+    rgba = imagem.convert("RGBA")
+    if desmultiplicar:
+        rgba = _desmultiplicar_alfa(rgba, alfa_minimo=alfa_minimo)
+        rgba = _erodir_alfa_seguro(
+            rgba,
+            alfa_minimo=alfa_minimo,
+            razao_opaca_minima=razao_opaca_minima,
+        )
+    fundo = Image.new("RGBA", rgba.size, (128, 128, 128, 255))
+    return Image.alpha_composite(fundo, rgba).convert("RGB")
+
+
 def _preparar_imagem(caminho: str, remover_fundo: bool, foreground_ratio: float):
-    import numpy as np
     from PIL import Image
 
     imagem = Image.open(caminho).convert("RGBA")
@@ -59,15 +134,15 @@ def _preparar_imagem(caminho: str, remover_fundo: bool, foreground_ratio: float)
         import rembg
         from tsr.utils import remove_background, resize_foreground
 
+        era_opaca = imagem.getchannel("A").getextrema()[0] == 255
         sessao = rembg.new_session()
         recortada = remove_background(imagem, sessao)
+        if era_opaca and recortada.convert("RGBA").getchannel("A").getextrema()[1] >= 24:
+            recortada = _limpar_ruido_alfa(recortada)
         recortada = resize_foreground(recortada, foreground_ratio)
-        arr = np.array(recortada).astype("float32") / 255.0
-        arr = arr[:, :, :3] * arr[:, :, 3:4] + (1.0 - arr[:, :, 3:4]) * 0.5
-        return Image.fromarray((arr * 255.0).astype("uint8"))
-    # fundo neutro: compoe alfa sobre cinza medio (o modelo foi treinado assim)
-    fundo = Image.new("RGBA", imagem.size, (128, 128, 128, 255))
-    return Image.alpha_composite(fundo, imagem).convert("RGB")
+        return _compor_cutout_neutro(recortada, desmultiplicar=era_opaca)
+    # fundo neutro: compoe alfa reto sobre cinza medio (o modelo foi treinado assim)
+    return _compor_cutout_neutro(imagem, desmultiplicar=False)
 
 
 def main() -> int:
@@ -113,6 +188,16 @@ def main() -> int:
         t_extrair = time.monotonic()
 
         malha = malhas[0]
+        # TripoSR extrai em +Z up, +X front, +Y camera-right (tsr/utils.py);
+        # glTF exige +Y up e os perfis usam -Z frente: (-y, z, -x) tem det=+1 (sem espelho).
+        malha.apply_transform(
+            [
+                [0.0, -1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [-1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
         destino = saida_dir / "modelo.glb"
         malha.export(destino)
         t_exportar = time.monotonic()

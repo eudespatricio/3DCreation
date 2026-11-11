@@ -6,9 +6,11 @@ nao aviso de rodape.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .base import Provider, RawAsset
 
-__all__ = ["obter", "registrados", "LICENCAS", "Provider", "RawAsset", "licenca_de"]
+__all__ = ["LICENCAS", "Provider", "RawAsset", "licenca_de", "obter", "registrados"]
 
 #: allowlist comercial. ``uso_comercial=False`` => provider bloqueado no publish.
 LICENCAS: dict[str, dict] = {
@@ -39,10 +41,18 @@ LICENCAS: dict[str, dict] = {
             "restricoes de uso da licenca; ver docs/riscos-e-licencas.md."
         ),
     },
+    "sd15_openpose": {
+        "modelo": "ControlNet OpenPose (SD 1.5)",
+        "uso_comercial": True,
+        "notice": (
+            "ControlNet v1.1 OpenPose (SD 1.5) sob CreativeML OpenRAIL-M: uso comercial permitido "
+            "com as restricoes de uso da licenca; ver docs/riscos-e-licencas.md."
+        ),
+    },
 }
 
 #: rotas conhecidas e o provider que as atende nesta fase
-_FABRICAS = {}
+_FABRICAS: dict[str, Any] = {}
 
 
 def registrar(rota: str, fabrica) -> None:

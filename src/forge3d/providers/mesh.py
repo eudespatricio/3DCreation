@@ -20,11 +20,12 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 from .. import locks, paths
 from .base import RawAsset
 
-VERSAO = "0.1.5"
+VERSAO = "0.1.8"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
 VRAM_MINIMA_MB = 3500
@@ -239,18 +240,22 @@ class MeshProvider:
         """Versao efetiva: entra na chave de cache (D6) e muda com as opcoes de env."""
         rembg = _politica_rembg()
         mc = os.environ.get("FORGE3D_MC_RESOLUTION", "256").strip()
-        tex = os.environ.get("FORGE3D_TEX_PX", "512").strip()
+        tex = os.environ.get("FORGE3D_TEX_PX", "1024").strip()
+        from . import concept as _concept
+
         concept = (
             os.environ.get("FORGE3D_MODELO_CONCEPT", "sd15").strip().replace("/", "_")
         )
+        c_ver = _concept.VERSAO
+        c_pose = os.environ.get("FORGE3D_CONCEPT_POSE", "").strip().lower() or "auto"
         c_step = os.environ.get("FORGE3D_CONCEPT_PASSOS", "25").strip()
         c_w = os.environ.get("FORGE3D_CONCEPT_LARGURA", "512").strip()
         c_h = os.environ.get("FORGE3D_CONCEPT_ALTURA", "512").strip()
         c_g = os.environ.get("FORGE3D_CONCEPT_GUIDANCE", "7.5").strip()
         dev = _device().replace(":", "").replace("/", "_")
         return (
-            f"{VERSAO}+mc{mc}+tex{tex}+rembg{rembg}+concept{concept}"
-            f"+c{c_w}x{c_h}s{c_step}g{c_g}+dev{dev}"
+            f"{VERSAO}+mc{mc}+tex{tex}+rembg{rembg}+concept{concept}@{c_ver}"
+            f"+p{c_pose}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+dev{dev}"
         )
 
     def _licenca(self) -> dict:
@@ -445,8 +450,8 @@ class MeshProvider:
                 f"i23d não produziu modelo.glb em {destino}", id=item.get("id")
             )
 
-        textura_px = int(os.environ.get("FORGE3D_TEX_PX", "512"))
-        modelo = {
+        textura_px = int(os.environ.get("FORGE3D_TEX_PX", "1024"))
+        modelo: dict[str, Any] = {
             "schema": "forge3d/bruto-arquivo@1",
             "arquivo": "modelo.glb",
             "origem_nome": imagem.name,
@@ -469,7 +474,7 @@ class MeshProvider:
         )
         return RawAsset(
             dir=destino,
-            schema=modelo["schema"],
+            schema=str(modelo["schema"]),
             determinism=self.determinism,
             arquivos=[arq_modelo, glb, resultado_path, destino / "input.png"],
             meta={

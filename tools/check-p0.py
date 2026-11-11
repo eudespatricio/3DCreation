@@ -36,6 +36,7 @@ for rel in (
     "schemas/spec.v1.schema.json",
     "schemas/spec.v2.schema.json",
     "schemas/manifest.v1.schema.json",
+    "schemas/manifest.v2.schema.json",
 ):
     try:
         s = json.loads((ROOT / rel).read_text(encoding="utf-8"))
@@ -91,18 +92,22 @@ for rel, schema_rel, rotulo in LOTES:
     except Exception as e:  # noqa: BLE001
         fail(f"{rel}: {e}")
 
-print("== manifesto de exemplo ==")
-manifest_v = Draft202012Validator(schemas["schemas/manifest.v1.schema.json"])
-try:
-    man = json.loads((ROOT / "examples/manifest.exemplo.json").read_text(encoding="utf-8"))
-    errs = sorted(manifest_v.iter_errors(man), key=lambda e: list(e.path))
-    if errs:
-        for e in errs[:5]:
-            fail(f"manifesto: {'/'.join(map(str, e.path))}: {e.message}")
-    else:
-        ok("examples/manifest.exemplo.json valida contra manifest@1")
-except Exception as e:  # noqa: BLE001
-    fail(f"manifesto: {e}")
+print("== manifestos de exemplo ==")
+for rel_man, rel_schema, rotulo in (
+    ("examples/manifest.exemplo.json", "schemas/manifest.v1.schema.json", "manifest@1"),
+    ("examples/manifest.exemplo.v2.json", "schemas/manifest.v2.schema.json", "manifest@2"),
+):
+    try:
+        man = json.loads((ROOT / rel_man).read_text(encoding="utf-8"))
+        validador = Draft202012Validator(schemas[rel_schema])
+        errs = sorted(validador.iter_errors(man), key=lambda e: list(e.path))
+        if errs:
+            for e in errs[:5]:
+                fail(f"{rel_man}: {'/'.join(map(str, e.path))}: {e.message}")
+        else:
+            ok(f"{rel_man} valida contra {rotulo}")
+    except Exception as e:  # noqa: BLE001
+        fail(f"{rel_man}: {e}")
 
 print("== perfis yaml ==")
 for rel in ("profiles/godot4.yaml", "profiles/roblox-r15.yaml"):

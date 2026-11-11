@@ -21,7 +21,7 @@ Duas consequências:
 | # | Gate | Mede | Como | Padrão de limite | Sev. |
 |---|---|---|---|---|---|
 | **G1** | Geometria sã | arestas não-manifold, faces degeneradas, normais invertidas, buracos | `bpy`: `bmesh` + checagem de normais | `0` não-manifold, `0` degenerada | erro |
-| **G2** | Escala e pivô | altura da AABB vs `altura_metros`; posição do pivô vs regra | leitura do `.glb` (accessor min/max), sem Blender | `≤ 0,5 %` e `≤ 1 mm` | erro |
+| **G2** | Escala e pivô | altura da AABB (÷ `escala_saida`) vs `altura_metros`; posição do pivô vs regra | leitura do `.glb` (accessor min/max), sem Blender | `≤ 0,5 %` e `≤ 1 mm` | erro |
 | **G3** | UV | `TEXCOORD_0` presente em todo primitivo; UV em `[0,1]` no modo atlas | parse do `.glb` | cobertura `100 %` | erro |
 | **G4** | Textura | dimensão POT, `≤ textura_max`, sem upscale, canais corretos | header PNG | `≤ 1024`, POT obrigatório | erro |
 | **G5** | Material | nº de materiais, todos com textura existente, sem caminho absoluto | parse do `.glb` + `fsck` de arquivo | `≤ 8` por asset | erro |
@@ -34,6 +34,11 @@ Duas consequências:
 importado pareceria ter borda aberta. Efeito colateral: duas peças que compartilham **canto exato**
 viram uma aresta de 4 faces depois da solda e o G1 reprova — foi o que aconteceu com pelve/coxa.
 É por isso que a geometria blocky **sobrepõe** peças em vez de encostá-las (`MAPA.md` armadilha 10).
+
+**G2 mede em metros, contra um arquivo que pode estar em studs.** Desde o D62 o `glb` do perfil
+`roblox-r15` sai em studs (`escala_saida: 3,5714`); o G2 divide a AABB do arquivo pela escala
+declarada antes de comparar com `altura_metros` e divide o desvio do pivô pela mesma escala. Grava
+`altura_export` e `escala_saida` no `medido`, e `bbox_m` do relatório continua em metros.
 
 **Avisos** (`FORGE-W-QC`, publica com registro): LOD além de `_LOD2`; textura menor que 32 px;
 material sem uso; tolerância marcada `[verificar]` no perfil (U1–U5).
@@ -64,7 +69,8 @@ Roda sobre o que **já está publicado**, sem gerar nada. É o portão de pull r
 2. `sha256` de cada arquivo confere;
 3. todos os gates re-rodam contra o perfil atual: **G1** por topologia em Python puro (solda por
    posição, sem Blender); **G2** lê a regra de pivô gravada no G2 antigo (`pivo_regra`) e mede o
-   GLB; **G3–G9** releem o GLB/PNG do destino;
+   GLB com a escala **declarada no manifesto** (`unidades_export.escala_saida`; `@1` = 1.0);
+   **G3–G9** releem o GLB/PNG do destino;
 4. o índice e o disco concordam (nenhum arquivo órfão, nenhum registro fantasma).
 
 Divergiu ⇒ `exit 3` e a lista exata do que divergiu. Isso pega o caso mais comum em jogo — alguém

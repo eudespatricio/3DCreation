@@ -27,19 +27,29 @@ __all__ = [
     "registrar_ledger",
 ]
 
-MANIFEST_SCHEMA_CACHE: dict | None = None
+MANIFEST_SCHEMA_CACHE: dict[str, dict] = {}
+
+#: versao do contrato por `schema`; `manifest@1` continua aceito na leitura (D62)
+_VERSAO_POR_SCHEMA = {"forge3d/manifest@1": "1", "forge3d/manifest@2": "2"}
 
 
 def _agora() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _schema_manifesto() -> dict:
-    global MANIFEST_SCHEMA_CACHE
-    if MANIFEST_SCHEMA_CACHE is None:
-        arq = paths.raiz_dados() / "schemas" / "manifest.v1.schema.json"
-        MANIFEST_SCHEMA_CACHE = json.loads(arq.read_text(encoding="utf-8"))
-    return MANIFEST_SCHEMA_CACHE
+def _schema_manifesto(versao: str = "1") -> dict:
+    if versao not in MANIFEST_SCHEMA_CACHE:
+        arq = paths.raiz_dados() / "schemas" / f"manifest.v{versao}.schema.json"
+        MANIFEST_SCHEMA_CACHE[versao] = json.loads(arq.read_text(encoding="utf-8"))
+    return MANIFEST_SCHEMA_CACHE[versao]
+
+
+def _unidades_export(perfil: dict, medidas: dict) -> dict:
+    """Unidade do arquivo exportado (D62): fator efetivo do QC + unidade declarada no perfil."""
+    unidades = perfil.get("unidades") or {}
+    escala = float(medidas.get("escala_saida") or unidades.get("escala_saida", 1.0))
+    metros = float(unidades.get("metros_por_unidade", 1.0 / escala))
+    return {"metros_por_unidade": metros, "escala_saida": escala}
 
 
 def montar_manifesto(
@@ -48,6 +58,7 @@ def montar_manifesto(
     spec_doc: dict,
     spec_hash: str,
     perfil_nome: str,
+    perfil: dict | None = None,
     provider: dict,
     resultado: dict,
     relatorio_qc: dict,
@@ -66,6 +77,7 @@ def montar_manifesto(
             }
         )
     medidas = relatorio_qc["medidas"]
+    unidades_export = _unidades_export(perfil or {}, medidas)
     lods = [
         {"nivel": a["nivel"], "triangulos": a["triangulos"], "arquivo": a["caminho"]}
         for a in resultado.get("arquivos", [])
@@ -119,7 +131,7 @@ def montar_manifesto(
         rig = {"esqueleto": item.get("esqueleto") or "", "ossos": int(medidas["ossos"])}
 
     return {
-        "schema": "forge3d/manifest@1",
+        "schema": "forge3d/manifest@2",
         "asset_id": item["id"],
         "projeto": spec_doc["projeto"],
         "perfil": perfil_nome,
@@ -135,6 +147,8 @@ def montar_manifesto(
             "bbox_m": [max(0.0001, float(v)) for v in medidas["bbox_m"]],
             "materiais": max(1, int(medidas["materiais"])),
         },
+        # D62: o glb do roblox-r15 sai em studs; quem consome le a unidade aqui, nunca supoe metro
+        "unidades_export": unidades_export,
         "rig": rig,
         "lod": lods,
         "colisao": {
@@ -341,7 +355,6 @@ def verificar(destino: Path) -> dict:
     if not destino.is_dir():
         raise erro_manifesto(f"destino inexistente: {destino}", destino=str(destino))
 
-    validador = jsonschema.Draft202012Validator(_schema_manifesto())
     manifestos = sorted(destino.glob("*.manifest.json"))
     if not manifestos:
         raise erro_manifesto(f"nenhum manifesto em {destino}", destino=str(destino))
@@ -354,6 +367,14 @@ def verificar(destino: Path) -> dict:
         except ValueError as exc:
             erros.append({"manifesto": caminho.name, "erro": f"json invalido: {exc}"})
             continue
+        # D62: cada versao de contrato tem o seu schema; versao desconhecida e erro, nao perdao
+        versao = _VERSAO_POR_SCHEMA.get(man.get("schema"))
+        if versao is None:
+            erros.append(
+                {"manifesto": caminho.name, "erro": f"schema desconhecido: {man.get('schema')!r}"}
+            )
+            continue
+        validador = jsonschema.Draft202012Validator(_schema_manifesto(versao))
         problemas = [e.message for e in validador.iter_errors(man)][:5]
         if problemas:
             erros.append({"manifesto": caminho.name, "erro": "schema", "detalhes": problemas})
@@ -398,6 +419,33 @@ def verificar(destino: Path) -> dict:
                 }
             )
             continue
+        # D62: manifest@1 nao declara unidade — o arquivo dele esta em metros (escala 1.0).
+        escala = 1.0
+        if versao == "2":
+            unidades = man["unidades_export"]
+            escala = float(unidades["escala_saida"])
+            metros = float(unidades["metros_por_unidade"])
+            if abs(escala * metros - 1.0) > 1e-3:
+                erros.append(
+                    {
+                        "manifesto": caminho.name,
+                        "erro": (
+                            f"unidades_export inconsistentes: escala_saida {escala} x "
+                            f"metros_por_unidade {metros} != 1"
+                        ),
+                    }
+                )
+            esperada = float((perfil.get("unidades") or {}).get("escala_saida", 1.0))
+            if abs(escala - esperada) > 1e-6:
+                erros.append(
+                    {
+                        "manifesto": caminho.name,
+                        "erro": (
+                            f"escala_saida {escala} do manifesto difere do perfil atual "
+                            f"({esperada}): republique o asset"
+                        ),
+                    }
+                )
         item = {
             "id": man["asset_id"],
             "altura_metros": medido_g2.get("esperado_m"),
@@ -447,7 +495,7 @@ def verificar(destino: Path) -> dict:
             "determinism": man.get("determinism"),
         }
         try:
-            revalidado = qc.verificar(item, perfil, destino, resultado)
+            revalidado = qc.verificar(item, perfil, destino, resultado, escala_saida=escala)
         except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto
             erros.append({"manifesto": caminho.name, "erro": f"QC reexecutado falhou: {exc}"})
             continue
@@ -463,7 +511,9 @@ def verificar(destino: Path) -> dict:
         itens.append(
             {
                 "asset_id": man["asset_id"],
+                "schema": man["schema"],
                 "perfil": man["perfil"],
+                "escala_saida": escala,
                 "triangulos": man["geometry"]["triangulos"],
                 "arquivos": len(man["files"]),
                 "licenca": man["licenca"]["modelo"],

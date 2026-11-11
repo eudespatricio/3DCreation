@@ -147,6 +147,7 @@ def _executar_item(
         spec_doc=spec_doc,
         spec_hash=spec_hash,
         perfil_nome=spec_doc["perfil"],
+        perfil=perfil,
         provider=provedor,
         resultado=resultado,
         relatorio_qc=relatorio_qc,

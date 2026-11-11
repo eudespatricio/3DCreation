@@ -732,12 +732,18 @@ def processar(job: dict) -> dict:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
 
     # --- normalizacao de escala e pivo ---
+    # D62: a geometria e construida em metros. No perfil roblox-r15 o arquivo exportado tem que
+    # sair em studs porque o importador do Studio le 1 unidade glTF = 1 stud; o fator vem do
+    # perfil (`unidades.escala_saida`) e vale 1.0 nos perfis que exportam em metros.
+    escala_saida = float((perfil.get("unidades") or {}).get("escala_saida", 1.0))
+    if escala_saida <= 0:
+        raise RuntimeError(f"escala_saida invalida no perfil: {escala_saida}")
     minimo, maximo = bbox_local()
     altura_atual = maximo.z - minimo.z
     if altura_atual <= 0:
         raise RuntimeError("geometria com altura zero")
     alvo = float(item["altura_metros"])
-    escala = alvo / altura_atual
+    escala = (alvo / altura_atual) * escala_saida
 
     pivo_declarado = (bruto.get("pivos") or {}).get(item["pivot"])
     pivo, origem_regra = calcular_pivo(item["pivot"], minimo * escala, maximo * escala, pivo_declarado)
@@ -754,17 +760,23 @@ def processar(job: dict) -> dict:
         mod.object = rig_obj
 
     # --- medicao do LOD0 ---
+    # A malha neste ponto esta na unidade do ARQUIVO (studs no roblox-r15). O relatorio guarda as
+    # duas: `bbox_export` na unidade do arquivo e `bbox_m` em metros, porque o contrato manda
+    # `geometry.bbox_m` em metros e a unidade do arquivo vai em `unidades_export` (D62).
     minimo, maximo = bbox_local()
+    bbox_export = [maximo.x - minimo.x, maximo.z - minimo.z, maximo.y - minimo.y]
     medidas_base = {
         "triangulos": malha_triangulada(obj),
         "vertices": len(obj.data.vertices),
         # eixos glTF: [largura x, altura y, profundidade z]
-        "bbox_m": [maximo.x - minimo.x, maximo.z - minimo.z, maximo.y - minimo.y],
+        "bbox_export": bbox_export,
+        "bbox_m": [v / escala_saida for v in bbox_export],
+        "escala_saida": escala_saida,
         "materiais": len(obj.data.materials),
         "ossos": len(rig_obj.data.bones) if rig_obj is not None else 0,
         "pivo_regra": origem_regra,
-        "aabb_min": [minimo.x, minimo.z, -maximo.y],
-        "aabb_max": [maximo.x, maximo.z, -minimo.y],
+        "aabb_min": [minimo.x / escala_saida, minimo.z / escala_saida, -maximo.y / escala_saida],
+        "aabb_max": [maximo.x / escala_saida, maximo.z / escala_saida, -minimo.y / escala_saida],
     }
     medidas_base.update(medir_geometria(obj))
 
@@ -832,7 +844,13 @@ def processar(job: dict) -> dict:
     medidas_base["esqueleto"] = item.get("esqueleto") if rig_obj is not None else None
     medidas_base["lod"] = [{"nivel": a["nivel"], "triangulos": a["triangulos"]} for a in arquivos if a["papel"] in ("mesh", "lod")]
 
-    resultado = {"ok": True, "medidas": medidas_base, "arquivos": arquivos}
+    resultado = {
+        "ok": True,
+        "medidas": medidas_base,
+        "arquivos": arquivos,
+        # o fator aplicado volta no relatorio: e o que o manifesto declara em unidades_export
+        "escala_saida": escala_saida,
+    }
     if bruto.get("concept"):
         # proveniencia do estagio text-to-image; o manifest grava em providers.texture
         resultado["concept"] = bruto["concept"]

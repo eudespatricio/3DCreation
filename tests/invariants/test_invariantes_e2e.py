@@ -268,5 +268,13 @@ def test_r15_blocky_gera_16_ossos_com_nomes_r15(tmp_path):
     assert "LeftHand" in nomes
     assert manifesto["qc"]["aprovado"] is True
 
+    # D62 (opcao A da P2): o glb do roblox-r15 sai em studs e o manifesto declara a unidade.
+    # `geometry.bbox_m` continua em metros; o arquivo tem 1,85 m * 3,5714 = 6,607 studs.
+    assert manifesto["schema"] == "forge3d/manifest@2"
+    assert manifesto["unidades_export"] == {"metros_por_unidade": 0.28, "escala_saida": 3.5714}
+    assert abs(manifesto["geometry"]["bbox_m"][1] - 1.85) / 1.85 * 100 <= 0.5
+    altura_studs = qc.analisar(gltf)["bbox_m"][1]
+    assert abs(altura_studs - 6.607) / 6.607 * 100 <= 0.5, altura_studs
+
     codigo, saida = _rodar(["verify", str(destino)], env)
     assert codigo == 0 and saida["ok"] is True, saida

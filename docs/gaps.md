@@ -9,13 +9,12 @@
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
-| GAP-043 | `manifest@1` não declara a unidade do arquivo: `geometry.bbox_m` está em metros, mas o `glb` do perfil Roblox precisa sair em studs (3,57×) | P2 | **C15** | `manifest@2` com `unidades_export` e `verify` aceitando `@1` e `@2` |
+| GAP-044 | **Rig `.rbxlx` 3,05 % acima do glb**: o `export-r15` monta as Parts com as caixas brutas do `blocky` (1,906 m) e o pós-processo normaliza a malha para 1,850 m | P2 | P5 | `export-r15` aplicar a mesma normalização de altura do pós-processo (ou o `blocky` nascer na altura declarada); diferença medida ≤ 0,5 % |
 | GAP-042 | `empunhadura` foi simplificada para **20 % da altura** (D58); a regra do perfil — "menor secção transversal na faixa inferior 30 %" — não está implementada | P3 | P4 | regra geométrica implementada em função única e medida pelo G2 com o mesmo critério |
-| GAP-006 | Roblox: asset 136741921517312 (1 MeshPart + 16 Bones) e Image 75934318775024 aprovados; **textura confirmada no Studio** (`PreloadAsync` = `AssetFetchStatus.Success`, MCP); **U1/U2/U4 fechadas** (importador 1 unidade = 1 stud; sem `SurfaceAppearance`; sem `Humanoid`); **falta a escala**: package 1,850 studs × `.rbxlx` 6,478 studs (3,57×) | P0 | P2 | package e `.rbxlx` na mesma escala (decisão de contrato sobre `escala_saida`) |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
-| GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada | P1 | P2 | critério visual registrado para `_LOD1`/`_LOD2` |
+| GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada — **venceu em P2 sem ser avaliado** | P1 | P5 | critério visual registrado para `_LOD1`/`_LOD2` |
 | GAP-015 | `draft` (LLM) não existe; Ollama mede 4.096 tokens efetivos | P0 | P6 | prompt cabendo em 4k com teste de truncamento |
 | GAP-018 | `query --tag` existe, mas as tags não são indexadas por tabela própria (LIKE) | P1 | P4 | tabela `tags` normalizada quando o índice passar de ~1.000 assets |
 | GAP-019 | Uma execução da suíte e2e deu `ERROR` em 3 fixtures (`test_i2`, `test_i13`, `test_rota_import`) com stdout não-JSON, e **não reproduziu** em 3 execuções seguintes (26/26 verdes) | P1 | P1.5 | reproduzir com `-p no:randomly` e capturar o stderr do subprocesso; até lá, tratar suite vermelha como real |
@@ -56,6 +55,8 @@
 | ~~GAP-038~~ | ~~G7 não media convexidade~~ | P1 | **C8 ✔** | `qc.convexidade` mede por componente conexa e reprova; o gate achou colisor não-manifold (22–146 arestas) e o hull foi corrigido; `tests/test_convexidade.py` |
 | ~~GAP-039~~ | ~~`rembg` opcional e explícito~~ | P3 | **C9 ✔** | decide por procedência/alfa, com override por env; `rembgauto2` na versão e motivo no `i23d_resultado.json` |
 | ~~GAP-040~~ | ~~`preflight` ignorava `FORGE3D_MODELOS`~~ | P3 | **C10 ✔** | `pesos_triposr()` procura env, cache HF e dir padrão; teste dedicado |
+| ~~GAP-043~~ | ~~`manifest@1` não declara a unidade do arquivo~~ | P2 | **C15 ✔** | `manifest@2` com `unidades_export`; `verify` aceita `@1` (escala 1.0) e `@2` (escala declarada); schema `schemas/manifest.v2.schema.json` + 13 testes em `tests/test_unidades.py` |
+| ~~GAP-006~~ | ~~Roblox: faltava a escala do package~~ | P0 | **P2 ✔** | medido em 11/11/2026: package `2,7086 × 6,6071 × 1,5196` studs (asset **134628989553440**) contra `.rbxlx` 6,8086 studs de extensão — mesma escala, fixada por D62; resíduo em GAP-044 |
 
 ## Como um gap nasce
 

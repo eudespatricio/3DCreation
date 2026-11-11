@@ -74,8 +74,14 @@ via Open Cloud (free); o upload real foi aprovado (asset 136741921517312) e o St
 MeshPart com 16 Bones R15**; o atlas subiu como Image 75934318775024 (Approved) e o TextureID foi
 setado. O headless não carrega asset privado; faltam GUI/textura, pivôs nos Bones, escala/stud e U1–U4.
 
-**Portão:** modelo importado no Studio com `Humanoid`, membros girando no pivô certo, textura correta,
-e o documento `perfis-export.md` sem nenhum `[verificar]` pendente nesse perfil.
+**Fechada em 11/11/2026 (escala):** `manifest@2` com `unidades_export` (D62); o `glb` do
+`roblox-r15` sai em studs e o package novo (asset **134628989553440**) mede
+`2,7086 × 6,6071 × 1,5196` studs no Studio via MCP, contra 6,8086 studs de extensão do `.rbxlx` —
+mesma escala, com 3,05 % de resíduo em GAP-044. U1/U2/U4 fechadas.
+
+**Portão:** package com 16 Bones e textura aplicada + `.rbxlx` nativo com `Humanoid` (D47/D48/D50: o
+`Humanoid` mora no `.rbxlx`, não no package), membros girando no pivô certo e o documento
+`perfis-export.md` sem nenhum `[verificar]` pendente nesse perfil.
 
 ## P3 — Rota `mesh`
 

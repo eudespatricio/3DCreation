@@ -3,32 +3,33 @@
 > Regra: item sem critério de aceitação não entra aqui — vira conversa.
 > Prioridade: **A** = destrava a fase seguinte · **B** = correção que já morde · **C** = dívida aceitável.
 
-Última revisão: 11/11/2026 (C5–C11 fechados; CI verde no GitHub; suíte 68 + 1 GPU; R15 ainda parcial).
+Última revisão: 11/11/2026 (P2 fechada com `manifest@2`/D62; suíte 99 + 1 GPU; CI 84; R15 medido no Studio).
 
-## 1. Bloqueiam a próxima fase (P2/P4)
+## 1. Bloqueiam a próxima fase (P4/P5)
 
-| # | Pendência | Por que importa | Aceitação | Prio |
-|---|---|---|---|---|
-| P8 | **Roblox P2**: só a escala | Textura **confirmada** no Studio (`AssetFetchStatus.Success`), 16 Bones, U1/U2/U4 fechadas (11/11/2026). Package mede **1,850 studs** e o `.rbxlx` **6,478 studs** — 3,57× (Q3/GAP-006) | package e `.rbxlx` na mesma escala; decisão de contrato registrada | **B** |
+Nada bloqueando: a P2 fechou em 11/11/2026 (ver §4). A próxima fase é P5 (animação/retarget), que
+depende de decisão do operador, não de correção.
 
 ## 2. Correções que já mordem
 
 | # | Correção | Sintoma hoje | Aceitação | Prio |
 |---|---|---|---|---|
-| C15 | **Escala do package Roblox**: GLB em metros, importador lê 1 unidade = 1 stud → package 1,850 studs × `.rbxlx` 6,478 studs (3,57×) | package e `.rbxlx` com tamanhos diferentes; `bbox_m` do `manifest@1` mentiria com GLB em studs | `manifest@2` com `unidades_export`; package medido em 6,607 ± 0,02 studs no Studio; ver `docs/goal-proxima-janela.md` | **A** |
 | C12 | Assets publicados antes de 11/11/2026 têm manifesto sem `pivo_regra` e colisor côncavo | `forge3d verify` nesses destinos agora reprova (`C7`/`C8` funcionando como portão) | republicar os destinos antigos (`lote_01`, `lote_03_kit`, `lote_06`, `r15`) ou aceitar o destino como arquivo morto | **B** |
 
 ## 3. Decisões que precisam do operador
 
 | # | Pergunta | Contexto medido | Prio |
 |---|---|---|---|
-| Q9 | delegação: chave de API × `agentapi` | `agentapi` é sessão agêntica com execução de ferramenta (GAP-030) | B |
-| Q3 | escala/rig Roblox | upload real + Image aprovada; GUI/textura, pivôs nos Bones, escala/stud e U1–U4 pendentes | B |
 | Q1 | nome definitivo do produto | `forge3d` é provisório | C |
 | Q7 | assets no git do jogo: normal × LFS | primeiro asset real ainda não integrado | C |
 
 ## 4. Fechado nesta janela (não reabrir)
 
+- **P8/C15/D62 — escala do Roblox (P2 fechada)** em 11/11/2026: `manifest@2` com `unidades_export`,
+  `roblox-r15` com `escala_saida: 3,5714` (glb em studs), G2 dividindo pela escala declarada, `verify`
+  aceitando `@1` e `@2`. Package novo (asset **134628989553440**, 39.004 B) medido no Studio via MCP:
+  `2,7086 × 6,6071 × 1,5196` studs, 16 Bones, textura `AssetFetchStatus.Success`. O `.rbxlx` mede
+  6,8086 studs de extensão — mesma escala; os 3,05 % de diferença ficam em GAP-044.
 - **C13/D58** `empunhadura` virou regra numérica (20 % da altura) usada pelas duas rotas, e o
   G2 passou a medir os quatro casos (base/centro/topo/empunhadura); a regra do perfil
   ("menor secção transversal") fica em GAP-042.

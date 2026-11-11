@@ -4,11 +4,12 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P1`, `P3` (mesh para prop), `P3.5` (concept local + A/B de 3 personagens híbridos) e
-`P2` parcial (R15 com 16 ossos, pivô por membro, `.rbxlx` nativo e upload Open Cloud) — 51 verdes +
-1 GPU (manual). `blocky`/`import` sem GPU; `mesh`
-com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` em P4.
-Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
+**Estado:** `P0`–`P1`, `P2`, `P3` (mesh para prop) e `P3.5` (concept local + A/B de 3 personagens
+híbridos) — **99 verdes + 1 GPU (skip)** em 100 testes e CI no GitHub com 84. A `P2` fechou em
+11/11/2026 com `manifest@2`: o glb do `roblox-r15` sai em studs, o package mede
+`2,7086 × 6,6071 × 1,5196` studs no Studio e o `.rbxlx` fica na mesma escala (D62).
+`blocky`/`import` sem GPU; `mesh` com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**;
+kit corpo/capa/arma. `modular` em P4. Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---
 

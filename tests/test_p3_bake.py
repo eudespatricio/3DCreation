@@ -98,10 +98,14 @@ def test_bake_de_cor_por_vertice_gera_uv_e_textura(asset):
 
 
 def test_prop_aceito_no_perfil_roblox_sem_prefixo(asset):
-    """Regressao do probe P2: perfil sem `colisao.prefixo` nao pode dar KeyError no G7."""
+    """Regressao do probe P2: perfil sem `colisao.prefixo` nao pode dar KeyError no G7.
+
+    O pós-processo do fixture e o do perfil `godot4` (metros); para revalidar o mesmo GLB no perfil
+    Roblox a escala declarada e 1.0 — e o caso de um `manifest@1` antigo lido contra o perfil novo.
+    """
     item, final, resultado = asset
     perfil = profiles.carregar("roblox-r15")
-    relatorio = qc.verificar(item, perfil, final, resultado)
+    relatorio = qc.verificar(item, perfil, final, resultado, escala_saida=1.0)
     falhas = [g for g in relatorio["gates"] if g["status"] != "ok"]
     assert relatorio["aprovado"] is True, falhas
     g7 = next(g for g in relatorio["gates"] if g["id"] == "G7")

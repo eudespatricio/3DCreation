@@ -2,15 +2,18 @@
 # Consumido por forge3d (P2). Toda linha marcada [verificar] depende de teste real no Studio (U1-U4).
 schema: forge3d/profile@1
 perfil: roblox-r15
-versao: 1
+versao: 2
 
 formato: [glb, rbxlx]
 
 unidades:
-  metros_por_unidade: 1.0        # geracao em metros
-  metros_por_stud: 0.28          # [medido 11/11/2026] vale para o .rbxlx (Parts, 6,478 studs);
-                                 # o importador 3D do Studio usa 1 unidade glTF = 1 stud -> o
-                                 # package saiu com 1,850 studs (3,57x menor). Decisao em Q3.
+  # D62: a geracao mede em metros; a exportacao multiplica a escala final por `escala_saida`.
+  escala_saida: 3.5714           # [medido 11/11/2026] 1/0,28: o importador do Studio usa
+                                 # 1 unidade glTF = 1 stud, entao o glb sai em studs
+  metros_por_unidade: 0.28       # unidade do arquivo exportado (glb em studs); vai ao
+                                 # manifest@2 em unidades_export e e o reciproco de escala_saida
+  metros_por_stud: 0.28          # [medido 11/11/2026] regua do .rbxlx (16 Parts; extensao
+                                 # vertical de 6,8086 studs, topo em 6,4784)
   arredondar_studs: 0.001
 
 eixos:

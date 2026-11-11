@@ -386,11 +386,33 @@ def _desvio_pivo(regra: str, minimo_y: float, maximo_y: float) -> float | None:
     return None
 
 
-def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
-    """Roda G1-G9 sobre o artefato. Devolve relatorio; nao levanta (quem decide e o chamador)."""
+def escala_do_perfil(perfil: dict) -> float:
+    """Fator entre metro e unidade do arquivo exportado (D62). Perfil sem o campo = 1.0."""
+    valor = float((perfil.get("unidades") or {}).get("escala_saida", 1.0))
+    if valor <= 0:
+        raise erro_qc(f"perfil com escala_saida invalida: {valor}")
+    return valor
+
+
+def verificar(
+    item: dict,
+    perfil: dict,
+    pasta: Path,
+    resultado: dict,
+    *,
+    escala_saida: float | None = None,
+) -> dict:
+    """Roda G1-G9 sobre o artefato. Devolve relatorio; nao levanta (quem decide e o chamador).
+
+    ``escala_saida`` sobrepoe o perfil: o ``verify`` de um manifesto reexecuta o gate com a escala
+    DECLARADA no manifesto, nao com a que o perfil diz hoje.
+    """
     v = perfil["validacao"]
     medidas = resultado.get("medidas", {})
     arquivos = resultado.get("arquivos", [])
+    escala = float(escala_saida) if escala_saida is not None else escala_do_perfil(perfil)
+    if escala <= 0:
+        raise erro_qc(f"escala_saida invalida: {escala}")
     gates: list[dict] = []
 
     malha = next((a for a in arquivos if a["papel"] == "mesh"), None)
@@ -418,13 +440,19 @@ def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
         }
     )
 
-    # G2 escala e pivo
+    # G2 escala e pivo — o GLB esta na unidade do arquivo (studs no roblox-r15); a comparacao
+    # com `altura_metros` e em metros, entao divide pela escala declarada antes de medir (D62).
     alvo = float(item["altura_metros"])
-    altura = info["bbox_m"][1] if info["bbox_m"][1] > 0 else float(medidas.get("bbox_m", [0, 0, 0])[1])
+    altura_export = info["bbox_m"][1]
+    altura = (
+        altura_export / escala
+        if altura_export > 0
+        else float(medidas.get("bbox_m", [0, 0, 0])[1])
+    )
     delta_pct = abs(altura - alvo) / alvo * 100.0 if alvo else 999.0
     tolerancia_m = float(v["pivo_delta_mm"]) / 1000.0
     regra = item["pivot"]
-    desvio_pivo = _desvio_pivo(regra, info["min"][1], info["max"][1])
+    desvio_pivo = _desvio_pivo(regra, info["min"][1] / escala, info["max"][1] / escala)
     pivo_ok = desvio_pivo is None or desvio_pivo <= tolerancia_m
     gates.append(
         {
@@ -432,10 +460,12 @@ def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
             "status": "ok" if delta_pct <= float(v["escala_delta_pct"]) and pivo_ok else "falhou",
             "medido": {
                 "altura_m": round(altura, 6),
+                "altura_export": round(altura_export, 6),
                 "esperado_m": alvo,
                 "delta_pct": round(delta_pct, 3),
                 "desvio_pivo_m": None if desvio_pivo is None else round(desvio_pivo, 6),
                 "pivo_regra": regra,
+                "escala_saida": escala,
             },
             "limite": {"escala_delta_pct": v["escala_delta_pct"], "pivo_delta_mm": v["pivo_delta_mm"]},
             "codigo": None if (delta_pct <= float(v["escala_delta_pct"]) and pivo_ok) else "FORGE-E-QC",
@@ -609,7 +639,9 @@ def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
         "medidas": {
             "triangulos": info["triangulos"],
             "vertices": info["vertices"],
-            "bbox_m": info["bbox_m"],
+            # metros, nao unidades do arquivo: o consumidor le `unidades_export` no manifesto
+            "bbox_m": [round(v / escala, 6) for v in info["bbox_m"]],
+            "escala_saida": escala,
             "materiais": info["materiais"],
             "ossos": info["ossos"],
             "partes_colisao": int(medidas.get("partes_colisao", 0)),

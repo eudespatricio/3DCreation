@@ -144,7 +144,7 @@ Nome de arquivo é **determinístico a partir do `id`**: nada de timestamp, nada
 
 | # | Incerteza | Como fecha |
 |---|---|---|
-| ~~U1~~ | **Fechada (11/11/2026):** o importador 3D usa **1 unidade glTF = 1 stud**. O MeshPart saiu com `0,758 × 1,850 × 0,426` studs para um bbox de `0,758 × 1,85 × 0,426` m, enquanto o `.rbxlx` sai com **6,478 studs** (régua 0,28 m/stud) — divergência de **3,57×**, decisão em Q3 | `r15_gui_oneliner.lua` + `medir_rbxlx` no Studio 63eb6055af4e4688 |
+| ~~U1~~ | **Fechada (11/11/2026):** o importador 3D usa **1 unidade glTF = 1 stud**. O MeshPart saiu com `0,758 × 1,850 × 0,426` studs para um bbox de `0,758 × 1,85 × 0,426` m, enquanto o `.rbxlx` sai com **6,478 studs** (topo, régua 0,28 m/stud) — divergência de **3,57×**, decisão em Q3. **Resolvida por D62/C15:** o perfil declara `unidades.escala_saida: 3,5714` e o `manifest@2` declara a unidade; o package novo mede `2,7086 × 6,6071 × 1,5196` studs e o `.rbxlx` 6,8086 studs de extensão (base `-0,3302`, topo `6,4784`) — mesma escala, resíduo de 3,05 % em GAP-044 | `r15_gui_oneliner.lua` + `medir_rbxlx` (Studio 63eb6055af4e4688) e MCP (`tools/mcp_studio.py`, Studio 16c88345) |
 | ~~U2~~ | **Fechada (11/11/2026):** o package importado **não** traz `SurfaceAppearance`; só `TextureID` (`rbxassetid://75934318775024`). Perfil corrigido para `material.modelo: texture` | Studio GUI, mesmo teste |
 | ~~U3~~ | **Fechada (10/11/2026):** Godot 4.3 aplicou `TEXTURE_FILTER_NEAREST_WITH_MIPMAPS` (`filtro=2`) | import real do android |
 | ~~U4~~ | **Fechada (11/11/2026):** o package é **1 MeshPart + 16 Bones, sem `Humanoid`**; o rig R15 jogável é o `.rbxlx` nativo (D47/D50) | Studio GUI, mesmo teste |

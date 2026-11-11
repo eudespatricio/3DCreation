@@ -82,20 +82,22 @@ nunca aparece em manifesto publicado (I14).
 | B12 | `parte: corpo/capa` exige `personagem_humanoide`; `parte: arma` exige `prop_equipavel` | erro |
 | B13 | `parte: capa` é peça estática (`auto_rig: false`) | erro |
 
-## 3. `manifest@1` — a saída
+## 3. `manifest@1`/`@2` — a saída
 
 Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o Forge3D instalado.
+`@2` acrescenta `unidades_export` (D62); `@1` continua aceito na leitura.
 
 | Campo | Tipo | Conteúdo |
 |---|---|---|
-| `schema` | string | `forge3d/manifest@1` |
+| `schema` | string | `forge3d/manifest@1` (legado) · `forge3d/manifest@2` |
 | `asset_id` / `projeto` / `perfil` / `rota` | string | identidade, alvo e técnica de geração |
 | `tags` | string[] | rótulos do item; consultáveis por `forge3d query --tag` |
 | `spec_hash` | string | `sha256:` do spec canônico que originou o asset |
 | `pipeline_version` | string | versão do Forge3D (git describe) — entra na chave de cache |
 | `determinism` | string | `D1` \| `D2` \| `D3` |
 | `providers` | objeto | `geometry` e `texture`: `{name, version, license, seed}` |
-| `geometry` | objeto | `triangulos`, `vertices`, `bbox_m[3]`, `materiais` |
+| `geometry` | objeto | `triangulos`, `vertices`, `bbox_m[3]` (**sempre em metros**), `materiais` |
+| `unidades_export` | objeto | só `@2`: `{metros_por_unidade, escala_saida}` — a unidade do arquivo |
 | `rig` | objeto\|null | `{esqueleto, ossos}` |
 | `lod` | objeto[] | `{nivel, triangulos, arquivo}` |
 | `colisao` | objeto | `{tipo, partes, arquivo}` |
@@ -105,7 +107,32 @@ Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o 
 | `origem_spec` | objeto | `{arquivo, hash}` |
 | `run_id` / `created_at` | string | rastreabilidade (UTC) |
 
-Schema completo: [`../schemas/manifest.v1.schema.json`](../schemas/manifest.v1.schema.json).
+Schema completo: [`../schemas/manifest.v1.schema.json`](../schemas/manifest.v1.schema.json) ·
+[`../schemas/manifest.v2.schema.json`](../schemas/manifest.v2.schema.json) ·
+exemplos: [`../examples/manifest.exemplo.json`](../examples/manifest.exemplo.json) e
+[`../examples/manifest.exemplo.v2.json`](../examples/manifest.exemplo.v2.json).
+
+### 3.1 `unidades_export` (manifest@2, D62)
+
+`geometry.bbox_m` continua em **metros**; `unidades_export` diz em que unidade o **arquivo** está:
+
+| Campo | Significado | `godot4` | `roblox-r15` |
+|---|---|---|---|
+| `metros_por_unidade` | quantos metros vale 1 unidade do glb | `1.0` | `0.28` |
+| `escala_saida` | fator aplicado sobre a medida em metros | `1.0` | `3.5714` |
+
+Com o `roblox-r15` o `glb` sai em **studs** porque o importador do Studio lê 1 unidade glTF = 1 stud
+(U1). Medido em 11/11/2026 no R15: glb `2,70855 × 6,60709 × 1,519631` studs para
+`bbox_m = [0,7584; 1,85; 0,4255]` m, e o `Size` do package no Studio ficou `2,7086 × 6,6071 × 1,5196`
+— glb e package coincidem.
+
+Regras que o `verify` aplica:
+
+- `manifest@1` é lido com `escala_saida = 1.0` (o arquivo dele está em metros) — destino antigo não
+  quebra;
+- `manifest@2` **exige** `unidades_export` (o schema reprova sem ele);
+- `escala_saida × metros_por_unidade` tem que dar `1` (tolerância `1e-3`, do arredondamento do perfil);
+- `escala_saida` declarada tem que ser a do perfil atual — se o perfil mudou, o asset é republicado.
 
 ## 4. Saída do CLI (`--json`)
 

@@ -1,5 +1,9 @@
-# GOAL — próxima janela
+# GOAL — próxima janela (executado em 11/11/2026)
 
+> **Status:** executado em 11/11/2026 — a P2 fechou com `Size.Y = 6,6071` studs no Studio (asset
+> 134628989553440) e `manifest@2` com `unidades_export`. O estado atual mora em `CONTINUAR.md`;
+> este arquivo fica como registro do briefing daquela janela.
+>
 > Copie o bloco do §9 como *objetivo da sessão* (Goal) na janela nova. Este arquivo é o briefing
 > completo: objetivo, contexto medido, ordem de execução, armadilhas, critério de aceitação.
 

@@ -14,3 +14,17 @@ bytes: 39068
 #
 # O upload foi feito com a key do operador; nenhum segredo esta neste arquivo.
 # Proximo passo: inserir o package no Studio e avaliar o rig/textura.
+#
+# --- 2o upload (escala, D62) em 11/11/2026 ---
+#
+# Arquivo: personagem.r15.guard.01.glb — 39.004 B, pipeline 0.2.5, glb em studs
+#   forge3d upload-model ... --nome Forge3D_R15_Guard_v2
+#
+assetId: 134628989553440
+operation: 8e6e5b6a-dd70-4efc-89fb-d5b5fba90b49
+moderacao: Approved
+bytes: 39004
+#
+# Medido no Studio via MCP (tools/mcp_studio.py, Studio 16c88345-309c-4c84-b879-3c8a75fd56ec):
+#   size=2.7086,6.6071,1.5196 studs | bones=16 | surface=false | humanoid=false
+#   TextureID=rbxassetid://75934318775024 | preload=Enum.AssetFetchStatus.Success

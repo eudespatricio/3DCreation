@@ -67,6 +67,11 @@ Vai para `.forge/staging/<id>/relatorio_qc.json` e é embutido no manifesto:
 
 `status` ∈ `ok` · `warn` · `falhou`. Um único `falhou` ⇒ `aprovado: false` ⇒ `exit 3`.
 
+**LOD não é gate de QC** (D71): o QC aprova o asset, não compara LODs entre si. A qualidade do LOD
+é medida por `tools/lod_qualidade.py` — IoU de silhueta (frente e lado), pior faixa vertical (8) e
+delta de bbox contra o LOD0 — e o critério é IoU ≥ 0,85, faixa ≥ 0,75 e bbox ≤ 2%. Roda na máquina
+do operador depois do `run`; a decisão de *se* o asset deve ter LOD é do perfil/exemplo.
+
 ## 4. Verificação em CI (`forge3d verify`)
 
 Roda sobre o que **já está publicado**, sem gerar nada. É o portão de pull request:

@@ -23,6 +23,12 @@ Nenhuma pendente: a C12 fechou em 11/11/2026 (ver §4).
 
 ## 4. Fechado nesta janela (não reabrir)
 
+- **P5 — LOD (GAP-013)** em 11/11/2026: critério de silhueta medido (IoU global, faixa vertical e
+  bbox) em `tools/lod_qualidade.py`. O LOD do blocky foi reprovado (decimate vira espinho; ilha perde
+  antebraço) e os exemplos passam a não pedir LOD de blocky; o LOD de malha gerada passa (bule a 50%:
+  0,993/0,994, faixa 0,948).
+- **Publish limpa órfão**: arquivo do manifesto anterior que o novo não lista é removido do destino
+  (o `_LOD2.glb` do android ficou para trás).
 - **P5-B — clipe no Roblox** em 11/11/2026: `KeyframeSequence` no `.rbxlx` (D69), `.rbxmx` e
   `upload-animation` (Open Cloud aceita `Animation`), asset **116049702979137** com `Priority=Core`
   tocando no rig Motor6D no client do Play mode (**Head 0,0949 / 0,0662 studs**). O que destravou foi

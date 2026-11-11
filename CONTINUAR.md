@@ -5,8 +5,8 @@ fechada.** A P2 fechou pela escala (`manifest@2`, D62): package medido em **6,60
 6,6071 do `.rbxlx` (D68). A C12 republicou **7 destinos, 16 manifestos** com `verify` **0 problemas**.
 A P5-A
 entregou o clipe `idle` procedural (2,042 s) por retarget (D66) em `manifest@3` (D67), validado no
-Godot 4.3 headless nos dois esqueletos. **117 verdes + 1 GPU (skip)** em 118 testes · CI no GitHub com
-**102 testes**.
+Godot 4.3 headless nos dois esqueletos. **121 verdes + 1 GPU (skip)** em 122 testes · CI no GitHub com
+**106 testes**.
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 
@@ -31,7 +31,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P3** | ✔ | provider `i23d` (TripoSR), bake UV/textura próprio, kit corpo/capa/arma |
 | **P3.5** | ✔ | concept SD1.5 → TripoSR, split e A/B de 3 personagens híbridos |
 | **P4** | pendente | rota `modular` (WFC) |
-| **P5** | parcial | animação base ✔ (D66/D67), `KeyframeSequence`/`Animation` ✔ tocando no Roblox (D69); falta o LOD de mesh (GAP-013) |
+| **P5** | parcial | animação base ✔ tocando no Roblox (D66/D67/D69) e critério de LOD ✔ (D71); falta o LOD de personagem `mesh` (GAP-046) |
 
 ## O que foi entregue nesta janela
 
@@ -56,6 +56,10 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   esqueleto; o `idle` é gerado no `bpy` (5 chaves, 2 s a 24 fps) e embutido no glb; G10 mede
   **movimento real**; `manifest@3` declara `animacoes`; `tests/test_animacao.py` + e2e do R15 com o
   clipe; Godot 4.3 headless confirma nos dois esqueletos. `PIPELINE_VERSION` **0.2.7**.
+- **P5-C — LOD (GAP-013/D71)** — `tools/lod_qualidade.py` mede IoU de silhueta (frente/lado), pior
+  faixa vertical e bbox contra o LOD0. O LOD do blocky foi reprovado (decimate: 0,76/0,55 e espinhos;
+  ilha: 0,865 global mas faixa 0,654, sem antebraço) e os exemplos deixam de pedir LOD de blocky; o
+  bule `mesh` a 50% passa (0,993/0,994, faixa 0,948). `publicar` agora remove órfão do manifesto antigo.
 - **P5-B — clipe no Roblox (D69)** — `animacao.py` é a definição única; o `export-r15` grava um
   `KeyframeSequence` (5 chaves, pose completa com as 15 juntas, nome de junta R15) no `.rbxlx`, o
   `export-anim` gera o `.rbxmx` e o `upload-animation` sobe como `Animation`
@@ -67,14 +71,16 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 
 | Medida | Valor |
 |---|---|
-| Suíte | **117 verdes + 1 GPU (skip)** em **118 testes** |
-| CI no GitHub | **102 testes** (`tools/ci.sh`) + contexto + P0 |
+| Suíte | **121 verdes + 1 GPU (skip)** em **122 testes** |
+| CI no GitHub | **106 testes** (`tools/ci.sh`) + contexto + P0 |
 | Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
 | Clipe no rig Roblox (MCP) | Head anda **0,1091 studs** entre t=0 e t=0,5; maior delta de parte 0,1253 |
 | Animation no Roblox | asset **116049702979137** (30.229 B, Approved, `Priority=Core`); `GetKeyframeSequenceAsync` = 5 keyframes, 15 poses |
 | Playback no client | Head anda **0,0949 / 0,0662 studs** no rig Motor6D do `.rbxlx`; com `Idle` (v2/v3) 0,0002 |
+| LOD do blocky (decimate) | LOD1 IoU **0,76** frente / 0,98 lado; LOD2 **0,55** / 0,81 + espinhos no render → reprovado |
+| LOD de malha gerada | bule a 50%: IoU **0,993** frente / **0,994** lado, faixa **0,948**, bbox ≤ 0,09% → aprovado |
 | Client do Studio | personagem padrão usa **Bone**, não Motor6D: a validação usa o rig do `.rbxlx` replicado do server |
 | Colisor após D64/D65 | desvio máximo **4,3e-4 m** num hull de 2,2 m (tolerância 1 mm/m); face interior do defeito desviava 1,8 m |
 | Package R15 v2 no Studio | `size=2,7086 × 6,6071 × 1,5196` studs · **16 Bones** · `surface=false` · `humanoid=false` |
@@ -105,13 +111,14 @@ unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tol
 | Q7 | assets no git do jogo: normal × LFS | primeiro asset real |
 
 Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-013** (qualidade do LOD),
-**GAP-015** (`draft` em 4k), **GAP-042** (regra do "menor secção").
+**GAP-015** (`draft` em 4k), **GAP-042** (regra do "menor secção"), **GAP-046** (LOD de personagem
+`mesh`).
 
 ## Próximos passos — em ordem
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | LOD de mesh com critério visual (GAP-013) | 1 sessão | P5 |
+| **1** | LOD de personagem `mesh` medido com o critério (GAP-046) | 1 sessão | P5 |
 | **2** | **P4** rota `modular` (WFC) | 1–2 sessões | roadmap |
 | **3** | Levantar o `.rbxlx` no Studio para o rig com o clipe (validação visual com cliente real) | manual | P5 |
 
@@ -128,8 +135,8 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 117 verdes + 1 GPU
-bash tools/ci.sh                          # 102 testes + contexto + P0 (o que o GitHub roda)
+python -m pytest                          # 121 verdes + 1 GPU
+bash tools/ci.sh                          # 106 testes + contexto + P0 (o que o GitHub roda)
 bash tools/check-contexto.sh
 python tools/check-p0.py
 python tools/mcp_studio.py --estado       # Studio via MCP (precisa do MCP ligado)

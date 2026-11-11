@@ -158,6 +158,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Suíte após D62 | **99 verdes + 1 GPU (skip)** em **100 testes**; CI no GitHub roda **84** | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
 | Suíte após C12/D64/D65 | **101 verdes + 1 GPU (skip)** em **102 testes**; CI no GitHub roda **86**; `PIPELINE_VERSION` 0.2.6 | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
 | Suíte após P5/P5-B | **117 verdes + 1 GPU (skip)** em **118 testes**; CI no GitHub roda **102**; `PIPELINE_VERSION` 0.2.7 | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
+| Suíte após P5-C/LOD | **121 verdes + 1 GPU (skip)** em **122 testes**; CI no GitHub roda **106**; `PIPELINE_VERSION` 0.3.0 | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
 | CI após D62 | run **42956720067** `success` em `a21e944`; job com 84 testes + contexto + P0 | API do Actions em 11/11/2026 |
 | C12 — hull do colisor (defeito real) | `convex_hull` herda faces de ENTRADA: o colisor da malha gerada saiu com face interior e o G7 reprovou (desvio de 1,8 m numa face de um colisor de 2,2 m de diâmetro) | 3 lotes mesh (`lote_05`, `lote_06`, `lote_08`), 11/11/2026 |
 | C12 — colisor depois do fix (D64/D65) | hull sobre **nuvem de pontos**; desvio máximo residual **4,3e-4 m** (sub-milímetro) em 438 faces, dentro da tolerância de 1 mm/m | colisor de `personagem.sentinel.concept.01`, 11/11/2026 |
@@ -169,6 +170,10 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P5-B — clipe medido no rig (MCP) | com os dados do arquivo, a cadeia `Part1 = Part0 · C0 · Transform · C1⁻¹` move a Head **0,1091 studs** entre t=0 e t=0,5 (maior delta de parte 0,1253) | `tools/r15_anim_studio.py` no Studio 16c88345, 11/11/2026 |
 | P5-B — playback no Roblox (client) | Animation **116049702979137** (Core): a Head anda **0,0949 / 0,0662 studs** em duas execuções no client do Play mode, no rig Motor6D construído do `.rbxlx`; com `Idle` (assets v2/v3) fica em **0,0002** | `start_stop_play` + `execute_luau` no client, Studio 16c88345, 11/11/2026 |
 | P5-B — prioridade decide a aplicação | `KeyframeSequence.Priority` da animação pública 507766666 é `Core`; a nossa era `Idle`. Com Core o clip aplica, com Idle não — a diferença não era o nome da pose (testadas as duas convenções) | lido via `KeyframeSequenceProvider:GetKeyframeSequenceAsync` em 11/11/2026 |
+| GAP-013 — LOD do blocky (decimate) | LOD1 50%: IoU **0,7636** frente / 0,9773 lado; LOD2 25%: **0,5483** / 0,8146 e bbox +3,2%; render mostra espinhos no lugar de braços, pernas e pés | `tools/lod_qualidade.py` + `docs/preview/lod/android_lod1_frente.png`, 11/11/2026 |
+| GAP-013 — LOD do blocky (ilha) | LOD1 52%: IoU **0,8653** / 0,9837, mas **faixa vertical 0,654** e o antebraço some no render; a 25% não há caixa suficiente | medidas em 11/11/2026 |
+| P5 — LOD de malha gerada (bule) | LOD1 50% (3.980 tris): IoU **0,9931** frente / **0,9942** lado, faixa **0,948**, bbox ≤ 0,09% | `tools/lod_qualidade.py` sobre `teapot_exemplo`, 11/11/2026 |
+| Publish limpa órfão | o `_LOD2.glb` do android ficou no destino quando o exemplo passou a pedir `[100, 50]`; `publicar` agora remove o arquivo do manifesto anterior que o novo não lista (teste em `tests/test_atomico.py`) | 11/11/2026 |
 | CI após P5/D68 | run **42960740797** `success` em `7b739f3` e **42961348850** em `9245091`; job com **96 testes** + contexto + P0 | API do Actions em 11/11/2026 |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
@@ -253,6 +258,8 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D68 | **Part do `.rbxlx` permuta o tamanho como o centro**: `Roblox XYZ = (x, z, −y)` vale para `size` e para `CFrame`; e a caixa de fallback de osso sem geometria não pode descer abaixo da base | medido em 11/11/2026: o tamanho ia `(x, y, z)` direto e cada Part saía com altura = profundidade, esticando o rig para 6,8086 studs (topo 6,4784) e escondendo o defeito atrás de "3 % de diferença"; depois do fix o rig mede 6,6071, igual ao package |
 
 | D69 | **O clipe do Roblox sai da mesma definição**: `animacao.py` materializa o `idle` em espaço semântico; o `.rbxlx` ganha um `KeyframeSequence` (5 chaves, pose completa com as 15 juntas) e a Motor6D/Pose usam o **nome da junta R15** (`Root`, `Waist`, `Neck`, `LeftShoulder`…), não o nome da parte. O bpy e o `rbx.py` não decidem movimento, só aplicam chaves | o GLB e o `.rbxlx` não podem divergir de clipe; medido no Studio pelo MCP: a cadeia `Part1 = Part0 · C0 · Transform · C1⁻¹` move a Head **0,1091 studs** entre t=0 e t=0,5. O nome de junta é a convenção do rig R15; a **Priority é `Core` (1000)**, porque com `Idle` (0) o Animator carrega a track e não a aplica por cima do que o Humanoid toca; medido no client do Studio: a Head anda **0,066–0,095 studs** com Core e ~0,0002 com Idle |
+
+| D71 | **LOD medido por silhueta, e só onde há o que reduzir**: `tools/lod_qualidade.py` projeta a malha (frente e lado), mede IoU global, IoU por faixa vertical (8) e delta de bbox contra o LOD0. Critério: IoU ≥ 0,85, faixa ≥ 0,75, bbox ≤ 2%. O blocky de 300 tris **não gera LOD** (a caixa é a unidade de detalhe; o decimate vira espinho e o LOD por ilha perde o antebraço); o LOD fica para malha gerada | medido: decimate no blocky deu IoU 0,76 (LOD1) e 0,55 (LOD2) no frente, com espinhos no render; LOD por ilha deu 0,865 global **mas faixa 0,654** (antebraço sumiu); no bule mesh (7.960 tris) o LOD1 de 50% dá IoU 0,993/0,994 e faixa 0,948 |
 
 ## 3. Rejeitados (e por quê)
 

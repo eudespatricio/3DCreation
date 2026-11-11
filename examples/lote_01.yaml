@@ -32,7 +32,8 @@ lote:
     limite_triangulos: 800
     material: opaque
     colisao: convex
-    lod: [100, 50]
+    # GAP-013: 36 tris — um LOD de 50% perde a guarda (IoU 0,55 no lado, medido)
+    lod: [100]
     tags: [weapon, sword, fire]
 
   - id: prop.potion.heal.01
@@ -60,7 +61,8 @@ lote:
     auto_rig: true
     esqueleto: godot-humanoid@1
     colisao: convex
-    lod: [100, 50, 25]
+    # GAP-013: 300 tris nao comportam LOD (a 50% some o antebraco); LOD fica para mesh
+    lod: [100]
     tags: [mob, undead, guard]
     # animacoes_base: [idle, walk]   # reservado (D14): gera FORGE-W-ANIM, nao erro
 

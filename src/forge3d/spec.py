@@ -170,6 +170,16 @@ def _resolver_defaults(doc: dict, perfil: dict, avisos: list[dict]) -> None:
                     ),
                 }
             )
+        if item.get("rota") == "blocky" and any(int(p) < 50 for p in (item.get("lod") or [100])):
+            avisos.append(
+                {
+                    "codigo": "FORGE-W-LOD",
+                    "mensagem": (
+                        f"{item['id']}: LOD de blocky abaixo de 50% perde a silhueta "
+                        "(a caixa e a unidade de detalhe; medido em GAP-013)"
+                    ),
+                }
+            )
         if pedidas:
             esqueleto = item.get("esqueleto") or profiles.esqueleto_padrao(perfil)
             if not profiles.retarget(perfil, esqueleto):

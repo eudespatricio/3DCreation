@@ -73,8 +73,8 @@ def test_primeira_execucao_publica_tudo(execucao):
     assert resumo["publicados"] == 3
     assert resumo["falhas"] == 0
     assert resumo["reprovados"] == 0
-    # espada: mesh+lod+colisor+atlas = 4 · pocao: mesh+colisor+atlas = 3 · mob: mesh+2 lod+colisor+atlas = 5
-    assert len(execucao["relatorio"]["artifacts"]) == 12
+    # espada: mesh+colisor+atlas = 3 · pocao: mesh+colisor+atlas = 3 · mob: mesh+colisor+atlas = 3
+    assert len(execucao["relatorio"]["artifacts"]) == 9
 
 
 def test_i8_escala_e_pivo_conforme_perfil(execucao):

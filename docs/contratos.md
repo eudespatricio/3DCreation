@@ -223,7 +223,8 @@ publicou ou veio do cache.
 | `FORGE-E-MANIFEST` | manifesto ausente, inválido ou hash divergente | 3 |
 | `FORGE-E-INTERNO` | bug do Forge3D | 4 |
 | `FORGE-W-ALIAS` | alias legado de estilo usado | — |
-| `FORGE-W-ANIM` | `animacoes_base` preenchido (reservado, D14) | — |
+| `FORGE-W-ANIM` | `animacoes_base` com clipe sem gerador nesta fase | — |
+| `FORGE-W-LOD` | LOD de `blocky` abaixo de 50% (perde a silhueta, medido em GAP-013) | — |
 | `FORGE-W-QC` | gate em estado `warn` | — |
 
 ## 7. Compatibilidade

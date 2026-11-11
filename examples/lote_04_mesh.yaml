@@ -26,5 +26,6 @@ lote:
     material: pbr
     colisao: convex
     seed: 20261110
-    lod: [100]
+    # GAP-013: malha gerada tem o que reduzir — LOD medido com o criterio de silhueta
+    lod: [100, 50]
     tags: [exemplo, bule, p3]

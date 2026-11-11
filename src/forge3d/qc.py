@@ -164,16 +164,12 @@ def _accessor(gltf: dict, binario: bytes, indice: int) -> list[tuple]:
     ]
 
 
-def topologia(gltf: dict, binario: bytes) -> dict:
-    """Mede G1 em Python puro: solda por posicao e conta arestas com != 2 faces.
-
-    Usado pelo ``verify`` para reexecutar o gate sem confiar no relatorio antigo e sem Blender.
-    """
+def malha(gltf: dict, binario: bytes) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+    """Posicoes e triangulos do GLB (primeira malha de cada primitiva, modo triangulos)."""
     posicoes: list[tuple[float, float, float]] = []
     triangulos: list[tuple[int, int, int]] = []
-
-    for malha in gltf.get("meshes", []):
-        for prim in malha.get("primitives", []):
+    for malha_gltf in gltf.get("meshes", []):
+        for prim in malha_gltf.get("primitives", []):
             atributos = prim.get("attributes", {})
             pos_idx = atributos.get("POSITION")
             if pos_idx is None or int(prim.get("mode", 4)) != 4:
@@ -188,6 +184,15 @@ def topologia(gltf: dict, binario: bytes) -> dict:
                 ids = list(range(len(posicao)))
             for k in range(0, len(ids) - 2, 3):
                 triangulos.append((base + ids[k], base + ids[k + 1], base + ids[k + 2]))
+    return posicoes, triangulos
+
+
+def topologia(gltf: dict, binario: bytes) -> dict:
+    """Mede G1 em Python puro: solda por posicao e conta arestas com != 2 faces.
+
+    Usado pelo ``verify`` para reexecutar o gate sem confiar no relatorio antigo e sem Blender.
+    """
+    posicoes, triangulos = malha(gltf, binario)
 
     # solda por posicao, a mesma tolerancia do bpy (1e-5 m)
     mapa: dict[tuple[float, float, float], int] = {}

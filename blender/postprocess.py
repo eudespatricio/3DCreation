@@ -548,6 +548,122 @@ def aplicar_decimate(obj, proporcao: float) -> None:
     bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
+def _componentes_indices(bm) -> list[list[int]]:
+    """Componentes conexas por aresta, como indices de vertice."""
+    vistos: set[int] = set()
+    grupos: list[list[int]] = []
+    for vertice in bm.verts:
+        if vertice.index in vistos:
+            continue
+        pilha = [vertice]
+        membros: list[int] = []
+        vistos.add(vertice.index)
+        while pilha:
+            atual = pilha.pop()
+            membros.append(atual.index)
+            for aresta in atual.link_edges:
+                outro = aresta.other_vert(atual)
+                if outro.index not in vistos:
+                    vistos.add(outro.index)
+                    pilha.append(outro)
+        grupos.append(membros)
+    return grupos
+
+
+def _volume_componente(bm, indices: list[int]) -> float:
+    xs = [bm.verts[i].co.x for i in indices]
+    ys = [bm.verts[i].co.y for i in indices]
+    zs = [bm.verts[i].co.z for i in indices]
+    return (max(xs) - min(xs)) * (max(ys) - min(ys)) * (max(zs) - min(zs))
+
+
+def aplicar_lod(obj, pct: float) -> dict:
+    """LOD: blocky (muitas caixas) perde caixa inteira; malha de uma peca vai de decimate.
+
+    Medido em 11/11/2026 (GAP-013): o decimate cego num blocky de 300 tris virou espinhos
+    (IoU de silhueta 0,76 no LOD1 e 0,55 no LOD2). Caixa e a unidade de detalhe do blocky —
+    tirar a caixa inteira preserva o que sobrou e nao inventa geometria.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    grupos = _componentes_indices(bm)
+    total_tris = len(bm.faces)
+    if len(grupos) < 8:
+        bm.free()
+        aplicar_decimate(obj, pct / 100.0)
+        return {"modo": "decimate", "ilhas": len(grupos)}
+
+    por_vertice = {}
+    medidas = []
+    for indice, membros in enumerate(grupos):
+        for v in membros:
+            por_vertice[v] = indice
+        coords = [bm.verts[i].co for i in membros]
+        minimo = [min(c[k] for c in coords) for k in range(3)]
+        maximo = [max(c[k] for c in coords) for k in range(3)]
+        medidas.append(
+            {
+                "indice": indice,
+                "volume": _volume_componente(bm, membros),
+                # area da maior face do bbox: e o que o jogador ve. Braco fino tem volume
+                # pequeno e area grande; visor tem o contrario. Volume como criterio sumia
+                # com o braco (medido no render do android).
+                "area": max(
+                    (maximo[0] - minimo[0]) * (maximo[1] - minimo[1]),
+                    (maximo[2] - minimo[2]) * (maximo[1] - minimo[1]),
+                    (maximo[0] - minimo[0]) * (maximo[2] - minimo[2]),
+                ),
+                "tris": 0,
+                "min": minimo,
+                "max": maximo,
+            }
+        )
+    for face in bm.faces:
+        dono = por_vertice.get(face.verts[0].index)
+        if dono is not None:
+            medidas[dono]["tris"] += 1
+
+    # envelope do asset: caixa que toca um extremo e obrigatoria. O LOD tira detalhe, nunca
+    # encolhe o bbox (medido: sem esta regra o LOD2 reprovava com -34% em X).
+    global_min = [min(m["min"][k] for m in medidas) for k in range(3)]
+    global_max = [max(m["max"][k] for m in medidas) for k in range(3)]
+
+    def toca_extremo(m: dict) -> bool:
+        for k in range(3):
+            if abs(m["min"][k] - global_min[k]) < 1e-6 or abs(m["max"][k] - global_max[k]) < 1e-6:
+                return True
+        return False
+
+    obrigatorias = [m for m in medidas if toca_extremo(m)]
+    opcionais = sorted(
+        (m for m in medidas if not toca_extremo(m)), key=lambda m: m["area"], reverse=True
+    )
+    alvo = max(1, int(round(total_tris * pct / 100.0)))
+    mantidas = list(obrigatorias)
+    acumulado = sum(m["tris"] for m in mantidas)
+    for medida in opcionais:
+        if acumulado >= alvo:
+            break
+        mantidas.append(medida)
+        acumulado += medida["tris"]
+    remover_indices = {m["indice"] for m in medidas} - {m["indice"] for m in mantidas}
+    remover = [bm.verts[i] for g in remover_indices for i in grupos[g]] if remover_indices else []
+    if remover_indices:
+        bmesh.ops.delete(bm, geom=remover, context="VERTS")
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+    return {
+        "modo": "ilhas",
+        "ilhas": len(grupos),
+        "mantidas": len(mantidas),
+        "obrigatorias": len(obrigatorias),
+        "alvo_pct": pct,
+        "triangulos": len(obj.data.polygons),
+    }
+
+
 def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
     """Colisor convexo por peca; prefixo UCX_ (convencao do perfil)."""
     if modo in ("none", None):
@@ -851,7 +967,8 @@ def processar(job: dict) -> dict:
             alvo_obj = obj
         else:
             alvo_obj = clonar_malha(obj, f"forge3d_lod{nivel}")
-            aplicar_decimate(alvo_obj, pct / 100.0)
+            info_lod = aplicar_lod(alvo_obj, pct)
+            medidas_base.setdefault("lod_modo", {})[str(nivel)] = info_lod
         nome = job["nome_arquivo"] if nivel == 0 else f"{job['nome_base']}_LOD{nivel}.glb"
         caminho = os.path.join(saida_dir, nome)
         selecionados = [alvo_obj] + ([rig_obj] if rig_obj is not None else [])

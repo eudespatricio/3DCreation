@@ -217,10 +217,37 @@ def ler_cache(chave: str) -> tuple[Path, dict] | None:
 # ---------------------------------------------------------------- publicacao
 
 
+def _limpar_orfaos(destino: Path, manifesto: dict) -> list[str]:
+    """Remove do destino o arquivo do manifesto ANTERIOR que o novo nao lista mais.
+
+    Sem isso, um LOD que deixou de ser gerado continua na pasta e o consumidor importa lixo
+    (medido: `_LOD2.glb` de um android que passou a pedir [100, 50]). So mexe em arquivo que o
+    proprio Forge3D publicou e que estava no manifesto antigo.
+    """
+    anterior = destino / f"{manifesto['asset_id']}.manifest.json"
+    if not anterior.is_file():
+        return []
+    try:
+        antigo = json.loads(anterior.read_text(encoding="utf-8"))
+    except ValueError:
+        return []
+    novos = {a["caminho"] for a in manifesto.get("files", [])}
+    removidos = []
+    for arq in antigo.get("files", []):
+        nome = arq.get("caminho", "")
+        if nome and nome not in novos:
+            alvo = destino / nome
+            if alvo.is_file():
+                alvo.unlink()
+                removidos.append(nome)
+    return removidos
+
+
 def publicar(origem: Path, destino: Path, manifesto: dict, run_id: str) -> list[dict]:
     """Copia staging->destino por rename, depois grava o manifesto. Devolve artefatos."""
     destino.mkdir(parents=True, exist_ok=True)
     publicados = []
+    _limpar_orfaos(destino, manifesto)
     for arq in manifesto["files"]:
         nome = arq["caminho"]
         origem_arq = origem / nome

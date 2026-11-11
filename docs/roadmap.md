@@ -140,8 +140,9 @@ LOD para mesh gerada (com critério visual, não decimate cego), retarget entre 
 retarget por `rig.retarget` (D66) e declarado em `manifest@3` (D67); G10 mede movimento real; Godot 4.3
 headless confirma o clipe nos dois esqueletos. No Roblox, o `.rbxlx` leva o `KeyframeSequence` (D69),
 o `Animation` **116049702979137** (`Priority=Core`) toca no rig Motor6D no client do Studio (Head
-0,0949 studs) e as poses movem o rig 0,1091 studs na sonda offline. **Falta da P5:** LOD de mesh com
-critério visual (GAP-013).
+0,0949 studs) e as poses movem o rig 0,1091 studs na sonda offline. O critério de LOD está medido
+(D71): o LOD do blocky foi reprovado e desligado nos exemplos; o LOD de malha gerada passa (bule a 50%:
+0,993/0,994, faixa 0,948). **Falta da P5:** LOD de personagem `mesh` medido (GAP-046).
 
 ## P6 — Produto
 

@@ -33,6 +33,8 @@ lote:
     auto_rig: true
     esqueleto: godot-humanoid@1
     colisao: convex
-    lod: [100, 50, 25]
+    # GAP-013: 300 tris nao comportam LOD — a 50% some o antebraco (faixa vertical IoU 0,65
+    # no render) e o decimate vira espinho. LOD fica para malha gerada (GAP-046).
+    lod: [100]
     animacoes_base: [idle]
     tags: [mob, android, humanoid, scifi]

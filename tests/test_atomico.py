@@ -155,6 +155,28 @@ def test_observador_thread_durante_publish_sem_arquivos_parciais(tmp_path, monke
     assert (destino / f"{manifesto['asset_id']}.manifest.json").is_file()
 
 
+def test_publicar_remove_arquivo_que_saiu_do_manifesto(tmp_path):
+    """Um LOD que deixou de ser gerado nao pode ficar orfao no destino (medido no android)."""
+    staging, destino, manifesto, _tamanhos = _criar_dados_teste(tmp_path)
+    publicar(staging, destino, manifesto, "run-1")
+    (staging / "antigo_LOD2.glb").write_bytes(b"sobra")
+    manifesto["files"].append(
+        {
+            "caminho": "antigo_LOD2.glb",
+            "papel": "lod",
+            "sha256": "sha256:" + "0" * 64,
+            "bytes": 5,
+        }
+    )
+    publicar(staging, destino, manifesto, "run-2")
+    extra = destino / "antigo_LOD2.glb"
+    assert extra.is_file()
+
+    manifesto["files"] = [a for a in manifesto["files"] if a["caminho"] != "antigo_LOD2.glb"]
+    publicar(staging, destino, manifesto, "run-3")
+    assert not extra.exists()
+
+
 def test_interceptacao_rename_destino_vazio_antes_do_replace(tmp_path, monkeypatch):
     """Intercepta os.replace provando que o destino nao existe antes do rename."""
     monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))

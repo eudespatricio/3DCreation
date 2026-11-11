@@ -45,5 +45,6 @@
 8. **Alterou a saída de um provider sem subir `VERSAO`?** O cache serve o artefato velho e o QC passa; a versão entra na chave (D6).
 9. **G1 solda antes de contar não-manifold.** glTF divide vértice em cada costura de UV; sem soldar, todo asset importado parece ter borda aberta. O gate mede topologia soldada de propósito.
 10. **Sobreponha o pivô, nunca compartilhe canto exato:** encostar abre fenda ao animar e canto exato vira não-manifold no G1 após a solda. **Joelho e cotovelo giram ao contrário:** local X negativo dobra o joelho, positivo dobra o cotovelo — sinal igual nos dois inverte o membro.
+11. **`convex_hull` herda faces de entrada** (D64): o hull tem que ser feito sobre nuvem de pontos, sem faces. E convexidade é medida com 1 mm/m de tolerância (D65) — colisor gerado desvia sub-milímetro e é convexo na prática.
 11. **Decimate cria ilha de uma face.** O TripoSR a 7.960 tris deixou um triângulo solto de 5,1e-6 m²; `reparar_malha` remove **toda** ilha de 1 face.
 12. **Rota `mesh` exige `origem` (PNG);** o prompt não gera imagem enquanto GAP-026 não fecha. Fundo neutro/alfa ou `FORGE3D_I23D_REMOVER_FUNDO=1`.

@@ -12,9 +12,7 @@ depende de decisão do operador, não de correção.
 
 ## 2. Correções que já mordem
 
-| # | Correção | Sintoma hoje | Aceitação | Prio |
-|---|---|---|---|---|
-| C12 | Assets publicados antes de 11/11/2026 têm manifesto sem `pivo_regra` e colisor côncavo | `forge3d verify` nesses destinos agora reprova (`C7`/`C8` funcionando como portão) | republicar os destinos antigos (`lote_01`, `lote_03_kit`, `lote_06`, `r15`) ou aceitar o destino como arquivo morto | **B** |
+Nenhuma pendente: a C12 fechou em 11/11/2026 (ver §4).
 
 ## 3. Decisões que precisam do operador
 
@@ -25,6 +23,11 @@ depende de decisão do operador, não de correção.
 
 ## 4. Fechado nesta janela (não reabrir)
 
+- **C12 — destinos antigos republicados** em 11/11/2026: **7 destinos, 16 manifestos** em
+  `manifest@2` 0.2.6, `verify` **0 problemas** em todos. O caminho achou dois defeitos reais: o
+  `convex_hull` herdava faces de entrada (**D64**, hull em nuvem de pontos) e a convexidade media com
+  tolerância apertada demais (**D65**, 1 mm/m). O órfão `personagem.sentinel.scout.03` (versão antiga
+  do lote 08) foi para `~/.local/state/forge3d/arquivo_morto/kit_mesh/`.
 - **P8/C15/D62 — escala do Roblox (P2 fechada)** em 11/11/2026: `manifest@2` com `unidades_export`,
   `roblox-r15` com `escala_saida: 3,5714` (glb em studs), G2 dividindo pela escala declarada, `verify`
   aceitando `@1` e `@2`. Package novo (asset **134628989553440**, 39.004 B) medido no Studio via MCP:

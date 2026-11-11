@@ -40,6 +40,11 @@ viram uma aresta de 4 faces depois da solda e o G1 reprova — foi o que acontec
 declarada antes de comparar com `altura_metros` e divide o desvio do pivô pela mesma escala. Grava
 `altura_export` e `escala_saida` no `medido`, e `bbox_m` do relatório continua em metros.
 
+**G7 mede convexidade com tolerância de escala** (D65): **1 mm por metro de diâmetro** da parte.
+Um hull de malha gerada tem regiões quase coplanares e o triangulador deixa desvios de
+sub-milímetro (medido: 4,3e-4 m num colisor de 2,2 m); concavidade de verdade — a do C8, com face
+atravessando o corpo — desvia em ordem de centímetro e continua reprovando.
+
 **Avisos** (`FORGE-W-QC`, publica com registro): LOD além de `_LOD2`; textura menor que 32 px;
 material sem uso; tolerância marcada `[verificar]` no perfil (U1–U5).
 

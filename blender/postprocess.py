@@ -582,14 +582,19 @@ def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
             temp = bmesh.new()
             temp.from_mesh(obj.data) if ilha is bm else None
             if ilha is not bm:
-                vmap = {}
                 for vertice in ilha.verts:
-                    vmap[vertice] = temp.verts.new(vertice.co)
+                    temp.verts.new(vertice.co)
                 temp.verts.ensure_lookup_table()
-            hull = bmesh.ops.convex_hull(temp, input=list(temp.verts))
-            # convex_hull NAO apaga a geometria de entrada: as faces originais que caem
-            # sobre o hull ficavam no recorte e o colisor saia nao-manifold (G7/C8).
-            # Reconstruir so com as faces do hull fecha a superficie de verdade.
+            # O `geom` do convex_hull carrega tambem faces de ENTRADA que ficam dentro do hull:
+            # medido em 11/11/2026, o colisor da malha gerada saiu com face interior e o G7
+            # reprovou (convexidade por componente). Alimentar o hull com uma NUVEM DE PONTOS
+            # (sem faces para herdar) resolve na origem: o hull de um conjunto de pontos e o
+            # mesmo, e o `geom` devolve so a superficie convexa.
+            nuvem = bmesh.new()
+            for vertice in temp.verts:
+                nuvem.verts.new(vertice.co)
+            nuvem.verts.ensure_lookup_table()
+            hull = bmesh.ops.convex_hull(nuvem, input=list(nuvem.verts))
             faces_hull = [g for g in hull["geom"] if isinstance(g, bmesh.types.BMFace)]
             limpo = bmesh.new()
             mapa_vert = {}
@@ -609,6 +614,7 @@ def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
             malha = bpy.data.meshes.new(f"UCX_{nome_base}_{indice:02d}")
             limpo.to_mesh(malha)
             limpo.free()
+            nuvem.free()
             temp.free()
             malha.update()
             col = bpy.data.objects.new(f"UCX_{nome_base}_{indice:02d}", malha)

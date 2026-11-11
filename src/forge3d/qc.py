@@ -343,7 +343,11 @@ def convexidade(
             + (max(ys) - min(ys)) ** 2
             + (max(zs) - min(zs)) ** 2
         ) ** 0.5
-        eps = max(1e-9, diag * 1e-6)
+        # D65: tolerancia de 1 mm por metro de diametro. Um hull de malha gerada tem regioes
+        # quase coplanares e o triangulador do Blender deixa desvios de sub-milimetro (medido:
+        # 4,3e-4 m num colisor de 2,2 m). Concavidade de verdade (a do C8, face atravessando o
+        # corpo) desvia em ordem de centimetro — muito acima disto.
+        eps = max(1e-9, diag * 1e-3)
         if not _convexo(locais, tris, eps):
             concavas += 1
 

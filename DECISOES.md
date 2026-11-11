@@ -156,7 +156,11 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Resíduo rig × package | **3,05 %** (6,8086 vs 6,6071): o rig usa as caixas brutas do blocky (1,906 m) e a malha é normalizada para 1,850 m → GAP-044 | medido, 11/11/2026 |
 | Compat de `verify` | `manifest@1` de `lote_01` e `kit_sentinel` continua **0 problemas** (escala 1.0); `r15` republicado em `@2` | `forge3d verify` em 11/11/2026 |
 | Suíte após D62 | **99 verdes + 1 GPU (skip)** em **100 testes**; CI no GitHub roda **84** | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
+| Suíte após C12/D64/D65 | **101 verdes + 1 GPU (skip)** em **102 testes**; CI no GitHub roda **86**; `PIPELINE_VERSION` 0.2.6 | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
 | CI após D62 | run **42956720067** `success` em `a21e944`; job com 84 testes + contexto + P0 | API do Actions em 11/11/2026 |
+| C12 — hull do colisor (defeito real) | `convex_hull` herda faces de ENTRADA: o colisor da malha gerada saiu com face interior e o G7 reprovou (desvio de 1,8 m numa face de um colisor de 2,2 m de diâmetro) | 3 lotes mesh (`lote_05`, `lote_06`, `lote_08`), 11/11/2026 |
+| C12 — colisor depois do fix (D64/D65) | hull sobre **nuvem de pontos**; desvio máximo residual **4,3e-4 m** (sub-milímetro) em 438 faces, dentro da tolerância de 1 mm/m | colisor de `personagem.sentinel.concept.01`, 11/11/2026 |
+| C12 — destinos republicados | **7 destinos, 16 manifestos** em `manifest@2` 0.2.6; `verify` **0 problemas** em todos | `verify` em todos os destinos, 11/11/2026 |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
 end-to-end (implementado, execução pendente), A/B de 10 assets, qualidade de personagem com capa,
@@ -230,6 +234,8 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D58 | **`empunhadura` é 20 % da altura a partir da base**, uma regra numérica única: o blocky declara o pivô nessa fração (`FRACAO_EMPUNHADURA`) e o G2 mede o desvio contra ela | medido: a mesma regra dava 10 % no blocky e 20 % no `postprocess`, e o G2 não media nenhum dos dois; a intenção do perfil ("menor secção") fica em GAP-042 |
 | D59 | **`flock` é o dono do lock de GPU**; `pid_ativo` e `vram_livre_mb` são **diagnóstico**, nunca condição de posse. `lock_gpu` não faz `unlink` do arquivo de lock | a versão paralela removia o arquivo e reabria antes do `flock`: dois processos podiam flockar inodes diferentes e quebrar a exclusividade do D11 |
 | D60 | **Validação no Roblox usa o MCP do Studio** (`tools/mcp_studio.py`, proxy stdio) quando o MCP está ligado; a Command Bar fica como plano B, porque é linha única e colapsa script multi-linha | medido: o `preload` só foi confirmável com o proxy vivo; a Command Bar mostrou o modelo mas não os `print`s |
+| D64 | **Hull do colisor em nuvem de pontos**: o `geom` do `convex_hull` carrega faces de entrada que ficam dentro do hull; alimentar o hull só com os vértices (sem faces) devolve a superfície convexa | medido em 11/11/2026: o colisor da malha gerada saiu com face interior (desvio de 1,8 m) e o G7 reprovou os 3 lotes mesh; depois do fix o desvio máximo caiu para 4,3e-4 m |
+| D65 | **Convexidade medida com tolerância de escala**: 1 mm por metro de diâmetro da parte (antes: 1e-6 do diâmetro). Concavidade real desvia em ordem de centímetro | um hull legítimo de malha gerada tem regiões quase coplanares e o triangulador do Blender deixa sub-milímetro (4,3e-4 m em 2,2 m); o gate continua pegando a face interior do C8 |
 | D62 | **Escala de export declarada no manifesto**: `manifest@2` ganha `unidades_export` (`metros_por_unidade`, `escala_saida`); o `glb` do `roblox-r15` sai em studs e `bbox_m` continua em metros | medido: package 1,850 studs × `.rbxlx` 6,478 studs (3,57×); `manifest@1` não tem como declarar a unidade, e a alternativa (importar com escala 3,5714 na UI) é passo manual que o consumidor esquece |
 
 ## 3. Rejeitados (e por quê)

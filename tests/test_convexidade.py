@@ -101,3 +101,25 @@ def test_convexidade_reprova_parte_concava():
     medido = qc.convexidade(gltf, binario)
     assert medido["convexo"] is False
     assert medido["concavas"] == 1
+
+
+def test_desvio_submilimetrico_nao_condena_hull_legitimo():
+    """D65: hull de malha gerada desvia sub-milímetro e é convexo na prática.
+
+    O cubo de teste tem 2 m de lado (diag 3,46): a tolerância é 1 mm/m, então 0,5 mm de desvio
+    cabe. Foi o caso medido no colisor do `personagem.sentinel.concept.01` (4,3e-4 m em 2,2 m).
+    """
+    quase = list(CUBO)
+    quase[0] = (-1.0 + 0.0005, -1.0 + 0.0005, -1.0 + 0.0005)
+    gltf, binario = _pacote([(quase, FACES_CUBO)])
+    medido = qc.convexidade(gltf, binario)
+    assert medido["convexo"] is True, medido
+
+
+def test_desvio_de_centimetro_reprova():
+    """A tolerância não é licença: 1 cm num colisor de 2 m continua sendo concavidade."""
+    quase = list(CUBO)
+    quase[0] = (-1.0 + 0.01, -1.0 + 0.01, -1.0 + 0.01)
+    gltf, binario = _pacote([(quase, FACES_CUBO)])
+    medido = qc.convexidade(gltf, binario)
+    assert medido["convexo"] is False, medido

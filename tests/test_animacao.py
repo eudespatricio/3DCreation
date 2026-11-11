@@ -77,6 +77,43 @@ def test_spec_reprova_animacao_sem_rig():
     assert any(e.get("regra") == "B14" for e in exc.value.detalhes["erros"])
 
 
+# ------------------------------------------------------------------ definicao do clipe
+
+
+def test_clipe_e_deterministico_e_resolve_os_ossos():
+    from forge3d import animacao
+
+    a = animacao.clipes(GODOT, "godot-humanoid@1", ["idle"])
+    b = animacao.clipes(GODOT, "godot-humanoid@1", ["idle"])
+    assert a == b
+    clipe = a[0]
+    assert clipe["nome"] == "idle"
+    assert clipe["duracao_s"] == 2.0
+    assert [c["segundos"] for c in clipe["chaves"]] == [0.0, 0.5, 1.0, 1.5, 2.0]
+    assert clipe["ossos"] == ["Chest", "Head", "Spine1", "UpperArm.L", "UpperArm.R"]
+
+
+def test_clipe_materializa_os_dois_esqueletos():
+    from forge3d import animacao
+
+    r15 = animacao.clipes(ROBLOX, "r15@1", ["idle"])[0]
+    assert r15["ossos"] == ["Head", "LeftUpperArm", "LowerTorso", "RightUpperArm", "UpperTorso"]
+    # mesma amplitude no eixo X nos dois esqueletos: o clipe e o mesmo, o osso muda
+    godot = animacao.clipes(GODOT, "godot-humanoid@1", ["idle"])[0]
+    meio_r15 = {p["osso"]: p["graus"] for p in r15["chaves"][2]["poses"]}
+    meio_godot = {p["osso"]: p["graus"] for p in godot["chaves"][2]["poses"]}
+    assert meio_r15["UpperTorso"] == pytest.approx(meio_godot["Chest"])
+    assert meio_r15["LowerTorso"] == pytest.approx(meio_godot["Spine1"])
+
+
+def test_clipe_sem_retarget_ou_sem_gerador_e_vazio():
+    from forge3d import animacao
+
+    assert animacao.clipes(GODOT, "r15@1", ["idle"]) == []
+    assert animacao.clipes(GODOT, "godot-humanoid@1", []) == []
+    assert animacao.clipes(GODOT, "godot-humanoid@1", ["walk"]) == []
+
+
 # ------------------------------------------------------------------ G10
 
 

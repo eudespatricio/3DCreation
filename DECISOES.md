@@ -157,6 +157,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Compat de `verify` | `manifest@1` de `lote_01` e `kit_sentinel` continua **0 problemas** (escala 1.0); `r15` republicado em `@2` | `forge3d verify` em 11/11/2026 |
 | Suíte após D62 | **99 verdes + 1 GPU (skip)** em **100 testes**; CI no GitHub roda **84** | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
 | Suíte após C12/D64/D65 | **101 verdes + 1 GPU (skip)** em **102 testes**; CI no GitHub roda **86**; `PIPELINE_VERSION` 0.2.6 | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
+| Suíte após P5/P5-B | **117 verdes + 1 GPU (skip)** em **118 testes**; CI no GitHub roda **102**; `PIPELINE_VERSION` 0.2.7 | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
 | CI após D62 | run **42956720067** `success` em `a21e944`; job com 84 testes + contexto + P0 | API do Actions em 11/11/2026 |
 | C12 — hull do colisor (defeito real) | `convex_hull` herda faces de ENTRADA: o colisor da malha gerada saiu com face interior e o G7 reprovou (desvio de 1,8 m numa face de um colisor de 2,2 m de diâmetro) | 3 lotes mesh (`lote_05`, `lote_06`, `lote_08`), 11/11/2026 |
 | C12 — colisor depois do fix (D64/D65) | hull sobre **nuvem de pontos**; desvio máximo residual **4,3e-4 m** (sub-milímetro) em 438 faces, dentro da tolerância de 1 mm/m | colisor de `personagem.sentinel.concept.01`, 11/11/2026 |
@@ -164,6 +165,8 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P5 — clipe `idle` por retarget (D66) | duração **2,042 s**; move `{UpperTorso, LowerTorso, Head, LeftUpperArm, RightUpperArm}` no `r15@1` e `{Chest, Spine1, Head, UpperArm.L, UpperArm.R}` no `godot-humanoid@1` | 48 canais no glb do R15 (o export amostra os 16 ossos) e 69 no android; `qc.animacoes` em 11/11/2026 |
 | P5 — clipe no Godot 4.3 (headless) | `GODOT_ANIM_OK clipes=[idle] duracao=2.042 tracks=5 movimento=0.0697` (R15) e `tracks=7 movimento=0.0697` (android) | `tools/godot_anim_check.gd` em 11/11/2026 |
 | P5 — manifest@3 | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, todos com `verify` **0 problemas** | `verify` nos 7 destinos, 11/11/2026 |
+| P5-B — `KeyframeSequence` no `.rbxlx` | clipe `idle` com **5 keyframes** e 5 poses por chave (LowerTorso, UpperTorso, Head, LeftUpperArm, RightUpperArm); place de **29.037 B** | `export-r15` em 11/11/2026 |
+| P5-B — clipe medido no rig (MCP) | com os dados do arquivo, a cadeia `Part1 = Part0 · C0 · Transform · C1⁻¹` move a Head **0,1091 studs** entre t=0 e t=0,5 (maior delta de parte 0,1253) | `tools/r15_anim_studio.py` no Studio 16c88345, 11/11/2026 |
 | CI após P5/D68 | run **42960740797** `success` em `7b739f3` e **42961348850** em `9245091`; job com **96 testes** + contexto + P0 | API do Actions em 11/11/2026 |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
@@ -246,6 +249,8 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D67 | **`manifest@3` declara `animacoes`**: lista `{nome, duracao_s, ossos}` dos clipes embutidos no glb; `manifest@1`/`@2` continuam aceitos na leitura e `qc.gates` passa a aceitar `G10` | o consumidor precisa saber que o asset tem clipe sem abrir o glb; contrato silencioso é o que o `verify` existe para impedir |
 
 | D68 | **Part do `.rbxlx` permuta o tamanho como o centro**: `Roblox XYZ = (x, z, −y)` vale para `size` e para `CFrame`; e a caixa de fallback de osso sem geometria não pode descer abaixo da base | medido em 11/11/2026: o tamanho ia `(x, y, z)` direto e cada Part saía com altura = profundidade, esticando o rig para 6,8086 studs (topo 6,4784) e escondendo o defeito atrás de "3 % de diferença"; depois do fix o rig mede 6,6071, igual ao package |
+
+| D69 | **O clipe do Roblox sai da mesma definição**: `animacao.py` materializa o `idle` em espaço semântico; o `.rbxlx` ganha um `KeyframeSequence` (5 chaves, 5 poses) e a Motor6D/Pose usam o **nome da junta R15** (`Root`, `Waist`, `Neck`, `LeftShoulder`…), não o nome da parte. O bpy e o `rbx.py` não decidem movimento, só aplicam chaves | o GLB e o `.rbxlx` não podem divergir de clipe; medido no Studio pelo MCP: a cadeia `Part1 = Part0 · C0 · Transform · C1⁻¹` move a Head **0,1091 studs** entre t=0 e t=0,5. O nome de junta é a convenção do rig R15; o upload como `Animation` (`.rbxmx`) é aceito e volta com as 5 poses |
 
 ## 3. Rejeitados (e por quê)
 

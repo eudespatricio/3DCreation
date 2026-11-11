@@ -23,6 +23,9 @@ Nenhuma pendente: a C12 fechou em 11/11/2026 (ver §4).
 
 ## 4. Fechado nesta janela (não reabrir)
 
+- **P5-B (parcial) — clipe no Roblox** em 11/11/2026: o `KeyframeSequence` vai no `.rbxlx` gerado da
+  mesma definição do GLB (D69); a sonda via MCP mede a Head andando **0,1091 studs** entre t=0 e
+  t=0,5. Falta publicar como `Animation` e ver no Play mode (GAP-045).
 - **P5-A — animação base** em 11/11/2026: clipe `idle` procedural de 2,042 s, retarget semântico nos
   dois esqueletos (D66), `manifest@3` com `animacoes` (D67) e G10 medindo movimento real; Godot 4.3
   headless validou os dois esqueletos. Fica para a P5-B o clipe tocando no Roblox (GAP-045) e o LOD de

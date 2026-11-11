@@ -68,6 +68,13 @@ def construir_parser() -> argparse.ArgumentParser:
     g.add_argument("--dry-run", action="store_true")
     g.add_argument("--json", action="store_true")
 
+    ea = sub.add_parser("export-anim", help="gera .rbxmx do KeyframeSequence (Animation do Roblox)")
+    ea.add_argument("lote")
+    ea.add_argument("--item", required=True)
+    ea.add_argument("--clipe", default="idle")
+    ea.add_argument("--saida")
+    ea.add_argument("--json", action="store_true")
+
     e = sub.add_parser("export-r15", help="gera .rbxlx R15 nativo (Parts+Motor6D) do blocky")
     e.add_argument("lote")
     e.add_argument("--item", required=True)
@@ -84,6 +91,17 @@ def construir_parser() -> argparse.ArgumentParser:
     u.add_argument("--intervalo", type=float, default=2.0)
     u.add_argument("--max-espera", type=float, default=300.0)
     u.add_argument("--json", action="store_true")
+
+    an = sub.add_parser("upload-animation", help="sobe .rbxmx/.rbxm via Open Cloud Assets (Animation)")
+    an.add_argument("arquivo")
+    an.add_argument("--nome")
+    an.add_argument("--descricao")
+    an.add_argument("--creator-id")
+    an.add_argument("--creator-type", choices=["user", "group"])
+    an.add_argument("--dry-run", action="store_true")
+    an.add_argument("--intervalo", type=float, default=2.0)
+    an.add_argument("--max-espera", type=float, default=300.0)
+    an.add_argument("--json", action="store_true")
 
     i = sub.add_parser("upload-image", help="sobe PNG/JPG via Open Cloud Assets (Image)")
     i.add_argument("arquivo")
@@ -135,10 +153,14 @@ def _executar(args) -> int:
         return _gc(args)
     if args.cmd == "export-r15":
         return _export_r15(args)
+    if args.cmd == "export-anim":
+        return _export_anim(args)
     if args.cmd == "upload-model":
         return _upload_model(args)
     if args.cmd == "upload-image":
         return _upload_image(args)
+    if args.cmd == "upload-animation":
+        return _upload_animation(args)
     raise SystemExit(2)  # pragma: no cover
 
 
@@ -300,6 +322,24 @@ def _upload_model(args) -> int:
 
 def _upload_image(args) -> int:
     return _upload_asset(args, "Image")
+
+
+def _upload_animation(args) -> int:
+    return _upload_asset(args, "Animation")
+
+
+def _export_anim(args) -> int:
+    from .. import rbx
+
+    relatorio = rbx.exportar_animacao(args.lote, args.item, args.clipe, saida=args.saida)
+    if args.json:
+        _json(relatorio)
+    else:
+        print(
+            f"rbxmx {relatorio['saida']}  clipe {relatorio['clipe']}  "
+            f"{relatorio['keyframes']} keyframes  {relatorio['bytes']} B"
+        )
+    return 0
 
 
 def _export_r15(args) -> int:

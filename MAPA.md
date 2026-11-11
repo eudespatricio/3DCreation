@@ -24,7 +24,7 @@
 | `examples/concepts/` | PNGs de entrada da rota `mesh` (teapot MIT) | rodar o exemplo mesh |
 | `tools/check-p0.py` | portão do P0: schemas, exemplos, tetos, I12, I14 | antes de dizer "P0 fechada" |
 | `tools/render_preview.py` · `docs/preview/` | preview headless e renders de referência | revisar qualidade do asset |
-| `tools/i23d_infer.py` · `tools/concept_infer.py` · `tools/setup_concept_venv.sh` · `tools/normalize_mesh.py` · `tools/ci.sh` · `tools/configurar_roblox.sh` · `tools/r15_studio_test.lua` · `tools/r15_texture_apply_test.lua` · `tools/r15_rbxlx_test.lua` · `tools/mcp_studio.py` · `tools/r15_escala_studio.py` · `tools/godot_anim_check.gd` + `tools/godot_project/` · `docs/preview/p5_anim_idle.log` | inferência, concept, setup, normalização e CI sem GPU | depurar rota mesh / portão de PR |
+| `tools/i23d_infer.py` · `tools/concept_infer.py` · `tools/setup_concept_venv.sh` · `tools/normalize_mesh.py` · `tools/ci.sh` · `tools/configurar_roblox.sh` · `tools/r15_studio_test.lua` · `tools/r15_texture_apply_test.lua` · `tools/r15_rbxlx_test.lua` · `tools/mcp_studio.py` · `tools/r15_escala_studio.py` · `tools/r15_anim_studio.py` · `tools/godot_anim_check.gd` + `tools/godot_project/` · `docs/preview/p5_anim_idle.log` | inferência, concept, setup, normalização e CI sem GPU | depurar rota mesh / portão de PR |
 | `src/forge3d/` + `src/forge3d/cli/` | `spec` `plan` `qc` `publish` `pipeline` `doctor` `locks` `canonical` `config` `paths` `gc` `rbx` `upload` + 11 subcomandos | implementação |
 | `src/forge3d/providers/` | `base` `blocky` `importer` `mesh` | adicionar rota |
 | `src/forge3d/post.py` + `blender/postprocess.py` | subprocesso + script `bpy` (LOD, colisor, rig, UV+bake) | pós-processo, textura, rig |

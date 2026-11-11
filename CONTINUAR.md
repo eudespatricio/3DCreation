@@ -5,8 +5,8 @@ fechada.** A P2 fechou pela escala (`manifest@2`, D62): package medido em **6,60
 6,6071 do `.rbxlx` (D68). A C12 republicou **7 destinos, 16 manifestos** com `verify` **0 problemas**.
 A P5-A
 entregou o clipe `idle` procedural (2,042 s) por retarget (D66) em `manifest@3` (D67), validado no
-Godot 4.3 headless nos dois esqueletos. **111 verdes + 1 GPU (skip)** em 112 testes · CI no GitHub com
-**96 testes**.
+Godot 4.3 headless nos dois esqueletos. **117 verdes + 1 GPU (skip)** em 118 testes · CI no GitHub com
+**102 testes**.
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 
@@ -31,7 +31,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P3** | ✔ | provider `i23d` (TripoSR), bake UV/textura próprio, kit corpo/capa/arma |
 | **P3.5** | ✔ | concept SD1.5 → TripoSR, split e A/B de 3 personagens híbridos |
 | **P4** | pendente | rota `modular` (WFC) |
-| **P5** | parcial | animação base ✔ (D66/D67); falta LOD de mesh (GAP-013) e o clipe no Roblox (GAP-045) |
+| **P5** | parcial | animação base ✔ (D66/D67) e `KeyframeSequence` no `.rbxlx` ✔ (D69); falta publicar como `Animation` (GAP-045) e o LOD de mesh (GAP-013) |
 
 ## O que foi entregue nesta janela
 
@@ -56,16 +56,25 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   esqueleto; o `idle` é gerado no `bpy` (5 chaves, 2 s a 24 fps) e embutido no glb; G10 mede
   **movimento real**; `manifest@3` declara `animacoes`; `tests/test_animacao.py` + e2e do R15 com o
   clipe; Godot 4.3 headless confirma nos dois esqueletos. `PIPELINE_VERSION` **0.2.7**.
+- **P5-B — clipe no Roblox (D69)** — `animacao.py` é a definição única; o `export-r15` grava um
+  `KeyframeSequence` (5 chaves, 5 poses, nome de junta R15) no `.rbxlx`, o `export-anim` gera o
+  `.rbxmx` e o `upload-animation` sobe como `Animation` (**83693072870629**, Approved); o
+  `GetKeyframeSequenceAsync` devolve as 5 poses. A sonda `tools/r15_anim_studio.py` reconstrói o rig no
+  Studio e mede a Head andando **0,1091 studs**. **Playback não verificado**: a sonda de servidor do
+  MCP não mede o `Animator` (controle com animação pública também dá zero).
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **111 verdes + 1 GPU (skip)** em **112 testes** |
-| CI no GitHub | **96 testes** (`tools/ci.sh`) + contexto + P0 |
+| Suíte | **117 verdes + 1 GPU (skip)** em **118 testes** |
+| CI no GitHub | **102 testes** (`tools/ci.sh`) + contexto + P0 |
 | Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
+| Clipe no rig Roblox (MCP) | Head anda **0,1091 studs** entre t=0 e t=0,5; maior delta de parte 0,1253 |
+| Animation no Roblox | asset **83693072870629** Approved (10.581 B); `GetKeyframeSequenceAsync` = 5 keyframes, poses `Root/Waist/Neck/LeftShoulder/RightShoulder` |
+| Play mode via MCP | **não mede**: `Animator` fica com `Transform=0` até com animação pública (controle) — precisa de cliente/janela |
 | Colisor após D64/D65 | desvio máximo **4,3e-4 m** num hull de 2,2 m (tolerância 1 mm/m); face interior do defeito desviava 1,8 m |
 | Package R15 v2 no Studio | `size=2,7086 × 6,6071 × 1,5196` studs · **16 Bones** · `surface=false` · `humanoid=false` |
 | glb do R15 | `bbox = 2,70855 × 6,60709 × 1,519631` studs para `bbox_m = [0,7584; 1,85; 0,4255]` m |
@@ -101,7 +110,7 @@ Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-013** (
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **P5-B**: `KeyframeSequence` do `idle` no rig `.rbxlx` e tocando no Studio (GAP-045) | 1 sessão | P5 |
+| **1** | Validar o `Animation` 83693072870629 tocando no Play mode **com cliente** (janela real) ou no Animation Editor; a sonda de servidor do MCP não mede | 1 sessão manual | GAP-045 |
 | **2** | LOD de mesh com critério visual (GAP-013) | 1 sessão | P5 |
 | **3** | **P4** rota `modular` (WFC) | 1–2 sessões | roadmap |
 
@@ -118,8 +127,8 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 111 verdes + 1 GPU
-bash tools/ci.sh                          # 96 testes + contexto + P0 (o que o GitHub roda)
+python -m pytest                          # 117 verdes + 1 GPU
+bash tools/ci.sh                          # 102 testes + contexto + P0 (o que o GitHub roda)
 bash tools/check-contexto.sh
 python tools/check-p0.py
 python tools/mcp_studio.py --estado       # Studio via MCP (precisa do MCP ligado)
@@ -129,6 +138,9 @@ python tools/conformidade.py              # tetos, I14, I12
 # clipe base no Godot 4.3 headless (precisa de --path com o projeto minimo)
 godot --headless --path tools/godot_project \
   --script "$PWD/tools/godot_anim_check.gd" -- <glb> idle
+
+# clipe do .rbxlx medido no rig dentro do Studio (MCP ligado)
+python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 ```
 
 ## Armadilhas pagas (não repetir)

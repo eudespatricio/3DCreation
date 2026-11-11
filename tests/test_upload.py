@@ -98,6 +98,17 @@ def test_upload_model_contra_servidor_local(tmp_path, monkeypatch):
     assert b"model/gltf-binary" in corpo
     assert b"glTF" in corpo
 
+def test_upload_animation_dry_run(tmp_path):
+    """Open Cloud aceita Animation como .rbxmx (model/x-rbxm)."""
+    p = tmp_path / "idle.rbxmx"
+    p.write_text('<?xml version="1.0"?><roblox version="4"></roblox>', encoding="utf-8")
+    rel = upload.executar(p, asset_type="Animation", creator_id="123", dry_run=True)
+    assert rel["asset_type"] == "Animation"
+    assert rel["content_type"] == "model/x-rbxm"
+    assert rel["request"]["assetType"] == "Animation"
+    assert "Animacao" in rel["request"]["description"]
+
+
 def test_upload_image_dry_run(tmp_path):
     p = tmp_path / "atlas.png"
     p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 32)

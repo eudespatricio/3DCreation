@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from xml.etree import ElementTree
 
+import pytest
+
 from forge3d import rbx
 
 R15 = {
@@ -63,6 +65,34 @@ def test_export_r15_gera_place_com_16_partes_e_15_motores(tmp_path):
         assert motor.find("./Properties/Ref[@name='Part1']") is not None
         assert motor.find("./Properties/CoordinateFrame[@name='C0']") is not None
         assert motor.find("./Properties/CoordinateFrame[@name='C1']") is not None
+
+
+def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
+    """D69: o mesmo clipe do glb vira KeyframeSequence no place (5 chaves, 5 poses)."""
+    from forge3d import animacao, profiles
+
+    saida = tmp_path / "r15.rbxlx"
+    rel = rbx.exportar_r15("examples/lote_09_r15.yaml", "personagem.r15.guard.01", saida=saida)
+    assert rel["animacoes"] == ["idle"]
+    assert rel["keyframes"] == {"idle": 5}
+
+    place = rbx.ler_place(saida)
+    assert len(place["clipes"]) == 1
+    clipe = place["clipes"][0]
+    assert clipe["nome"] == "idle" and clipe["loop"] is True
+    assert [c["tempo"] for c in clipe["chaves"]] == [0.0, 0.5, 1.0, 1.5, 2.0]
+
+    esperado = animacao.clipes(profiles.carregar("roblox-r15"), "r15@1", ["idle"])[0]
+    for chave, esperada in zip(clipe["chaves"], esperado["chaves"]):
+        assert chave["tempo"] == esperada["segundos"]
+        # o place usa o nome da JUNTA (Waist, Neck, ...), que e como o Animator casa a Pose
+        assert [p["osso"] for p in chave["poses"]] == [
+            rbx.JOINT_R15.get(p["osso"], p["osso"]) for p in esperada["poses"]
+        ]
+        for pose, pose_esperada in zip(chave["poses"], esperada["poses"]):
+            matriz = rbx._matriz_rotacao(pose_esperada["graus"], pose_esperada["eixo"])
+            # o .rbxlx grava com 6 casas: a tolerancia e do formato, nao do calculo
+            assert pose["cframe"][3:] == pytest.approx(matriz, abs=1e-5)
 
 
 def test_export_r15_normaliza_a_altura_para_a_spec(tmp_path):

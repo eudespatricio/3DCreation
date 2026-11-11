@@ -26,6 +26,10 @@ TIPOS_MODEL = {
     ".rbxm": "model/x-rbxm",
     ".rbxmx": "model/x-rbxm",
 }
+TIPOS_ANIMACAO = {
+    ".rbxm": "model/x-rbxm",
+    ".rbxmx": "model/x-rbxm",
+}
 TIPOS_IMAGEM = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -133,6 +137,10 @@ def executar(
         content_type = TIPOS_IMAGEM.get(caminho.suffix.lower())
         if content_type is None:
             raise erro_upload(f"formato nao suportado para {asset_type}: {caminho.suffix}")
+    elif asset_type == "Animation":
+        content_type = TIPOS_ANIMACAO.get(caminho.suffix.lower())
+        if content_type is None:
+            raise erro_upload(f"formato nao suportado para Animation: {caminho.suffix}")
     else:
         raise erro_upload(f"asset_type nao suportado: {asset_type}")
     if intervalo <= 0 or max_espera <= 0:
@@ -140,7 +148,13 @@ def executar(
 
     creator = _criador(creator_id, creator_type)
     nome = nome or caminho.stem
-    descricao = descricao or "Modelo gerado pelo Forge3D (R15/blocky)."
+    padrao = {
+        "Model": "Modelo gerado pelo Forge3D (R15/blocky).",
+        "Image": "Textura gerada pelo Forge3D.",
+        "Decal": "Textura gerada pelo Forge3D.",
+        "Animation": "Animacao gerada pelo Forge3D (clipe base).",
+    }
+    descricao = descricao or padrao.get(asset_type, "Asset gerado pelo Forge3D.")
     request = {
         "assetType": asset_type,
         "displayName": nome,

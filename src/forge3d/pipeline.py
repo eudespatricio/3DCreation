@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, config, doctor, locks, paths, plan, post, providers, publish, spec
+from . import __version__, animacao, config, doctor, locks, paths, plan, post, providers, publish, spec
 from .canonical import canon, sha256_arquivo, sha256_bytes
 from .errors import (
     EXIT_AMBIENTE,
@@ -63,6 +63,13 @@ def _pos_processar(item: dict, perfil: dict, bruto, run_id: str) -> dict:
         "item": {k: v for k, v in item.items() if not k.startswith("_")},
         "nome_base": item["id"],
         "nome_arquivo": f"{item['id']}.glb",
+        # D66/D69: o clipe viaja pronto (chaves em espaco semantico ja resolvidas para o esqueleto).
+        # O bpy nao decide movimento: aplica as chaves; o .rbxlx usa a mesma definicao.
+        "clipes": animacao.clipes(
+            perfil,
+            item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao") or "",
+            item.get("animacoes_base"),
+        ),
     }
     resultado = post.executar(job)
     for arq in resultado.get("arquivos", []):

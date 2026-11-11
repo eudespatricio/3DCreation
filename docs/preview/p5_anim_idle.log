@@ -55,3 +55,36 @@ InsertService:LoadLocalAsset("\\\\wsl.localhost\\...\\personagem.r15.guard.01.rb
 Consequencia para GAP-045: da para registrar um `KeyframeSequence` na sessao do Studio, mas **nao**
 da para inserir o `.rbxlx` do disco por MCP. A validacao do rig tera que ser feita reconstruindo as
 Parts/Motor6D no Luau a partir do JSON do export (mesmos dados do arquivo).
+
+## 4. KeyframeSequence no .rbxlx (D69)
+
+```
+forge3d export-r15 examples/lote_09_r15.yaml --item personagem.r15.guard.01
+rbxlx ...  16 partes  15 motores  29.037 B
+python tools/r15_anim_studio.py --clipe idle --tempo 0.5
+P5B clipe=idle partes=16 motores=15 t=0 head=0.0000,5.8798,0.1514
+    t=0.50 head=0.0000,5.8795,0.2605 delta=0.1091 studs | maior_delta=0.1253
+```
+
+O `KeyframeSequence` tem 5 keyframes (t = 0; 0,5; 1,0; 1,5; 2,0) e 5 poses por chave, com o nome da
+junta R15 (`Root`, `Waist`, `Neck`, `LeftShoulder`, `RightShoulder`). A sonda reconstroi Parts +
+Motor6D do proprio arquivo e resolve a cadeia como o `Animator`: a Head anda **0,1091 studs**.
+
+## 5. Upload como Animation (Open Cloud) e Play mode
+
+```
+forge3d export-anim examples/lote_09_r15.yaml --item personagem.r15.guard.01
+  rbxmx ... 5 keyframes  10.581 B
+forge3d upload-animation ... --creator-id 11966727684
+  Animation assetId 83693072870629  moderacao Approved
+```
+
+No Studio (MCP): `GetKeyframeSequenceAsync("rbxassetid://83693072870629")` devolve 5 keyframes com as
+poses esperadas e `PreloadAsync` = `Success`. O asset carrega o clipe.
+
+**Playback nao verificado.** No Play mode aberto pelo MCP (`start_stop_play`), tanto num rig montado a
+partir do `.rbxlx` quanto num R15 real (`Players:CreateHumanoidModelFromDescription`) o
+`Motor6D.Transform` fica zero, mesmo com a track em `WeightCurrent=1` e `Length=2.0`. Controle: a
+animacao **publica** `507766666` no mesmo rig tambem da zero — logo a sonda de server datamodel do MCP
+nao mede o `Animator` (sem cliente/janela). O caminho para fechar GAP-045 e Play com cliente ou o
+Animation Editor.

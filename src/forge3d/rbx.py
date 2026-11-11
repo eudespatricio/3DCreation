@@ -9,16 +9,37 @@ blocky. A textura/atlas e o GLB continuam sendo o caminho de mesh; aqui é o rig
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 from html import escape
 from pathlib import Path
 from xml.etree import ElementTree
 
-from . import paths, spec
+from . import animacao, paths, spec
 from .errors import erro_spec
 from .providers import blocky
 
-__all__ = ["exportar_r15"]
+__all__ = ["exportar_r15", "exportar_animacao", "ler_place", "JOINT_R15"]
+
+#: Parte R15 -> nome da junta (Motor6D) no padrao do Roblox. O Animator casa a Pose pelo nome da
+#: JUNTA, nao da parte: sem este mapa o clipe carrega e nao move nada.
+JOINT_R15 = {
+    "LowerTorso": "Root",
+    "UpperTorso": "Waist",
+    "Head": "Neck",
+    "LeftUpperArm": "LeftShoulder",
+    "LeftLowerArm": "LeftElbow",
+    "LeftHand": "LeftWrist",
+    "RightUpperArm": "RightShoulder",
+    "RightLowerArm": "RightElbow",
+    "RightHand": "RightWrist",
+    "LeftUpperLeg": "LeftHip",
+    "LeftLowerLeg": "LeftKnee",
+    "LeftFoot": "LeftAnkle",
+    "RightUpperLeg": "RightHip",
+    "RightLowerLeg": "RightKnee",
+    "RightFoot": "RightAnkle",
+}
 
 
 def _cor_int(hexcor: str) -> int:
@@ -71,6 +92,180 @@ def _parte_xml(nome: str, ref: str, centro, tamanho, cor: int, motores: list[lis
         linhas += motor
     linhas += ["</Item>"]
     return linhas
+
+
+def _matriz_rotacao(graus: float, eixo: str) -> list[float]:
+    """Matriz 3x3 (linha a linha) de rotação em torno de um eixo local, em graus."""
+    rad = math.radians(float(graus))
+    c, s = math.cos(rad), math.sin(rad)
+    if eixo.upper() == "Y":
+        return [c, 0.0, s, 0.0, 1.0, 0.0, -s, 0.0, c]
+    if eixo.upper() == "Z":
+        return [c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0]
+    return [1.0, 0.0, 0.0, 0.0, c, -s, 0.0, s, c]
+
+
+def _sequencia_xml(clipe: dict, referent: int) -> tuple[list[str], int]:
+    """KeyframeSequence do Roblox com as poses do clipe (D69)."""
+    linhas = [
+        f'<Item class="KeyframeSequence" referent="RBX{referent}">',
+        "<Properties>",
+        f'<string name="Name">{escape(str(clipe["nome"]))}</string>',
+        '<bool name="Loop">true</bool>',
+        '<token name="Priority">0</token>',
+        "</Properties>",
+    ]
+    referent += 1
+    for chave in clipe.get("chaves") or []:
+        linhas += [
+            f'<Item class="Keyframe" referent="RBX{referent}">',
+            "<Properties>",
+            f'<float name="Time">{float(chave.get("segundos", 0.0)):.4f}</float>',
+            "</Properties>",
+        ]
+        referent += 1
+        for pose in chave.get("poses") or []:
+            m = _matriz_rotacao(float(pose.get("graus", 0.0)), str(pose.get("eixo") or "X"))
+            linhas += [
+                f'<Item class="Pose" referent="RBX{referent}">',
+                "<Properties>",
+                '<CoordinateFrame name="CFrame">',
+                "<X>0</X><Y>0</Y><Z>0</Z>",
+                f"<R00>{m[0]:.6f}</R00><R01>{m[1]:.6f}</R01><R02>{m[2]:.6f}</R02>",
+                f"<R10>{m[3]:.6f}</R10><R11>{m[4]:.6f}</R11><R12>{m[5]:.6f}</R12>",
+                f"<R20>{m[6]:.6f}</R20><R21>{m[7]:.6f}</R21><R22>{m[8]:.6f}</R22>",
+                "</CoordinateFrame>",
+                '<float name="Weight">1</float>',
+                f'<string name="Name">{escape(JOINT_R15.get(str(pose.get("osso", "")), str(pose.get("osso", ""))))}</string>',
+                "</Properties>",
+                "</Item>",
+            ]
+            referent += 1
+        linhas.append("</Item>")
+    linhas.append("</Item>")
+    return linhas, referent
+
+
+def exportar_animacao(
+    lote: str | Path,
+    item_id: str,
+    clipe: str = "idle",
+    saida: str | Path | None = None,
+) -> dict:
+    """Gera um ``.rbxmx`` com so o KeyframeSequence — o formato que o Open Cloud aceita como `Animation`.
+
+    A definicao e a mesma do glb (`animacao.clipes`) e do `.rbxlx` (D69): nao existe segunda fonte.
+    """
+    doc = spec.carregar_arquivo(lote)
+    doc, perfil, _avisos = spec.preparar(doc)
+    item = next((i for i in doc["lote"] if i.get("id") == item_id), None)
+    if item is None:
+        raise erro_spec(f"export-anim: item '{item_id}' nao existe no lote")
+    clipes = animacao.clipes(perfil, item.get("esqueleto") or "r15@1", [clipe])
+    if not clipes:
+        raise erro_spec(
+            f"export-anim: '{clipe}' nao tem gerador ou o item nao pede animacao "
+            f"(animacoes_base={item.get('animacoes_base')})"
+        )
+    escolhido = clipes[0]
+    itens, _ = _sequencia_xml(escolhido, 0)
+    xml = "\n".join(
+        ['<?xml version="1.0" encoding="utf-8"?>', '<roblox version="4">']
+        + itens
+        + ["</roblox>"]
+    ) + "\n"
+    ElementTree.fromstring(xml)
+
+    if saida is None:
+        destino = paths.dir_saida() / "r15" / f"{item_id}_{clipe}.rbxmx"
+    else:
+        destino = Path(saida).expanduser()
+        if str(destino).startswith("/mnt/") or str(destino).startswith("//"):
+            raise erro_spec("export-anim: nao escreve em /mnt ou UNC")
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(xml, encoding="utf-8")
+    return {
+        "ok": True,
+        "saida": str(destino),
+        "bytes": destino.stat().st_size,
+        "clipe": escolhido["nome"],
+        "duracao_s": escolhido["duracao_s"],
+        "keyframes": len(escolhido.get("chaves") or []),
+    }
+
+
+def ler_place(caminho: str | Path) -> dict:
+    """Le o place gerado: Partes (tamanho/CFrame), Motor6D (C0/C1) e clipes (KeyframeSequence)."""
+    raiz = ElementTree.parse(Path(caminho)).getroot()
+    nomes: dict[str, str] = {}
+    partes: dict[str, dict] = {}
+    motores: list[dict] = []
+    clipes: list[dict] = []
+
+    def _cframe(node) -> list[float]:
+        return [float(node.findtext(e)) for e in ("X", "Y", "Z")]
+
+    for item in raiz.iter("Item"):
+        classe = item.get("class")
+        props = item.find("Properties")
+        if props is None:
+            continue
+        if classe == "Part":
+            nome = props.findtext("string[@name='Name']") or ""
+            if nome == "Baseplate":
+                continue
+            nomes[item.get("referent") or ""] = nome
+            size = props.find("Vector3[@name='size']")
+            cf = props.find("CoordinateFrame[@name='CFrame']")
+            if size is not None and cf is not None:
+                partes[nome] = {
+                    "size": [float(size.findtext(e)) for e in ("X", "Y", "Z")],
+                    "cframe": _cframe(cf),
+                }
+    for item in raiz.iter("Item"):
+        classe = item.get("class")
+        props = item.find("Properties")
+        if props is None:
+            continue
+        if classe == "Motor6D":
+            motores.append(
+                {
+                    "nome": props.findtext("string[@name='Name']") or "",
+                    "part0": nomes.get(props.findtext("Ref[@name='Part0']") or "", ""),
+                    "part1": nomes.get(props.findtext("Ref[@name='Part1']") or "", ""),
+                    "c0": _cframe(props.find("CoordinateFrame[@name='C0']")),
+                    "c1": _cframe(props.find("CoordinateFrame[@name='C1']")),
+                }
+            )
+        elif classe == "KeyframeSequence":
+            chaves = []
+            for keyframe in item.findall("Item[@class='Keyframe']"):
+                poses = []
+                for pose in keyframe.findall("Item[@class='Pose']"):
+                    cf = pose.find("Properties/CoordinateFrame[@name='CFrame']")
+                    poses.append(
+                        {
+                            "osso": pose.findtext("Properties/string[@name='Name']") or "",
+                            "cframe": [float(cf.findtext(e)) for e in ("X", "Y", "Z")]
+                            + [float(cf.findtext(f"R{i}{j}")) for i in range(3) for j in range(3)],
+                        }
+                    )
+                chaves.append(
+                    {
+                        "tempo": float(
+                            keyframe.findtext("Properties/float[@name='Time']") or 0.0
+                        ),
+                        "poses": poses,
+                    }
+                )
+            clipes.append(
+                {
+                    "nome": props.findtext("string[@name='Name']") or "",
+                    "loop": (props.findtext("bool[@name='Loop']") or "false") == "true",
+                    "chaves": chaves,
+                }
+            )
+    return {"partes": partes, "motores": motores, "clipes": clipes}
 
 
 def exportar_r15(
@@ -164,7 +359,15 @@ def exportar_r15(
         joint = osso["cabeca"]
         c0 = _roblox([joint[i] - p0[i] for i in range(3)], mps)
         c1 = _roblox([joint[i] - p1[i] for i in range(3)], mps)
-        motores.append({"nome": f"{pai}_{nome}", "parte0": pai, "parte1": nome, "c0": c0, "c1": c1})
+        motores.append(
+            {
+                "nome": JOINT_R15.get(nome, f"{pai}_{nome}"),
+                "parte0": pai,
+                "parte1": nome,
+                "c0": c0,
+                "c1": c1,
+            }
+        )
 
     # referents deterministas: Workspace=RBX0, Model=RBX1, partes=RBX2.., motores=RBX18.., Humanoid
     refs = {"workspace": "RBX0", "model": "RBX1"}
@@ -216,6 +419,13 @@ def exportar_r15(
         "</Item>",
         "</Item>",
     ]
+    # D69: os clipes pedidos viram KeyframeSequence dentro do place (mesma definicao do glb)
+    clipes = animacao.clipes(perfil, item.get("esqueleto") or "r15@1", item.get("animacoes_base"))
+    referent_anim = 40
+    for clipe in clipes:
+        itens, referent_anim = _sequencia_xml(clipe, referent_anim)
+        linhas += itens
+
     linhas += [
         f'<Item class="Part" referent="{base_ref}">',
         "<Properties>",
@@ -245,4 +455,6 @@ def exportar_r15(
         "motores": len(motores),
         "metros_por_stud": mps,
         "textura": False,
+        "animacoes": [c["nome"] for c in clipes],
+        "keyframes": {c["nome"]: len(c.get("chaves") or []) for c in clipes},
     }

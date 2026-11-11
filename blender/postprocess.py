@@ -658,68 +658,48 @@ def _ilhas(bm) -> list:
     return ilhas
 
 
-# ------------------------------------------------------------------ animacao base (D66)
-
-FPS_ANIMACAO = 24
-SEGUNDOS_IDLE = 2.0
-
-#: Motores do `idle`: (osso semantico, amplitude em graus no eixo local X, defasagem no ciclo).
-#: O eixo X local e o de flexao do perfil (positivo = para a frente); amplitudes pequenas para
-#: ler como respiracao, nao como pose. O retarget (perfil `rig.retarget`) resolve o nome do osso
-#: em cada esqueleto, entao o mesmo clipe roda em `godot-humanoid@1` e `r15@1`.
-MOTORES_IDLE = (
-    ("coluna", 0.8, 0.0),
-    ("tronco", 1.6, 0.0),
-    ("cabeca", -1.2, 0.12),
-    ("braco_e", 2.0, 0.25),
-    ("braco_d", 2.0, 0.75),
-)
+# ------------------------------------------------------------------ animacao base (D66/D69)
 
 
-def animar(rig_obj, perfil: dict, esqueleto: str, pedidas: list[str]) -> list[dict]:
-    """Cria as acoes dos clipes pedidos e devolve o que foi gerado.
+def animar(rig_obj, clipes: list[dict]) -> list[dict]:
+    """Aplica as chaves dos clipes que vieram no job. O movimento nao e decidido aqui.
 
-    O clipe e deterministico (D1): senoide de 5 chaves por osso, 2 s a 24 fps, sem seed.
+    `clipes` ja vem em osso do esqueleto (`rig.retarget` no perfil) e em graus no eixo local; o
+    script so vira quaternion e insere keyframe.
     """
-    mapa = ((perfil.get("rig") or {}).get("retarget") or {}).get(esqueleto) or {}
-    if not mapa:
+    if not clipes:
         return []
     cena = bpy.context.scene
-    cena.render.fps = FPS_ANIMACAO
-    total = int(round(SEGUNDOS_IDLE * FPS_ANIMACAO))
     rig_obj.animation_data_create()
     geradas: list[dict] = []
-    for nome_clip in pedidas:
-        if nome_clip != "idle":
-            continue
-        acao = bpy.data.actions.new("idle")
+    for clipe in clipes:
+        cena.render.fps = int(clipe.get("fps") or 24)
+        acao = bpy.data.actions.new(str(clipe["nome"]))
         acao.use_fake_user = True
         rig_obj.animation_data.action = acao
         for pb in rig_obj.pose.bones:
             pb.rotation_mode = "QUATERNION"
             pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
-        ossos_usados: list[str] = []
-        for semantico, amplitude, defasagem in MOTORES_IDLE:
-            osso = mapa.get(semantico)
-            if not osso or osso not in rig_obj.pose.bones:
-                continue
-            pb = rig_obj.pose.bones[osso]
-            ossos_usados.append(osso)
-            for i in range(5):
-                fracao = i / 4.0
-                angulo = math.radians(
-                    amplitude * math.sin(2.0 * math.pi * (fracao + defasagem))
+        for chave in clipe.get("chaves") or []:
+            for pose in chave.get("poses") or []:
+                osso = pose.get("osso")
+                if not osso or osso not in rig_obj.pose.bones:
+                    continue
+                eixo = str(pose.get("eixo") or "X").upper()
+                vetor = {"X": (1.0, 0.0, 0.0), "Y": (0.0, 1.0, 0.0), "Z": (0.0, 0.0, 1.0)}.get(
+                    eixo, (1.0, 0.0, 0.0)
                 )
-                pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0), angulo)
-                pb.keyframe_insert("rotation_quaternion", frame=1 + round(fracao * total))
+                pb = rig_obj.pose.bones[osso]
+                pb.rotation_quaternion = Quaternion(vetor, math.radians(float(pose.get("graus", 0.0))))
+                pb.keyframe_insert("rotation_quaternion", frame=int(chave["frame"]))
         cena.frame_start = 1
-        cena.frame_end = 1 + total
+        cena.frame_end = 1 + int(round(float(clipe["duracao_s"]) * cena.render.fps))
         geradas.append(
             {
-                "nome": "idle",
-                "duracao_s": round(total / FPS_ANIMACAO, 3),
-                "ossos": ossos_usados,
-                "frames": total,
+                "nome": str(clipe["nome"]),
+                "duracao_s": float(clipe["duracao_s"]),
+                "ossos": list(clipe.get("ossos") or []),
+                "frames": cena.frame_end - 1,
             }
         )
     return geradas
@@ -835,12 +815,10 @@ def processar(job: dict) -> dict:
         mod = obj.modifiers.new("armature", "ARMATURE")
         mod.object = rig_obj
 
-    # --- animacao base (D66) ---
-    animacoes_pedidas = [str(a) for a in (item.get("animacoes_base") or [])]
+    # --- animacao base (D66/D69) ---
     animacoes_geradas: list[dict] = []
-    if rig_obj is not None and animacoes_pedidas:
-        esqueleto = item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao") or ""
-        animacoes_geradas = animar(rig_obj, perfil, esqueleto, animacoes_pedidas)
+    if rig_obj is not None and job.get("clipes"):
+        animacoes_geradas = animar(rig_obj, job["clipes"])
 
     # --- medicao do LOD0 ---
     # A malha neste ponto esta na unidade do ARQUIVO (studs no roblox-r15). O relatorio guarda as

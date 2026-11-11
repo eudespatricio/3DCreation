@@ -83,14 +83,17 @@ def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
     assert [c["tempo"] for c in clipe["chaves"]] == [0.0, 0.5, 1.0, 1.5, 2.0]
 
     esperado = animacao.clipes(profiles.carregar("roblox-r15"), "r15@1", ["idle"])[0]
+    juntas = set(rbx.JOINT_R15.values())
     for chave, esperada in zip(clipe["chaves"], esperado["chaves"]):
         assert chave["tempo"] == esperada["segundos"]
-        # o place usa o nome da JUNTA (Waist, Neck, ...), que e como o Animator casa a Pose
-        assert [p["osso"] for p in chave["poses"]] == [
-            rbx.JOINT_R15.get(p["osso"], p["osso"]) for p in esperada["poses"]
-        ]
-        for pose, pose_esperada in zip(chave["poses"], esperada["poses"]):
-            matriz = rbx._matriz_rotacao(pose_esperada["graus"], pose_esperada["eixo"])
+        # pose COMPLETA: todas as 15 juntas do R15 (o Animator nao aplica chave parcial)
+        assert {p["osso"] for p in chave["poses"]} == juntas
+        dadas = {
+            rbx.JOINT_R15.get(p["osso"], p["osso"]): p for p in esperada["poses"]
+        }
+        for pose in chave["poses"]:
+            fonte = dadas.get(pose["osso"], {"graus": 0.0, "eixo": "X"})
+            matriz = rbx._matriz_rotacao(fonte["graus"], fonte["eixo"])
             # o .rbxlx grava com 6 casas: a tolerancia e do formato, nao do calculo
             assert pose["cframe"][3:] == pytest.approx(matriz, abs=1e-5)
 

@@ -57,7 +57,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   **movimento real**; `manifest@3` declara `animacoes`; `tests/test_animacao.py` + e2e do R15 com o
   clipe; Godot 4.3 headless confirma nos dois esqueletos. `PIPELINE_VERSION` **0.2.7**.
 - **P5-B — clipe no Roblox (D69)** — `animacao.py` é a definição única; o `export-r15` grava um
-  `KeyframeSequence` (5 chaves, 5 poses, nome de junta R15) no `.rbxlx`, o `export-anim` gera o
+  `KeyframeSequence` (5 chaves, pose completa com as 15 juntas, nome de junta R15) no `.rbxlx`, o
+  `export-anim` gera o
   `.rbxmx` e o `upload-animation` sobe como `Animation` (**83693072870629**, Approved); o
   `GetKeyframeSequenceAsync` devolve as 5 poses. A sonda `tools/r15_anim_studio.py` reconstrói o rig no
   Studio e mede a Head andando **0,1091 studs**. **Playback não verificado**: a sonda de servidor do

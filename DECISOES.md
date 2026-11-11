@@ -165,7 +165,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P5 — clipe `idle` por retarget (D66) | duração **2,042 s**; move `{UpperTorso, LowerTorso, Head, LeftUpperArm, RightUpperArm}` no `r15@1` e `{Chest, Spine1, Head, UpperArm.L, UpperArm.R}` no `godot-humanoid@1` | 48 canais no glb do R15 (o export amostra os 16 ossos) e 69 no android; `qc.animacoes` em 11/11/2026 |
 | P5 — clipe no Godot 4.3 (headless) | `GODOT_ANIM_OK clipes=[idle] duracao=2.042 tracks=5 movimento=0.0697` (R15) e `tracks=7 movimento=0.0697` (android) | `tools/godot_anim_check.gd` em 11/11/2026 |
 | P5 — manifest@3 | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, todos com `verify` **0 problemas** | `verify` nos 7 destinos, 11/11/2026 |
-| P5-B — `KeyframeSequence` no `.rbxlx` | clipe `idle` com **5 keyframes** e 5 poses por chave (LowerTorso, UpperTorso, Head, LeftUpperArm, RightUpperArm); place de **29.037 B** | `export-r15` em 11/11/2026 |
+| P5-B — `KeyframeSequence` no `.rbxlx` | clipe `idle` com **5 keyframes** e pose completa (15 juntas; só 5 giram) por chave; place de **~40 KB** com o clipe | `export-r15` em 11/11/2026 |
 | P5-B — clipe medido no rig (MCP) | com os dados do arquivo, a cadeia `Part1 = Part0 · C0 · Transform · C1⁻¹` move a Head **0,1091 studs** entre t=0 e t=0,5 (maior delta de parte 0,1253) | `tools/r15_anim_studio.py` no Studio 16c88345, 11/11/2026 |
 | CI após P5/D68 | run **42960740797** `success` em `7b739f3` e **42961348850** em `9245091`; job com **96 testes** + contexto + P0 | API do Actions em 11/11/2026 |
 
@@ -250,7 +250,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 
 | D68 | **Part do `.rbxlx` permuta o tamanho como o centro**: `Roblox XYZ = (x, z, −y)` vale para `size` e para `CFrame`; e a caixa de fallback de osso sem geometria não pode descer abaixo da base | medido em 11/11/2026: o tamanho ia `(x, y, z)` direto e cada Part saía com altura = profundidade, esticando o rig para 6,8086 studs (topo 6,4784) e escondendo o defeito atrás de "3 % de diferença"; depois do fix o rig mede 6,6071, igual ao package |
 
-| D69 | **O clipe do Roblox sai da mesma definição**: `animacao.py` materializa o `idle` em espaço semântico; o `.rbxlx` ganha um `KeyframeSequence` (5 chaves, 5 poses) e a Motor6D/Pose usam o **nome da junta R15** (`Root`, `Waist`, `Neck`, `LeftShoulder`…), não o nome da parte. O bpy e o `rbx.py` não decidem movimento, só aplicam chaves | o GLB e o `.rbxlx` não podem divergir de clipe; medido no Studio pelo MCP: a cadeia `Part1 = Part0 · C0 · Transform · C1⁻¹` move a Head **0,1091 studs** entre t=0 e t=0,5. O nome de junta é a convenção do rig R15; o upload como `Animation` (`.rbxmx`) é aceito e volta com as 5 poses |
+| D69 | **O clipe do Roblox sai da mesma definição**: `animacao.py` materializa o `idle` em espaço semântico; o `.rbxlx` ganha um `KeyframeSequence` (5 chaves, pose completa com as 15 juntas) e a Motor6D/Pose usam o **nome da junta R15** (`Root`, `Waist`, `Neck`, `LeftShoulder`…), não o nome da parte. O bpy e o `rbx.py` não decidem movimento, só aplicam chaves | o GLB e o `.rbxlx` não podem divergir de clipe; medido no Studio pelo MCP: a cadeia `Part1 = Part0 · C0 · Transform · C1⁻¹` move a Head **0,1091 studs** entre t=0 e t=0,5. O nome de junta é a convenção do rig R15; o upload como `Animation` (`.rbxmx`) é aceito e volta com as 5 poses |
 
 ## 3. Rejeitados (e por quê)
 

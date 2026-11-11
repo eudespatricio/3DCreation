@@ -82,9 +82,15 @@ forge3d upload-animation ... --creator-id 11966727684
 No Studio (MCP): `GetKeyframeSequenceAsync("rbxassetid://83693072870629")` devolve 5 keyframes com as
 poses esperadas e `PreloadAsync` = `Success`. O asset carrega o clipe.
 
-**Playback nao verificado.** No Play mode aberto pelo MCP (`start_stop_play`), tanto num rig montado a
-partir do `.rbxlx` quanto num R15 real (`Players:CreateHumanoidModelFromDescription`) o
-`Motor6D.Transform` fica zero, mesmo com a track em `WeightCurrent=1` e `Length=2.0`. Controle: a
-animacao **publica** `507766666` no mesmo rig tambem da zero — logo a sonda de server datamodel do MCP
-nao mede o `Animator` (sem cliente/janela). O caminho para fechar GAP-045 e Play com cliente ou o
-Animation Editor.
+**Playback nao verificado.** Primeiro no server e depois no **client** (`datamodel_type=Client`) do
+Play mode aberto pelo MCP, com o personagem do jogador:
+
+```
+CLIENT_CMP publico head_rel=0.1106 | nosso head_rel=0.0000   (3 versoes do asset: parte, junta e pose completa)
+```
+
+O controle com a animacao publica **publica** `507766666` move a Head 0,11 studs no mesmo personagem,
+entao a medicao funciona — o nosso asset e que nao e aplicado. Ja tentado: poses por nome de parte
+(v1), por nome de junta (v2) e pose completa com as 15 juntas (v3, asset 76679193157451, 30.226 B).
+O `Motor6D.Transform` fica zero com `WeightCurrent=1` e `Length=2.0`. Falta descobrir a convencao que
+o Animator espera (o caminho mais curto e abrir o asset no Animation Editor e ver o que ele mostra).

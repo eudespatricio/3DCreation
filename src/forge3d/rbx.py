@@ -124,7 +124,15 @@ def _sequencia_xml(clipe: dict, referent: int) -> tuple[list[str], int]:
             "</Properties>",
         ]
         referent += 1
-        for pose in chave.get("poses") or []:
+        # pose COMPLETA: o Animator do Roblox so aplica a chave quando ela cobre as juntas do
+        # rig; junta fora do clipe entra com identidade (medido: clipe parcial nao move nada,
+        # nem no client nem no servidor).
+        dadas = {
+            JOINT_R15.get(str(p.get("osso", "")), str(p.get("osso", ""))): p
+            for p in (chave.get("poses") or [])
+        }
+        for junta in JOINT_R15.values():
+            pose = dadas.get(junta) or {"graus": 0.0, "eixo": "X"}
             m = _matriz_rotacao(float(pose.get("graus", 0.0)), str(pose.get("eixo") or "X"))
             linhas += [
                 f'<Item class="Pose" referent="RBX{referent}">',
@@ -136,7 +144,7 @@ def _sequencia_xml(clipe: dict, referent: int) -> tuple[list[str], int]:
                 f"<R20>{m[6]:.6f}</R20><R21>{m[7]:.6f}</R21><R22>{m[8]:.6f}</R22>",
                 "</CoordinateFrame>",
                 '<float name="Weight">1</float>',
-                f'<string name="Name">{escape(JOINT_R15.get(str(pose.get("osso", "")), str(pose.get("osso", ""))))}</string>',
+                f'<string name="Name">{escape(junta)}</string>',
                 "</Properties>",
                 "</Item>",
             ]

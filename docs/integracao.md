@@ -172,16 +172,30 @@ Quando nada publicou, vale a causa mais grave (`4 > 2 > 6 > 5 > 3`). `0` só qua
 ## 8. Por plataforma
 
 **Godot 4** (`perfil: godot4`) — glb em metros, frente `-Z`, pivô `base` (estático/personagem) ou
-`empunhadura` (20 % da altura). Colisão sai como `UCX_*` por peça (`max_partes: 8`); basta importar
-a pasta do destino.
+`empunhadura` (20 % da altura). Colisão sai como `UCX_*` ou irmão `*_colisao.glb`; ative
+`addons/forge3d/` (`post_import.gd`) para configurar loop linear em `idle`/`walk`/`run`,
+`visibility_range` automático do `*_LOD1.glb` e `PostImport.montar_character_body()` com `BoneAttachment3D`.
 
-**Roblox** (`perfil: roblox-r15`) — glb em studs; para asset nativo:
+Para copiar um destino já verificado do ext4 para outra pasta (ex.: projeto aberto no Windows):
 
 ```bash
-forge3d export-r15 lote.yaml --item personagem.r15.guard.01 --saida guard.rbxlx
-forge3d export-anim lote.yaml --item personagem.r15.guard.01 --clipe idle --saida idle.rbxmx
+forge3d sync ~/.local/state/forge3d/saida/lote_01 --para <pasta_destino> --limpar
+```
+
+Para projetos Roblox gerenciados via **Rojo**, passe `--rojo-lua <caminho/Assets.lua>` junto com `sync`:
+
+```bash
+forge3d sync ~/.local/state/forge3d/saida/lote_r15 --para ./assets --rojo-lua ./src/Assets.lua
+```
+
+**Roblox** (`perfil: roblox-r15`) — glb em studs; para asset nativo, multi-clipe e PBR `SurfaceAppearance`:
+
+```bash
+forge3d export-r15 lote.yaml --item personagem.r15.guard.01 --texturas-dir ~/.local/state/forge3d/saida/lote_r15 --saida guard.rbxlx
+forge3d export-anim lote.yaml --item personagem.r15.guard.01 --todos --saida guard_anims.rbxmx
+forge3d export-surface ~/.local/state/forge3d/saida/lote_r15 --item personagem.r15.guard.01 --saida guard_surface.rbxmx
 forge3d upload-model guard.glb --creator-id <id> --dry-run
-forge3d upload-animation idle.rbxmx --creator-id <id>
+forge3d upload-animation guard_anims.rbxmx --creator-id <id>
 ```
 
 A key do Open Cloud fica em `~/.config/forge3d/roblox.key`, **fora** do repositório.
@@ -221,3 +235,24 @@ ele acusa em vez de confiar no manifesto antigo.
 - `docs/contratos.md` — regras, B1–B17, saída JSON, exit codes, códigos de erro
 - `profiles/godot4.yaml` · `profiles/roblox-r15.yaml` — unidade, eixos, pivô, colisão, tolerâncias
 - `docs/perfis-export.md` — o que cada plataforma espera do arquivo
+
+## 12. Plugar agentes externos via MCP (`stdio`)
+
+Agentes, IDEs ou scripts podem disparar `validate`, `plan`, `run`, `verify`, `query` e `doctor` diretamente via JSON-RPC 2.0:
+
+```bash
+forge3d mcp
+```
+
+Exemplo de entrada em configuração de servidor MCP (`command` + `args` no host do projeto):
+
+```json
+{
+  "mcpServers": {
+    "forge3d": {
+      "command": "forge3d",
+      "args": ["mcp"]
+    }
+  }
+}
+```

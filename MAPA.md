@@ -26,10 +26,11 @@
 | `tools/check-p0.py` | portão do P0: schemas, exemplos, tetos, I12, I14 | antes de dizer "P0 fechada" |
 | `tools/render_preview.py` · `docs/preview/` | preview headless e renders de referência | revisar qualidade do asset |
 | `tools/i23d_infer.py` · `tools/concept_infer.py` · `tools/setup_concept_venv.sh` · `tools/normalize_mesh.py` · `tools/ci.sh` · `tools/configurar_roblox.sh` · `tools/r15_studio_test.lua` · `tools/r15_texture_apply_test.lua` · `tools/r15_rbxlx_test.lua` · `tools/mcp_studio.py` · `tools/r15_escala_studio.py` · `tools/r15_anim_studio.py` · `tools/lod_qualidade.py` + `docs/preview/lod/` · `tools/ci_verify.sh` · `tools/ci_dist.sh` · `src/forge3d/modular.py` (WFC) · `src/forge3d/providers/modular.py` · `examples/lote_10_modular.yaml` · `tools/godot_anim_check.gd` + `tools/godot_project/` · `docs/preview/p5_anim_idle.log` | inferência, concept, setup, normalização e CI sem GPU | depurar rota mesh / portão de PR |
-| `src/forge3d/` + `src/forge3d/cli/` | `spec` `plan` `qc` `publish` `pipeline` `doctor` `locks` `canonical` `config` `paths` `gc` `rbx` `upload` `migrate` + 14 subcomandos | implementação |
-| `src/forge3d/providers/` | `base` `blocky` `importer` `mesh` | adicionar rota |
-| `src/forge3d/post.py` + `blender/postprocess.py` | subprocesso + script `bpy` (LOD, colisor, rig, UV+bake) | pós-processo, textura, rig |
-| `tests/` | `test_unidade.py` · `test_unidades.py` · `test_animacao.py` · `test_lod.py` · `test_modular.py` · `test_modular_provider.py` · `test_atomico.py` · `test_convexidade.py` · `test_pivo.py` · `test_locks.py` · `test_concept.py` · `test_p3_bake.py` · `test_rbx.py` · `test_upload.py` · `test_gc.py` · `test_migrate.py` · `test_query.py` · `test_verify_only.py` · `test_doc_comandos.py` · `invariants/` · `fixtures/` | portão de CI |
+| `src/forge3d/` + `src/forge3d/cli/` | `spec` `plan` `qc` `publish` (`cache` `index` `verify`) `pipeline` `doctor` `locks` `canonical` `config` `paths` `gc` `rbx` `upload` `migrate` `sync` `mcp_server` + 17 subcomandos | implementação |
+| `addons/forge3d/` | plugin Godot 4 (`plugin.cfg`, `plugin.gd`, `post_import.gd`): `UCX_`/colisão irmão, `_LOD1`, loop `idle/walk/run`, `montar_character_body` | importar no Godot 4 |
+| `src/forge3d/providers/` | `base` `blocky` `importer` `mesh` `concept` `modular` | adicionar rota |
+| `src/forge3d/post.py` + `blender/postprocess.py` | subprocesso + script `bpy` (LOD, colisor, `bake_pbr`, `autorig`, UV+bake) | pós-processo, textura, rig |
+| `tests/` | `test_unidade` · `test_animacao` · `test_autorig_blender` · `test_rig_axes` · `test_pbr_bake` · `test_cutout_halo` · `test_godot_addon` · `test_concept` · `test_pose_map` · `test_rbx` · `test_sync` · `test_rojo_assets` · `test_mcp_server` · `test_publish_split` · `test_doc_comandos` · `invariants/` | portão de CI |
 | `~/.venvs/concept` | venv do SD1.5/diffusers (cópia da i23d; pin de transformers diferente) | gerar concept |
 | `$FORGE3D_HOME` | `cache` `runs` `staging` `locks` `indice.sqlite` `ledger.jsonl` `saida/` | depurar run |
 | `~/.config/forge3d/allowlist.yaml` | destinos autorizados (D23) | publicar em projeto de jogo |

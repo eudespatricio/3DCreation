@@ -69,4 +69,8 @@ grep -q "hash divergente" "$RAIZ/verify_ruim.txt" || {
     exit 1
 }
 
+echo "== regressao de orientacao (GAP-048) =="
+PY="${PYTHON:-.venv/bin/python}"
+"$PY" -m pytest tests/test_orientacao.py -q
+
 echo "CI_VERIFY_OK"

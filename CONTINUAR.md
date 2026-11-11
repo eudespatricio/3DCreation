@@ -75,10 +75,10 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Medida | Valor |
 |---|---|
 | Suíte | **168 verdes + 1 GPU (skip)** em **169 testes** |
-| CI no GitHub | **152 testes** em **3 jobs**: `portoes` (ci.sh + contexto + P0), `verificar` e `distribuicao` |
+| CI no GitHub | **152 testes** em `portoes` + `verificar` (pipeline, `verify` e a regressão de orientação) + `distribuicao` |
 | Instalação | wheel de **0.3.7** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
 | `forge3d migrate` | `lote_01` @1→@3 e `lote_03_kit` @2→@3 com `parte` e comentários intactos; `--saida`/`--em-lugar`; **10 testes** |
-| Herói elfo (caso real, `mesh`) | **27,7 s**, VRAM **2.378 MB**, 7.958 tris, G1–G10 ok, `verify` 0 — **de cabeça para baixo** (GAP-048) |
+| Herói elfo (caso real, `mesh`) | **27,7 s**, VRAM **2.378 MB**, 7.958 tris, G1–G10 ok, `verify` 0; saía **de cabeça para baixo** → corrigido pelo sinal de contato (D84/0.3.8); republicação pendente de VRAM |
 | Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
@@ -115,7 +115,8 @@ silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo**
 **`D75` P4 fatiada: `spec@3` + um setor por asset** · **`D76`/I15 projeto não entra no pipeline** ·
 **`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
 **`D79` parede cheia no lado fechado** · **`D80` `migrate` textual, sem inventar valor** ·
-**`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado** · **`D83` a P6 é a última fase; o resto é backlog**.
+**`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado** · **`D83` a P6 é a última fase; o resto é backlog** ·
+**`D84` orientação por contato da sola**.
 
 ## Aberto
 
@@ -194,6 +195,6 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 > Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P5 fechadas: 7
 > destinos/16 manifestos em `manifest@3` 0.2.7, `verify` 0 problemas, CI verde em
 > `github.com/eudespatricio/3DCreation`; key do Roblox em `~/.config/forge3d/roblox.key`, fora do repo.
-> P0–P6 fechadas: `manifest@3` 0.3.7, 3 jobs de CI e wheel instalável (D81). Próximo: operar num
+> P0–P6 fechadas: `manifest@3` 0.3.8, 3 jobs de CI e wheel instalável (D81). Próximo: operar num
 > projeto de jogo e medir custo por asset. Não reabra D3–D27, D52–D65 nem D66–D81 sem fato novo.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

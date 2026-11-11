@@ -316,6 +316,12 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
     Para humanoide/criatura, corrige o caso em que a cabeca (faixa estreita) caiu embaixo: espelha
     Z, preservando frente e lados, e recalcula normais. Medido no sentinela da P3.5: o TripoSR
     devolveu o corpo de cabeca para baixo e o G2 passava (altura certa) sem essa checagem.
+
+    GAP-048 (medido em 11/11/2026): com uma arma grande ao lado do corpo, a razao topo/base fica
+    ~1 (0,988) e o centro de area tambem e neutro (6,18/12), entao o asset saia de cabeca para
+    baixo com G1-G10 verdes. Terceiro sinal: a ponta CHATA (sola apoiada) tem area muito maior na
+    fatia fina que a ponta arredondada (cabeca/capuz) — no caso real, 0,1218 no topo contra 0,0174
+    na base (7x). Espelha quando o topo fino e o chato.
     """
     minimo, maximo = bbox_local()
     extensao = maximo - minimo
@@ -366,8 +372,17 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
         info["areas"] = [round(a, 6) for a in areas]
         razao_ends = (areas[-1] / areas[0]) if areas and areas[0] > 0 else 0.0
         info["razao_topo_base"] = round(razao_ends, 3)
+        # GAP-048: a ponta que apoia no chao e chata (sola); a outra e arredondada (cabeca/capuz).
+        # A fatia fina denuncia o lado errado mesmo com prop grande, onde area e centro sao neutros.
+        fatia = max(altura_z * 0.02, 1e-6)
+        area_base_fina = _extensao_faixa(obj, minimo.z, minimo.z + fatia)
+        area_topo_fina = _extensao_faixa(obj, maximo.z - fatia, maximo.z)
+        invertido_contato = area_base_fina > 0 and area_topo_fina > 3.0 * area_base_fina
+        info["contato_base"] = round(area_base_fina, 6)
+        info["contato_topo"] = round(area_topo_fina, 6)
+        info["invertido_contato"] = invertido_contato
         # cabeca fina em cima => topo menor que a base; se o topo for bem maior, esta invertido
-        if total > 0 and (razao_ends > 1.5 or centro < n * 0.48):
+        if total > 0 and (razao_ends > 1.5 or centro < n * 0.48 or invertido_contato):
             # espelha Z: mantem frente (+Y) e lados (+-X), corrige cabeca para cima
             for v in obj.data.vertices:
                 v.co.z = -v.co.z

@@ -21,12 +21,12 @@
 | GAP-023 | **UV estica em face fina:** uma célula serve as 6 faces, então peça de pouca espessura (visor, placa) smear o padrão | P1 | P1.5 | célula por orientação de face (frente/lado/topo/fundo) e G3 medindo densidade de texel por face |
 | GAP-024 | **Densidade de herói:** atlas 64² e célula 16 px dão 34,6 px/m; close-up pede ~380 px/m. Sem bevel/inset, toda aresta é viva | P1 | P1.5 | atlas 256–512, célula 32–64, 80–150 peças e chanfro de 1 voxel, medido em close-up |
 | GAP-030 | Delegação ao Antigravity é **sessão agêntica** (executa ferramentas), não completude: risco em execução desatendida | P3 | P4 | transporte com escopo restrito ou endpoint de completude com chave própria |
-| GAP-048 | **Orientação invertida passa no QC**: a canonicalização decide cabeça-para-baixo por razão topo/base > 1,5 **ou** centro de área < 5,76/12; num personagem com arma grande os dois sinais falham (medido: razão **0,988**, centro **6,18/12**) e o asset sai de cabeça para baixo com G1–G10 verdes | P6 | backlog | heurística que detecte o invertido mesmo com prop grande (ex.: separação de pernas na base × topo) e fixture de regressão do glb, já que `mesh` é D2 |
 
 ## Fechados
 
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
+| ~~GAP-048~~ | ~~Orientação invertida passa no QC~~ | P6 | **P6 ✔** | terceiro sinal: **contato chato da sola** na fatia de 2 % vs ponta arredondada. No caso real: base **0,0174** × topo **0,1218** (7×) → `invertido: true` (as regras antigas davam razão 0,988 e centro 6,18/12, neutras). Regressão `tests/test_orientacao.py` (fixture sintética upright/invertida) roda no job `verificar`. Republicar o herói ficou pendente de VRAM |
 | ~~GAP-045~~ | ~~Playback do clipe no Roblox não verificado~~ | P5 | **P5 ✔** | `Animation` **116049702979137** (`Priority=Core`) tocando no rig Motor6D no **client** do Play mode: Head anda **0,0949 / 0,0662 studs** em duas execuções (Idle dava 0,0002); `KeyframeSequence` no `.rbxlx`, `.rbxmx` e `upload-animation` no caminho |
 | ~~GAP-001~~ | ~~Allowlist de destino (Q2)~~ | P0 | **P0.5 ✔** | fechado por **D23**: allowlist global + sandbox próprio, sem bypass |
 | ~~GAP-002~~ | ~~Local do estado (Q6)~~ | P0 | **P0.5 ✔** | fechado por **D24**: tudo em `$FORGE3D_HOME`, nada no repo do jogo |

@@ -132,6 +132,13 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |
 
 
+| CI no GitHub | repo público `github.com/eudespatricio/3DCreation`; run **42942191684** `success` em `cc89da4` | API do Actions em 10/11/2026 |
+| Suíte após C5–C11 | **68 verdes + 1 GPU (skip)** em ~18 s; 17 testes novos (`test_correcoes.py`, `test_convexidade.py`) | `pytest -q` em 10/11/2026 |
+| C5 — flake e2e | **10 execuções seguidas** de `test_e2e_rapido.py` verdes | loop local em 10/11/2026 |
+| Colisor `convex` (defeito) | 44–497 tris com **22–146 arestas não-manifold**; `convex_hull` não apaga a entrada e faces originais ficavam no recorte | 14 colisores publicados, 10/11/2026 |
+| Colisor após correção | hull reconstruído só com `hull["geom"]`; G7/convexidade verde nos 12 invariantes | `test_invariantes_e2e.py` em 10/11/2026 |
+| `.rbxlx` no caminho default | **18.479 B**, 16 partes, 15 motores em `saida/r15/personagem.r15.guard.01.rbxlx` | `export-r15` em 10/11/2026 |
+
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
 end-to-end (implementado, execução pendente), A/B de 10 assets, qualidade de personagem com capa,
 comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
@@ -195,7 +202,11 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D50 | **O upload Open Cloud preserva os 16 Bones R15** dentro de um único MeshPart skinned; a textura derivada 126102198021602 não tem conteúdo. Corrigir com upload de imagem separado ou usar o rig `.rbxlx` para os pivôs | asset 136741921517312; 16 Bones; erro de `TextureID` |
 | D51 | **Textura em asset separado**: `upload-image` sobe o atlas e o `TextureID` do MeshPart aponta para ele. O servidor headless do `run-in-roblox` não carrega assets privados (asset delivery sem sessão); a verificação visual é no Studio GUI logado | asset 75934318775024 Approved; `TextureID` setado; warning headless |
 
-
+| D52 | **Colisor `convex` é hull fechado**: o recorte é reconstruído só com `hull["geom"]` do `bmesh`, porque `convex_hull` não apaga a geometria de entrada | medido: faces originais sobre o hull deixavam 22–146 arestas não-manifold e o G7/C8 reprovava com razão |
+| D53 | **G7 mede convexidade por componente conexa** em Python puro e reprova colisor côncavo; perfil sem `prefixo` segue aceito | convexidade é da parte: dois hulls soltos no mesmo GLB são convexos e a união não é |
+| D54 | **Prompt do concept é medido e truncado no limite CLIP (77)** dentro da venv, com aviso em stderr e contagem no JSON; o sufixo não repete trecho já presente no prompt | o diffusers truncava em silêncio e `game asset concept art` ia duas vezes nos prompts do lote |
+| D55 | **`rembg` decidido pelo provider** por procedência (`concept`) ou canal alfa, com `FORGE3D_I23D_REMOVER_FUNDO` ainda mandando; a política (`rembgauto2`) entra na versão/cache e o motivo no resultado | `rembg` era opt-in por env e imagem opaca de origem ficava com fundo |
+| D56 | **CI roda no GitHub em repo público**; `tools/ci.sh` é a fonte do job e cobre os testes de C5–C11 | primeiro run verde em 42942191684; GAP-008 fechado |
 
 ## 3. Rejeitados (e por quê)
 

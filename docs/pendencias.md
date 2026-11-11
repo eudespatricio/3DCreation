@@ -29,8 +29,8 @@ Nada pendente: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no rep
 
 - **P4 — portão cumprido** em 11/11/2026 (D77): `spec@3` com bloco `modular` (D75), WFC próprio
   (D74), catálogo de 7 módulos e grade 5x2 = 10 setores (24–48 tris cada, 1 mesh/1 material, colisão
-  `ucx` por peça com 2–4 hulls). `verify` 0 problemas nos 8 destinos. Falta só a parede cheia do lado
-  fechado (GAP-047).
+  `ucx` por peça com 2–4 hulls). `verify` 0 problemas nos 8 destinos. A parede cheia do lado fechado
+  fechou em 11/11/2026 (GAP-047/D79): vão inteiro, sem boolean, G1 em 0.
 - **Republicar `kit_mesh/arma.02`** quando a VRAM folgar: o lote ficou 1 bloqueado
   (`VRAM livre 3278 MiB < 3500`) e aquele manifesto ficou na versão anterior; `verify` não acusa.
 - **P5 — LOD (GAP-013/GAP-046)** em 11/11/2026: critério de silhueta medido (IoU global, faixa

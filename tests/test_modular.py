@@ -90,3 +90,27 @@ def test_cruzamento_nao_tem_parede():
 def test_curva_tem_duas_paredes():
     caixas = modular.caixas_do_modulo("curva_ne", 4.0, 2.4)
     assert [c["papel"] for c in caixas].count("parede") == 2
+
+
+def test_parede_do_lado_fechado_cobre_o_vao_inteiro():
+    """GAP-047: o lado fechado e continuo — parede de ponta a ponta, do chao ao topo.
+
+    A parede antiga era so o trecho central (30%..70%): o canto ficava aberto. Agora cobre o vao
+    inteiro e continua recuada 2*esp do limite, para nao dividir aresta com o vizinho.
+    """
+    tam, alt = 4.0, 2.4
+    esp = round(tam * 0.05, 4)
+    for nome in ("beco", "curva_ne", "reto_ns", "tres_bocas", "reto_lo"):
+        caixas = modular.caixas_do_modulo(nome, tam, alt)
+        fechados = modular.CATALOGO[nome]["sockets"].count(modular.FECHADO)
+        paredes = [c for c in caixas if c["papel"] == "parede"]
+        assert len(paredes) == fechados, nome
+        for c in paredes:
+            assert c["min"][2] == pytest.approx(esp), (nome, "parede nasce no topo da placa")
+            assert c["max"][2] == pytest.approx(alt), (nome, "parede tem que ir ao topo")
+            extensao = [round(c["max"][i] - c["min"][i], 6) for i in (0, 1)]
+            assert max(extensao) == pytest.approx(tam), (nome, "vao inteiro", c)
+            eixo_fino = 0 if extensao[0] < extensao[1] else 1
+            assert extensao[eixo_fino] == pytest.approx(esp), (nome, "espessura", c)
+            assert c["min"][eixo_fino] >= 2 * esp - 1e-9, (nome, "nao encosta no limite", c)
+            assert c["max"][eixo_fino] <= tam - 2 * esp + 1e-9, (nome, "nao encosta no limite", c)

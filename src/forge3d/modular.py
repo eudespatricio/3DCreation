@@ -202,15 +202,21 @@ def gerar_layout(
 
 
 def caixas_do_modulo(nome: str, tamanho: float, altura: float) -> list[dict]:
-    """Caixas do setor em metros: placa, piso recuado, pilares e paredes parciais.
+    """Caixas do setor em metros: placa, piso recuado e parede cheia nos lados fechados.
 
-    Por que assim (medido em 11/11/2026): duas caixas que encostam face a face no limite do modulo
+    Por que assim (medido em 11/11/2026): caixas que encostam face a face no limite do modulo
     dividem a aresta do canto e o G1 acusa 4 faces na mesma aresta. A peca de piso evita isso por
     construcao — tudo que "encosta" tem a aresta **dentro** da face do outro:
 
     * placa: ocupa o modulo inteiro (0..tam) e define o bbox que encaixa no setor vizinho;
     * piso: recuado ``esp`` e apoiado na placa (aresta de baixo dentro da face de cima da placa);
-    * parede parcial: so no meio do lado fechado, apoiada no piso — nao alcanca canto nem vizinha.
+    * parede cheia (GAP-047): cobre o vao inteiro do lado fechado, recuada 2``esp`` do limite, do
+      **topo da placa** (z = ``esp``) ao topo. Nao desce ate z=0 de proposito: a capa da parede
+      coincidiria com a face lateral da placa (mesma normal, mesmo plano) e a area gemea z-fighta no
+      runtime; em z=``esp`` as duas faces so compartilham uma aresta.
+
+    A falha do D75 era parede x pilar (aresta dividida): sem pilar (D77) as paredes so se cruzam em
+    volume, e o G1 mede aresta com numero de faces != 2 — que segue 0 com o vao inteiro.
 
     Sem cor: quem pinta e o provider (o mesmo vocabulario do blocky: cor + padrao).
     """
@@ -230,25 +236,24 @@ def caixas_do_modulo(nome: str, tamanho: float, altura: float) -> list[dict]:
         },
     ]
 
-    # parede parcial: metade central do lado, apoiada no piso (z = 2*esp), sem tocar canto
-    meio0, meio1 = round(tam * 0.30, 4), round(tam * 0.70, 4)
+    # parede cheia: vao inteiro do lado, do topo da placa ao topo, recuada 2*esp do limite
     y0, y1 = 2 * esp, 3 * esp
     x0, x1 = 2 * esp, 3 * esp
-    if sockets[0] == FECHADO:  # norte: parede no meio, encostada no limite norte
+    if sockets[0] == FECHADO:  # norte
         caixas.append(
-            {"nome": "parede_norte", "min": [meio0, tam - 3 * esp, 2 * esp], "max": [meio1, tam - 2 * esp, alt], "papel": "parede"}
+            {"nome": "parede_norte", "min": [0.0, tam - 3 * esp, esp], "max": [tam, tam - 2 * esp, alt], "papel": "parede"}
         )
     if sockets[1] == FECHADO:  # sul
         caixas.append(
-            {"nome": "parede_sul", "min": [meio0, y0, 2 * esp], "max": [meio1, y1, alt], "papel": "parede"}
+            {"nome": "parede_sul", "min": [0.0, y0, esp], "max": [tam, y1, alt], "papel": "parede"}
         )
     if sockets[2] == FECHADO:  # leste
         caixas.append(
-            {"nome": "parede_leste", "min": [tam - 3 * esp, meio0, 2 * esp], "max": [tam - 2 * esp, meio1, alt], "papel": "parede"}
+            {"nome": "parede_leste", "min": [tam - 3 * esp, 0.0, esp], "max": [tam - 2 * esp, tam, alt], "papel": "parede"}
         )
     if sockets[3] == FECHADO:  # oeste
         caixas.append(
-            {"nome": "parede_oeste", "min": [x0, meio0, 2 * esp], "max": [x1, meio1, alt], "papel": "parede"}
+            {"nome": "parede_oeste", "min": [x0, 0.0, esp], "max": [x1, tam, alt], "papel": "parede"}
         )
 
     return caixas

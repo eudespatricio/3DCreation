@@ -21,7 +21,7 @@ from .. import modular as catalogo_modular
 from .base import RawAsset
 from .blocky import _atlas, _pivos
 
-VERSAO = "0.1.0"
+VERSAO = "0.2.1"
 
 #: altura de pé-direito quando o item não declara `altura_metros` (mapa_setor não exige no schema)
 ALTURA_PADRAO = 2.4

@@ -135,8 +135,9 @@ draw calls por setor.
 **Estado em 11/11/2026 — portão cumprido (D77):** `spec@3` com o bloco `modular` (D75), WFC próprio
 (D74), catálogo de **7 módulos** e grade **5x2 = 10 setores** (seed 20261111); cada setor é um asset
 de 24–48 tris com **1 draw call** (1 malha + 1 material) e **colisão por peça** (`ucx`: 2–4 hulls,
-chão 0,20 m e parede 2,00 m), `verify` 0 problemas. Falta só o polimento visual: a parede do lado
-fechado é **parcial** (GAP-047), porque caixas encostadas no limite do módulo quebram o G1.
+chão 0,20 m e parede 2,00 m), `verify` 0 problemas. A parede do lado fechado é **cheia** desde
+11/11/2026 (GAP-047/D79): vão inteiro, do topo da placa ao pé-direito, e o G1 continua em 0 — a falha
+antiga era parede×pilar, não a parede no canto. O polimento que sobra é de arte, não de topologia.
 
 ## P5 — Polimento
 

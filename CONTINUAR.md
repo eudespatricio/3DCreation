@@ -29,7 +29,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P2** | ✔ | R15 16 ossos, pivô por membro, `.rbxlx` nativo, upload Open Cloud, textura no Studio e a **escala** (`manifest@2`/D62) |
 | **P3** | ✔ | provider `i23d` (TripoSR), bake UV/textura próprio, kit corpo/capa/arma |
 | **P3.5** | ✔ | concept SD1.5 → TripoSR, split e A/B de 3 personagens híbridos |
-| **P4** | ✔ | `spec@3` + WFC + 7 módulos + 10 setores, colisão por peça e 1 draw call (D74/D75/D77); parede cheia fica em GAP-047 |
+| **P4** | ✔ | `spec@3` + WFC + 7 módulos + 10 setores, colisão por peça e 1 draw call (D74/D75/D77); parede cheia do lado fechado (D79) |
 | **P5** | ✔ | animação base tocando no Roblox (D66/D67/D69) e LOD medido por critério (D71: blocky sem LOD, mesh com LOD no prop e no personagem) |
 
 ## O que foi entregue nesta janela
@@ -65,7 +65,11 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   `export-anim` gera o `.rbxmx` e o `upload-animation` sobe como `Animation`
   (**116049702979137**, Approved). **Playback medido no client do Play mode**: a Head anda
   **0,0949 / 0,0662 studs** em duas execuções. O que destravou foi `Priority=Core` — com `Idle` a track
-  carrega (`Weight=1`, `Length=2.0`) e não aplica; o nome da pose (parte × junta) não era o problema.
+  carrega (`Weight=1`, `Length=2.0`) e não aplica; o nome da pose (parte × junta) - **GAP-047 — parede cheia no lado fechado (D79)** — a parede cobre o vão inteiro, do topo da placa
+  ao pé-direito, recuada 0,40 m do limite; **sem boolean**: a falha do D75 era parede×pilar, e sem
+  pilar as paredes só se cruzam em volume (G1 **nao_manifold=0**). `PIPELINE_VERSION` **0.3.7**,
+  `modular` **0.2.1**; teste do vão inteiro em `tests/test_modular.py`; `render_preview.py` ganhou
+  `--alto` (vista de cima) e enquadramento por diagonal.
 
 ## Números medidos nesta máquina
 
@@ -84,7 +88,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | LOD do blocky (decimate) | LOD1 IoU **0,76** frente / 0,98 lado; LOD2 **0,55** / 0,81 + espinhos no render → reprovado |
 | LOD de malha gerada | bule a 50%: IoU **0,993** frente / **0,994** lado, faixa **0,948**, bbox ≤ 0,09% → aprovado |
 | LOD de personagem mesh | `corpo.02` a 50%: IoU **0,980** frente / **0,987** lado, faixa **0,971**, bbox ≤ 0,11% → aprovado |
-| P4 — layout 5x2 (seed 20261111) | 10 setores de **24–48 tris**, **1 mesh/1 material** e **2–4 hulls** de colisão por setor (chão 0,20 m, parede 2,00 m); `verify` 0 problemas |
+| P4 — layout 5x2 (seed 20261111) | 10 setores de **24–48 tris**, **1 mesh/1 material** e **2–4 hulls** de colisão por setor (chão 0,20 m, parede 2,00 m); `verify` 0 problemas · parede do lado fechado de vão inteiro (0,40 m do limite, 0,20→2,40 m) com G1 **nao_manifold=0** |
 | Client do Studio | personagem padrão usa **Bone**, não Motor6D: a validação usa o rig do `.rbxlx` replicado do server |
 | Colisor após D64/D65 | desvio máximo **4,3e-4 m** num hull de 2,2 m (tolerância 1 mm/m); face interior do defeito desviava 1,8 m |
 | Package R15 v2 no Studio | `size=2,7086 × 6,6071 × 1,5196` studs · **16 Bones** · `surface=false` · `humanoid=false` |
@@ -109,20 +113,21 @@ unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tol
 permuta tamanho como centro** · **`D69` clipe do Roblox com `Priority=Core`** · **`D71` LOD medido por
 silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo** · **`D74` WFC próprio** ·
 **`D75` P4 fatiada: `spec@3` + um setor por asset** · **`D76`/I15 projeto não entra no pipeline** ·
-**`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal**.
+**`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
+**`D79` parede cheia no lado fechado**.
 
 ## Aberto
 
 Nada em aberto: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no repo do jogo).
 
-Gaps abertos que importam: **GAP-047** (parede cheia do lado fechado — próximo alvo), **GAP-004**
-(scanner da skill em Luau), **GAP-015** (`draft` em 4k) e **GAP-042** (regra do "menor secção").
+Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-015** (`draft` em 4k) e
+**GAP-042** (regra do "menor secção"). A P4 não tem mais lacuna aberta.
 
 ## Próximos passos — em ordem
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **GAP-047** — parede cheia do lado fechado do módulo (a P4 fechou ✔ com essa lacuna), ou arrancar a P6 | 1 sessão | roadmap |
+| **1** | **P6** — produto: `query` por demanda, `migrate` de spec e distribuição (`uv tool install`) | 1+ sessão | roadmap |
 | **2** | Revisão visual dos LODs no Godot e o `.rbxlx` com o clipe no Studio (cliente real) | 1 sessão manual | consistência |
 | **3** | C12 nos destinos de malha que ganharam LOD (`kit_mesh` já republicado) | minutos | consistência |
 
@@ -186,5 +191,6 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 > Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P5 fechadas: 7
 > destinos/16 manifestos em `manifest@3` 0.2.7, `verify` 0 problemas, CI verde em
 > `github.com/eudespatricio/3DCreation`; key do Roblox em `~/.config/forge3d/roblox.key`, fora do repo.
-> Próximo: **GAP-047** (parede cheia do lado fechado), depois P6. Não reabra D3–D27, D52–D65 nem
-> D66–D76 sem fato novo. Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.
+> P4 e P5 sem lacuna (GAP-047 fechou em D79). Próximo: **P6** (produto) ou a revisão visual pendente.
+> Não reabra D3–D27, D52–D65 nem D66–D79 sem fato novo. Sessão no Windows? Leia `AGENTS.md` §Ambiente
+> **antes** de editar arquivo.

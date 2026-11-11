@@ -2,7 +2,7 @@
 
 Uso:
     blender --background --factory-startup --python tools/render_preview.py -- \
-        <arquivo.glb> <saida_sem_extensao> [--size 720] [--samples 32]
+        <arquivo.glb> <saida_sem_extensao> [--size 720] [--samples 32] [--alto]
 
 Gera ``<saida>_frente.png`` e ``<saida>_tres_quartos.png`` com camera ortografica,
 tres luzes e piso, para julgar silhueta, proporcao, paleta e contato com o chao.
@@ -24,7 +24,7 @@ def _args() -> dict:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     if len(argv) < 2:
         raise SystemExit("uso: render_preview.py -- <glb> <saida> [--size N] [--samples N]")
-    opcoes = {"glb": argv[0], "saida": argv[1], "size": 720, "samples": 32, "pose": False, "close": False}
+    opcoes = {"glb": argv[0], "saida": argv[1], "size": 720, "samples": 32, "pose": False, "close": False, "alto": False}
     resto = argv[2:]
     i = 0
     while i < len(resto):
@@ -39,6 +39,9 @@ def _args() -> dict:
             i += 1
         elif resto[i] == "--close":
             opcoes["close"] = True
+            i += 1
+        elif resto[i] == "--alto":
+            opcoes["alto"] = True
             i += 1
         else:
             i += 1
@@ -212,6 +215,9 @@ def main() -> int:
     # frente do asset e +Y no Blender (equivale a -Z no glTF, frente do Godot)
     altura_total = max(maximo.z - minimo.z, (maximo - minimo).length * 0.5)
     escala = altura_total * 1.25
+    # asset largo e baixo (setor de dungeon 4x4x2,4 m) estoura a moldura quando a escala vem
+    # so da altura: a diagonal do footprint tambem manda. Personagem (0,9 m) nao muda.
+    escala = max(escala, math.hypot(maximo.x - minimo.x, maximo.y - minimo.y) * 1.25)
     vistas = {
         "frente": Vector((0.0, 1.0, 0.08)),
         "tres_quartos": Vector((0.8, 1.0, 0.28)),
@@ -221,11 +227,17 @@ def main() -> int:
         centro = Vector((0.0, 0.0, maximo.z - altura_total * 0.22))
         escala = altura_total * 0.42
         vistas = {"close": Vector((0.55, 1.0, 0.18))}
+    if opcoes["alto"]:
+        # vista de cima: e a unica que mostra o lado fechado continuo de um setor (GAP-047)
+        vistas["alto"] = Vector((0.55, 0.75, 1.0))
     for nome, direcao in vistas.items():
         for obj in [o for o in bpy.context.scene.objects if o.type == "CAMERA"]:
             bpy.data.objects.remove(obj, do_unlink=True)
         camera(centro, raio, direcao, escala)
         configurar_render(f"{opcoes['saida']}_{nome}.png", opcoes["size"], opcoes["samples"])
+        if nome == "alto":
+            # a vista de cima enquadra o footprint inteiro: moldura quadrada, nao retrato
+            bpy.context.scene.render.resolution_y = opcoes["size"]
         bpy.ops.render.render(write_still=True)
         print(f"RENDER_OK {opcoes['saida']}_{nome}.png")
 

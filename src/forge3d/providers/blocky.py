@@ -19,9 +19,11 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from ..profiles import FRACAO_EMPUNHADURA
+
 from .base import RawAsset
 
-VERSAO = "0.2.2"
+VERSAO = "0.2.3"
 PX_CELULA = 16
 MAX_CAIXAS = 256
 
@@ -464,15 +466,10 @@ def _pivos(caixas: list[dict], tipo: str) -> dict:
         "topo": [cx, cy, zmax],
         "origem": [0.0, 0.0, 0.0],
     }
-    cabo = next((c for c in caixas if c["nome"] in ("cabo", "grip")), None)
-    if cabo is not None:
-        pivos["empunhadura"] = [
-            round((cabo["min"][0] + cabo["max"][0]) / 2, 6),
-            round((cabo["min"][1] + cabo["max"][1]) / 2, 6),
-            round((cabo["min"][2] + cabo["max"][2]) / 2, 6),
-        ]
-    else:
-        pivos["empunhadura"] = pivos["base"] if tipo != "prop_equipavel" else [cx, cy, zmin + 0.1 * (zmax - zmin)]
+    # D58: empunhadura e uma fracao fixa da altura, igual nas duas rotas. Antes o blocky
+    # usava o centro da caixa 'cabo' e 10% no fallback, enquanto o postprocesso usava 20%:
+    # a mesma regra gerava pivos fisicos diferentes e o G2 nao media nenhum dos dois.
+    pivos["empunhadura"] = [cx, cy, round(zmin + FRACAO_EMPUNHADURA * (zmax - zmin), 6)]
     return pivos
 
 

@@ -103,7 +103,7 @@ versionada — e o teste de rig verifica nome a nome, não "parece razoável".
 
 | `tipo` | `pivot` | Como o pipeline calcula |
 |---|---|---|
-| `prop_equipavel` | `empunhadura` | centro do eixo de menor secção transversal na faixa inferior 30 % da peça; se ambíguo, centro da base + `offset` do perfil |
+| `prop_equipavel` | `empunhadura` | **20 % da altura a partir da base**, no eixo X/Y do centro da AABB, para `blocky` e `mesh` (D58). A regra de "menor secção transversal" fica em GAP-042 |
 | `prop_estatico`, `modulo_cenario` | `base` | centro da face inferior da AABB |
 | `personagem_humanoide`, `criatura` | `base` | centro da face inferior da AABB (pés no chão) |
 | qualquer | `centro` | centro da AABB |

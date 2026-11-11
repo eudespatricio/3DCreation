@@ -236,12 +236,14 @@ def test_atlas_e_potencia_de_dois_para_todos_os_tamanhos(tmp_path):
 
 
 def test_pivos_de_espada_ficam_na_empunhadura():
+    from forge3d.profiles import FRACAO_EMPUNHADURA
     from forge3d.providers import blocky
 
     caixas = blocky._caixas("prop_equipavel", 1.10, {})
     pivos = blocky._pivos(caixas, "prop_equipavel")
     x, y, z = pivos["empunhadura"]
-    assert abs(z - 0.11) < 0.02, z  # centro do cabo, nao a base nem a ponta
+    # D58: a regra virou fracao fixa da altura (20%), nao o centro da caixa 'cabo'
+    assert abs(z - FRACAO_EMPUNHADURA * 1.10) < 1e-6, z
     assert pivos["base"][2] == 0.0
 
 

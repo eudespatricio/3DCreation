@@ -9,7 +9,11 @@ import yaml
 from . import paths
 from .errors import erro_ambiente
 
-__all__ = ["carregar", "caminho_perfil", "perfis_disponiveis"]
+__all__ = ["carregar", "caminho_perfil", "perfis_disponiveis", "FRACAO_EMPUNHADURA"]
+
+#: Regra numerica da `empunhadura` (D58): fracao da altura medida a partir da base.
+#: Uma regra so, usada pelo blocky (pivo declarado) e pelo QC (G2). Antes havia 10% e 20%.
+FRACAO_EMPUNHADURA = 0.20
 
 _BLOCOS_OBRIGATORIOS = ("unidades", "eixos", "pivot", "colisao", "rig", "material", "validacao")
 

@@ -28,6 +28,9 @@
 
 ## 4. Fechado nesta janela (não reabrir)
 
+- **C13/D58** `empunhadura` virou regra numérica (20 % da altura) usada pelas duas rotas, e o
+  G2 passou a medir os quatro casos (base/centro/topo/empunhadura); a regra do perfil
+  ("menor secção transversal") fica em GAP-042.
 - **C6/Q9** decidido em 11/11/2026 por **D57**: `delegar.py` fica no `agentapi`, que exige a IDE
   (Antigravity) aberta; sem chave de API e sem caminho headless.
 - **C5–C11** fechados em 11/11/2026: 10 execuções seguidas do e2e (C5); `verify` reprova manifesto

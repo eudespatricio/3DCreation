@@ -505,7 +505,9 @@ def calcular_pivo(regra: str, minimo: Vector, maximo: Vector, declarado) -> tupl
     if regra == "origem":
         return Vector((0.0, 0.0, 0.0)), "regra"
     if regra == "empunhadura":
-        # heuristica declarada: 20% da altura a partir da base (docs/perfis-export.md §4)
+        # regra do contrato (D58): 20% da altura a partir da base, igual ao blocky
+        # (FRACAO_EMPUNHADURA em src/forge3d/profiles.py). Este script roda no Python do
+        # Blender e nao importa o pacote: a fracao fica literal de proposito.
         z = minimo.z + 0.2 * (maximo.z - minimo.z)
         return Vector((centro.x, centro.y, z)), "heuristica"
     return Vector((centro.x, centro.y, minimo.z)), "regra"

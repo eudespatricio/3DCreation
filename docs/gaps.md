@@ -9,6 +9,7 @@
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
+| GAP-042 | `empunhadura` foi simplificada para **20 % da altura** (D58); a regra do perfil — "menor secção transversal na faixa inferior 30 %" — não está implementada | P3 | P4 | regra geométrica implementada em função única e medida pelo G2 com o mesmo critério |
 | GAP-006 | Roblox: upload real aprovado (asset 136741921517312, 1 MeshPart + 16 Bones); **textura separada aprovada (Image 75934318775024) e `TextureID` setado**; servidor headless não carrega asset privado; faltam GUI, pivôs nos Bones, escala/stud e U1–U4 | P0 | P2 | ver textura no Studio GUI, pivôs nos Bones, U1–U4 sem `[verificar]`; escala/stud |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |

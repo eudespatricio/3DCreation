@@ -11,6 +11,7 @@ import struct
 from pathlib import Path
 
 from .errors import erro_qc
+from .profiles import FRACAO_EMPUNHADURA
 
 __all__ = [
     "ler_glb",
@@ -367,6 +368,24 @@ def _pot(n: int) -> bool:
     return n > 0 and (n & (n - 1)) == 0
 
 
+def _desvio_pivo(regra: str, minimo_y: float, maximo_y: float) -> float | None:
+    """Quanto o pivo aplicado desvia da regra declarada, em metros (D58).
+
+    O export posiciona o objeto com a origem NO pivo, entao a regra e conferivel pela
+    AABB resultante. Regra desconhecida devolve None — e o G2 nao mede.
+    """
+    altura = maximo_y - minimo_y
+    if regra == "base":
+        return abs(minimo_y)
+    if regra == "centro":
+        return abs((minimo_y + maximo_y) / 2.0)
+    if regra == "topo":
+        return abs(maximo_y)
+    if regra == "empunhadura":
+        return abs(minimo_y + FRACAO_EMPUNHADURA * altura)
+    return None
+
+
 def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
     """Roda G1-G9 sobre o artefato. Devolve relatorio; nao levanta (quem decide e o chamador)."""
     v = perfil["validacao"]
@@ -405,13 +424,7 @@ def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
     delta_pct = abs(altura - alvo) / alvo * 100.0 if alvo else 999.0
     tolerancia_m = float(v["pivo_delta_mm"]) / 1000.0
     regra = item["pivot"]
-    desvio_pivo = None
-    if regra == "base":
-        desvio_pivo = abs(info["min"][1])
-    elif regra == "centro":
-        desvio_pivo = abs((info["min"][1] + info["max"][1]) / 2.0)
-    elif regra == "topo":
-        desvio_pivo = abs(info["max"][1])
+    desvio_pivo = _desvio_pivo(regra, info["min"][1], info["max"][1])
     pivo_ok = desvio_pivo is None or desvio_pivo <= tolerancia_m
     gates.append(
         {

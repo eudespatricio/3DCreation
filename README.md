@@ -54,6 +54,9 @@ uv tool install --from . forge3d
 forge3d --version
 ```
 
+Detalhe de integração (allowlist, ciclo, exit codes e o que o jogo lê do manifesto):
+[`docs/integracao.md`](docs/integracao.md).
+
 Branching no pipe é por **código de saída estável** ([`docs/contratos.md`](docs/contratos.md) §5):
 `0` ok · `2` spec inválida · `3` QC reprovou · `4` ambiente · `5` provider · `6` recurso · `7` parcial.
 

@@ -59,17 +59,16 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   pilar as paredes só se cruzam em volume (G1 **nao_manifold=0**). `PIPELINE_VERSION` **0.3.7**,
   `modular` **0.2.1**; teste do vão inteiro em `tests/test_modular.py`; `render_preview.py` ganhou
   `--alto` (vista de cima) e enquadramento por diagonal.
-- **P6 — produto (D80/D81)** — `forge3d migrate` sobe `spec@1`/`@2` → `spec@3` sem reescrever o
-  documento: a migração é **textual** (comentários preservados), canonicaliza alias legado e **não
-  inventa valor** (lote com `rota: modular` sem o bloco continua recusado pelo B15). O CI de PR ganhou
-  **2 jobs**: `verificar` (Blender **4.2.0** baixado e conferido por sha256, pipeline real e `verify`
-  provando 0 problemas no íntegro e exit 3 no adulterado) e `distribuicao` (wheel → venv limpo → CLI
-  fora do repo). `query` ganhou teste de índice e filtros. **Sem bump de versão**: a saída dos assets
-  não mudou (D6).
-- **Revisão da doc (D82)** — o CLI contra os `.md` tinha **10 de 15** invariantes com comando que
-  não roda. `verify --only` e as chaves `blender`/`modelos_aptos` do `doctor` **foram implementados**;
-  I3/I4/I6/I11/I13 corrigidos (+2 fixtures). `tests/test_doc_comandos.py` reprova doc que cita
-  verbo/flag inexistente — o portão que faltava.
+- **P6 — produto (D80/D81)** — `forge3d migrate` sobe `spec@1`/`@2` → `spec@3` textual (comentários
+  preservados) e **não inventa valor** (modular sem bloco segue recusado, B15). CI de PR com 2 jobs:
+  `verificar` (Blender 4.2.0 conferido por sha256, pipeline real, `verify` 0 problemas e exit 3 no
+  adulterado) e `distribuicao` (wheel → venv limpo → CLI fora do repo). **Sem bump**: a saída dos
+  assets não mudou (D6).
+- **Revisão da doc (D82)** — o CLI contra os `.md` tinha **10 de 15** invariantes com comando que não
+  roda. `verify --only` e `blender`/`modelos_aptos` no `doctor` **foram implementados**; I3/I4/I6/I11/
+  I13 corrigidos (+2 fixtures) e `tests/test_doc_comandos.py` virou o portão contra reincidência.
+- **Integração (`docs/integracao.md`)** — como outro projeto chama a CLI: instalar, allowlist, lote,
+  exit codes, manifesto e `verify --only` no CI do consumidor. **A P6 era a última fase do plano.**
 
 ## Números medidos nesta máquina
 
@@ -115,14 +114,14 @@ silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo**
 **`D75` P4 fatiada: `spec@3` + um setor por asset** · **`D76`/I15 projeto não entra no pipeline** ·
 **`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
 **`D79` parede cheia no lado fechado** · **`D80` `migrate` textual, sem inventar valor** ·
-**`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado**.
+**`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado** · **`D83` a P6 é a última fase; o resto é backlog**.
 
 ## Aberto
 
 Nada em aberto: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no repo do jogo).
 
-Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-015** (`draft` em 4k) e
-**GAP-042** (regra do "menor secção"). A P4 não tem mais lacuna aberta.
+**Plano de fases completo (P0–P6).** O que sobra é **backlog, não fase**: os 11 gaps de
+`docs/gaps.md` (os de fase vencida valem como backlog) e a seção §Depois da P6 do `docs/roadmap.md`.
 
 ## Próximos passos — em ordem
 

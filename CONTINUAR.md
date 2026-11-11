@@ -3,7 +3,8 @@
 **Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5 e C5–C11 fechadas.** A P2 fechou pela escala:
 `manifest@2` com `unidades_export` (D62) e o glb do `roblox-r15` passou a sair em studs — package
 medido no Studio em **6,6071 studs**, contra 6,8086 de extensão do `.rbxlx` (mesma escala; os 3,05 %
-ficam em GAP-044). **99 verdes + 1 GPU (skip)** em 100 testes · CI no GitHub com **84 testes**.
+ficam em GAP-044). **99 verdes + 1 GPU (skip)** em 100 testes · CI no GitHub com **84 testes** (run 42956720067
+verde em `a21e944`).
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 

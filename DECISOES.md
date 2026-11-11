@@ -156,6 +156,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | Resíduo rig × package | **3,05 %** (6,8086 vs 6,6071): o rig usa as caixas brutas do blocky (1,906 m) e a malha é normalizada para 1,850 m → GAP-044 | medido, 11/11/2026 |
 | Compat de `verify` | `manifest@1` de `lote_01` e `kit_sentinel` continua **0 problemas** (escala 1.0); `r15` republicado em `@2` | `forge3d verify` em 11/11/2026 |
 | Suíte após D62 | **99 verdes + 1 GPU (skip)** em **100 testes**; CI no GitHub roda **84** | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
+| CI após D62 | run **42956720067** `success` em `a21e944`; job com 84 testes + contexto + P0 | API do Actions em 11/11/2026 |
 
 **Não medido nesta sessão** (marcar `[estimado]` ou `[verificar]` se usar): concept→mesh
 end-to-end (implementado, execução pendente), A/B de 10 assets, qualidade de personagem com capa,

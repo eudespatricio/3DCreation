@@ -12,8 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 # Adiciona tools ao path para importar verificar_conformidade
 RAIZ_REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ_REPO / "tools"))

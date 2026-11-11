@@ -11,7 +11,6 @@ tres luzes e piso, para julgar silhueta, proporcao, paleta e contato com o chao.
 from __future__ import annotations
 
 import math
-import os
 import sys
 
 import bpy

@@ -10,7 +10,6 @@ Verifica que:
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import shutil
 import threading
@@ -75,8 +74,6 @@ def test_observador_thread_durante_publish_sem_arquivos_parciais(tmp_path, monke
 
     # Injeta um pequeno atraso artificial no copyfileobj para permitir centenas
     # de observacoes durante o fluxo de publicacao sem alterar a logica.
-    orig_copyfileobj = shutil.copyfileobj
-
     def slow_copy(fsrc, fdst, length=0):
         # Le e grava em pequenos blocos com mini-pausa
         while True:

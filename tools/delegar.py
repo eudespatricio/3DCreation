@@ -73,7 +73,7 @@ def _agentapi() -> str:
     ):
         if cand and Path(cand).is_file():
             return str(cand)
-    raise SystemExit(f"[FORGE-E-AMBIENTE] agentapi nao encontrado (esperado em ~/.gemini/antigravity/bin)")
+    raise SystemExit("[FORGE-E-AMBIENTE] agentapi nao encontrado (esperado em ~/.gemini/antigravity/bin)")
 
 
 def _endereco_ls() -> str:

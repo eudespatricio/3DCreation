@@ -17,12 +17,9 @@ from __future__ import annotations
 import json
 import os
 import queue
-import re
 import subprocess
-import sys
 import threading
 import time
-from pathlib import Path
 
 _PADRAO = (
     "/mnt/c/Users/Eudes/AppData/Local/Roblox/Versions/version-63eb6055af4e4688/StudioMCP.exe"

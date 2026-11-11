@@ -14,13 +14,11 @@ faz o bloco ler como peça e não como cubo colorido, sem custar textura maior.
 from __future__ import annotations
 
 import math
-import shutil
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
 from ..profiles import FRACAO_EMPUNHADURA
-
 from .base import RawAsset
 
 VERSAO = "0.2.3"

@@ -16,7 +16,6 @@ fechar a borda exige um módulo de parede, que não entra nos 3 da fatiada.
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
 
 __all__ = [
     "CATALOGO",

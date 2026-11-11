@@ -6,10 +6,8 @@ Risco R1 medido no arquivo de riscos: a maior parte do tempo perdido em pipeline
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import sys
-from pathlib import Path
 
 import jsonschema
 

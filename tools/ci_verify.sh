@@ -73,4 +73,35 @@ echo "== regressao de orientacao (GAP-048) =="
 PY="${PYTHON:-.venv/bin/python}"
 "$PY" -m pytest tests/test_orientacao.py -q
 
+echo "== contratos GLB Godot game-ready (Pacote 3) =="
+"$PY" - "$GLB" <<'PY'
+import ast, json, pathlib, struct, sys
+
+glb_path = pathlib.Path(sys.argv[1])
+data = glb_path.read_bytes()
+jlen = struct.unpack_from("<I", data, 12)[0]
+gltf = json.loads(data[20 : 20 + jlen])
+
+for mat in gltf.get("materials", []):
+    assert mat.get("doubleSided", False) is False, f"doubleSided inesperado: {mat}"
+nos_malha = [n.get("name") for n in gltf.get("nodes", []) if "mesh" in n]
+assert nos_malha == ["ci.bloco.01"], f"nome de no inesperado: {nos_malha}"
+
+tree = ast.parse(pathlib.Path("blender/postprocess.py").read_text(encoding="utf-8"))
+fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "desdobrar_uv")
+assert abs(ast.literal_eval(fn.args.defaults[0]) - 0.008) < 1e-9
+print("GLB_PACOTE3_OK", nos_malha)
+PY
+
+GODOT_BIN="${FORGE3D_GODOT:-$(command -v godot || true)}"
+if [ -z "$GODOT_BIN" ] && [ -x "$HOME/tools/godot/Godot_v4.3-stable_linux.x86_64" ]; then
+    GODOT_BIN="$HOME/tools/godot/Godot_v4.3-stable_linux.x86_64"
+fi
+if [ -n "$GODOT_BIN" ]; then
+    echo "== Godot headless check (addons/forge3d) =="
+    "$GODOT_BIN" --headless --path tools/godot_project --check-only --quit --script "$(pwd)/addons/forge3d/post_import.gd"
+    "$GODOT_BIN" --headless --path tools/godot_project --check-only --quit --script "$(pwd)/addons/forge3d/plugin.gd"
+    "$GODOT_BIN" --headless --path tools/godot_project --script "$(pwd)/tools/godot_post_import_check.gd" -- "$GLB"
+fi
+
 echo "CI_VERIFY_OK"

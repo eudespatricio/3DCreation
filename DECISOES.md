@@ -132,7 +132,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |
 
 
-| CI no GitHub | repo público `github.com/eudespatricio/3DCreation`; run **42942191684** `success` em `cc89da4` | API do Actions em 10/11/2026 |
+| CI no GitHub | repo público `github.com/eudespatricio/3DCreation`; run **42942191684** `success` em `cc89da4`; **PR #1** verde em `push` e `pull_request`, merge `7e24615` | API do Actions em 10/11/2026 |
 | Suíte após C5–C11 | **68 verdes + 1 GPU (skip)** em ~18 s; 17 testes novos (`test_correcoes.py`, `test_convexidade.py`) | `pytest -q` em 10/11/2026 |
 | C5 — flake e2e | **10 execuções seguidas** de `test_e2e_rapido.py` verdes | loop local em 10/11/2026 |
 | Colisor `convex` (defeito) | 44–497 tris com **22–146 arestas não-manifold**; `convex_hull` não apaga a entrada e faces originais ficavam no recorte | 14 colisores publicados, 10/11/2026 |

@@ -49,7 +49,7 @@
 | ~~GAP-041~~ | ~~Capa/arma no split mesh~~ | P3.5 | **P3.5 ✔** | D39/D40: arma vai para `blocky`; capa .03 reconhecível no conjunto; previews `docs/preview/p3_char_cape_*` |
 | ~~GAP-029~~ | ~~Qualidade do reconstructor~~ | P3 | **P3.5 ✔** | 3 personagens híbridos (.02/.05/.04 + capa .03 + arma blocky .01), `AB_OK`, G1–G9; `docs/preview/p3_ab_3personagens.png` |
 | ~~GAP-016~~ | ~~Sem política de retenção do cache~~ | P0 | **P6 parcial ✔** | `forge3d gc --manter-dias 30`, 2 testes; publicado/índice/ledger intocados |
-| ~~GAP-008~~ | ~~CI nunca rodou no GitHub~~ | P0 | **C5–C11 ✔** | repo público `github.com/eudespatricio/3DCreation`; run **42942191684** `success` em `cc89da4`; job = `tools/ci.sh` com 53 testes + contexto + P0 |
+| ~~GAP-008~~ | ~~CI nunca rodou no GitHub~~ | P0 | **C5–C11 ✔** | repo público `github.com/eudespatricio/3DCreation`; run **42942191684** `success` em `cc89da4` e **PR #1** verde nos dois gatilhos (`push` e `pull_request`), merge `7e24615`; job = `tools/ci.sh` com 53 testes + contexto + P0 |
 | ~~GAP-037~~ | ~~`verify` pulava o pivô de manifesto antigo~~ | P3 | **C7 ✔** | `verify` reprova manifesto sem `G2.pivo_regra`; `tests/test_correcoes.py` |
 | ~~GAP-038~~ | ~~G7 não media convexidade~~ | P1 | **C8 ✔** | `qc.convexidade` mede por componente conexa e reprova; o gate achou colisor não-manifold (22–146 arestas) e o hull foi corrigido; `tests/test_convexidade.py` |
 | ~~GAP-039~~ | ~~`rembg` opcional e explícito~~ | P3 | **C9 ✔** | decide por procedência/alfa, com override por env; `rembgauto2` na versão e motivo no `i23d_resultado.json` |

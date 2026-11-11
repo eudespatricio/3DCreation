@@ -9,7 +9,7 @@
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P8 | **Roblox P2**: GUI, textura e bones | Asset 136741921517312 (1 MeshPart + 16 Bones) e **Image 75934318775024 Approved** com `TextureID` setado; o servidor headless não carrega asset privado; faltam GUI, pivôs nos Bones, escala/stud e U1–U4 (Q3/GAP-006) | textura visível no Studio GUI, pivôs nos Bones, U1–U4 sem `[verificar]`, escala/stud | **B** |
+| P8 | **Roblox P2**: só a escala | Textura **confirmada** no Studio (`AssetFetchStatus.Success`), 16 Bones, U1/U2/U4 fechadas (11/11/2026). Package mede **1,850 studs** e o `.rbxlx` **6,478 studs** — 3,57× (Q3/GAP-006) | package e `.rbxlx` na mesma escala; decisão de contrato registrada | **B** |
 
 ## 2. Correções que já mordem
 

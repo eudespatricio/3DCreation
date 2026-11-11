@@ -179,7 +179,7 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 `docs/preview/p3_sentinel_*` · `p3_split_*` · `p3_char_cape_*` · `p3_ab_3personagens.png` ·
 `src/forge3d/gc.py` · `tools/ci.sh` · `.github/workflows/ci.yml` · `tools/r15_studio_test.lua` ·
 `docs/preview/r15_studio_test.log` · `r15_rbxlx_test.log` · `src/forge3d/rbx.py` ·
-`tools/r15_rbxlx_test.lua` · `tests/test_rbx.py` · `src/forge3d/upload.py` · `tests/test_upload.py`
+`tools/r15_rbxlx_test.lua` · `tools/configurar_roblox.sh` · `tests/test_rbx.py` · `src/forge3d/upload.py` · `tests/test_upload.py`
 
 ## Regras invioláveis (top 6)
 

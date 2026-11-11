@@ -118,6 +118,9 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P2 — upload Open Cloud | `upload-model` dry-run + servidor local: POST multipart com `x-api-key`, `operation` e `assetId=999`; 2 testes; upload real pendente de key/creator | `tests/test_upload.py` em 10/11/2026 |
 | P2 — `Model` no Open Cloud | `.glb` 39 KB, limite 20 MB; importa como **package de MeshParts**, não como rig R15; API key/upload **free** | doc Open Cloud em 10/11/2026 |
 
+| P2 — diagnóstico da key | `~/.config/forge3d/roblox.key` existe, modo **600**, **0 B**; creator ID/type ausente no shell; **nenhum upload** foi feito | diagnóstico em 10/11/2026 |
+| P2 — helper de config | `tools/configurar_roblox.sh`: key oculta, creator ID, dry-run e upload opcional; `bash -n` ok | 10/11/2026 |
+
 | Custo concept→mesh | **40 s estimados × 37,2 s reais** (erro -7%) | `plan` × `run` em 10/11/2026 |
 
 | P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |

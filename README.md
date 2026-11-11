@@ -142,10 +142,15 @@ Studio — `R15_RBXLX_PASS partes=16 motores=15`; textura/MeshPart e escala/stud
 
 ```bash
 mkdir -p ~/.config/forge3d && chmod 700 ~/.config/forge3d
-printf '%s' 'SUA_KEY' > ~/.config/forge3d/roblox.key && chmod 600 ~/.config/forge3d/roblox.key
-export FORGE3D_ROBLOX_CREATOR_ID=1234567   # user ID ou group ID
-forge3d upload-model ~/.local/state/forge3d/saida/r15/personagem.r15.guard.01.glb --dry-run
+# crie ~/.config/forge3d/roblox.key e cole APENAS a key (sem export, sem ID)
+chmod 600 ~/.config/forge3d/roblox.key
+forge3d upload-model ~/.local/state/forge3d/saida/r15/personagem.r15.guard.01.glb \
+  --creator-id 1234567 --dry-run
 ```
+
+Se preferir um passo a passo interativo — key oculta, creator ID e dry-run — rode
+`bash tools/configurar_roblox.sh`. A **key fica só no arquivo**; o creator ID vai por
+`--creator-id`, nunca dentro do arquivo da key.
 
 A key também pode vir de `FORGE3D_ROBLOX_API_KEY`; nunca commite. O upload cria um **package de
 MeshParts**, não um rig R15; o `.rbxlx` nativo continua sendo o rig.

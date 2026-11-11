@@ -9,7 +9,7 @@
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P8 | **Roblox P2**: upload real + montagem | `upload-model` pronto (dry-run e servidor local); pivô e `.rbxlx` nativo validados; faltam rodar o upload real com a key, montar o package no rig, escala/stud e U1–U4 (Q3/GAP-006) | upload real com `assetId`+moderação, package no rig, U1–U4 sem `[verificar]` | **B** |
+| P8 | **Roblox P2**: upload real + montagem | `upload-model` pronto (dry-run e servidor local); pivô e `.rbxlx` nativo validados; a key atual está **vazia** — rode `tools/configurar_roblox.sh`, faça o upload real, monte o package no rig e feche escala/stud/U1–U4 (Q3/GAP-006) | upload real com `assetId`+moderação, package no rig, U1–U4 sem `[verificar]` | **B** |
 
 ## 2. Correções que já mordem
 

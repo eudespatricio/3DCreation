@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Portao de CI sem GPU/Blender: unidade + concept + gc + docs/contratos.
+# Portao de CI sem GPU/Blender: unidade + concept + gc + migrate + docs/contratos.
 # A suite completa (Blender/GPU) roda na maquina do operador.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -10,6 +10,7 @@ PY="${PYTHON:-.venv/bin/python}"
     tests/test_upload.py tests/test_correcoes.py tests/test_convexidade.py tests/test_pivo.py \
     tests/test_atomico.py tests/test_locks.py tests/test_conformidade.py \
     tests/test_unidades.py tests/test_animacao.py tests/test_lod.py \
-    tests/test_modular.py tests/test_modular_provider.py -q
+    tests/test_modular.py tests/test_modular_provider.py tests/test_migrate.py \
+    tests/test_query.py -q
 bash tools/check-contexto.sh
 "$PY" tools/check-p0.py

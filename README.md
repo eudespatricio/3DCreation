@@ -4,13 +4,13 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P0`–`P1`, `P2`, `P3`, `P3.5` e `P5` — **121 verdes + 1 GPU (skip)** em 122 testes e CI
-no GitHub com 106. A `P2` fechou com `manifest@2`/D62 (glb em studs; package e `.rbxlx` em 6,6071
-studs); a `P5` fechou com o clipe `idle` por retarget tocando no Godot e no Roblox (`manifest@3`,
-D66/D67/D69) e com o LOD medido por silhueta (D71). `blocky`/`import` sem GPU; `mesh` com TripoSR +
-bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` fechada na P4
-(dungeon de 10 setores por seed, colisão por peça e 1 draw call por setor). Leia
-[`AGENTS.md`](AGENTS.md) antes de qualquer ação.
+**Estado:** `P0`–`P6` — **157 verdes + 1 GPU (skip)** em 158 testes; CI no GitHub com **141 testes
+em 3 jobs** (`portoes`, `verificar` com Blender 4.2.0 pinado por sha256 e `distribuicao`). `blocky`/
+`import` sem GPU; `mesh` com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**; kit
+corpo/capa/arma; `modular` com dungeon de 10 setores por seed, colisão por peça e 1 draw call;
+`manifest@2`/D62 (glb em studs), `manifest@3`/D67 (clipe `idle` por retarget) e LOD medido por
+silhueta (D71). A **P6** fechou o produto: `forge3d migrate`, `verify` no CI de PR e wheel instalável.
+Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
 ---
 
@@ -37,12 +37,21 @@ forge3d plan   lote_01.yaml --json   # custo e cache, sem GPU, sem escrever nada
 forge3d run    lote_01.yaml --json   # gera, verifica QC e publica no destino autorizado
 forge3d verify <destino>   --json    # portão de CI: hash + G1–G10 reexecutados
 forge3d query  --max-tris 100 --json # "by demand": o que já existe
+forge3d migrate lote_01.yaml --saida lote.v3.yaml  # sobe o contrato (spec@1/@2 -> @3)
 forge3d doctor                       # diagnóstico do ambiente
 forge3d gc --manter-dias 30          # retenção de cache/runs/staging (não toca no publicado)
 forge3d export-r15 examples/lote_09_r15.yaml --item personagem.r15.guard.01  # .rbxlx nativo
 forge3d upload-model <arquivo.glb> --creator-id <id> --dry-run  # request sem rede
 forge3d upload-model <arquivo.glb> --creator-id <id>           # Open Cloud Model (free)
 forge3d upload-image <atlas.png> --creator-id <id>             # Open Cloud Image (textura)
+```
+
+Instalação fora do repositório — o wheel leva `schemas/`, `profiles/` e `blender/` dentro do pacote,
+então a CLI funciona sem o repo do lado (`tools/ci_dist.sh` prova isso no CI):
+
+```bash
+uv tool install --from . forge3d
+forge3d --version
 ```
 
 Branching no pipe é por **código de saída estável** ([`docs/contratos.md`](docs/contratos.md) §5):

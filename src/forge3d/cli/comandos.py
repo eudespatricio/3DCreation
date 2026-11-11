@@ -1,6 +1,8 @@
 """Implementacao dos subcomandos (argparse, sem dependencia extra).
 
-Onze comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``allowlist`` ``gc`` ``export-r15`` ``upload-model`` ``upload-image``.
+Quatorze comandos, um contrato: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query``
+``migrate`` ``allowlist`` ``gc`` ``export-r15`` ``export-anim`` ``upload-model``
+``upload-image`` ``upload-animation``.
 """
 
 from __future__ import annotations
@@ -57,6 +59,14 @@ def construir_parser() -> argparse.ArgumentParser:
     q.add_argument("--tag")
     q.add_argument("--max-tris", type=int)
     q.add_argument("--json", action="store_true")
+
+    mi = sub.add_parser(
+        "migrate", help="sobe um lote para o contrato corrente (spec@3), sem inventar valor"
+    )
+    mi.add_argument("lote")
+    mi.add_argument("--saida", help="grava o lote migrado neste arquivo")
+    mi.add_argument("--em-lugar", action="store_true", help="sobrescreve o proprio lote")
+    mi.add_argument("--json", action="store_true")
 
     a = sub.add_parser("allowlist", help="autoriza destinos de publicacao")
     a.add_argument("acao", choices=["list", "add", "remove"])
@@ -147,6 +157,8 @@ def _executar(args) -> int:
         return _verify(args)
     if args.cmd == "query":
         return _query(args)
+    if args.cmd == "migrate":
+        return _migrate(args)
     if args.cmd == "allowlist":
         return _allowlist(args)
     if args.cmd == "gc":
@@ -249,6 +261,48 @@ def _query(args) -> int:
                 f"{linha['asset_id']:<34} {linha['perfil']:<10} {linha['triangulos']:>6} tris  "
                 f"{linha['bytes']:>8} B  {linha['licenca']}"
             )
+    return 0
+
+
+def _migrate(args) -> int:
+    from .. import migrate
+    from ..errors import erro_spec
+
+    plano = migrate.planejar(args.lote)
+    if not plano["valido"]:
+        raise erro_spec(
+            f"lote migrado nao valida em {migrate.ALVO}: {plano['erros'][0]}",
+            arquivo=plano["arquivo"],
+            de=plano["de"],
+            erros=plano["erros"],
+        )
+    escrito = None
+    if args.em_lugar or args.saida:
+        escrito = str(migrate.gravar(plano, saida=args.saida, em_lugar=args.em_lugar))
+    if args.json:
+        _json(
+            {
+                "schema": "forge3d/report@1",
+                "comando": "migrate",
+                "arquivo": plano["arquivo"],
+                "de": plano["de"],
+                "para": plano["para"],
+                "mudancas": plano["mudancas"],
+                "valido": True,
+                "escrito": escrito,
+            }
+        )
+        return 0
+    if not plano["mudancas"]:
+        print(f"{plano['arquivo']}: ja esta em {plano['de']}; nada a migrar")
+        return 0
+    print(f"{plano['arquivo']}: {plano['de']} -> {plano['para']}")
+    for mudanca in plano["mudancas"]:
+        print(f"  {mudanca['campo']}: {mudanca['de']} -> {mudanca['para']}")
+    if escrito:
+        print(f"escrito: {escrito}")
+    else:
+        print("dry-run: use '--saida ARQ' ou '--em-lugar' para gravar")
     return 0
 
 

@@ -383,7 +383,7 @@ def registrar_ledger(evento: dict) -> None:
 
 
 def verificar(destino: Path) -> dict:
-    """Portao de CI: manifesto+hash E reexecucao de G1-G9 contra o perfil atual.
+    """Portao de CI: manifesto+hash E reexecucao de G1-G10 contra o perfil atual.
 
     O hash pega arquivo trocado; a reexecucao pega o caso mais sutil: o perfil do jogo mudou
     (tolerancia, textura_max, mapa de ossos) e o manifesto antigo ficou mentindo.

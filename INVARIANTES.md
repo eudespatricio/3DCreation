@@ -178,7 +178,7 @@ Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparec
 | I6 lock de GPU | **parcial** — `test_locks.py` cobre recusa e liberação; falta teste com dois *jobs* reais |
 | I7 licença | **parcial** — a allowlist comercial é asseverada em `test_concept.py`; falta exercitar a recusa |
 | I8 escala e pivô | **automatizado** — `test_i8_escala_e_pivo_conforme_perfil` |
-| I9 Blender pinado | **parcial** — `doctor` mede e `post.py` recusa versão ≠ 4.2.x; falta teste dedicado |
+| I9 Blender pinado | **automatizado no CI** — `doctor` mede, `post.py` recusa ≠ 4.2.x e o job `verificar` baixa 4.2.0 conferindo sha256; `tools/ci_verify.sh` confere a versão no PATH |
 | I10 proveniência | **parcial** — o schema exige os campos; falta teste de campo nulo |
 | I11 idempotência | **automatizado** — `test_i11_idempotencia_rerun_nao_trabalha` |
 | I12 caminhos proibidos | **automatizado** — `test_i12_recusa_mnt_e_unc` |

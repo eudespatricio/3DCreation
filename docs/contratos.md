@@ -15,7 +15,7 @@
 | Encoding | UTF-8, LF. JSON de saída com chaves ordenadas e sem espaços variáveis (hash estável) |
 | Relógio | `created_at` em UTC ISO-8601; nunca entra na chave de cache |
 
-## 2. `spec@1` e `spec@2` — a entrada
+## 2. `spec@1`, `spec@2` e `spec@3` — a entrada
 
 Exemplo canônico: [`../examples/lote_01.yaml`](../examples/lote_01.yaml). O kit P3-D usa
 [`../examples/lote_03_kit.yaml`](../examples/lote_03_kit.yaml) (`spec@2`).
@@ -250,8 +250,13 @@ default **2,4 m** (pé-direito) quando a rota é `modular` e o item não declara
   (10/11/2026). `spec@2` é o exemplo — `parte` é opcional, mas `spec@1` fica congelado e continua
   validando.
 - **Aditivo** (campo opcional novo, valor novo em enum com default): mantém `@1` fora do caso acima.
-- **Quebra** (renomear, tornar obrigatório, mudar unidade, mudar default): `@2`, com `forge3d migrate`
-  lendo `@1` e o `@1` congelado por uma major.
+- **Quebra** (renomear, tornar obrigatório, mudar unidade, mudar default): `@2`, com o `@1` congelado
+  por uma major.
+- **`forge3d migrate <lote>`** é o caminho de subida: reescreve só a linha `schema:` (e canonicaliza
+  `estilo_global` legado), preservando comentários e ordem, e **valida** o resultado com o mesmo
+  `spec.preparar` do `validate`. Não inventa valor: lote que o contrato alvo recusa sai `2` com
+  `FORGE-E-SPEC`, sem arquivo escrito. `--saida` grava cópia, `--em-lugar` sobrescreve o original
+  (obrigatório para isso) e sem flag é dry-run. `--json` devolve `forge3d/report@1` com `mudancas`.
 - O manifesto carrega a major do spec **com** a do manifesto: asset velho continua verificável.
 
 ## 8. Exemplo ilustrativo

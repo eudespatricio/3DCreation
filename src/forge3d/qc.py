@@ -476,7 +476,7 @@ def verificar(
     *,
     escala_saida: float | None = None,
 ) -> dict:
-    """Roda G1-G9 sobre o artefato. Devolve relatorio; nao levanta (quem decide e o chamador).
+    """Roda G1-G10 sobre o artefato. Devolve relatorio; nao levanta (quem decide e o chamador).
 
     ``escala_saida`` sobrepoe o perfil: o ``verify`` de um manifesto reexecuta o gate com a escala
     DECLARADA no manifesto, nao com a que o perfil diz hoje.

@@ -1,6 +1,6 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5, P4, P5 e C5–C15 fechadas.** A P2 fechou pela
+**Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5, P4, P5, P6 e C5–C15 fechadas.** A P2 fechou pela
 escala (`manifest@2`, D62): package e `.rbxlx` medem **6,6071 studs** (D68). A C12 republicou
 **7 destinos, 16 manifestos** com `verify` **0 problemas**. A P4 saiu com `spec@3` + WFC (D74/D75).
 A P5 fechou: clipe `idle` por retarget (D66) em `manifest@3` (D67), tocando no Godot e no Roblox
@@ -31,26 +31,13 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P3.5** | ✔ | concept SD1.5 → TripoSR, split e A/B de 3 personagens híbridos |
 | **P4** | ✔ | `spec@3` + WFC + 7 módulos + 10 setores, colisão por peça e 1 draw call (D74/D75/D77); parede cheia do lado fechado (D79) |
 | **P5** | ✔ | animação base tocando no Roblox (D66/D67/D69) e LOD medido por critério (D71: blocky sem LOD, mesh com LOD no prop e no personagem) |
+| **P6** | ✔ | `migrate` (D80), `verify` no CI de PR com Blender pinado e wheel instalável (D81) |
 
 ## O que foi entregue nesta janela
 
-- **Opção A da P2 (D62/C15)** — `schemas/manifest.v2.schema.json` com `unidades_export`;
-  `roblox-r15` com `escala_saida: 3,5714` e `metros_por_unidade: 0,28` (`godot4` fica em 1.0);
-  `blender/postprocess.py` multiplica a escala final e devolve o fator; `qc.py` divide a AABB e o pivô
-  pela escala no G2 e grava `altura_export`/`escala_saida`; `publish` emite `@2` e `verify` aceita `@1`
-  (escala 1.0) e `@2`, reprovando `unidades_export` inconsistente ou divergente do perfil atual.
-- **13 testes novos** em `tests/test_unidades.py` + o invariante R15 medindo 6,607 studs no glb; o CI
-  passou a rodar o arquivo. `PIPELINE_VERSION` **0.2.5**.
-- **Republicado o `r15`** e reenviado o Model (asset **134628989553440**, 39.004 B, Approved); medido
-  no Studio via MCP: `2,7086 × 6,6071 × 1,5196` studs, 16 Bones, `AssetFetchStatus.Success`.
-- **`verify` em 0 problemas** no `r15`; `lote_01` e `kit_sentinel` (`manifest@1`) continuam 0 problemas.
-- **Doc**: `DECISOES` §1/§4 (Q3 fechada) e a tabela D57–D62 consertada; `docs/contratos.md` §3.1;
-  GAP-006/GAP-043 fechados, GAP-044 aberto; `docs/pendencias.md` e `README` sem "P2 parcial".
-- **C12 — destinos republicados** (7 destinos, 16 manifestos, `verify` 0 problemas) e a C12 achou dois
-  defeitos reais: o `convex_hull` herdava **faces de entrada** e o colisor saía com face interior
-  (desvio de 1,8 m; **D64** — hull em nuvem de pontos) e a convexidade media com tolerância apertada
-  demais (1e-6 do diâmetro; **D65** — 1 mm/m). O colisor do concept caiu de "concavo" para desvio
-  máximo de **4,3e-4 m**. `PIPELINE_VERSION` **0.2.6**.
+- **Janela P2/P4 (C12–C15)** — escala declarada no `manifest@2` (D62), hull sobre nuvem de pontos
+  (D64), convexidade de 1 mm/m (D65) e 7 destinos/16 manifestos republicados; detalhe em
+  `DECISOES.md` §2 e `docs/gaps.md`.
 - **P5-A — animação base (D66/D67)** — `rig.retarget` nos perfis mapeia osso semântico → osso do
   esqueleto; o `idle` é gerado no `bpy` (5 chaves, 2 s a 24 fps) e embutido no glb; G10 mede
   **movimento real**; `manifest@3` declara `animacoes`; `tests/test_animacao.py` + e2e do R15 com o
@@ -65,18 +52,28 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   `export-anim` gera o `.rbxmx` e o `upload-animation` sobe como `Animation`
   (**116049702979137**, Approved). **Playback medido no client do Play mode**: a Head anda
   **0,0949 / 0,0662 studs** em duas execuções. O que destravou foi `Priority=Core` — com `Idle` a track
-  carrega (`Weight=1`, `Length=2.0`) e não aplica; o nome da pose (parte × junta) - **GAP-047 — parede cheia no lado fechado (D79)** — a parede cobre o vão inteiro, do topo da placa
+  carrega (`Weight=1`, `Length=2.0`) e não aplica; o nome da pose (parte × junta) não era o problema.
+- **GAP-047 — parede cheia no lado fechado (D79)** — a parede cobre o vão inteiro, do topo da placa
   ao pé-direito, recuada 0,40 m do limite; **sem boolean**: a falha do D75 era parede×pilar, e sem
   pilar as paredes só se cruzam em volume (G1 **nao_manifold=0**). `PIPELINE_VERSION` **0.3.7**,
   `modular` **0.2.1**; teste do vão inteiro em `tests/test_modular.py`; `render_preview.py` ganhou
   `--alto` (vista de cima) e enquadramento por diagonal.
+- **P6 — produto (D80/D81)** — `forge3d migrate` sobe `spec@1`/`@2` → `spec@3` sem reescrever o
+  documento: a migração é **textual** (comentários preservados), canonicaliza alias legado e **não
+  inventa valor** (lote com `rota: modular` sem o bloco continua recusado pelo B15). O CI de PR ganhou
+  **2 jobs**: `verificar` (Blender **4.2.0** baixado e conferido por sha256, pipeline real e `verify`
+  provando 0 problemas no íntegro e exit 3 no adulterado) e `distribuicao` (wheel → venv limpo → CLI
+  fora do repo). `query` ganhou teste de índice e filtros. **Sem bump de versão**: a saída dos assets
+  não mudou (D6).
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **138 verdes + 1 GPU (skip)** em **139 testes** |
-| CI no GitHub | **123 testes** (`tools/ci.sh`) + contexto + P0 |
+| Suíte | **157 verdes + 1 GPU (skip)** em **158 testes** |
+| CI no GitHub | **141 testes** em **3 jobs**: `portoes` (ci.sh + contexto + P0), `verificar` e `distribuicao` |
+| Instalação | wheel de **0.3.7** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
+| `forge3d migrate` | `lote_01` @1→@3 e `lote_03_kit` @2→@3 com `parte` e comentários intactos; `--saida`/`--em-lugar`; **10 testes** |
 | Repo por UNC (sessão Windows) | criar, apagar e `mv` funcionam; **modificar arquivo existente falha** com `GetFileSecurityW EIO` |
 | I/O em lote por UNC | **200 arquivos pequenos: 906 ms** vs **12 ms** em ext4 (~75×); 50 MB: **3,38 s** vs 0,03 s |
 | Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
@@ -114,7 +111,8 @@ permuta tamanho como centro** · **`D69` clipe do Roblox com `Priority=Core`** �
 silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo** · **`D74` WFC próprio** ·
 **`D75` P4 fatiada: `spec@3` + um setor por asset** · **`D76`/I15 projeto não entra no pipeline** ·
 **`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
-**`D79` parede cheia no lado fechado**.
+**`D79` parede cheia no lado fechado** · **`D80` `migrate` textual, sem inventar valor** ·
+**`D81` CI de PR com Blender pinado por sha256 e `verify`**.
 
 ## Aberto
 
@@ -127,7 +125,7 @@ Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-015** (
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **P6** — produto: `query` por demanda, `migrate` de spec e distribuição (`uv tool install`) | 1+ sessão | roadmap |
+| **1** | Operação real: rodar a esteira num projeto de jogo e medir custo por asset (o adaptador HTTP só com consumidor não-Python) | 1 sessão | P6/roadmap |
 | **2** | Revisão visual dos LODs no Godot e o `.rbxlx` com o clipe no Studio (cliente real) | 1 sessão manual | consistência |
 | **3** | C12 nos destinos de malha que ganharam LOD (`kit_mesh` já republicado) | minutos | consistência |
 
@@ -191,6 +189,6 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 > Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P5 fechadas: 7
 > destinos/16 manifestos em `manifest@3` 0.2.7, `verify` 0 problemas, CI verde em
 > `github.com/eudespatricio/3DCreation`; key do Roblox em `~/.config/forge3d/roblox.key`, fora do repo.
-> P4 e P5 sem lacuna (GAP-047 fechou em D79). Próximo: **P6** (produto) ou a revisão visual pendente.
-> Não reabra D3–D27, D52–D65 nem D66–D79 sem fato novo. Sessão no Windows? Leia `AGENTS.md` §Ambiente
-> **antes** de editar arquivo.
+> P0–P6 fechadas: `manifest@3` 0.3.7, 3 jobs de CI e wheel instalável (D81). Próximo: operar num
+> projeto de jogo e medir custo por asset. Não reabra D3–D27, D52–D65 nem D66–D81 sem fato novo.
+> Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

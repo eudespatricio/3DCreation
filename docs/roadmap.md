@@ -14,7 +14,7 @@
 | **P3** | Rota `mesh` com stack local | **sim** | 10 assets com QC aprovado, tempo e VRAM medidos e registrados |
 | **P4** | Rota `modular` (WFC) | não | ✔ uma dungeon de 10 setores com colisão por peça e seed fixa |
 | **P5** | LOD de mesh, retarget, animação | sim | animação base tocando nos dois perfis |
-| **P6** | Índice, `gc`, CI e distribuição | não | `forge3d` instalável e `verify` rodando em CI de pull request |
+| **P6** ✔ | Índice, `gc`, CI e distribuição | não | ✔ `forge3d` instalável (wheel + venv limpo) e `verify` rodando em CI de pull request |
 
 ## P0 — Contratos (concluída em 10/11/2026)
 
@@ -156,8 +156,14 @@ o `Animation` **116049702979137** (`Priority=Core`) toca no rig Motor6D no clien
 ## P6 — Produto
 
 Índice consultável (`query`), `gc`, `migrate` de spec, CI de pull request com `verify`, distribuição
-(`uv tool install`), e — só se houver consumidor não-Python — o adaptador HTTP. **Feito:**
-`forge3d gc` (D45) e `tools/ci.sh` + workflow sem GPU/Blender (D46/GAP-008 configurado).
+(`uv tool install`), e — só se houver consumidor não-Python — o adaptador HTTP.
+
+**Estado em 11/11/2026 — P6 fechada:** `query` consulta o índice (filtros de projeto, perfil, tag e
+teto de tris) e tem teste próprio; `forge3d migrate` sobe `spec@1`/`@2` → `spec@3` sem reescrever o
+documento nem inventar valor (D80); o CI de PR tem dois jobs novos — `verificar` (Blender 4.2.0
+pinado por sha256, pipeline real, `verify` provando 0 problemas no íntegro e exit 3 no adulterado) e
+`distribuicao` (wheel → venv limpo → CLI fora do repo), D81. O adaptador HTTP segue condicionado a
+consumidor não-Python, como estava.
 
 ## Caminho crítico
 

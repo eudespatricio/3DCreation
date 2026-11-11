@@ -15,3 +15,37 @@ jobs:
       - run: uv venv --python 3.12 .venv
       - run: uv pip install --python .venv/bin/python -e ".[dev]"
       - run: bash tools/ci.sh
+
+  # P6: o wheel tem que funcionar fora do repo (schemas/profiles entram no pacote)
+  distribuicao:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.7"
+      - run: bash tools/ci_dist.sh
+
+  # P6: pipeline de verdade num PR e `verify` no destino (rota blocky, sem GPU).
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.7"
+      - name: libs do Blender headless
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libxi6 libxrender1 libxxf86vm1 libxfixes3 libgl1
+      - name: Blender 4.2.0 pinado e verificado (I9)
+        run: |
+          curl -fsSL -o /tmp/blender.tar.xz \
+            https://download.blender.org/release/Blender4.2/blender-4.2.0-linux-x64.tar.xz
+          echo "4f4fd7646af01f6fee9d420408318381a6e52571268eb7cf9cd5033bd9e7a359  /tmp/blender.tar.xz" | sha256sum -c -
+          tar -xf /tmp/blender.tar.xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/blender-4.2.0-linux-x64" >> "$GITHUB_PATH"
+      - run: uv venv --python 3.12 .venv
+      - run: uv pip install --python .venv/bin/python -e ".[dev]"
+      - run: bash tools/ci_verify.sh

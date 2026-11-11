@@ -388,6 +388,16 @@ def verificar(destino: Path) -> dict:
         gates_antigos = {g["id"]: g for g in man["qc"]["gates"]}
         medido_g2 = (gates_antigos.get("G2") or {}).get("medido", {})
         medido_g9 = (gates_antigos.get("G9") or {}).get("medido", {})
+        # C7/GAP-037: manifesto anterior ao C2 nao tem pivo_regra e o G2 pularia o pivo
+        # em silencio; ausencia de regra e reprovacao, nao perdao.
+        if not medido_g2.get("pivo_regra"):
+            erros.append(
+                {
+                    "manifesto": caminho.name,
+                    "erro": "manifesto sem G2.pivo_regra (anterior ao C2): republique o asset",
+                }
+            )
+            continue
         item = {
             "id": man["asset_id"],
             "altura_metros": medido_g2.get("esperado_m"),

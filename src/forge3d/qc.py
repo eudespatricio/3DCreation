@@ -12,7 +12,15 @@ from pathlib import Path
 
 from .errors import erro_qc
 
-__all__ = ["ler_glb", "ler_glb_bin", "analisar", "topologia", "verificar", "GATES"]
+__all__ = [
+    "ler_glb",
+    "ler_glb_bin",
+    "analisar",
+    "topologia",
+    "convexidade",
+    "verificar",
+    "GATES",
+]
 
 GATES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9")
 _MAGIC = 0x46546C67  # "glTF"
@@ -212,6 +220,140 @@ def topologia(gltf: dict, binario: bytes) -> dict:
     }
 
 
+def _componentes(posicoes: list[tuple], triangulos: list[tuple]) -> list[list[int]]:
+    """Agrupa vertices por conectividade, soldando por posicao (1e-5 m, igual ao G1)."""
+    pai = list(range(len(posicoes)))
+
+    def raiz(i: int) -> int:
+        while pai[i] != i:
+            pai[i] = pai[pai[i]]
+            i = pai[i]
+        return i
+
+    def unir(a: int, b: int) -> None:
+        ra, rb = raiz(a), raiz(b)
+        if ra != rb:
+            pai[rb] = ra
+
+    solda: dict[tuple, int] = {}
+    for i, p in enumerate(posicoes):
+        chave = (round(p[0], 5), round(p[1], 5), round(p[2], 5))
+        unir(i, solda.setdefault(chave, i))
+    for a, b, c in triangulos:
+        unir(a, b)
+        unir(b, c)
+
+    grupos: dict[int, list[int]] = {}
+    for i in range(len(posicoes)):
+        grupos.setdefault(raiz(i), []).append(i)
+    return list(grupos.values())
+
+
+def _convexo(posicoes: list[tuple], triangulos: list[tuple], eps: float) -> bool:
+    """Malha fechada e convexa se, em toda face, todos os vertices caem do mesmo lado.
+
+    Testar os dois lados (e nao so o lado da normal) torna a medida insensivel a normal
+    invertida, que num hull exportado e ruido e nao concavidade.
+    """
+    for a, b, c in triangulos:
+        pa, pb, pc = posicoes[a], posicoes[b], posicoes[c]
+        ux, uy, uz = pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]
+        vx, vy, vz = pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]
+        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        norma = (nx * nx + ny * ny + nz * nz) ** 0.5
+        if norma < 1e-12:
+            continue
+        nx, ny, nz = nx / norma, ny / norma, nz / norma
+        d = nx * pa[0] + ny * pa[1] + nz * pa[2]
+        acima = abaixo = False
+        for p in posicoes:
+            s = nx * p[0] + ny * p[1] + nz * p[2] - d
+            if s > eps:
+                acima = True
+            elif s < -eps:
+                abaixo = True
+            if acima and abaixo:
+                return False
+    return True
+
+
+def convexidade(
+    gltf: dict, binario: bytes, *, max_pares: int = 4_000_000
+) -> dict:
+    """Mede se cada parte do colisor e convexa (GAP-038/C8).
+
+    Convexidade e propriedade de componente conexa, nao do arquivo: dois hulls soltos no
+    mesmo GLB sao convexos; a uniao nao e. Por isso mede por componente.
+    """
+    posicoes: list[tuple] = []
+    triangulos: list[tuple] = []
+    for malha in gltf.get("meshes", []):
+        for prim in malha.get("primitives", []):
+            if int(prim.get("mode", 4)) != 4:
+                continue
+            pos_idx = (prim.get("attributes") or {}).get("POSITION")
+            if pos_idx is None:
+                continue
+            base = len(posicoes)
+            posicoes.extend(
+                (float(p[0]), float(p[1]), float(p[2]))
+                for p in _accessor(gltf, binario, int(pos_idx))
+            )
+            idx = prim.get("indices")
+            if idx is not None:
+                ids = [int(v[0]) for v in _accessor(gltf, binario, int(idx))]
+            else:
+                ids = list(range(len(posicoes) - base))
+            for k in range(0, len(ids) - 2, 3):
+                triangulos.append((base + ids[k], base + ids[k + 1], base + ids[k + 2]))
+
+    if not triangulos:
+        return {"medida": True, "partes": 0, "concavas": 0, "convexo": True}
+
+    if len(posicoes) * len(triangulos) > max_pares:
+        return {
+            "medida": False,
+            "partes": 0,
+            "concavas": 0,
+            "convexo": True,
+            "motivo": "custo acima do teto; republique com colisor menor",
+        }
+
+    concavas = 0
+    grupos = _componentes(posicoes, triangulos)
+    for grupo in grupos:
+        if len(grupo) < 4:
+            continue
+        conjunto = set(grupo)
+        locais = [posicoes[i] for i in grupo]
+        indice = {v: k for k, v in enumerate(grupo)}
+        tris = [
+            (indice[a], indice[b], indice[c])
+            for a, b, c in triangulos
+            if a in conjunto and b in conjunto and c in conjunto
+        ]
+        if not tris:
+            continue
+        xs = [p[0] for p in locais]
+        ys = [p[1] for p in locais]
+        zs = [p[2] for p in locais]
+        diag = (
+            (max(xs) - min(xs)) ** 2
+            + (max(ys) - min(ys)) ** 2
+            + (max(zs) - min(zs)) ** 2
+        ) ** 0.5
+        eps = max(1e-9, diag * 1e-6)
+        if not _convexo(locais, tris, eps):
+            concavas += 1
+
+    return {
+        "medida": True,
+        "partes": len(grupos),
+        "concavas": concavas,
+        "convexo": concavas == 0,
+    }
+
+
 def _png_dimensoes(caminho: Path) -> tuple[int, int]:
     with open(caminho, "rb") as fh:
         cabecalho = fh.read(26)
@@ -372,25 +514,33 @@ def verificar(item: dict, perfil: dict, pasta: Path, resultado: dict) -> dict:
             and (pasta / arquivo_col["caminho"]).is_file()
         )
         nomes = []
+        convexo = {"medida": False, "partes": 0, "concavas": 0, "convexo": True}
         if arquivo_col is not None:
             try:
-                nomes = analisar(ler_glb(pasta / arquivo_col["caminho"]))["colisores"]
+                gltf_col, binario_col = ler_glb_bin(pasta / arquivo_col["caminho"])
+                nomes = analisar(gltf_col)["colisores"]
+                convexo = convexidade(gltf_col, binario_col)
             except erro_qc:
                 nomes = []
         # perfil sem convencao de nome (ex.: roblox-r15) nao tem como exigir prefixo;
         # perfil que declara prefixo continua exigindo que todos os nos o usem
         prefixo = perfil["colisao"].get("prefixo")
         prefixo_ok = all(n.startswith(prefixo) for n in nomes) if (prefixo and nomes) else True
+        # C8: colisor concavo passa no teste de existencia e reprova aqui
+        convexo_ok = bool(convexo["convexo"])
         gates.append(
             {
                 "id": "G7",
-                "status": "ok" if col_ok and prefixo_ok else "falhou",
-                "medido": {"partes": partes, "nos": nomes},
+                "status": "ok" if col_ok and prefixo_ok and convexo_ok else "falhou",
+                "medido": {"partes": partes, "nos": nomes, "convexidade": convexo},
                 "limite": {
                     "max_partes": perfil["colisao"]["max_partes"],
                     "prefixo": prefixo,
+                    "convexo": True,
                 },
-                "codigo": None if col_ok and prefixo_ok else "FORGE-E-QC",
+                "codigo": None
+                if col_ok and prefixo_ok and convexo_ok
+                else "FORGE-E-QC",
             }
         )
 

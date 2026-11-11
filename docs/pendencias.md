@@ -3,7 +3,7 @@
 > Regra: item sem critério de aceitação não entra aqui — vira conversa.
 > Prioridade: **A** = destrava a fase seguinte · **B** = correção que já morde · **C** = dívida aceitável.
 
-Última revisão: 10/11/2026 (P3/P3.5 com 3 personagens híbridos; R15 parcial; 51 verdes + 1 GPU (manual)).
+Última revisão: 11/11/2026 (C5–C11 fechados; CI verde no GitHub; suíte 68 + 1 GPU; R15 ainda parcial).
 
 ## 1. Bloqueiam a próxima fase (P2/P4)
 
@@ -15,13 +15,8 @@
 
 | # | Correção | Sintoma hoje | Aceitação | Prio |
 |---|---|---|---|---|
-| C5 | Flake não reproduzido na suíte e2e (GAP-019) | uma execução deu `ERROR` em 3 fixtures e não repetiu | 10 execuções seguidas verdes, ou causa identificada | **C** |
-| C6 | `tools/delegar.py` depende da IDE aberta | falha com mensagem clara, mas não tem caminho sem IDE | decisão entre chave de API e `agentapi` registrada (Q9) | **C** |
-| C7 | `verify` de manifesto antigo sem `pivo_regra` pula o pivô (GAP-037) | asset publicado antes do C2 não tem a regra no relatório | todo manifesto novo tem `pivo_regra`; `verify` reprova a ausência | **B** |
-| C8 | G7 não mede convexidade (GAP-038) | colisor côncavo passaria no gate | `verify` mede convexidade e reprova | **B** |
-| C9 | `rembg` é opcional e explícito (GAP-039) | concept com fundo não neutro entra com fundo ou falha | provider decide por alfa/metadado e registra na versão | **B** |
-| C10 | `preflight` ignora `FORGE3D_MODELOS` (GAP-040) | pesos locais fora do HF cache não são vistos | preflight respeita o caminho local | **C** |
-| C11 | Prompt do concept pode passar de **77 tokens** (CLIP) e o sufixo duplica `game asset concept art` | o prompt do sentinela já ficou no limite; prompts longos podem ser truncados em silêncio | medir tokens, avisar/truncar com log e remover a duplicata do sufixo | **C** |
+| C6 | `tools/delegar.py` depende da IDE aberta | falha com mensagem clara, mas não tem caminho sem IDE | decisão entre chave de API e `agentapi` registrada (Q9) — **decisão do operador, única pendência de código** | **C** |
+| C12 | Assets publicados antes de 11/11/2026 têm manifesto sem `pivo_regra` e colisor côncavo | `forge3d verify` nesses destinos agora reprova (`C7`/`C8` funcionando como portão) | republicar os destinos antigos (`lote_01`, `lote_03_kit`, `lote_06`, `r15`) ou aceitar o destino como arquivo morto | **B** |
 
 ## 3. Decisões que precisam do operador
 
@@ -34,6 +29,11 @@
 
 ## 4. Fechado nesta janela (não reabrir)
 
+- **C5–C11** fechados em 11/11/2026: 10 execuções seguidas do e2e (C5); `verify` reprova manifesto
+  sem `pivo_regra` (C7); G7 mede convexidade por componente e o `convex_hull` foi corrigido — o gate
+  achou colisor com 22–146 arestas não-manifold (C8); `rembg` decidido por procedência/alfa (C9);
+  `preflight` acha pesos em `FORGE3D_MODELOS` (C10); prompt do CLIP medido/truncado em 77 e sufixo sem
+  duplicata (C11). Suíte 68 verdes + 1 GPU; CI verde no GitHub (run 42942191684).
 - **P3-A** bake próprio de UV+textura no `blender/postprocess.py` para malha `COLOR_0`: `smart_project` +
   bake `DIFFUSE/COLOR` 512² em Cycles CPU; G3/G5 verdes; `tests/test_p3_bake.py`.
 - **P3-B** provider `i23d` real: TripoSR na venv `~/.cache/forge3d/venv-i23d` via `FORGE3D_VENV_I23D`,

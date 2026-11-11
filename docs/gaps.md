@@ -8,14 +8,9 @@
 
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
-| GAP-037 | `verify` de manifesto antigo (sem `pivo_regra` no G2) **pula** a checagem de pivô | P3 | P3.5 | todo manifesto publicado tem `pivo_regra`, ou `verify` reprova a ausência |
-| GAP-038 | G7 reexecuta presença/prefixo do colisor, mas **não mede convexidade** | P1 | P3.5 | `verify` mede convexidade (`bpy` ou Python puro) e reprova colisor não convexo |
-| GAP-039 | `rembg` é opcional e explícito; concept com fundo não neutro falha ou entra com fundo | P3 | P3.5 | provider decide rembg por alfa/metadado e registra a decisão na versão |
-| GAP-040 | `preflight` do `mesh` checa pesos no cache HF fixo, ignorando `FORGE3D_MODELOS` | P3 | P3.5 | preflight respeita `FORGE3D_MODELOS` e caminho local de pesos |
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
 | GAP-006 | Roblox: upload real aprovado (asset 136741921517312, 1 MeshPart + 16 Bones); **textura separada aprovada (Image 75934318775024) e `TextureID` setado**; servidor headless não carrega asset privado; faltam GUI, pivôs nos Bones, escala/stud e U1–U4 | P0 | P2 | ver textura no Studio GUI, pivôs nos Bones, U1–U4 sem `[verificar]`; escala/stud |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |
-| GAP-008 | CI **configurado** (`tools/ci.sh` + `.github/workflows/ci.yml`: 36 testes + P0 + contexto), primeira execução no GitHub pendente | P0 | P1.5 | primeiro run verde em PR; suíte Blender/GPU local documentada |
 | GAP-009 | Nome do produto indefinido (Q1) | P0 | antes de publicar | pacote e CLI renomeados, ou decisão de manter `forge3d` |
 | GAP-010 | Q7 (git normal × LFS) indefinida | P0 | antes do 1º asset real | decisão + `.gitattributes` no repo do jogo |
 | GAP-013 | LOD de `blocky` usa decimate: reduz tris, mas a qualidade visual não foi avaliada | P1 | P2 | critério visual registrado para `_LOD1`/`_LOD2` |
@@ -54,6 +49,11 @@
 | ~~GAP-041~~ | ~~Capa/arma no split mesh~~ | P3.5 | **P3.5 ✔** | D39/D40: arma vai para `blocky`; capa .03 reconhecível no conjunto; previews `docs/preview/p3_char_cape_*` |
 | ~~GAP-029~~ | ~~Qualidade do reconstructor~~ | P3 | **P3.5 ✔** | 3 personagens híbridos (.02/.05/.04 + capa .03 + arma blocky .01), `AB_OK`, G1–G9; `docs/preview/p3_ab_3personagens.png` |
 | ~~GAP-016~~ | ~~Sem política de retenção do cache~~ | P0 | **P6 parcial ✔** | `forge3d gc --manter-dias 30`, 2 testes; publicado/índice/ledger intocados |
+| ~~GAP-008~~ | ~~CI nunca rodou no GitHub~~ | P0 | **C5–C11 ✔** | repo público `github.com/eudespatricio/3DCreation`; run **42942191684** `success` em `cc89da4`; job = `tools/ci.sh` com 53 testes + contexto + P0 |
+| ~~GAP-037~~ | ~~`verify` pulava o pivô de manifesto antigo~~ | P3 | **C7 ✔** | `verify` reprova manifesto sem `G2.pivo_regra`; `tests/test_correcoes.py` |
+| ~~GAP-038~~ | ~~G7 não media convexidade~~ | P1 | **C8 ✔** | `qc.convexidade` mede por componente conexa e reprova; o gate achou colisor não-manifold (22–146 arestas) e o hull foi corrigido; `tests/test_convexidade.py` |
+| ~~GAP-039~~ | ~~`rembg` opcional e explícito~~ | P3 | **C9 ✔** | decide por procedência/alfa, com override por env; `rembgauto2` na versão e motivo no `i23d_resultado.json` |
+| ~~GAP-040~~ | ~~`preflight` ignorava `FORGE3D_MODELOS`~~ | P3 | **C10 ✔** | `pesos_triposr()` procura env, cache HF e dir padrão; teste dedicado |
 
 ## Como um gap nasce
 

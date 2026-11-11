@@ -585,10 +585,28 @@ def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
                     vmap[vertice] = temp.verts.new(vertice.co)
                 temp.verts.ensure_lookup_table()
             hull = bmesh.ops.convex_hull(temp, input=list(temp.verts))
-            manter = set(hull["geom_interior"]) | set(hull["geom_unused"])
-            bmesh.ops.delete(temp, geom=list(manter), context="VERTS")
+            # convex_hull NAO apaga a geometria de entrada: as faces originais que caem
+            # sobre o hull ficavam no recorte e o colisor saia nao-manifold (G7/C8).
+            # Reconstruir so com as faces do hull fecha a superficie de verdade.
+            faces_hull = [g for g in hull["geom"] if isinstance(g, bmesh.types.BMFace)]
+            limpo = bmesh.new()
+            mapa_vert = {}
+            for face in faces_hull:
+                for vertice in face.verts:
+                    if vertice not in mapa_vert:
+                        mapa_vert[vertice] = limpo.verts.new(vertice.co)
+            limpo.verts.ensure_lookup_table()
+            for face in faces_hull:
+                try:
+                    limpo.faces.new([mapa_vert[v] for v in face.verts])
+                except ValueError:
+                    continue
+            limpo.normal_update()
+            if limpo.faces:
+                bmesh.ops.recalc_face_normals(limpo, faces=list(limpo.faces))
             malha = bpy.data.meshes.new(f"UCX_{nome_base}_{indice:02d}")
-            temp.to_mesh(malha)
+            limpo.to_mesh(malha)
+            limpo.free()
             temp.free()
             malha.update()
             col = bpy.data.objects.new(f"UCX_{nome_base}_{indice:02d}", malha)

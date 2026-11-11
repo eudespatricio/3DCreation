@@ -1,13 +1,13 @@
 # CONTINUAR — handoff de sessão
 
 **Data:** 10/11/2026 · **P0, P0.5 e P1 fechadas. P3/P3.5 fechadas para prop, concept→mesh e 3
-personagens híbridos com capa; P2 parcial (R15 16 ossos, pivô, `.rbxlx`, Model/Image aprovados; falta GUI).** 51 verdes + 1 GPU
+personagens híbridos com capa; P2 parcial (R15 16 ossos, pivô, `.rbxlx`, Model/Image aprovados; falta GUI).** 68 verdes + 1 GPU
 (skip; manual passa) · assets com UV+textura aprovados no QC e importados no Godot 4.3.
 
 Revisão da janela: [`docs/revisao-janela-2026-11-10.md`](docs/revisao-janela-2026-11-10.md).
 **Para a próxima janela:** leia [`docs/pendencias.md`](docs/pendencias.md) (o que falta, com critério),
 [`docs/gaps.md`](docs/gaps.md) (lacunas) e [`DECISOES.md`](DECISOES.md) §1–§2 e §4. Verificação rápida:
-`python -m pytest tests/test_e2e_rapido.py -q` (2,0 s) e `python -m pytest -q` (16,0 s).
+`python -m pytest tests/test_e2e_rapido.py -q` (2,0 s) e `python -m pytest -q` (18,0 s).
 
 ---
 
@@ -67,7 +67,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 
 | Medida | Valor |
 |---|---|
-| Suíte | **51 verdes + 1 GPU (skip; manual passa)** (24 unidade + 2 P3-A + 6 concept + 2 gc + 1 rbxlx + 3 upload + 1 e2e rápido + 12 invariantes) em **16,0 s** |
+| Suíte | **68 verdes + 1 GPU (skip; manual passa)** (24 unidade + 2 P3-A + 6 concept + 2 gc + 1 rbxlx + 3 upload + 17 C5–C11 + 1 e2e rápido + 12 invariantes) em **18,0 s** |
 | E2E rápido | **2,0 s** (alvo <30 s) |
 | TripoSR — inferência (bule) | load **7,7 s** · forward **1,2 s** · extração **3,8 s** · total **12,6 s** · VRAM pico **2.378 MiB** |
 | `run` mesh — bule | **23,3 s** frio · **2,1 s** cache hit |
@@ -91,7 +91,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | P2 — pivô por membro (Studio) | **`R15_STUDIO_PASS motores=15 partes=16`**; 16 bone heads no GLB (H=1,85 m) |
 | P2 — export nativo `.rbxlx` | **16 Parts + 15 Motor6D**, 18.479 B; `R15_RBXLX_PASS partes=16 motores=15` |
 | P2 — upload Open Cloud | Model 136741921517312 (Approved, 1 MeshPart + 16 Bones) + Image 75934318775024 (Approved); `TextureID` setado; headless sem asset privado; 3 testes |
-| gc / CI | `gc` 2 testes; `tools/ci.sh` **36 testes** + contexto + P0 |
+| gc / CI | `gc` 2 testes; `tools/ci.sh` **53 testes** + contexto + P0; GitHub run **42942191684** verde |
 | Venv concept | **5,6 GB** · diffusers 0.31.0 · transformers 4.44.2 · torch 2.4.1+cu121 |
 | Probe Roblox (sem Studio) | prop blocky publica/verifica; humanoid falha em `pivot: junta`; blocky não gera nomes R15 |
 
@@ -114,17 +114,17 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Q7 | assets no git do jogo (normal × LFS) | primeiro asset real | antes de integrar |
 | Q9 | delegação: chave de API × `agentapi` | uso seguro em execução | P4 |
 
-Gaps abertos que importam: **GAP-006** (GUI/textura/bones/escala R15), **GAP-008** (primeiro run do
-CI no GitHub), **GAP-037** (verify de manifesto antigo sem `pivo_regra`), **GAP-038** (convexidade
-no G7), **GAP-039** (rembg explícito), **GAP-040** (`FORGE3D_MODELOS`).
+Gaps abertos que importam: **GAP-006** (GUI/textura/bones/escala R15), **GAP-004** (scanner da
+skill em Luau), **GAP-013** (qualidade do LOD blocky), **GAP-015** (`draft` em 4k), **GAP-014**
+(I3 sem teste de observação), **GAP-020** (personagem sem clipe de animação).
 
 ## Próximos passos — com custo, em ordem de evidência
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
 | **1** | **Roblox P2**: GUI/textura, pivôs nos Bones, escala/stud e U1–U4 | 1 sessão + Studio | P8/GAP-006 |
-| **2** | Primeiro run do **CI** no GitHub + suíte Blender/GPU local documentada | 1 sessão | GAP-008 |
-| **3** | Correções C5–C11 (flake, delegar, verify antigo, convexidade, rembg, `FORGE3D_MODELOS`, tokens) | 1 sessão | C5–C11 |
+| **2** | **C6/Q9**: decidir delegação (chave de API × `agentapi`) | decisão do operador | C6 |
+| **3** | Republicar assets antigos (manifesto sem `pivo_regra`, colisor côncavo) | 1 sessão | C12 |
 | **4** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
 
 ## Comandos
@@ -152,7 +152,7 @@ forge3d verify ~/.local/state/forge3d/saida/sentinel_concept
 forge3d verify ~/.local/state/forge3d/saida/kit_mesh
 forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d verify ~/.local/state/forge3d/saida/teapot_exemplo
-python -m pytest -q                    # 51 verdes + 1 GPU (skip; manual passa)
+python -m pytest -q                    # 68 verdes + 1 GPU (skip; manual passa)
 bash tools/check-contexto.sh           # tetos
 python tools/check-p0.py               # docs, schemas, I12/I14
 
@@ -192,9 +192,9 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 
 ## Como retomar
 
-> Leia `3DCreation/CONTINUAR.md`, `MAPA.md` e `DECISOES.md` §2 e §4. P0, P0.5 e P1 estão fechadas;
-> P3/P3.5 fecharam prop, concept, split e **3 personagens híbridos**. P2 está parcial: R15 16 ossos,
-> pivô, `.rbxlx` e upload **Model 136741921517312 + Image 75934318775024** aprovados. Falta o GUI
-> logado para ver a textura, testar os pivôs nos 16 Bones, escala/stud e U1–U4.
-> Próximo: P8/GAP-006; depois primeiro run do CI (GAP-008), C5–C11 e animação. Não reabra D3–D26;
-> SF3D encerrado (D27); key em `~/.config/forge3d/roblox.key`, fora do repo.
+> Leia `3DCreation/CONTINUAR.md`, `MAPA.md` e `DECISOES.md` §2 e §4. P0, P0.5, P1, P3/P3.5 e C5–C11
+> fechados; P2 está parcial: R15 16 ossos, pivô, `.rbxlx` (18.479 B no caminho default) e upload
+> **Model 136741921517312 + Image 75934318775024** aprovados. Falta o GUI logado para ver a textura,
+> testar os pivôs nos 16 Bones, escala/stud e U1–U4.
+> Próximo: P8/GAP-006 no Studio; depois C6/Q9, republicar assets antigos e animação. CI verde no
+> GitHub (run 42942191684). Não reabra D3–D26; SF3D encerrado (D27); key fora do repo.

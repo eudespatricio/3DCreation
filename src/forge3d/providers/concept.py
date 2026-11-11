@@ -15,10 +15,11 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
-VERSAO = "0.1.0"
+VERSAO = "0.1.1"
 MODELO_PADRAO = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 VRAM_MINIMA_MB = 3000
 TIMEOUT_S = 900
@@ -40,6 +41,22 @@ NEGATIVO_PADRAO = (
     "blurry, low quality, cropped, text, watermark, logo, multiple views, "
     "busy background, extra limbs, deformed, duplicate, frame"
 )
+
+
+def sufixo_efetivo(prompt: str, sufixo: str) -> str:
+    """Sufixo sem os trechos que o prompt ja repete (C11).
+
+    O sufixo padrao termina em ``game asset concept art`` e varios prompts do lote tambem
+    dizem isso. Duplicar nao muda a imagem e gasta tokens do CLIP, cujo limite e 77.
+    """
+    alvo = (prompt or "").lower()
+    partes = []
+    for fragmento in (sufixo or "").split(","):
+        limpo = fragmento.strip()
+        if not limpo or limpo.lower() in alvo:
+            continue
+        partes.append(limpo)
+    return ", ".join(partes)
 
 
 def modelo_escolhido() -> str:
@@ -219,7 +236,8 @@ class ConceptProvider:
 
         sufixo = os.environ.get("FORGE3D_CONCEPT_SUFIXO", SUFIXO_PADRAO).strip()
         negative = os.environ.get("FORGE3D_CONCEPT_NEGATIVO", NEGATIVO_PADRAO).strip()
-        prompt_final = prompt if not sufixo else f"{prompt}, {sufixo}"
+        efetivo = sufixo_efetivo(prompt, sufixo)
+        prompt_final = prompt if not efetivo else f"{prompt}, {efetivo}"
 
         env = dict(os.environ)
         env.setdefault("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
@@ -284,6 +302,14 @@ class ConceptProvider:
             )
         if not png.is_file():
             raise erro_provider_run(f"concept nao produziu PNG em {destino}", id=item.get("id"))
+
+        if resultado.get("prompt_truncado"):
+            print(
+                "aviso: prompt do concept truncado de "
+                f"{resultado.get('prompt_tokens')} para "
+                f"{resultado.get('prompt_tokens_efetivo')} tokens (limite CLIP 77)",
+                file=sys.stderr,
+            )
 
         resultado["tempo_provider_s"] = round(time.monotonic() - t0, 3)
         resultado["versao"] = VERSAO

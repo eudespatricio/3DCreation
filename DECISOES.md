@@ -39,6 +39,7 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | `mob.android.sentinel.01` (humanoide, blocky) | **300 tris** · 25 caixas · 23 ossos · atlas 128 px · 1 material · 5 arquivos · 73.222 B | manifesto publicado |
 | LODs da rota blocky | LOD0 **300** · LOD1 **130** · LOD2 **45** tris | campo `lod` do manifesto |
 | `run` android (1 item) | **939 ms** frio · **307 ms** quente (`trabalho_executado: 0`) | `date +%s%N` em 10/11/2026 |
+| Herói elfo — caso real (`mesh`, concept externo) | **27,7 s** no provider (load 16,4 s · forward 1,44 s), VRAM pico **2.378 MB**, **7.958 tris**, GLB 1,27 MB, bbox 1,012×1,800×0,764 m; **G1–G10 ok** e `verify` 0 problemas — porém **saiu de cabeça para baixo** (canonicalização não pegou: razão topo/base **0,988**, centro de área **6,18/12**; **GAP-048**) | `run` + render em 11/11/2026 |
 | Import no **Godot 4.3** | `Node3D → Armature → Skeleton3D (23 ossos) → MeshInstance3D`; AABB 0,7584×1,85×0,4255 **idêntico ao manifesto**; `albedo_tex=true`; `filtro=2` (nearest + mipmaps) | `godot --headless --import` + inspeção GDScript |
 | Eixos de osso | todos com **X local = +X do mundo**, Y ao longo do osso | `data.bones[].matrix_local` no Blender |
 | Rig rígido sob pose | sem fenda nas juntas depois de sobrepor peça ao pivô; manga de junta no osso pai | render `docs/preview/android_pose_final_*` |

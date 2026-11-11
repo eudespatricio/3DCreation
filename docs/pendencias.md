@@ -27,9 +27,8 @@ Nenhuma pendente: a C12 fechou em 11/11/2026 (ver §4).
   dois esqueletos (D66), `manifest@3` com `animacoes` (D67) e G10 medindo movimento real; Godot 4.3
   headless validou os dois esqueletos. Fica para a P5-B o clipe tocando no Roblox (GAP-045) e o LOD de
   mesh com critério visual (GAP-013).
-- **Republish pendente por VRAM**: `kit_mesh`, `sentinel_concept` e `teapot_exemplo` seguem em
-  `manifest@2` 0.2.6 (sem pedido de animação e com `verify` verde). Republicar em 0.2.7 quando houver
-  ≥ 3,5 GB de VRAM livre — o desktop estava com 4,7 GB ocupados por Studio/Chrome.
+- **Republish completo em 0.2.7**: os 7 destinos e os 16 manifestos ficaram em `manifest@3`, com
+  `verify` 0 problemas; o bloqueio por VRAM foi temporário (Studio/Chrome) e passou.
 - **C12 — destinos antigos republicados** em 11/11/2026: **7 destinos, 16 manifestos** em
   `manifest@2` 0.2.6, `verify` **0 problemas** em todos. O caminho achou dois defeitos reais: o
   `convex_hull` herdava faces de entrada (**D64**, hull em nuvem de pontos) e a convexidade media com

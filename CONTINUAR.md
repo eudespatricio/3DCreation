@@ -63,7 +63,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 |---|---|
 | Suíte | **111 verdes + 1 GPU (skip)** em **112 testes** |
 | CI no GitHub | **96 testes** (`tools/ci.sh`) + contexto + P0 |
-| Destinos no sandbox | **7 destinos, 16 manifestos**, `verify` **0 problemas** (4 destinos em @3 0.2.7; 3 de malha em @2 0.2.6 por VRAM) |
+| Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
 | Colisor após D64/D65 | desvio máximo **4,3e-4 m** num hull de 2,2 m (tolerância 1 mm/m); face interior do defeito desviava 1,8 m |
@@ -101,10 +101,9 @@ Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-013** (
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Republish dos 3 destinos de malha em 0.2.7 quando a VRAM liberar | minutos | consistência de contrato |
-| **2** | **P5-B**: `KeyframeSequence` do `idle` tocando no rig `.rbxlx` no Studio (GAP-045) + LOD de mesh com critério visual (GAP-013) | 1–2 sessões | P5 |
+| **1** | **P5-B**: `KeyframeSequence` do `idle` no rig `.rbxlx` e tocando no Studio (GAP-045) | 1 sessão | P5 |
+| **2** | LOD de mesh com critério visual (GAP-013) | 1 sessão | P5 |
 | **3** | **P4** rota `modular` (WFC) | 1–2 sessões | roadmap |
-| **4** | GAP-044: normalizar as caixas do `export-r15` | 1 sessão | coerência rig × glb |
 
 ## Comandos
 

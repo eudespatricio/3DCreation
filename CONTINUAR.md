@@ -2,7 +2,8 @@
 
 **Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5 e C5–C12 fechadas; P5-A (animação base)
 fechada.** A P2 fechou pela escala (`manifest@2`, D62): package medido em **6,6071 studs** contra
-6,8086 do `.rbxlx`. A C12 republicou **7 destinos, 16 manifestos** com `verify` **0 problemas**. A P5-A
+6,6071 do `.rbxlx` (D68). A C12 republicou **7 destinos, 16 manifestos** com `verify` **0 problemas**.
+A P5-A
 entregou o clipe `idle` procedural (2,042 s) por retarget (D66) em `manifest@3` (D67), validado no
 Godot 4.3 headless nos dois esqueletos. **111 verdes + 1 GPU (skip)** em 112 testes · CI no GitHub com
 **96 testes**.
@@ -68,8 +69,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Colisor após D64/D65 | desvio máximo **4,3e-4 m** num hull de 2,2 m (tolerância 1 mm/m); face interior do defeito desviava 1,8 m |
 | Package R15 v2 no Studio | `size=2,7086 × 6,6071 × 1,5196` studs · **16 Bones** · `surface=false` · `humanoid=false` |
 | glb do R15 | `bbox = 2,70855 × 6,60709 × 1,519631` studs para `bbox_m = [0,7584; 1,85; 0,4255]` m |
-| Rig `.rbxlx` | **6,8086 studs** de extensão (base `-0,3302`, topo `6,4784`; 16 Parts + Baseplate) |
-| Resíduo rig × package | **3,05 %** — caixas brutas do blocky (1,906 m) vs malha normalizada (1,850 m) → GAP-044 |
+| Rig `.rbxlx` | **6,6071 × 2,7086 × 1,5196 studs** (base 0, topo 6,6071; 16 Parts + Baseplate) — igual ao package |
+| Resíduo rig × package | **0** — o antigo 3,05 % era tamanho de Part com Y/Z trocado (D68) |
 | Textura no Studio | `PreloadAsync` = `Enum.AssetFetchStatus.Success` (`rbxassetid://75934318775024`) |
 | MCP do Studio | proxy **stdio**, 38 ferramentas; Studio 16c88345 respondeu na primeira tentativa |
 | Assets R15 | Model `134628989553440` (39.004 B) · Image `75934318775024` — ambos Approved |
@@ -94,8 +95,7 @@ unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tol
 | Q7 | assets no git do jogo: normal × LFS | primeiro asset real |
 
 Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-013** (qualidade do LOD),
-**GAP-015** (`draft` em 4k), **GAP-042** (regra do "menor secção"), **GAP-044** (rig 3,05 % acima do
-glb).
+**GAP-015** (`draft` em 4k), **GAP-042** (regra do "menor secção"), **GAP-045** (clipe no Roblox).
 
 ## Próximos passos — em ordem
 
@@ -148,8 +148,8 @@ godot --headless --path tools/godot_project \
    (`FORGE3D_STUDIOMCP`).
 8. **Joelho e cotovelo giram em sentidos opostos**; peça de membro sobrepõe o pivô.
 9. **Diffusers trunca prompt em 77 tokens em silêncio** (medido em `tools/concept_infer.py`).
-10. **O `.rbxlx` não passa pela normalização do pós-processo**: ele usa as caixas brutas do `blocky` e
-    por isso é 3,05 % mais alto que o glb (GAP-044). Não é erro de escala.
+10. **No `.rbxlx`, tamanho de Part permuta como o centro** (`x, z, −y`) — D68. Esquecer isso estica o
+    rig em Y e o defeito se disfarça de "3 % de diferença".
 11. **Blender com `--factory-startup` carrega o cubo default**: script de teste que importa e hull antes
     de limpar a cena junta o cubo ao asset e o resultado mente. `read_factory_settings(use_empty=True)`
     no começo.

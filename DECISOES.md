@@ -152,8 +152,8 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 
 | P8 fechado — escala (D62) | `manifest@2` com `unidades_export {metros_por_unidade: 0,28; escala_saida: 3,5714}`; glb `2,70855 × 6,60709 × 1,519631` **studs** para `bbox_m [0,7584; 1,85; 0,4255]` m; G2 grava `altura_export=6,60709` e `delta_pct=0` | republish do `r15` com 0.2.5 e `verify` em 0 problemas, 11/11/2026 |
 | Package R15 v2 no Studio (MCP) | `Size = 2,7086 × 6,6071 × 1,5196` studs · **16 Bones** · `surface=false` · `humanoid=false` · `TextureID=rbxassetid://75934318775024` · `preload=Enum.AssetFetchStatus.Success` | asset Model **134628989553440** (39.004 B, Approved), `tools/mcp_studio.py`, Studio 16c88345, 11/11/2026 |
-| Rig `.rbxlx` — extensão vertical | **6,8086 studs** (base `-0,3302`, topo `6,4784`); 16 Parts + Baseplate, 18.479 B | parser do `.rbxlx` em 11/11/2026 |
-| Resíduo rig × package | **3,05 %** (6,8086 vs 6,6071): o rig usa as caixas brutas do blocky (1,906 m) e a malha é normalizada para 1,850 m → GAP-044 | medido, 11/11/2026 |
+| Rig `.rbxlx` — defeito de tamanho (GAP-044) | as Parts saíam com **Y e Z trocados** no tamanho (o centro permutava, o tamanho não): o rig esticava para **6,8086 studs** (base `-0,3302`, topo `6,4784`) em vez de 6,6071; o fallback do `HumanoidRootPart` ainda passava 7,5 mm abaixo da base | parser do `.rbxlx` em 11/11/2026; corrigido por D68 |
+| Rig `.rbxlx` após D68 | **6,6071 × 2,7086 × 1,5196 studs** (base 0, topo 6,6071; 16 Parts + Baseplate, 18.461 B) — **idêntico ao package**, resíduo 0 | parser do `.rbxlx` e Studio, 11/11/2026 |
 | Compat de `verify` | `manifest@1` de `lote_01` e `kit_sentinel` continua **0 problemas** (escala 1.0); `r15` republicado em `@2` | `forge3d verify` em 11/11/2026 |
 | Suíte após D62 | **99 verdes + 1 GPU (skip)** em **100 testes**; CI no GitHub roda **84** | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
 | Suíte após C12/D64/D65 | **101 verdes + 1 GPU (skip)** em **102 testes**; CI no GitHub roda **86**; `PIPELINE_VERSION` 0.2.6 | `pytest -q` e `tools/ci.sh` em 11/11/2026 |
@@ -244,6 +244,8 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D66 | **Animação base por retarget semântico**: o perfil declara `rig.retarget` (osso semântico → osso do esqueleto); o `idle` é gerado no `bpy` como senoide de 5 chaves (2 s a 24 fps) e embutido no glb. O G10 mede **movimento real** (quanto o osso saiu da rotação inicial), não só a existência do canal | o mesmo clipe tem que rodar em `godot-humanoid@1` (23 ossos) e `r15@1` (16 ossos) sem nome de osso igual; procedural e determinístico, sem modelo generativo de animação (o que D14 evitava) |
 | D67 | **`manifest@3` declara `animacoes`**: lista `{nome, duracao_s, ossos}` dos clipes embutidos no glb; `manifest@1`/`@2` continuam aceitos na leitura e `qc.gates` passa a aceitar `G10` | o consumidor precisa saber que o asset tem clipe sem abrir o glb; contrato silencioso é o que o `verify` existe para impedir |
 
+| D68 | **Part do `.rbxlx` permuta o tamanho como o centro**: `Roblox XYZ = (x, z, −y)` vale para `size` e para `CFrame`; e a caixa de fallback de osso sem geometria não pode descer abaixo da base | medido em 11/11/2026: o tamanho ia `(x, y, z)` direto e cada Part saía com altura = profundidade, esticando o rig para 6,8086 studs (topo 6,4784) e escondendo o defeito atrás de "3 % de diferença"; depois do fix o rig mede 6,6071, igual ao package |
+
 ## 3. Rejeitados (e por quê)
 
 - **ComfyUI + TripoSR + Blender acoplados num script só** — três falhas diferentes viram uma mensagem
@@ -266,7 +268,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 |---|---|---|---|
 | Q1 | Nome definitivo do produto (`forge3d` é provisório) | antes de publicar o pacote | nada — é reversível |
 | ~~Q2~~ | **Resolvida em 10/11/2026 por D23** — allowlist em arquivo global, sandbox próprio liberado, sem bypass | — | — |
-| ~~Q3~~ | **Resolvida em 11/11/2026 por D62/C15** — escala: o importador usa **1 unidade glTF = 1 stud** (medido), o `.rbxlx` usa 0,28 m/stud e o glb declara a unidade em `unidades_export`; package 6,6071 studs × `.rbxlx` 6,8086 studs (3,05 % em GAP-044). Animação e retarget seguem em P5 (GAP-007/GAP-020), não em Q3 | — | — |
+| ~~Q3~~ | **Resolvida em 11/11/2026 por D62/C15** — escala: o importador usa **1 unidade glTF = 1 stud** (medido), o `.rbxlx` usa 0,28 m/stud e o glb declara a unidade em `unidades_export`; package e `.rbxlx` medem **6,6071 studs** (D68 fechou o resíduo). Animação e retarget seguem em P5, não em Q3 | — | — |
 | Q4 | Biblioteca de WFC para `modular` | P4 | Rota C |
 | ~~Q5~~ | **Resolvida em 10/11/2026 por D27** — SF3D encerrado em 6 GB; TripoSR (MIT) é o i23d da P3 | — | — |
 | ~~Q6~~ | **Resolvida em 10/11/2026 por D24** — estado central em `$FORGE3D_HOME`, nada no repo do jogo | — | — |

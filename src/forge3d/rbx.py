@@ -103,6 +103,31 @@ def exportar_r15(
     if len(ossos) != 16:
         raise erro_spec(f"export-r15: esperava 16 ossos R15, achei {len(ossos)}")
 
+    # GAP-044: o blocky nasce com a altura dele (1,906 m neste R15) e o pos-processo normaliza a
+    # malha para `altura_metros`. O .rbxlx tem que aplicar a MESMA transformacao — escala uniforme
+    # e pivo na base — senao o rig fica 3% acima do package no Studio.
+    alvo_m = float(item["altura_metros"])
+    minimo = [min(c["min"][i] for c in caixas) for i in range(3)]
+    maximo = [max(c["max"][i] for c in caixas) for i in range(3)]
+    altura_bruta = maximo[2] - minimo[2]
+    if altura_bruta <= 0:
+        raise erro_spec("export-r15: geometria com altura zero")
+    fator = alvo_m / altura_bruta
+    pivo = [(minimo[0] + maximo[0]) / 2, (minimo[1] + maximo[1]) / 2, minimo[2]]
+
+    def _normalizar(ponto: list[float]) -> list[float]:
+        return [round((ponto[i] - pivo[i]) * fator, 6) for i in range(3)]
+
+    caixas = [{**c, "min": _normalizar(c["min"]), "max": _normalizar(c["max"])} for c in caixas]
+    ossos = [
+        {
+            **o,
+            "cabeca": _normalizar(o["cabeca"]),
+            **({"cauda": _normalizar(o["cauda"])} if o.get("cauda") else {}),
+        }
+        for o in ossos
+    ]
+
     partes: dict[str, dict] = {}
     for osso in ossos:
         nome = osso["nome"]
@@ -115,13 +140,15 @@ def exportar_r15(
             maior = max(minhas, key=lambda c: (c["max"][0] - c["min"][0]) * (c["max"][1] - c["min"][1]) * (c["max"][2] - c["min"][2]))
             cor = _cor_int(maior["cor"])
         else:
-            altura = float(modelo["altura_m"])
-            centro_m = [0.0, 0.0, 0.05 * altura]
+            # GAP-044: caixa de 0,20 m centrada em 5% da altura passava da base (min z<0)
+            centro_m = [0.0, 0.0, max(0.10, 0.05 * alvo_m)]
             tamanho_m = [0.20, 0.20, 0.20]
             cor = 0x7D858F
         partes[nome] = {
             "centro": _roblox(centro_m, mps),
-            "tamanho": tuple(v / mps for v in tamanho_m),
+            # GAP-044: o TAMANHO tambem permuta, como o centro. Antes ele ia (x, y, z) direto e a
+            # Part saia com altura = profundidade, esticando o rig em Y (6,8086 em vez de 6,6071).
+            "tamanho": (tamanho_m[0] / mps, tamanho_m[2] / mps, tamanho_m[1] / mps),
             "cor": cor,
             "centro_m": centro_m,
         }

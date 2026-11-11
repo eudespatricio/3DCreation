@@ -39,7 +39,8 @@ Nenhuma pendente: a C12 fechou em 11/11/2026 (ver §4).
   `roblox-r15` com `escala_saida: 3,5714` (glb em studs), G2 dividindo pela escala declarada, `verify`
   aceitando `@1` e `@2`. Package novo (asset **134628989553440**, 39.004 B) medido no Studio via MCP:
   `2,7086 × 6,6071 × 1,5196` studs, 16 Bones, textura `AssetFetchStatus.Success`. O `.rbxlx` mede
-  6,8086 studs de extensão — mesma escala; os 3,05 % de diferença ficam em GAP-044.
+  6,6071 studs de extensão — mesma escala; o resíduo de 3,05 % era o tamanho de Part com Y/Z trocado
+  (D68) e fechou em **0**.
 - **C13/D58** `empunhadura` virou regra numérica (20 % da altura) usada pelas duas rotas, e o
   G2 passou a medir os quatro casos (base/centro/topo/empunhadura); a regra do perfil
   ("menor secção transversal") fica em GAP-042.

@@ -76,8 +76,8 @@ setado. O headless não carrega asset privado; faltam GUI/textura, pivôs nos Bo
 
 **Fechada em 11/11/2026 (escala):** `manifest@2` com `unidades_export` (D62); o `glb` do
 `roblox-r15` sai em studs e o package novo (asset **134628989553440**) mede
-`2,7086 × 6,6071 × 1,5196` studs no Studio via MCP, contra 6,8086 studs de extensão do `.rbxlx` —
-mesma escala, com 3,05 % de resíduo em GAP-044. U1/U2/U4 fechadas.
+`2,7086 × 6,6071 × 1,5196` studs no Studio via MCP e o `.rbxlx` mede `6,6071 × 2,7086 × 1,5196`
+depois do D68 — a mesma escala, sem resíduo. U1/U2/U4 fechadas.
 
 **Portão:** package com 16 Bones e textura aplicada + `.rbxlx` nativo com `Humanoid` (D47/D48/D50: o
 `Humanoid` mora no `.rbxlx`, não no package), membros girando no pivô certo e o documento

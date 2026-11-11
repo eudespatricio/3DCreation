@@ -63,3 +63,25 @@ def test_export_r15_gera_place_com_16_partes_e_15_motores(tmp_path):
         assert motor.find("./Properties/Ref[@name='Part1']") is not None
         assert motor.find("./Properties/CoordinateFrame[@name='C0']") is not None
         assert motor.find("./Properties/CoordinateFrame[@name='C1']") is not None
+
+
+def test_export_r15_normaliza_a_altura_para_a_spec(tmp_path):
+    """GAP-044: o rig sai na mesma escala do glb — 1,85 m / 0,28 m por stud = 6,6071 studs."""
+    saida = tmp_path / "r15.rbxlx"
+    rbx.exportar_r15("examples/lote_09_r15.yaml", "personagem.r15.guard.01", saida=saida)
+    raiz = ElementTree.fromstring(saida.read_text(encoding="utf-8"))
+    bases, topos = [], []
+    for parte in raiz.iter("Item"):
+        if parte.get("class") != "Part":
+            continue
+        props = parte.find("Properties")
+        if props is None or props.findtext("string[@name='Name']") == "Baseplate":
+            continue
+        tamanho = props.find("Vector3[@name='size']")
+        cframe = props.find("CoordinateFrame[@name='CFrame']")
+        meio = float(tamanho.findtext("Y")) / 2
+        centro = float(cframe.findtext("Y"))
+        bases.append(centro - meio)
+        topos.append(centro + meio)
+    span = max(topos) - min(bases)
+    assert abs(span - 1.85 / 0.28) < 0.01, span

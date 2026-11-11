@@ -13,7 +13,7 @@ unidades:
   metros_por_unidade: 0.28       # unidade do arquivo exportado (glb em studs); vai ao
                                  # manifest@2 em unidades_export e e o reciproco de escala_saida
   metros_por_stud: 0.28          # [medido 11/11/2026] regua do .rbxlx (16 Parts; extensao
-                                 # vertical de 6,8086 studs, topo em 6,4784)
+                                 # vertical de 6,6071 studs, igual ao package — D68)
   arredondar_studs: 0.001
 
 eixos:

@@ -1,0 +1,25 @@
+# R15 — teste no Roblox Studio (Windows 63eb6055af4e4688) — 10/11/2026
+#
+# Comando (cwd com ./plugin/plugin.rbxm; o npm 0.3.2 nao publica o plugin):
+#   run-in-roblox run --script %TEMP%\forge3d_r15_test.lua
+#     --place-file %TEMP%\forge3d_studio_place.rbxlx
+#     --universe-id 0 --place-id 0 --creator-id 0 --creator-type 0 --oneshot
+#
+# O plugin foi copiado de %LOCALAPPDATA%\Roblox\Plugins\run_in_roblox.rbxm para
+# ./plugin/plugin.rbxm (workaround do pacote 0.3.2). O place de host e uma copia de
+# jogo.rbxlx em %TEMP%; ServerScriptService.DataService/Main e ContentId sao erros do
+# place do jogo, nao do teste.
+#
+# O teste cria Forge3DR15Test (16 Parts + 15 Motor6D) e verifica, por junta, que
+# Part0.CFrame * C0 fica no joint e que rotacionar C0 mantem a distancia ao pivo.
+#
+[2026-11-11T00:27:39Z INFO] studio server 4d152358-908d-458e-802b-a1aa622d6601 started
+[2026-11-11T00:27:39Z INFO] R15_STUDIO_PASS motores=15 partes=16
+[2026-11-11T00:27:45Z INFO] studio server 4d152358-908d-458e-802b-a1aa622d6601 stopped
+[2026-11-11T00:27:45Z INFO] now exiting as --oneshot was set to true.
+#
+# Tentativa de importar o GLB direto no Studio (AssetImportService):
+#   [2026-11-11T00:29:11Z WARN] R15_IMPORT_FAIL session: ... StartSessionWithPathAsync
+#   attempt to index nil with 'StartSessionWithPathAsync'
+# AssetImportService existe, mas o metodo de sessao por caminho nao esta exposto ao
+# plugin; o import do GLB no Studio continua manual (P8/GAP-006).

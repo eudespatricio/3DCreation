@@ -60,8 +60,9 @@ para acontecer com a segunda engine.
 **Probe em 10/11/2026:** um `prop_estatico` blocky publica e `verify` passa com este perfil
 (48 tris, 1 colisor). O `personagem_humanoide` com `auto_rig: true` e `esqueleto: r15@1` publica
 **300 tris com 16 ossos/nomes R15** (`HumanoidRootPart`…`RightFoot`), G1–G9, `verify` ok e
-`R15_OK` no Godot. O perfil usa `pivot: base`; pivô por membro, escala/stud e Studio continuam
-pendentes (GAP-006). `colisao.prefixo` ausente não estoura mais o G7.
+`R15_OK` no Godot. No Studio, **`R15_STUDIO_PASS motores=15 partes=16`** valida o pivô por membro;
+os bone heads do GLB ficam nos joints (D47). O objeto usa `pivot: base`; import da malha/textura,
+escala/stud e U1–U4 continuam pendentes (GAP-006). `colisao.prefixo` ausente não estoura mais o G7.
 
 ### Esqueleto `r15@1` (Rig)
 

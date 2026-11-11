@@ -66,8 +66,9 @@ Godot (GAP-011) — o portão desceu de "entra no jogo" para "QC + manifesto", e
 e o teste real no Studio que fecha U1–U4.
 
 **Estado em 10/11/2026 — parcial:** o blocky remapeia para as **16 partes R15** (`HumanoidRootPart`…
-`RightFoot`), publica 300 tris com G1–G9 e `verify`, e o GLB/Godot mostra 16 ossos (`R15_OK`). O
-perfil usa `pivot: base`; pivô por membro, escala/stud e Studio continuam pendentes.
+`RightFoot`), publica 300 tris com G1–G9 e `verify`, e o GLB/Godot mostra 16 ossos (`R15_OK`). No
+Studio, **`R15_STUDIO_PASS motores=15 partes=16`** valida o pivô por membro; o objeto usa `pivot:
+base` e os bone heads ficam nos joints (D47). Faltam import do GLB/textura, escala/stud e U1–U4.
 
 **Portão:** modelo importado no Studio com `Humanoid`, membros girando no pivô certo, textura correta,
 e o documento `perfis-export.md` sem nenhum `[verificar]` pendente nesse perfil.

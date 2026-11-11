@@ -27,7 +27,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P1** | ✔ | rotas `blocky` e `import` de ponta a ponta: validar → planejar → gerar → Blender → QC G1–G9 → cache → publicar → índice → ledger |
 | **P3** | **✔ parcial** | provider `i23d` real (TripoSR) + bake UV/textura próprio + venv única + kit corpo/capa/arma; prop e **3 personagens híbridos** com G1–G9 |
 | **P3.5** | **✔** | concept SD1.5 → TripoSR → UV/bake: sentinela sem `origem`, split 3 concepts e **A/B de 3 personagens híbridos** (.02/.05/.04 + capa .03 + arma blocky), `AB_OK` |
-| **P2** | **parcial** | `roblox-r15`: R15 com **16 ossos/nomes** publica e verifica (GLB/Godot); faltam pivô por membro, escala/stud e Studio |
+| **P2** | **parcial** | `roblox-r15`: R15 16 ossos; **pivô por membro no Studio** (`R15_STUDIO_PASS motores=15 partes=16`); faltam import GLB/textura, escala/stud e U1–U4 |
 | **P4** | pendente | rota `modular` (WFC) |
 | **P5** | pendente | animação e retarget |
 
@@ -59,7 +59,9 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   **7.954 / 7.950 / 7.960 tris**, `AB_OK` no Godot e imagem `docs/preview/p3_ab_3personagens.png`.
   O scout .05 expôs sliver de 2,96e-9 (D42) e orientação invertida (D43).
 - **P2 R15** — blocky remapeia para as 16 partes R15 (`HumanoidRootPart`…`RightFoot`); 300 tris, G1–G9,
-  `verify` ok e `R15_OK` no Godot; perfil usa `pivot: base` até o pivô por membro (D41).
+  `verify` ok e `R15_OK` no Godot; perfil usa `pivot: base` no objeto, com os 16 bone heads nos joints
+  (D41/D47). No Studio, `R15_STUDIO_PASS motores=15 partes=16`; log em
+  `docs/preview/r15_studio_test.log`.
 - **C3/CI** — `forge3d gc --manter-dias 30` com 2 testes (D45); `tools/ci.sh` + workflow com 32 testes,
   contexto e P0 (D46).
 
@@ -88,6 +90,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Godot 4.3 — híbrido | corpo .02 + capa .03 + arma blocky .01; AABB capa **0,531849×1,3×0,355717**, arma **0,209×0,95×0,0666**; `CHAR_CAPE_OK` |
 | A/B — 3 personagens | sentinela .02 **7.954** · scout .05 **7.950** · heavy .04 **7.960 tris**; mesmo kit capa/arma; `AB_OK` |
 | P2 — R15 blocky | **300 tris** · **16 ossos** (todos no mapa R15) · G1–G9 · `verify` · `R15_OK` |
+| P2 — pivô por membro (Studio) | **`R15_STUDIO_PASS motores=15 partes=16`**; 16 bone heads no GLB (H=1,85 m) |
 | gc / CI | `gc` 2 testes; `tools/ci.sh` **32 testes** + contexto + P0 |
 | Venv concept | **5,6 GB** · diffusers 0.31.0 · transformers 4.44.2 · torch 2.4.1+cu121 |
 | Probe Roblox (sem Studio) | prop blocky publica/verifica; humanoid falha em `pivot: junta`; blocky não gera nomes R15 |
@@ -120,7 +123,7 @@ no G7), **GAP-039** (rembg explícito), **GAP-040** (`FORGE3D_MODELOS`).
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | **Roblox P2**: pivô por membro, escala/stud e teste no Studio | 1 sessão + Studio | P8/GAP-006 |
+| **1** | **Roblox P2**: import do GLB/textura, escala/stud e U1–U4 no Studio (pivô já validado) | 1 sessão + Studio | P8/GAP-006 |
 | **2** | Primeiro run do **CI** no GitHub + suíte Blender/GPU local documentada | 1 sessão | GAP-008 |
 | **3** | Correções C5–C11 (flake, delegar, verify antigo, convexidade, rembg, `FORGE3D_MODELOS`, tokens) | 1 sessão | C5–C11 |
 | **4** | Animação (P5) | 2–3 sessões | maior salto de percepção no Godot |
@@ -140,6 +143,7 @@ forge3d run examples/lote_06_mesh_split.yaml                       # P3.5: corpo
 forge3d run examples/lote_07_cape.yaml                             # capa .03 (negativo de pessoa)
 forge3d run examples/lote_08_ab_hybrid.yaml                       # A/B: scout .05 + heavy .04
 forge3d run examples/lote_09_r15.yaml                             # R15: 16 ossos
+# Studio R15: ver docs/preview/r15_studio_test.log (run-in-roblox 0.3.2 + plugin)
 forge3d gc --dry-run --manter-dias 30                             # retencao
 bash tools/ci.sh                                                  # CI sem GPU/Blender
 forge3d verify ~/.local/state/forge3d/saida/sentinel_concept
@@ -171,7 +175,8 @@ python tools/delegar.py --tipo segunda_opiniao --texto "..." --exigir riscos --d
 `setup_concept_venv`, `normalize_mesh`, `render_preview`, `delegar`, `torchmcubes_shim`, `check-*`) ·
 `tests/` · `examples/` (`lote_01`, `lote_03_kit`, `lote_04_mesh`, `lote_05_mesh_concept`) ·
 `docs/preview/p3_sentinel_*` · `p3_split_*` · `p3_char_cape_*` · `p3_ab_3personagens.png` ·
-`src/forge3d/gc.py` · `tools/ci.sh` · `.github/workflows/ci.yml`
+`src/forge3d/gc.py` · `tools/ci.sh` · `.github/workflows/ci.yml` · `tools/r15_studio_test.lua` ·
+`docs/preview/r15_studio_test.log`
 
 ## Regras invioláveis (top 6)
 

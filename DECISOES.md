@@ -108,6 +108,10 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | gc | remove cache/runs/staging > 30 dias; **2 testes**; não toca `saida/`, índice nem ledger | `tests/test_gc.py` em 10/11/2026 |
 | CI | `tools/ci.sh` roda **32 testes** + contexto + P0; workflow em `.github/workflows/ci.yml` | `bash tools/ci.sh` em 10/11/2026 |
 
+| P2 — R15 no Studio | **`R15_STUDIO_PASS motores=15 partes=16`**; Studio `63eb6055af4e4688`, `run-in-roblox` 0.3.2; log `docs/preview/r15_studio_test.log` | `run-in-roblox` em 10/11/2026 |
+| P2 — R15 GLB, pivôs por membro | 16 ossos com cabeça nos joints (H=1,85 m): LowerTorso **0,814** · UpperTorso **0,962** · Head **1,443** · braço **1,406/1,110/0,814** · perna **0,814/0,4347/0,1203**; Y constante **-0,0554** | Blender no GLB em 10/11/2026 |
+| P2 — import do GLB no Studio | `AssetImportService:StartSessionWithPathAsync` **nil** no plugin; import de malha/textura segue manual | `run-in-roblox` em 10/11/2026 |
+
 | Custo concept→mesh | **40 s estimados × 37,2 s reais** (erro -7%) | `plan` × `run` em 10/11/2026 |
 
 | P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |
@@ -170,6 +174,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D44 | **A/B de 3 personagens híbridos**: .02/.05/.04 + capa .03 + arma `blocky` .01; 3 corpos distintos, mesmo kit | 3 personagens reconhecíveis/fechados, `AB_OK`; P7/Q8 fechados para 3 personagens |
 | D45 | **`gc` por idade** em cache/runs/staging; publicado, índice e ledger ficam intocados | `tests/test_gc.py`; `C3`/GAP-016 fechados |
 | D46 | **CI sem GPU/Blender**: `tools/ci.sh` roda unidade/concept/gc + contexto + P0; a suíte Blender/GPU continua local | GAP-008 configurado; primeira execução no GitHub pendente |
+| D47 | **Pivô por membro = head dos 16 bones**, não o pivô do objeto; o objeto fica em `base`. O teste no Studio valida 15 Motor6D; o import da malha/textura no Studio continua manual | 16 bone heads medidos no GLB; `R15_STUDIO_PASS`; `AssetImportService` sem sessão por caminho |
 
 
 

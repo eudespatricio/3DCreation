@@ -5,7 +5,7 @@
 > atômica num destino autorizado.
 
 **Estado:** `P1`, `P3` (mesh para prop), `P3.5` (concept local + A/B de 3 personagens híbridos) e
-`P2` parcial (R15 com 16 ossos) — 47 verdes + 1 GPU (manual). `blocky`/`import` sem GPU; `mesh`
+`P2` parcial (R15 com 16 ossos e pivô por membro no Studio) — 47 verdes + 1 GPU (manual). `blocky`/`import` sem GPU; `mesh`
 com TripoSR + bake UV/textura e concept SD1.5 **sem `origem`**; kit corpo/capa/arma. `modular` em P4.
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
@@ -127,6 +127,10 @@ python tools/check-p0.py                # schemas, exemplos, perfis, I12/I14
 blender --background --factory-startup --python tools/render_preview.py -- \
   ~/.local/state/forge3d/saida/android/mob.android.sentinel.01.glb docs/preview/meu_asset --pose
 ```
+
+R15: `run-in-roblox` 0.3.2 no Studio passou `R15_STUDIO_PASS motores=15 partes=16` (log
+[`docs/preview/r15_studio_test.log`](docs/preview/r15_studio_test.log)); o import do GLB/textura no
+Studio segue manual (P8).
 
 `bash tools/ci.sh` roda o portão de pull request sem GPU/Blender (unidade + concept + gc + contexto +
 P0); a suíte completa com Blender/GPU continua local. O workflow está em `.github/workflows/ci.yml`.

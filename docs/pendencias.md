@@ -15,6 +15,7 @@
 
 | # | Correção | Sintoma hoje | Aceitação | Prio |
 |---|---|---|---|---|
+| C15 | **Escala do package Roblox**: GLB em metros, importador lê 1 unidade = 1 stud → package 1,850 studs × `.rbxlx` 6,478 studs (3,57×) | package e `.rbxlx` com tamanhos diferentes; `bbox_m` do `manifest@1` mentiria com GLB em studs | `manifest@2` com `unidades_export`; package medido em 6,607 ± 0,02 studs no Studio; ver `docs/goal-proxima-janela.md` | **A** |
 | C12 | Assets publicados antes de 11/11/2026 têm manifesto sem `pivo_regra` e colisor côncavo | `forge3d verify` nesses destinos agora reprova (`C7`/`C8` funcionando como portão) | republicar os destinos antigos (`lote_01`, `lote_03_kit`, `lote_06`, `r15`) ou aceitar o destino como arquivo morto | **B** |
 
 ## 3. Decisões que precisam do operador

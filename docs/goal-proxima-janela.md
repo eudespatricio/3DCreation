@@ -1,112 +1,112 @@
 # GOAL — próxima janela
 
 > Copie o bloco do §9 como *objetivo da sessão* (Goal) na janela nova. Este arquivo é o briefing
-> completo: objetivo, contexto, regras, ordem de execução, o que registrar e os portões.
+> completo: objetivo, contexto medido, ordem de execução, armadilhas, critério de aceitação.
 
 ## 1. Objetivo
 
-Fechar a **P2** de forma utilizável — R15 aprovado **no Studio GUI logado** — e deixar o repositório
-em dia: `C6/Q9` decidido pelo operador e os destinos antigos republicados. O que não couber entra em
-`docs/pendencias.md` com critério de aceitação, não como promessa.
+Fechar a **P2** implementando a **opção A**: o perfil `roblox-r15` passa a exportar o `glb` em
+**studs**, e o manifesto passa a **declarar a unidade** (`unidades_export`), para que o package
+importado no Roblox e o `.rbxlx` nativo fiquem na **mesma escala**.
 
-## 2. Contexto mínimo (ler nesta ordem)
+## 2. O problema, medido (não reabrir a diagnose)
 
-1. `CONTINUAR.md` — estado, números, armadilhas
-2. `docs/pendencias.md` — o que falta (P8 e C6 são os únicos itens abertos de código)
-3. `MAPA.md` — onde cada coisa mora
-4. `DECISOES.md` §2 (decisões, hoje até `D56`) e §4 (abertas)
-5. `docs/gaps.md` — lacunas com condição de fechamento
+| Fato | Valor | Onde foi medido |
+|---|---|---|
+| Package importado no Studio | `size = 0,758 × 1,850 × 0,426` **studs** | MCP, `execute_luau` |
+| Rig `.rbxlx` | **6,478 studs** de extensão vertical | parser do `.rbxlx` |
+| Divergência | **3,57×** = 1 / 0,28 | — |
+| Regra do importador | **1 unidade glTF = 1 stud** (não converte metros) | U1 fechada |
+| `geometry.bbox_m` do `manifest@1` | em **metros** → mentiria com o GLB em studs | contrato |
 
-## 3. O que já está fechado (não reabrir)
+Por isso a correção exige declarar a unidade no manifesto: é **bump de contrato**, como foi
+`spec@1 → @2` no D30. A opção B (importar com escala 3,5714 na UI) foi **descartada** — passo manual
+que o próximo consumidor esquece.
 
-`D3` CLI-only · `D7` D1 byte-idêntico, D2 semeado, D3 fora do CI · `D9` QC sem bypass ·
-`D11` GPU serializada · `D14` animação fora da v0 · `D18` licença é gate · `D23` allowlist ·
-`D24` estado central · `D25` isolamento · `D26` núcleo leve · `D27` SF3D encerrado ·
-`D52` colisor é hull fechado · `D53` G7 mede convexidade · `D54` prompt em 77 tokens ·
-`D55` rembg por procedência/alfa · `D56` CI no GitHub.
+## 3. Regras duras (não reabrir)
 
-P3, P3.5 e **C5–C11** fecharam. Suíte em **68 verdes + 1 GPU (skip)**. CI verde no GitHub
-(run `42942191684`). Não reabra SF3D (GAP-035: ~8 min/imagem).
+`D3` CLI-only · `D9` QC sem bypass · `D11` GPU serializada · `D23` allowlist · `D24` estado central ·
+`D25` isolamento · `D26` núcleo leve · `D32` `verify` reexecuta G1–G9 · `D52` colisor hull fechado ·
+`D53` G7 convexidade · `D54` CLIP 77 · `D55` rembg por alfa · `D56` CI · `D57` delegar só com IDE ·
+`D58` empunhadura 20 % · `D59` `flock` dono do lock · `D60` validar no Roblox via MCP.
+
+Proibido: mudar `schemas/` sem bump documentado · mexer no `blender/postprocess.py` sem subir
+`PIPELINE_VERSION` · rebaixar gate para "passar".
 
 ## 4. Ordem de execução
 
-| # | Tarefa | Aceitação |
+| # | Tarefa | Detalhe |
 |---|---|---|
-| **1** | **P8/GAP-006 — Studio GUI logado**: inserir o package `136741921517312` (Toolbox/Asset Manager) e conferir a textura `75934318775024` no `forge3d_mesh` | textura visível no Studio GUI, sem `No asset content representation` |
-| **2** | **P8 — pivôs e escala**: girar os 16 Bones (pivô por membro), medir escala/stud (`1 stud ≈ 0,28 m`) e validar U1–U4 | U1–U4 sem `[verificar]` no perfil `roblox-r15`; rotação por membro correta |
-| **3** | **P8 — rig**: conferir se o `Humanoid`/R15 do `.rbxlx` (`saida/r15/personagem.r15.guard.01.rbxlx`, 16 partes, 15 Motor6D) anima; decidir se o asset skinned substitui o rig de pivôs | `R15` jogável ou decisão registrada em `DECISOES.md` §2 |
-| **4** | **C6/Q9**: decidir delegação — chave de API × `agentapi` | decisão em `DECISOES.md` §4 e `tools/delegar.py` com caminho sem IDE |
-| **5** | **C12**: republicar destinos antigos (`lote_01`, `lote_03_kit`, `lote_06`, `r15`) | `forge3d verify` verde nos destinos republicados |
-| **6** | Se sobrar janela: **P5** animação/retarget; **P4** rota `modular` (WFC) | portão da fase em `docs/roadmap.md` |
+| **1** | **Schema** | `schemas/manifest.v2.schema.json` com `unidades_export: {metros_por_unidade, escala_saida}`. `manifest@1` continua aceito na leitura (`verify` dos destinos antigos). Registrar em `DECISOES` §2 (`D62`). |
+| **2** | **Perfil** | `profiles/roblox-r15.yaml`: `unidades.escala_saida: 3.5714` (e `metros_por_unidade: 0.28`); `godot4` fica `1.0`. |
+| **3** | **Post-processo** | `blender/postprocess.py` multiplica a escala final por `escala_saida` e devolve o fator no relatório. **Atenção**: pivô e bbox escalam junto. |
+| **4** | **QC** | `qc.py`: G2 compara `altura / escala_saida` com `altura_metros` e grava `escala_saida` no `medido`; `_desvio_pivo` divide pela mesma escala. Perfil sem o campo = 1.0 (nada muda). |
+| **5** | **Manifesto** | `publish.montar_manifesto` emite `schema: forge3d/manifest@2` + `unidades_export`; `publish.verificar` aceita `@1` e `@2` e reexecuta com a escala declarada. |
+| **6** | **Testes** | escala 1.0 não altera nada; 3.5714 multiplica o bbox; G2 divide e passa; manifesto `@2` sem `unidades_export` reprova; `verify` de manifesto `@1` antigo continua com o erro de `pivo_regra` (C7). |
+| **7** | **Republicar** | `forge3d run examples/lote_09_r15.yaml` (subir `PIPELINE_VERSION`), `export-r15`; `verify` nos dois. |
+| **8** | **Re-upload + medir** | `upload-model` do novo `.glb` (asset novo), inserir no Studio e medir `Size.Y` **via MCP** (`tools/mcp_studio.py`), sem Command Bar. |
+| **9** | **Fechar P8** | `Size.Y` do package dentro de `6,607 ± 0,02` studs; GAP-006 e P8 fechados com o número; `DECISOES` §1 e §4 (Q3); `CONTINUAR`. |
 
 ## 5. O que registrar sempre
 
-| Achado | Onde |
-|---|---|
-| número medido | `DECISOES.md` §1, com rótulo `[medido]` |
-| lacuna nova | `docs/gaps.md`, com condição objetiva de fechamento |
-| pendência/correção | `docs/pendencias.md`, com prioridade e aceitação |
-| decisão | `DECISOES.md` §2 (`D<n>`) — só com critério escrito antes |
-| mudança de contrato | `schemas/` + bump de versão + linha em `DECISOES.md` |
+fato medido → `DECISOES` §1 com rótulo · lacuna → `docs/gaps.md` · pendência → `docs/pendencias.md` ·
+decisão → `DECISOES` §2 · mudança de contrato → `schemas/` + bump + linha em `DECISOES`.
 
-## 6. Portões (rodar antes de qualquer commit)
+## 6. Portões (antes de cada commit)
 
 ```bash
 cd /home/eudespatricio/3DCreation && . .venv/bin/activate
-python -m pytest tests/test_e2e_rapido.py -q   # ciclo completo, < 30 s
-python -m pytest -q                            # suíte completa: 68 + 1 GPU
-bash tools/check-contexto.sh                   # tetos
-python tools/check-p0.py                       # docs, schemas, I12/I14
+python -m pytest tests/test_e2e_rapido.py -q   # < 30 s
+python -m pytest                               # 86 verdes + 1 GPU
+bash tools/ci.sh                               # o que o GitHub roda (71 testes)
+bash tools/check-contexto.sh
+python tools/check-p0.py
 ```
 
-O CI do GitHub roda `tools/ci.sh` (53 testes + contexto + P0, sem GPU/Blender). Blender 4.2, GPU,
-TripoSR e SD1.5 são **locais** e não rodam no CI.
+## 7. Armadilhas
 
-## 7. Armadilhas já pagas (não repetir)
-
-1. **`edit`/`write` em caminho UNC falham** (`GetFileSecurityW EIO`) → edite por WSL/ext4.
-2. **`convex_hull` do `bmesh` não apaga a entrada** → recorte só com `hull["geom"]` (D52).
-3. **Blender 4.2 usa Python 3.11** — nunca `pip install` nele (I9).
-4. **glTF divide vértice por costura de UV** → G1 solda antes de contar não-manifold.
-5. Peça de membro precisa **sobrepor o pivô**, e nunca compartilhar canto exato.
-6. **Joelho e cotovelo giram em sentidos opostos** (X negativo dobra joelho, positivo cotovelo).
-7. Mudou a saída de um provider? **Suba `VERSAO`** — senão o cache serve o artefato velho.
-8. **Diffusers trunca prompt em 77 tokens em silêncio** — hoje medido em `tools/concept_infer.py`.
-9. **`nvidia-smi` vive em `/usr/lib/wsl/lib`**; **CMake 4.x quebra builds antigos** (`<4`).
-10. **Servidor headless do `run-in-roblox` não carrega asset privado** — só o Studio GUI logado.
+1. **`edit`/`write` sobre UNC falham** → edite por WSL/ext4.
+2. **Cache (D6)**: mudou a saída → `PIPELINE_VERSION` ou `VERSAO` do provider, senão o `run` serve o
+   artefato antigo e o `verify` aprova o que a pipeline nova não geraria.
+3. **Não escalar duas vezes**: o `.rbxlx` já sai em studs (`rbx.py` usa `metros_por_stud`); só o
+   `glb` do perfil Roblox precisa do fator.
+4. **`bbox_m` continua em metros**; quem quiser a unidade do arquivo lê `unidades_export`.
+5. **MCP**: o proxy precisa ficar vivo alguns segundos; o binário muda por versão do Studio
+   (`FORGE3D_STUDIOMCP`); Command Bar é linha única e colapsa script multi-linha.
+6. **Re-upload** cria asset novo — atualizar o id em `docs/preview/r15_upload_test.log` e no GAP-006.
 
 ## 8. Orçamento
 
-Uma janela. Se não couber, entregar **1 e 2** (textura e pivôs/escala no Studio) e registrar 3–6 em
-`docs/pendencias.md`. Não deixar teste vermelho ao encerrar.
+Uma janela. Se o schema se mostrar mais caro que o previsto, **entregar 1–6 e registrar 7–9** em
+`docs/pendencias.md` com critério de aceitação. Não deixar teste vermelho ao encerrar.
 
 ## 9. Bloco para colar como Goal
 
 ```
-Objetivo: continuar o Forge3D em /home/eudespatricio/3DCreation e fechar a P2 (Roblox R15) no Studio
-GUI logado, executando tudo o que couber nesta janela; o que não couber entra em docs/pendencias.md
-com critério de aceitação.
+Objetivo: continuar o Forge3D em /home/eudespatricio/3DCreation e fechar a P2 implementando a opcao A
+do docs/goal-proxima-janela.md: manifest@2 com unidades_export, glb do roblox-r15 exportado em studs,
+republicar o r15, reenviar o Model e medir o Size no Studio via tools/mcp_studio.py.
 
-Leia, nesta ordem: CONTINUAR.md, docs/pendencias.md, MAPA.md, DECISOES.md §2 e §4, docs/gaps.md.
-P3, P3.5 e C5-C11 estão fechados; suíte em 68 verdes + 1 GPU e CI verde no GitHub (run 42942191684).
-Não reabra D3-D26 nem D52-D56; SF3D está encerrado (GAP-035).
+Leia, nesta ordem: CONTINUAR.md, docs/goal-proxima-janela.md, MAPA.md, DECISOES.md §2 e §4, docs/gaps.md.
+P0/P0.5/P1/P3/P3.5 e C5-C11 estao fechados; suite em 86 verdes + 1 GPU e CI verde no GitHub.
+Nao reabra D3-D27 nem D52-D60; SF3D esta encerrado (GAP-035).
 
-Ordem de execução:
-1) P8/GAP-006: inserir o package 136741921517312 e conferir a textura 75934318775024 no Studio GUI;
-2) P8: girar os 16 Bones (pivô por membro), medir escala/stud e validar U1-U4;
-3) P8: conferir Humanoid/rig do .rbxlx (saida/r15/personagem.r15.guard.01.rbxlx, 16 partes, 15 Motor6D);
-4) C6/Q9: decidir delegacao (chave de API x agentapi);
-5) C12: republicar destinos antigos e passar forge3d verify;
-6) se sobrar janela: P5 animacao/retarget ou P4 rota modular.
+Medido que fundamenta a tarefa: package = 1,850 studs, .rbxlx = 6,478 studs, divergencia 3,57x;
+o importador do Roblox usa 1 unidade glTF = 1 stud; o manifest@1 declara bbox_m em metros, entao o
+glb em studs exige declarar a unidade no manifesto (bump de contrato).
 
-Registre sempre: fato medido em DECISOES §1 com rotulo, lacuna em docs/gaps.md, pendencia em
-docs/pendencias.md, decisao em DECISOES §2. Mudanca de schema exige bump de versao.
+Ordem: 1) schema manifest@2; 2) perfil com escala_saida; 3) postprocess aplica; 4) G2 divide e grava
+o fator; 5) publish emite @2 e verify aceita @1 e @2; 6) testes; 7) republish do r15 com
+PIPELINE_VERSION novo; 8) export-r15 + upload + medir Size.Y via MCP; 9) fechar GAP-006/P8 e Q3.
 
-Portoes antes de cada commit: python -m pytest tests/test_e2e_rapido.py -q (tem que passar em <30 s),
-python -m pytest -q, bash tools/check-contexto.sh, python tools/check-p0.py.
+Registre sempre: fato medido em DECISOES §1, lacuna em docs/gaps.md, pendencia em docs/pendencias.md,
+decisao em DECISOES §2. Mudanca de schema exige bump de versao.
 
-Aceitacao final da janela: textura visivel no Studio GUI, pivos dos 16 Bones e escala/stud validados,
-U1-U4 sem [verificar] no perfil roblox-r15; suite verde; pendencias registradas.
+Portoes antes de cada commit: python -m pytest tests/test_e2e_rapido.py -q (<30 s), python -m pytest,
+bash tools/ci.sh, bash tools/check-contexto.sh, python tools/check-p0.py.
 
-Comece rodando os quatro portoes para confirmar a base verde, e entao siga para o item 1.
+Aceitacao final: Size.Y do package no Studio em 6,607 +- 0,02 studs; .rbxlx e package na mesma escala;
+verify verde nos dois; manifesto @2 valido; suite e CI verdes; GAP-006 e P8 fechados com o numero.
+
+Comece rodando os portoes e o `python tools/mcp_studio.py --estado` para confirmar o Studio.
 ```

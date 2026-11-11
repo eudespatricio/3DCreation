@@ -9,6 +9,7 @@
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|
 | GAP-004 | `scan_repo.py` da skill ainda é Luau; lens Python/Blender não portado | P0 | P6 | scanner em Python puro produzindo `radiografia.md` |
+| GAP-043 | `manifest@1` não declara a unidade do arquivo: `geometry.bbox_m` está em metros, mas o `glb` do perfil Roblox precisa sair em studs (3,57×) | P2 | **C15** | `manifest@2` com `unidades_export` e `verify` aceitando `@1` e `@2` |
 | GAP-042 | `empunhadura` foi simplificada para **20 % da altura** (D58); a regra do perfil — "menor secção transversal na faixa inferior 30 %" — não está implementada | P3 | P4 | regra geométrica implementada em função única e medida pelo G2 com o mesmo critério |
 | GAP-006 | Roblox: asset 136741921517312 (1 MeshPart + 16 Bones) e Image 75934318775024 aprovados; **textura confirmada no Studio** (`PreloadAsync` = `AssetFetchStatus.Success`, MCP); **U1/U2/U4 fechadas** (importador 1 unidade = 1 stud; sem `SurfaceAppearance`; sem `Humanoid`); **falta a escala**: package 1,850 studs × `.rbxlx` 6,478 studs (3,57×) | P0 | P2 | package e `.rbxlx` na mesma escala (decisão de contrato sobre `escala_saida`) |
 | GAP-007 | Animação reservada e não implementada (D14) | P0 | P5 | clipe base tocando em `godot-humanoid@1` e `r15@1` |

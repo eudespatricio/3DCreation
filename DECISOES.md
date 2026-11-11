@@ -121,6 +121,9 @@ Se algo não está aqui nem no `CONTINUAR.md`, não foi decidido — foi só con
 | P2 — diagnóstico da key | `~/.config/forge3d/roblox.key` existe, modo **600**, **0 B**; creator ID/type ausente no shell; **nenhum upload** foi feito | diagnóstico em 10/11/2026 |
 | P2 — helper de config | `tools/configurar_roblox.sh`: key oculta, creator ID, dry-run e upload opcional; `bash -n` ok | 10/11/2026 |
 
+| P2 — upload real aprovado | assetId **136741921517312**, operation `856adaa5-…`, moderação **Approved**, **39.068 B** | upload em 10/11/2026 |
+| P2 — asset no Studio | `InsertService:LoadAsset` → **1 MeshPart** 0,7584×1,85×0,4255 com **16 Bones R15**; `TextureID` 126102198021602 falha (sem conteúdo) | `run-in-roblox` em 10/11/2026 |
+
 | Custo concept→mesh | **40 s estimados × 37,2 s reais** (erro -7%) | `plan` × `run` em 10/11/2026 |
 
 | P3.5 — pesos SD1.5 | **2,0 GB** em `~/.cache/huggingface/hub/models--stable-diffusion-v1-5--stable-diffusion-v1-5` (fp16, revision `451f4fe…`) | `du -sh` + snapshot HF em 10/11/2026 |
@@ -186,6 +189,7 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 | D47 | **Pivô por membro = head dos 16 bones**, não o pivô do objeto; o objeto fica em `base`. O teste no Studio valida 15 Motor6D; o import da malha/textura no Studio continua manual | 16 bone heads medidos no GLB; `R15_STUDIO_PASS`; `AssetImportService` sem sessão por caminho |
 | D48 | **Export nativo `.rbxlx`** para R15: 16 `Part`s (agregando caixas por osso) + 15 `Motor6D` com `CFrame`/`C0`/`C1`; sem upload e sem textura. Evita o import manual do rig; o GLB/MeshPart com textura continua o caminho de mesh | 16/15, `R15_RBXLX_PASS`; Part com `CFrame` (não `Position`) |
 | D49 | **Upload Open Cloud via `Model`**: `forge3d upload-model` lê a key de `FORGE3D_ROBLOX_API_KEY`, `FORGE3D_ROBLOX_API_KEY_FILE` ou `~/.config/forge3d/roblox.key`; `--dry-run` não usa rede. Key nunca entra no repo; o asset sobe como package, então o rig R15 continua no `.rbxlx` | fluxo testado contra servidor local; upload real pendente de creator/key |
+| D50 | **O upload Open Cloud preserva os 16 Bones R15** dentro de um único MeshPart skinned; a textura derivada 126102198021602 não tem conteúdo. Corrigir com upload de imagem separado ou usar o rig `.rbxlx` para os pivôs | asset 136741921517312; 16 Bones; erro de `TextureID` |
 
 
 

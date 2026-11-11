@@ -155,6 +155,11 @@ Se preferir um passo a passo interativo — key oculta, creator ID e dry-run —
 A key também pode vir de `FORGE3D_ROBLOX_API_KEY`; nunca commite. O upload cria um **package de
 MeshParts**, não um rig R15; o `.rbxlx` nativo continua sendo o rig.
 
+**Upload real validado:** `assetId 136741921517312` (moderação **Approved**, 39.068 B).
+`InsertService:LoadAsset` no Studio carrega **1 MeshPart com 16 Bones R15**; a textura derivada
+(`126102198021602`) ainda falha com “No asset content representation”, então o MeshPart aparece sem
+textura. Veja [`docs/preview/r15_asset_insert.log`](docs/preview/r15_asset_insert.log).
+
 `bash tools/ci.sh` roda o portão de pull request sem GPU/Blender (unidade + concept + gc + contexto +
 P0); a suíte completa com Blender/GPU continua local. O workflow está em `.github/workflows/ci.yml`.
 

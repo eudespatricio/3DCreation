@@ -1,0 +1,27 @@
+# Upload real + inspeção no Studio — 10/11/2026
+#
+# GLB: personagem.r15.guard.01.glb (39.068 B)
+# assetId: 136741921517312
+# operation: 856adaa5-ed8a-4552-b101-380a3b4a94ca
+# moderação: Approved
+#
+# InsertService:LoadAsset no Studio:
+#   MESHPART forge3d_mesh
+#     size 0.7583996057510376, 1.850000023841858, 0.4255000054836273
+#     meshId rbxassetid://105761364227988
+#     textureId rbxassetid://126102198021602
+#   BONE HumanoidRootPart (pai forge3d_mesh)
+#   BONE LowerTorso (pai HumanoidRootPart)
+#   BONE UpperTorso (pai LowerTorso)
+#   BONE Head (pai UpperTorso)
+#   BONE LeftUpperArm / LeftLowerArm / LeftHand (pai UpperTorso / ...)
+#   BONE RightUpperArm / RightLowerArm / RightHand
+#   BONE LeftUpperLeg / LeftLowerLeg / LeftFoot (pai LowerTorso / ...)
+#   BONE RightUpperLeg / RightLowerLeg / RightFoot
+#   BONES_OK ossos=16
+#   ASSET_INSERT_OK partes=1 malhas=1 texturas=0
+#   WARN ContentId: rbxassetid://126102198021602 failed due to:
+#     No asset content representation found while do_not_fallback_to_baseline is set to true.
+#
+# Leitura: o Model import preservou os 16 Bones R15 dentro de um único MeshPart skinned.
+# A textura derivada (126102198021602) não tem conteúdo; o MeshPart aparece sem textura.

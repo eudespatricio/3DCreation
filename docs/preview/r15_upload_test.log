@@ -1,0 +1,16 @@
+# Open Cloud — upload real do R15 (10/11/2026)
+#
+# Arquivo: personagem.r15.guard.01.glb
+# Tamanho: 39.068 B
+# Asset type: Model (package de MeshParts; nao e um rig R15)
+#
+# Comando (key fora do repo, em ~/.config/forge3d/roblox.key):
+#   forge3d upload-model ... --nome "Forge3D R15 Guard"
+#
+assetId: 136741921517312
+operation: 856adaa5-ed8a-4552-b101-380a3b4a94ca
+moderacao: Approved
+bytes: 39068
+#
+# O upload foi feito com a key do operador; nenhum segredo esta neste arquivo.
+# Proximo passo: inserir o package no Studio e avaliar o rig/textura.

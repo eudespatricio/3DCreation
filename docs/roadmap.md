@@ -70,8 +70,9 @@ e o teste real no Studio que fecha U1–U4.
 Studio, **`R15_STUDIO_PASS motores=15 partes=16`** valida o pivô por membro; o objeto usa `pivot:
 base` e os bone heads ficam nos joints (D47). O **`forge3d export-r15`** gera um `.rbxlx` nativo
 (16 Parts + 15 Motor6D, `R15_RBXLX_PASS`) sem upload. O `upload-model` sobe o `.glb` como `Model`
-via Open Cloud (free) e devolve `assetId`; faltam o upload real e a montagem do package no rig,
-além de escala/stud e U1–U4.
+via Open Cloud (free); o upload real foi aprovado (asset 136741921517312) e o Studio carrega **1
+MeshPart com 16 Bones R15**. Faltam textura (TextureID sem conteúdo), pivôs nos Bones, escala/stud
+e U1–U4.
 
 **Portão:** modelo importado no Studio com `Humanoid`, membros girando no pivô certo, textura correta,
 e o documento `perfis-export.md` sem nenhum `[verificar]` pendente nesse perfil.

@@ -9,7 +9,7 @@
 
 | # | Pendência | Por que importa | Aceitação | Prio |
 |---|---|---|---|---|
-| P8 | **Roblox P2**: upload real + montagem | `upload-model` pronto (dry-run e servidor local); pivô e `.rbxlx` nativo validados; a key atual está **vazia** — rode `tools/configurar_roblox.sh`, faça o upload real, monte o package no rig e feche escala/stud/U1–U4 (Q3/GAP-006) | upload real com `assetId`+moderação, package no rig, U1–U4 sem `[verificar]` | **B** |
+| P8 | **Roblox P2**: textura/bones no Studio | **Upload real aprovado** (asset 136741921517312); `InsertService` carrega **1 MeshPart com 16 Bones R15**; a textura 126102198021602 não tem conteúdo; faltam pivôs nos Bones, escala/stud e U1–U4 (Q3/GAP-006) | textura carregada, pivôs nos Bones, U1–U4 sem `[verificar]`, escala/stud | **B** |
 
 ## 2. Correções que já mordem
 
@@ -28,7 +28,7 @@
 | # | Pergunta | Contexto medido | Prio |
 |---|---|---|---|
 | Q9 | delegação: chave de API × `agentapi` | `agentapi` é sessão agêntica com execução de ferramenta (GAP-030) | B |
-| Q3 | escala/rig Roblox | pivô e `.rbxlx` nativo validados; upload real/package, escala/stud e U1–U4 pendentes | B |
+| Q3 | escala/rig Roblox | upload real aprovado (1 MeshPart + 16 Bones); textura, pivôs nos Bones, escala/stud e U1–U4 pendentes | B |
 | Q1 | nome definitivo do produto | `forge3d` é provisório | C |
 | Q7 | assets no git do jogo: normal × LFS | primeiro asset real ainda não integrado | C |
 

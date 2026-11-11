@@ -27,7 +27,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **P1** | ✔ | rotas `blocky` e `import` de ponta a ponta: validar → planejar → gerar → Blender → QC G1–G9 → cache → publicar → índice → ledger |
 | **P3** | **✔ parcial** | provider `i23d` real (TripoSR) + bake UV/textura próprio + venv única + kit corpo/capa/arma; prop e **3 personagens híbridos** com G1–G9 |
 | **P3.5** | **✔** | concept SD1.5 → TripoSR → UV/bake: sentinela sem `origem`, split 3 concepts e **A/B de 3 personagens híbridos** (.02/.05/.04 + capa .03 + arma blocky), `AB_OK` |
-| **P2** | **parcial** | `roblox-r15`: R15 16 ossos; **pivô no Studio** e **`.rbxlx` nativo (16 Parts+15 Motor6D)**; faltam textura/MeshPart, escala/stud e U1–U4 |
+| **P2** | **parcial** | `roblox-r15`: R15 16 ossos, pivô e `.rbxlx` nativo; **upload real aprovado (1 MeshPart + 16 Bones)**; faltam textura, pivôs nos Bones, escala/stud e U1–U4 |
 | **P4** | pendente | rota `modular` (WFC) |
 | **P5** | pendente | animação e retarget |
 
@@ -58,8 +58,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   `p3_ab_3personagens.png`; scout .05 expôs sliver (D42) e orientação (D43).
 - **P2 R15** — 16 partes R15, 300 tris, G1–G9, `verify` e `R15_OK` no Godot; os 16 bone heads são os
   pivôs por membro (D41/D47). Studio: `R15_STUDIO_PASS` e `.rbxlx` nativo (16 Parts + 15 Motor6D,
-  `R15_RBXLX_PASS`); logs `docs/preview/r15_studio_test.log` e `r15_rbxlx_test.log`; o
-  `forge3d export-r15` evita o import manual do rig; `upload-model` sobe o GLB (free).
+  `R15_RBXLX_PASS`); logs `docs/preview/r15_studio_test.log`, `r15_rbxlx_test.log` e `r15_asset_insert.log`; o
+  `forge3d export-r15` evita o import manual; `upload-model` aprovou o asset 136741921517312 (1 MeshPart + 16 Bones; textura pendente).
 - **C3/CI** — `forge3d gc --manter-dias 30` (2 testes, D45); `tools/ci.sh` + workflow com **35 testes**,
   contexto e P0 (D46).
 
@@ -90,7 +90,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | P2 — R15 blocky | **300 tris** · **16 ossos** (todos no mapa R15) · G1–G9 · `verify` · `R15_OK` |
 | P2 — pivô por membro (Studio) | **`R15_STUDIO_PASS motores=15 partes=16`**; 16 bone heads no GLB (H=1,85 m) |
 | P2 — export nativo `.rbxlx` | **16 Parts + 15 Motor6D**, 18.479 B; `R15_RBXLX_PASS partes=16 motores=15` |
-| P2 — upload Open Cloud | `upload-model` dry-run/local: POST multipart, `assetId=999`; **2 testes**; upload real pendente |
+| P2 — upload Open Cloud | real **asset 136741921517312** (moderação Approved, 39.068 B); 1 MeshPart + 16 Bones; textura pendente; 2 testes |
 | gc / CI | `gc` 2 testes; `tools/ci.sh` **35 testes** + contexto + P0 |
 | Venv concept | **5,6 GB** · diffusers 0.31.0 · transformers 4.44.2 · torch 2.4.1+cu121 |
 | Probe Roblox (sem Studio) | prop blocky publica/verifica; humanoid falha em `pivot: junta`; blocky não gera nomes R15 |

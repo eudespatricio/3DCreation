@@ -107,6 +107,19 @@ def verificar_conformidade(raiz: Path) -> list[str]:
             except OSError:
                 continue
 
+    # (d) versao do pacote: pyproject e __init__ tem que dizer a mesma coisa
+    try:
+        pyproject = (raiz / "pyproject.toml").read_text(encoding="utf-8")
+        init = (raiz / "src" / "forge3d" / "__init__.py").read_text(encoding="utf-8")
+        re_pyproject = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.MULTILINE)
+        re_init = re.search(r'^__version__\s*=\s*"([^"]+)"', init, re.MULTILINE)
+        if re_pyproject and re_init and re_pyproject.group(1) != re_init.group(1):
+            violacoes.append(
+                f"VERSAO: pyproject {re_pyproject.group(1)} != __init__ {re_init.group(1)}"
+            )
+    except OSError:
+        pass
+
     return violacoes
 
 

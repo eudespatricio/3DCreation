@@ -16,12 +16,16 @@ Nenhuma pendente: a C12 fechou em 11/11/2026 (ver §4).
 
 ## 3. Decisões que precisam do operador
 
-| # | Pergunta | Contexto medido | Prio |
-|---|---|---|---|
-| Q1 | nome definitivo do produto | `forge3d` é provisório | C |
-| Q7 | assets no git do jogo: normal × LFS | primeiro asset real ainda não integrado | C |
+Nada pendente: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no repo do jogo).
 
 ## 4. Fechado nesta janela (não reabrir)
+
+- **Q1/D72 e Q7/D73** em 11/11/2026: o produto continua `forge3d` (a marca, se houver, na vitrine) e
+  os assets dos jogos vão para **Git LFS** (`*.glb`, `*.png`, `*.rbxm/rbxmx`, `*.blend`, `*.fbx`,
+  áudio, fontes) antes do primeiro asset real. Ação do operador no **GameZero** (155 MB de assets no
+  `.git`, sem `.gitattributes`): decidir se migra a história ou aplica LFS daqui pra frente — o
+  `jogo-roblox` já está em LFS. O `pyproject.toml` foi sincronizado em 0.3.0 e `tools/conformidade.py`
+  agora acusa divergência entre `pyproject` e `__init__`.
 
 - **P5 — LOD (GAP-013/GAP-046)** em 11/11/2026: critério de silhueta medido (IoU global, faixa
   vertical e bbox) em `tools/lod_qualidade.py`. O LOD do blocky foi reprovado (decimate vira espinho;

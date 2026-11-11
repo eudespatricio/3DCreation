@@ -101,14 +101,13 @@ separada · `D52` colisor é hull fechado · `D53` G7 mede convexidade · `D54` 
 `D55` rembg por alfa · `D56` CI no GitHub · `D57` delegação no `agentapi` · `D58` empunhadura 20 % ·
 `D59` `flock` é o dono do lock · `D60` validação no Roblox via MCP · **`D62` `manifest@2` declara a
 unidade** · **`D64` hull sobre nuvem de pontos** · **`D65` convexidade com tolerância de 1 mm/m** ·
-**`D66` animação base por retarget** · **`D67` `manifest@3` declara `animacoes`**.
+**`D66` animação base por retarget** · **`D67` `manifest@3` declara `animacoes`** · **`D68` Part
+permuta tamanho como centro** · **`D69` clipe do Roblox com `Priority=Core`** · **`D71` LOD medido por
+silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo** · **`D74` WFC próprio**.
 
 ## Aberto
 
-| # | Pergunta | Trava |
-|---|---|---|
-| Q1 | nome definitivo do produto | publicar o pacote |
-| Q7 | assets no git do jogo: normal × LFS | primeiro asset real |
+Nada em aberto: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no repo do jogo).
 
 Gaps abertos que importam: **GAP-004** (scanner da skill em Luau), **GAP-013** (qualidade do LOD),
 **GAP-015** (`draft` em 4k) e **GAP-042** (regra do "menor secção").

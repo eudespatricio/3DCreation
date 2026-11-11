@@ -262,6 +262,10 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 
 | D71 | **LOD medido por silhueta, e só onde há o que reduzir**: `tools/lod_qualidade.py` projeta a malha (frente e lado), mede IoU global, IoU por faixa vertical (8) e delta de bbox contra o LOD0. Critério: IoU ≥ 0,85, faixa ≥ 0,75, bbox ≤ 2%. O blocky de 300 tris **não gera LOD** (a caixa é a unidade de detalhe; o decimate vira espinho e o LOD por ilha perde o antebraço); o LOD fica para malha gerada | medido: decimate no blocky deu IoU 0,76 (LOD1) e 0,55 (LOD2) no frente, com espinhos no render; LOD por ilha deu 0,865 global **mas faixa 0,654** (antebraço sumiu); no bule mesh (7.960 tris) o LOD1 de 50% dá IoU 0,993/0,994 e faixa 0,948 |
 
+| D72 | **O produto continua `forge3d`** (Q1 fechada): o nome técnico fica no pacote, CLI, env e contrato; a marca, se houver, vive na vitrine — renomear a distribuição não exige tocar manifesto | 282 arquivos e 646 ocorrências carregam o prefixo, e 10 strings de contrato (`spec@1/@2`, `manifest@1..3`, `profile@1`, `allowlist@1`, `plano@1`, `report@1`, `query@1`) estão em 16 manifestos publicados: renomear o contrato criaria alias legado eterno |
+| D73 | **Assets dos jogos em Git LFS**: `*.glb`, `*.png`, `*.rbxm/rbxmx`, `*.blend`, `*.fbx`, áudio e fontes via `filter=lfs` no repo do jogo, antes do primeiro asset real; o repo do Forge3D **nunca** versiona asset (D24) | o `jogo-roblox` já usa LFS; o GameZero tem 155 MB de assets no `.git` (176 MB) sem `.gitattributes` — o custo de migrar depois é reescrever história |
+| D74 | **WFC próprio em Python puro** (Q4 fechada): grade pequena, tiles com sockets, propagação de restrição e seed na chave de cache; sem dependência nova | D26 (núcleo leve) e D1 (determinismo por seed); a fase precisa de 3 módulos e uma grade de 10 setores, não de um solver genérico |
+
 ## 3. Rejeitados (e por quê)
 
 - **ComfyUI + TripoSR + Blender acoplados num script só** — três falhas diferentes viram uma mensagem
@@ -282,13 +286,13 @@ comportamento do importador Roblox, desempenho do `uv` resolvendo `torch`.
 
 | # | Pergunta | Quando fecha | Bloqueia |
 |---|---|---|---|
-| Q1 | Nome definitivo do produto (`forge3d` é provisório) | antes de publicar o pacote | nada — é reversível |
+| ~~Q1~~ | **Resolvida em 11/11/2026 por D72** — o produto continua `forge3d`; a marca, se houver, vive na vitrine | — | — |
 | ~~Q2~~ | **Resolvida em 10/11/2026 por D23** — allowlist em arquivo global, sandbox próprio liberado, sem bypass | — | — |
 | ~~Q3~~ | **Resolvida em 11/11/2026 por D62/C15** — escala: o importador usa **1 unidade glTF = 1 stud** (medido), o `.rbxlx` usa 0,28 m/stud e o glb declara a unidade em `unidades_export`; package e `.rbxlx` medem **6,6071 studs** (D68 fechou o resíduo). Animação e retarget seguem em P5, não em Q3 | — | — |
-| Q4 | Biblioteca de WFC para `modular` | P4 | Rota C |
+| ~~Q4~~ | **Resolvida em 11/11/2026 por D74** — WFC próprio em Python puro (grade pequena, sockets, seed) | — | — |
 | ~~Q5~~ | **Resolvida em 10/11/2026 por D27** — SF3D encerrado em 6 GB; TripoSR (MIT) é o i23d da P3 | — | — |
 | ~~Q6~~ | **Resolvida em 10/11/2026 por D24** — estado central em `$FORGE3D_HOME`, nada no repo do jogo | — | — |
-| Q7 | Assets versionados no git do jogo: direto × Git LFS | antes do primeiro asset real no GameZero | nada técnico |
+| ~~Q7~~ | **Resolvida em 11/11/2026 por D73** — LFS no repo do jogo (`*.glb`, `*.png`, `*.rbxm`, `*.blend`…), antes do primeiro asset real | — | — |
 | Q8 | Qualidade do reconstructor para personagem com capa: TripoSR × SF3D | P3 fechada para prop (bule) com TripoSR; A/B de 10 assets e personagem continuam abertos | Rota `mesh`, D18 |
 | ~~Q9~~ | **Resolvida em 11/11/2026 por D57** — delegação no `agentapi`, que exige a IDE aberta; sem chave de API e sem caminho headless | — | — |
 

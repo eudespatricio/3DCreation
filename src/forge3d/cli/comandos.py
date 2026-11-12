@@ -43,11 +43,30 @@ def construir_parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("plan", help="o que seria feito: custo, cache, bloqueios (nao executa)")
     pl.add_argument("lote")
     pl.add_argument("--json", action="store_true")
+    pl.add_argument(
+        "--no-cache",
+        "--fresh",
+        dest="no_cache",
+        action="store_true",
+        help="ignora cache e projeta custo de geracao completa",
+    )
 
     r = sub.add_parser("run", help="executa, verifica QC e publica")
     r.add_argument("lote")
     r.add_argument("--json", action="store_true")
     r.add_argument("--nao-publicar", action="store_true", help="gera e verifica sem escrever no destino")
+    r.add_argument(
+        "--no-cache",
+        "--fresh",
+        dest="no_cache",
+        action="store_true",
+        help="ignora cache e forca nova geracao de todos os itens",
+    )
+    r.add_argument(
+        "--clean-dest",
+        action="store_true",
+        help="remove manifestos e arquivos legados no destino que nao pertencem ao lote",
+    )
 
     ve = sub.add_parser("verify", help="portao de CI: manifesto integro + hash conferido")
     ve.add_argument("destino")
@@ -265,7 +284,9 @@ def _validate(args) -> int:
 
 
 def _plan(args) -> int:
-    relatorio, codigo = pipeline.executar(args.lote, plano_apenas=True)
+    relatorio, codigo = pipeline.executar(
+        args.lote, plano_apenas=True, no_cache=getattr(args, "no_cache", False)
+    )
     if args.json:
         _json(relatorio)
     else:
@@ -275,7 +296,11 @@ def _plan(args) -> int:
 
 def _run(args) -> int:
     relatorio, codigo = pipeline.executar(
-        args.lote, plano_apenas=False, publicar_arquivos=not args.nao_publicar
+        args.lote,
+        plano_apenas=False,
+        publicar_arquivos=not args.nao_publicar,
+        no_cache=getattr(args, "no_cache", False),
+        clean_dest=getattr(args, "clean_dest", False),
     )
     if args.json:
         _json(relatorio)

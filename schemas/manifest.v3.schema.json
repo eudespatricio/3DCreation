@@ -103,6 +103,32 @@
         "ossos": { "type": "integer", "minimum": 1, "maximum": 64 }
       }
     },
+    "anexo": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["parte", "osso", "attachment_roblox"],
+      "properties": {
+        "parte": {
+          "enum": [
+            "corpo",
+            "capa",
+            "arma",
+            "cabelo",
+            "elmo",
+            "ombreiras",
+            "peitoral",
+            "luvas",
+            "calcas",
+            "calças",
+            "botas",
+            "escudo"
+          ]
+        },
+        "osso": { "type": "string", "minLength": 1 },
+        "attachment_roblox": { "type": "string", "minLength": 1 },
+        "skinned": { "type": "boolean" }
+      }
+    },
     "lod": {
       "type": "array",
       "maxItems": 4,

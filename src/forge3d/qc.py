@@ -809,7 +809,10 @@ def verificar(
 
     # G9 orcamento (inclui limites por parte/primitiva quando o perfil declara)
     limite_tri = int(item["limite_triangulos"])
-    bytes_max = int(v["bytes_max_kb"]) * 1024
+    bytes_max_kb = int(v["bytes_max_kb"])
+    if item.get("qualidade") == "hero":
+        bytes_max_kb = max(bytes_max_kb, 4096)
+    bytes_max = bytes_max_kb * 1024
     maiores = []
     for arq in arquivos:
         caminho = pasta / arq["caminho"]
@@ -839,7 +842,7 @@ def verificar(
             },
             "limite": {
                 "limite_triangulos": limite_tri,
-                "bytes_max_kb": v["bytes_max_kb"],
+                "bytes_max_kb": bytes_max_kb,
                 **({"partes_max": int(partes_max)} if partes_max is not None else {}),
                 **(
                     {"triangulos_por_parte_max": int(tri_parte_max)}

@@ -24,6 +24,7 @@ if _BLENDER_DIR not in sys.path:
 
 import autorig
 import bake_pbr
+import extrude_2d
 
 # faces de um cubo por indice de vertice; a orientacao e corrigida depois por recalc
 FACES_CUBO = (
@@ -269,9 +270,12 @@ def reparar_malha(obj) -> dict:
     slivers = [f for f in bm.faces if f.calc_area() < 1e-8]
     if slivers:
         bmesh.ops.delete(bm, geom=slivers, context="FACES")
-        soltos = [v for v in bm.verts if not v.link_faces]
-        if soltos:
-            bmesh.ops.delete(bm, geom=soltos, context="VERTS")
+    soltas_e = [e for e in bm.edges if not e.link_faces]
+    if soltas_e:
+        bmesh.ops.delete(bm, geom=soltas_e, context="EDGES")
+    soltos = [v for v in bm.verts if not v.link_faces]
+    if soltos:
+        bmesh.ops.delete(bm, geom=soltos, context="VERTS")
     ilhas = _remover_ilhas_de_uma_face(bm)
     bordas = [e for e in bm.edges if len(e.link_faces) == 1]
     if bordas:
@@ -293,15 +297,128 @@ def reparar_malha(obj) -> dict:
     }
 
 
-def decimar(obj, alvo_tris: int) -> int:
+def _media_vizinhos(v):
+    edges = v.link_edges
+    if not edges:
+        return v.co.copy()
+    soma = Vector((0.0, 0.0, 0.0))
+    for e in edges:
+        soma += e.other_vert(v).co
+    return soma / len(edges)
+
+
+def _suavizar_taubin_bm(bm, iteracoes: int = 2, fator: float = 0.45) -> int:
+    """Suavizacao Taubin sem encolher volume (reduz ondas de Marching Cubes no bmesh)."""
+    if not bm.verts or iteracoes <= 0:
+        return 0
+    for _ in range(iteracoes):
+        for peso in (fator, -1.04 * fator):
+            deslocs = [(_media_vizinhos(v) - v.co) * peso for v in bm.verts]
+            for v, d in zip(bm.verts, deslocs):
+                v.co += d
+    bm.normal_update()
+    return len(bm.verts)
+
+
+def _relaxar_arestas_dobradas_bm(bm, passadas: int = 3) -> int:
+    """Desdobra arestas internas/invertidas apos decimate para zerar rasgos e normais."""
+    total_movidos = 0
+    for _ in range(passadas):
+        bm.normal_update()
+        marcados: set[int] = set()
+        for e in bm.edges:
+            if len(e.link_faces) == 2 and e.link_faces[0].normal.dot(e.link_faces[1].normal) < -0.15:
+                marcados.add(e.verts[0].index)
+                marcados.add(e.verts[1].index)
+        if not marcados:
+            break
+        bm.verts.ensure_lookup_table()
+        novos = {idx: _media_vizinhos(bm.verts[idx]) for idx in marcados}
+        for idx, destino in novos.items():
+            v = bm.verts[idx]
+            v.co = v.co.lerp(destino, 0.55)
+        total_movidos += len(marcados)
+    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    return total_movidos
+
+
+def decimar(obj, alvo_tris: int, proteger_cabeca_maos: bool = False) -> int:
     tris = malha_triangulada(obj)
     if alvo_tris <= 0 or tris <= alvo_tris:
         return tris
-    mod = obj.modifiers.new("forge3d_decimate", "DECIMATE")
-    mod.ratio = max(0.01, min(1.0, (alvo_tris * 0.995) / tris))
-    _selecionar(obj)
-    bpy.ops.object.modifier_apply(modifier=mod.name)
-    return malha_triangulada(obj)
+
+    if proteger_cabeca_maos and obj.data.vertices and tris >= 4000:
+        bm_pre = bmesh.new()
+        bm_pre.from_mesh(obj.data)
+        _suavizar_taubin_bm(bm_pre, iteracoes=1, fator=0.35)
+        bm_pre.to_mesh(obj.data)
+        bm_pre.free()
+        obj.data.update()
+
+    vg_name: str | None = None
+    if proteger_cabeca_maos and obj.data.vertices:
+        mw = obj.matrix_world
+        coords = [mw @ v.co for v in obj.data.vertices]
+        z_min = min(c.z for c in coords)
+        z_max = max(c.z for c in coords)
+        h = z_max - z_min
+        if h > 0.0:
+            cx = 0.5 * (min(c.x for c in coords) + max(c.x for c in coords))
+            vg_name = "forge3d_decimate_peso"
+            vg_temp = obj.vertex_groups.new(name=vg_name)
+            cabeca_verts: list[int] = []
+            maos_verts: list[int] = []
+            resto_verts: list[int] = []
+            z_cabeca = z_min + 0.76 * h
+            z_mao_min = z_min + 0.30 * h
+            z_mao_max = z_min + 0.70 * h
+            x_mao = 0.25 * h
+            for v, co in zip(obj.data.vertices, coords):
+                if co.z >= z_cabeca:
+                    cabeca_verts.append(v.index)
+                elif z_mao_min <= co.z <= z_mao_max and abs(co.x - cx) >= x_mao:
+                    maos_verts.append(v.index)
+                else:
+                    resto_verts.append(v.index)
+            if cabeca_verts:
+                vg_temp.add(cabeca_verts, 0.15, "REPLACE")
+            if maos_verts:
+                vg_temp.add(maos_verts, 0.40, "REPLACE")
+            if resto_verts:
+                vg_temp.add(resto_verts, 1.0, "REPLACE")
+
+    try:
+        mod = obj.modifiers.new("forge3d_decimate", "DECIMATE")
+        mod.ratio = max(0.01, min(1.0, (alvo_tris * 0.995) / tris))
+        if vg_name is not None:
+            mod.vertex_group = vg_name
+            mod.invert_vertex_group = False
+            if hasattr(mod, "vertex_group_factor"):
+                mod.vertex_group_factor = 0.80
+        _selecionar(obj)
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+    finally:
+        if vg_name is not None:
+            vg_ref = obj.vertex_groups.get(vg_name)
+            if vg_ref is not None:
+                obj.vertex_groups.remove(vg_ref)
+
+    tris_pos = malha_triangulada(obj)
+    if vg_name is not None and tris_pos > alvo_tris:
+        mod_fb = obj.modifiers.new("forge3d_decimate_fallback", "DECIMATE")
+        mod_fb.ratio = max(0.01, min(1.0, (alvo_tris * 0.995) / tris_pos))
+        _selecionar(obj)
+        bpy.ops.object.modifier_apply(modifier=mod_fb.name)
+        tris_pos = malha_triangulada(obj)
+
+    if proteger_cabeca_maos and obj.data.vertices:
+        bm_pos = bmesh.new()
+        bm_pos.from_mesh(obj.data)
+        _relaxar_arestas_dobradas_bm(bm_pos, passadas=3)
+        bm_pos.to_mesh(obj.data)
+        bm_pos.free()
+        obj.data.update()
+    return tris_pos
 
 
 def _extensao_faixa(obj, z0: float, z1: float) -> float:
@@ -762,6 +879,23 @@ def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
             for vertice in temp.verts:
                 nuvem.verts.new(vertice.co)
             nuvem.verts.ensure_lookup_table()
+            if nuvem.verts:
+                xs_n = [vv.co.x for vv in nuvem.verts]
+                ys_n = [vv.co.y for vv in nuvem.verts]
+                zs_n = [vv.co.z for vv in nuvem.verts]
+                diag_n = math.sqrt(
+                    (max(xs_n) - min(xs_n)) ** 2
+                    + (max(ys_n) - min(ys_n)) ** 2
+                    + (max(zs_n) - min(zs_n)) ** 2
+                )
+                dist_solda = (
+                    max(0.015, min(0.06, diag_n * 0.025))
+                    if len(nuvem.verts) > 64
+                    else max(0.002, min(0.008, diag_n * 0.0025))
+                )
+                if len(nuvem.verts) > 16:
+                    bmesh.ops.remove_doubles(nuvem, verts=list(nuvem.verts), dist=dist_solda)
+                    nuvem.verts.ensure_lookup_table()
             hull = bmesh.ops.convex_hull(nuvem, input=list(nuvem.verts))
             faces_hull = [g for g in hull["geom"] if isinstance(g, bmesh.types.BMFace)]
             limpo = bmesh.new()
@@ -776,6 +910,10 @@ def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
                     limpo.faces.new([mapa_vert[v] for v in face.verts])
                 except ValueError:
                     continue
+            if limpo.faces:
+                bmesh.ops.dissolve_degenerate(limpo, dist=1e-3, edges=list(limpo.edges))
+                bmesh.ops.triangulate(limpo, faces=list(limpo.faces))
+                bmesh.ops.dissolve_degenerate(limpo, dist=1e-3, edges=list(limpo.edges))
             limpo.normal_update()
             if limpo.faces:
                 bmesh.ops.recalc_face_normals(limpo, faces=list(limpo.faces))
@@ -870,6 +1008,15 @@ def exportar(caminho: str, objetos: list, com_rig: bool, com_animacao: bool = Fa
 # ------------------------------------------------------------------ pipeline
 
 
+def _resolver_opcional_bruto(bruto_dir: str, relativo: str | None) -> str | None:
+    if not relativo:
+        return None
+    caminho = str(relativo)
+    if not os.path.isabs(caminho):
+        caminho = os.path.join(bruto_dir, caminho)
+    return caminho if os.path.isfile(caminho) else None
+
+
 def processar(job: dict) -> dict:
     saida_dir = job["saida_dir"]
     os.makedirs(saida_dir, exist_ok=True)
@@ -888,15 +1035,54 @@ def processar(job: dict) -> dict:
         obj, grupos = construir_blocky(bruto, bruto_dir)
         if bruto.get("ossos"):
             rig_obj = criar_armadura(bruto["ossos"])
+    elif bruto["schema"] == "forge3d/bruto-extrude@1":
+        imagem_path = _resolver_opcional_bruto(
+            bruto_dir, bruto.get("origem_textura")
+        ) or os.path.join(bruto_dir, bruto["imagem"])
+        modo = str(bruto.get("modo", "arma"))
+        obj = extrude_2d.construir_malha_2d(imagem_path, modo=modo, nome=nome_base)
+        grupos = {}
+        info_gerada["extrude_2d"] = {
+            "modo": modo,
+            "triangulos_iniciais": malha_triangulada(obj),
+        }
+        info_gerada["reparo_inicial"] = reparar_malha(obj)
+        limite_tris = int(item["limite_triangulos"])
+        if malha_triangulada(obj) > limite_tris:
+            decimar(obj, limite_tris)
+        info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=35.0)
+        met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
+        rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
+        if met_hint or rough_hint:
+            px_ext = int(bruto.get("textura_px") or TEX_PX_GERADA)
+            res_hints = bake_pbr.aplicar_hints_orm_em_material(
+                obj,
+                saida_dir,
+                nome_base,
+                px_ext,
+                metallic_hint_png=met_hint,
+                roughness_hint_png=rough_hint,
+            )
+            if res_hints:
+                texturas_geradas.extend(res_hints["arquivos_textura"])
     elif bruto["schema"] == "forge3d/bruto-arquivo@1":
         importar_fonte(os.path.join(bruto_dir, bruto["arquivo"]))
         obj = unir_malhas()
         grupos = {}
+        armatures = [o for o in bpy.data.objects if o.type == "ARMATURE"]
+        if armatures:
+            rig_obj = armatures[0]
+            grupos = {vg.name: vg for vg in obj.vertex_groups}
         if bruto.get("canonicalizar"):
             info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
         info_gerada["reparo_inicial"] = reparar_malha(obj)
         if obj.data.color_attributes:
             px = int(bruto.get("textura_px") or TEX_PX_GERADA)
+            origem_tex = _resolver_opcional_bruto(bruto_dir, bruto.get("origem_textura"))
+            met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
+            rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
+            proteger = bool(bruto.get("proteger_decimate", False))
+            angulo_smooth = 85.0 if proteger else 45.0
             res_bake = bake_pbr.executar_bake_high_low(
                 obj,
                 saida_dir,
@@ -904,9 +1090,13 @@ def processar(job: dict) -> dict:
                 px,
                 int(item["limite_triangulos"]),
                 reparar_malha,
-                decimar,
-                lambda o, a=45.0: suavizar_por_angulo(o, angulo_graus=a),
+                lambda o, t, p=proteger: decimar(o, t, proteger_cabeca_maos=p),
+                lambda o, a=angulo_smooth: suavizar_por_angulo(o, angulo_graus=a),
                 desdobrar_uv,
+                origem_textura=origem_tex,
+                metallic_hint_png=met_hint,
+                roughness_hint_png=rough_hint,
+                proteger_superficie=proteger,
             )
             bake_meta = res_bake["bake"]
             info_gerada["triangulos_antes_decimate"] = bake_meta["triangulos_high"]
@@ -920,6 +1110,22 @@ def processar(job: dict) -> dict:
             raise RuntimeError(
                 "malha importada sem UV e sem cor por vertice: nao ha como assar textura"
             )
+        else:
+            proteger = bool(bruto.get("proteger_decimate", False))
+            tris_antes = malha_triangulada(obj)
+            limite_tris = int(item["limite_triangulos"])
+            info_gerada["triangulos_antes_decimate"] = tris_antes
+            if tris_antes > limite_tris:
+                decimar(obj, limite_tris, proteger_cabeca_maos=proteger)
+                info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
+                info_gerada["smooth"] = suavizar_por_angulo(
+                    obj, angulo_graus=85.0 if proteger else 45.0
+                )
+            elif bruto.get("suavizar"):
+                info_gerada["smooth"] = suavizar_por_angulo(
+                    obj, angulo_graus=85.0 if proteger else 45.0
+                )
+            info_gerada["triangulos_pos_decimate"] = malha_triangulada(obj)
         if bool(item.get("auto_rig")) and item.get("tipo") in ("personagem_humanoide", "criatura"):
             esq = str(
                 item.get("esqueleto")

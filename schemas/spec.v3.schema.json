@@ -73,6 +73,65 @@
         }
       }
     },
+    "requisicao": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "isolamento": {
+          "enum": [
+            "padrao",
+            "estrito"
+          ]
+        },
+        "limpar_destino": {
+          "type": "boolean"
+        },
+        "base_externa": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "origem",
+            "sha256"
+          ],
+          "properties": {
+            "tipo": {
+              "enum": [
+                "prop_estatico",
+                "prop_equipavel",
+                "personagem_humanoide",
+                "criatura",
+                "modulo_cenario",
+                "textura",
+                "mapa_setor"
+              ]
+            },
+            "origem": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+            },
+            "prompt": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            }
+          }
+        }
+      }
+    },
     "lote": {
       "type": "array",
       "minItems": 1,
@@ -215,9 +274,40 @@
           "enum": [
             "corpo",
             "capa",
-            "arma"
+            "arma",
+            "cabelo",
+            "elmo",
+            "ombreiras",
+            "peitoral",
+            "luvas",
+            "calcas",
+            "calças",
+            "botas",
+            "escudo"
           ],
-          "description": "peca de kit (B11: so rota blocky; B12: tipo por peca; B13: capa estatica)"
+          "description": "peca de kit (B11: rota blocky ou mesh; B12: tipo por peca; B13: peca estatica ou skinned)"
+        },
+        "skinned": {
+          "type": "boolean",
+          "description": "se verdadeiro, armadura/roupa recebe deformacao por esqueleto compartilhado em vez de socket estatico"
+        },
+        "template_humanoide": {
+          "type": "boolean",
+          "description": "usa malha base MPFB2 (CC0) com projecao frontal da foto para personagem_humanoide"
+        },
+        "makehuman_cabelo": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_/-]{0,63}$",
+          "description": "estilo de cabelo CC0 do MakeHuman/MPFB2 (ex: long01, bob01, ponytail01, short01)"
+        },
+        "cor_cabelo": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "tintura opcional (#RRGGBB) aplicada a textura do cabelo MakeHuman"
+        },
+        "macro": {
+          "type": "object",
+          "description": "parametros macro MPFB2 opcionais compartilhados entre corpo e cabelo modular"
         },
         "modular": {
           "type": "object",
@@ -266,6 +356,25 @@
               "maximum": 64
             }
           }
+        },
+        "qualidade": {
+          "enum": [
+            "standard",
+            "hero"
+          ],
+          "description": "nivel de orcamento geometrico (hero eleva o teto padrao de triangulos em personagens/criaturas)"
+        },
+        "pose_guard": {
+          "enum": [
+            "off",
+            "auto",
+            "repose"
+          ],
+          "description": "guarda de pose de entrada para autorig"
+        },
+        "extrudir_2d": {
+          "type": "boolean",
+          "description": "ativa extrusao 2D para silhuetas planas"
         }
       },
       "allOf": [
@@ -351,7 +460,7 @@
           }
         },
         {
-          "description": "B11: 'parte' so na rota blocky",
+          "description": "B11: 'parte' so nas rotas blocky ou mesh",
           "if": {
             "required": [
               "parte"
@@ -360,7 +469,10 @@
           "then": {
             "properties": {
               "rota": {
-                "const": "blocky"
+                "enum": [
+                  "blocky",
+                  "mesh"
+                ]
               }
             }
           }

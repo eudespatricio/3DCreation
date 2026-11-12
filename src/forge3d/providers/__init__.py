@@ -24,6 +24,11 @@ LICENCAS: dict[str, dict] = {
         "uso_comercial": True,
         "notice": "TripoSR (MIT). Ver docs/riscos-e-licencas.md.",
     },
+    "mpfb2": {
+        "modelo": "MPFB2 / MakeHuman Base Mesh",
+        "uso_comercial": True,
+        "notice": "Malha base e targets MPFB2 sob licenca CC0 1.0 Public Domain.",
+    },
     "sf3d": {
         "modelo": "Stable Fast 3D",
         "uso_comercial": True,

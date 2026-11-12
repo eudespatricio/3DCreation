@@ -14,8 +14,8 @@ from pathlib import Path
 
 from . import __version__, locks
 from .cache import _dir_cache, ler_cache, salvar_cache  # noqa: F401
-from .errors import erro_manifesto
-from .index import _conexao, _indice_upsert, consultar, registrar_ledger  # noqa: F401
+from .errors import ForgeError, erro_manifesto
+from .index import _conexao, _indice_remover, _indice_upsert, consultar, registrar_ledger  # noqa: F401
 from .verify import (  # noqa: F401
     _VERSAO_POR_SCHEMA,
     CAMPOS_PROVENIENCIA,
@@ -29,6 +29,7 @@ from .verify import (  # noqa: F401
 
 __all__ = [
     "consultar",
+    "expurgar_orfaos_destino",
     "ler_cache",
     "montar_manifesto",
     "publicar",
@@ -36,6 +37,21 @@ __all__ = [
     "salvar_cache",
     "verificar",
 ]
+
+
+_ANEXOS_POR_PARTE: dict[str, dict[str, Any]] = {
+    "capa": {"parte": "capa", "osso": "Chest", "attachment_roblox": "BodyBackAttachment", "skinned": False},
+    "cabelo": {"parte": "cabelo", "osso": "Head", "attachment_roblox": "HatAttachment", "skinned": False},
+    "arma": {"parte": "arma", "osso": "Hand.R", "attachment_roblox": "RightGripAttachment", "skinned": False},
+    "corpo": {"parte": "corpo", "osso": "Root", "attachment_roblox": "HumanoidRootPart", "skinned": True},
+    "elmo": {"parte": "elmo", "osso": "Head", "attachment_roblox": "HatAttachment", "skinned": False},
+    "ombreiras": {"parte": "ombreiras", "osso": "Shoulder.L", "attachment_roblox": "LeftCollarAttachment", "skinned": False},
+    "peitoral": {"parte": "peitoral", "osso": "Chest", "attachment_roblox": "BodyFrontAttachment", "skinned": True},
+    "luvas": {"parte": "luvas", "osso": "Hand.R", "attachment_roblox": "RightGripAttachment", "skinned": True},
+    "calcas": {"parte": "calcas", "osso": "Hips", "attachment_roblox": "WaistCenterAttachment", "skinned": True},
+    "botas": {"parte": "botas", "osso": "Foot.R", "attachment_roblox": "RightFootAttachment", "skinned": True},
+    "escudo": {"parte": "escudo", "osso": "LowerArm.L", "attachment_roblox": "LeftGripAttachment", "skinned": False},
+}
 
 
 def _agora() -> str:
@@ -125,9 +141,24 @@ def montar_manifesto(
                 licenca_manifesto["notice"].rstrip() + " Concept: " + c_lic["notice"]
             ).strip()
 
+    parte = item.get("parte")
+    if parte == "calças":
+        parte = "calcas"
+    anexo = None
+    if isinstance(parte, str) and parte in _ANEXOS_POR_PARTE:
+        anexo = dict(_ANEXOS_POR_PARTE[parte])
+        if item.get("skinned") is not None:
+            anexo["skinned"] = bool(item["skinned"])
+        if item.get("osso"):
+            anexo["osso"] = str(item["osso"])
+        if item.get("attachment_roblox"):
+            anexo["attachment_roblox"] = str(item["attachment_roblox"])
+
     rig = None
     if item.get("auto_rig") and medidas.get("ossos"):
         rig = {"esqueleto": item.get("esqueleto") or "", "ossos": int(medidas["ossos"])}
+    elif (item.get("skinned") or (anexo and anexo.get("skinned"))) and medidas.get("ossos"):
+        rig = {"esqueleto": item.get("esqueleto") or "godot-humanoid@1", "ossos": int(medidas["ossos"])}
 
     return {
         "schema": "forge3d/manifest@3",
@@ -158,6 +189,7 @@ def montar_manifesto(
             for c in medidas.get("animacoes") or []
         ],
         "rig": rig,
+        **({"anexo": anexo} if anexo is not None else {}),
         "lod": lods,
         "colisao": {
             "tipo": item.get("colisao", "none"),
@@ -273,3 +305,53 @@ def publicar(origem: Path, destino: Path, manifesto: dict, run_id: str) -> list[
         _fsync_dir(destino)
         _indice_upsert(manifesto, destino)
         return publicados
+
+
+def expurgar_orfaos_destino(
+    destino: Path, manifestos_publicados: list[dict], run_id: str
+) -> list[str]:
+    """Remove manifestos legados e seus arquivos nao pertencentes ao lote atual no destino."""
+    removidos: list[str] = []
+    with locks.lock_destino(destino, run_id):
+        mantidos: set[Path] = set()
+        for man in manifestos_publicados:
+            try:
+                mantidos.add(_caminho_seguro(destino, f"{man['asset_id']}.manifest.json"))
+            except ForgeError:
+                pass
+            for f in man.get("files", []):
+                try:
+                    mantidos.add(_caminho_seguro(destino, f["caminho"]))
+                except ForgeError:
+                    pass
+
+        for man_path in sorted(destino.glob("*.manifest.json")):
+            if man_path in mantidos or man_path.name.startswith("."):
+                continue
+            try:
+                antigo = json.loads(man_path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                antigo = {}
+
+            # Apaga arquivos pertencentes ao manifesto legado
+            for arq in antigo.get("files", []):
+                caminho_str = arq.get("caminho")
+                if caminho_str:
+                    try:
+                        p = _caminho_seguro(destino, caminho_str)
+                        if p not in mantidos and p.is_file():
+                            p.unlink()
+                            removidos.append(str(p.relative_to(destino)))
+                    except ForgeError:
+                        pass
+
+            # Apaga o proprio manifesto legado
+            man_path.unlink(missing_ok=True)
+            removidos.append(man_path.name)
+
+            old_id = antigo.get("asset_id") or man_path.stem.removesuffix(".manifest")
+            if old_id:
+                _indice_remover(old_id)
+
+        _fsync_dir(destino)
+    return removidos

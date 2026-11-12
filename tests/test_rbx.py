@@ -125,14 +125,14 @@ def test_export_r15_normaliza_a_altura_para_a_spec(tmp_path):
 
 
 def test_export_r15_attachments_transparency_e_anchored(tmp_path):
-    """Pacote 4: RigAttachments R15 + HatAttachment, HumanoidRootPart transparente e unico Anchored."""
+    """Pacote 4 + Onda 3: RigAttachments R15 + Hat/BodyBack/RightGrip, HumanoidRootPart transparente e Anchored."""
     from forge3d import profiles
 
     assert profiles.carregar("roblox-r15")["validacao"]["materiais_max"] == 1
 
     saida = tmp_path / "r15.rbxlx"
     rel = rbx.exportar_r15("examples/lote_09_r15.yaml", "personagem.r15.guard.01", saida=saida)
-    assert rel["attachments"] == 31
+    assert rel["attachments"] == 33
 
     raiz = ElementTree.fromstring(saida.read_text(encoding="utf-8"))
     referents = [e.get("referent") for e in raiz.iter("Item") if e.get("referent")]
@@ -164,6 +164,10 @@ def test_export_r15_attachments_transparency_e_anchored(tmp_path):
 
     atts_por_parte = {nome: _att_map(p) for nome, p in partes.items()}
     assert "HatAttachment" in atts_por_parte["Head"]
+    assert "BodyBackAttachment" in atts_por_parte["UpperTorso"]
+    assert atts_por_parte["UpperTorso"]["BodyBackAttachment"][2] > 0.0
+    assert "RightGripAttachment" in atts_por_parte["RightHand"]
+    assert atts_por_parte["RightHand"]["RightGripAttachment"][1] < 0.0
 
     place = rbx.ler_place(saida)
     for motor in place["motores"]:

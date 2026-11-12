@@ -138,8 +138,10 @@ def piso(minimo: Vector, maximo: Vector) -> None:
     material = bpy.data.materials.new("piso")
     material.use_nodes = True
     bsdf = material.node_tree.nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = (0.20, 0.21, 0.24, 1.0)
+    bsdf.inputs["Base Color"].default_value = (0.16, 0.17, 0.20, 1.0)
     bsdf.inputs["Roughness"].default_value = 0.95
+    if "Specular IOR Level" in bsdf.inputs:
+        bsdf.inputs["Specular IOR Level"].default_value = 0.18
     obj.data.materials.append(material)
 
 
@@ -154,9 +156,9 @@ def luzes(centro: Vector, raio: float) -> None:
         direcao_para_centro = (centro - obj.location).normalized()
         obj.rotation_euler = direcao_para_centro.to_track_quat("-Z", "Y").to_euler()
 
-    area("key", Vector((-0.7, 1.0, 1.2)), 150.0, raio * 2.0)
-    area("fill", Vector((1.0, 0.6, 0.3)), 50.0, raio * 2.4)
-    area("rim", Vector((0.2, -1.2, 0.9)), 110.0, raio * 1.6)
+    area("key", Vector((-0.7, 1.0, 1.2)), 65.0, raio * 2.0)
+    area("fill", Vector((1.0, 0.6, 0.3)), 42.0, raio * 2.4)
+    area("rim", Vector((0.2, -1.2, 0.9)), 45.0, raio * 1.6)
 
 
 def camera(centro: Vector, raio: float, direcao: Vector, escala: float) -> None:
@@ -183,13 +185,22 @@ def configurar_render(saida: str, size: int, samples: int) -> None:
     cena.cycles.device = "CPU"
     cena.cycles.samples = samples
     cena.cycles.use_denoising = True
-    cena.view_settings.view_transform = "Standard"
+    for transform in ("AgX", "Filmic", "Standard"):
+        try:
+            cena.view_settings.view_transform = transform
+            break
+        except (TypeError, ValueError):
+            continue
+    try:
+        cena.view_settings.look = "None"
+    except (TypeError, ValueError):
+        pass
 
     mundo = bpy.data.worlds.new("mundo")
     mundo.use_nodes = True
     fundo = mundo.node_tree.nodes.get("Background")
     fundo.inputs["Color"].default_value = (0.16, 0.17, 0.19, 1.0)
-    fundo.inputs["Strength"].default_value = 0.55
+    fundo.inputs["Strength"].default_value = 0.45
     cena.world = mundo
 
 

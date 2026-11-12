@@ -328,3 +328,54 @@ print("MINI_OK")
     assert "baseColorTexture" in mat["pbrMetallicRoughness"]
     assert "metallicRoughnessTexture" in mat["pbrMetallicRoughness"]
     assert "normalTexture" in mat
+
+
+@pytest.mark.blender
+def test_bake_pbr_proteger_superficie_normais_positivas_e_roughness_dieletrico(tmp_path):
+    saida = tmp_path / "saida_prot"
+    saida.mkdir()
+    hint_r = tmp_path / "rough_low.png"
+    Image.new("L", (64, 64), 100).save(hint_r)  # ~0.39 brilhante que deve subir ao piso 0.68
+    src_tex = tmp_path / "src.png"
+    Image.new("RGBA", (64, 64), (190, 140, 110, 255)).save(src_tex)
+
+    codigo = f"""
+import sys
+sys.path.insert(0, {str(RAIZ / "blender")!r})
+import bpy
+import postprocess, bake_pbr
+
+postprocess.limpar_cena()
+bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=0.8)
+obj = bpy.context.active_object
+ca = obj.data.color_attributes.new("Color", "FLOAT_COLOR", "POINT")
+for i in range(len(obj.data.vertices)):
+    ca.data[i].color = (0.7, 0.5, 0.4, 1.0)
+
+res = bake_pbr.executar_bake_high_low(
+    obj=obj,
+    saida_dir={str(saida)!r},
+    nome_base="prot",
+    px=128,
+    limite_triangulos=400,
+    reparo_fn=postprocess.reparar_malha,
+    decimar_fn=lambda o, t: postprocess.decimar(o, t, proteger_cabeca_maos=True),
+    suavizar_fn=lambda o: postprocess.suavizar_por_angulo(o, angulo_graus=85.0),
+    uv_fn=postprocess.desdobrar_uv,
+    origem_textura={str(src_tex)!r},
+    roughness_hint_png={str(hint_r)!r},
+    proteger_superficie=True,
+)
+assert res["bake"]["triangulos_low"] <= 400
+print("PROT_OK")
+"""
+    proc = _rodar_blender_py(codigo, timeout=120)
+    assert proc.returncode == 0 and "PROT_OK" in proc.stdout, proc.stdout + proc.stderr
+
+    with Image.open(saida / "prot_normal.png") as im_nm:
+        _r, _g, b_ext = im_nm.getextrema()
+        assert b_ext[0] >= 128, f"normal Z invertida detectada: {b_ext}"
+
+    with Image.open(saida / "prot_orm.png") as im_orm:
+        _r, g_ext, _b = im_orm.getextrema()
+        assert g_ext[0] >= 170, f"roughness dieletrico abaixo do piso 0.68: {g_ext}"

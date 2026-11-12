@@ -42,6 +42,10 @@ def erro_spec(msg: str, **det) -> ForgeError:
     return ForgeError("FORGE-E-SPEC", msg, EXIT_SPEC, det)
 
 
+def erro_input_tampered(msg: str, **det) -> ForgeError:
+    return ForgeError("FORGE-E-INPUT-TAMPERED", msg, EXIT_SPEC, det)
+
+
 def erro_destino(msg: str, **det) -> ForgeError:
     return ForgeError("FORGE-E-DESTINO", msg, EXIT_SPEC, det)
 

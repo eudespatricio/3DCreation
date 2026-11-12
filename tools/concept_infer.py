@@ -47,6 +47,8 @@ def _args() -> argparse.Namespace:
     p.add_argument("--controlnet", default="")
     p.add_argument("--pose-imagem", default="")
     p.add_argument("--controlnet-scale", type=float, default=0.85)
+    p.add_argument("--init-imagem", default="")
+    p.add_argument("--strength", type=float, default=0.45)
     return p.parse_args()
 
 
@@ -101,6 +103,9 @@ def main() -> int:
         resultado["controlnet"] = args.controlnet
         resultado["pose_imagem"] = args.pose_imagem
         resultado["controlnet_scale"] = args.controlnet_scale
+    if args.init_imagem:
+        resultado["init_imagem"] = args.init_imagem
+        resultado["strength"] = args.strength
 
     torch = None
     pipe = None
@@ -112,6 +117,8 @@ def main() -> int:
         torch = _torch
         if bool(args.controlnet) != bool(args.pose_imagem):
             raise ValueError("use --controlnet e --pose-imagem juntos")
+        if args.init_imagem and not (0.0 < float(args.strength) <= 1.0):
+            raise ValueError(f"--strength deve estar em (0.0, 1.0]: {args.strength}")
 
         if args.device.startswith("cuda") and not torch.cuda.is_available():
             raise RuntimeError("CUDA indisponivel na venv de concept")
@@ -136,15 +143,54 @@ def main() -> int:
                     (args.largura, args.altura), Image.Resampling.BILINEAR
                 )
 
+        init_img = None
+        if args.init_imagem:
+            from PIL import Image
+
+            init_path = Path(args.init_imagem)
+            if not init_path.is_file():
+                raise FileNotFoundError(f"imagem inicial nao encontrada: {init_path}")
+            raw_init = Image.open(init_path)
+            if raw_init.mode in ("RGBA", "LA", "PA") or "transparency" in raw_init.info:
+                fundo = Image.new("RGBA", raw_init.size, (128, 128, 128, 255))
+                init_img = Image.alpha_composite(fundo, raw_init.convert("RGBA")).convert("RGB")
+            else:
+                init_img = raw_init.convert("RGB")
+            if init_img.size != (args.largura, args.altura):
+                init_img = init_img.resize(
+                    (args.largura, args.altura), Image.Resampling.LANCZOS
+                )
+
         t0 = time.monotonic()
         comuns = {
             "torch_dtype": dtype,
             "safety_checker": None,
             "requires_safety_checker": False,
         }
-        if args.controlnet:
+        if args.controlnet and init_img is not None:
+            from diffusers import ControlNetModel, StableDiffusionControlNetImg2ImgPipeline
+
+            modo = "controlnet_img2img"
+            try:
+                controlnet = ControlNetModel.from_pretrained(
+                    args.controlnet, torch_dtype=dtype, variant="fp16"
+                )
+            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
+                controlnet = ControlNetModel.from_pretrained(
+                    args.controlnet, torch_dtype=dtype
+                )
+            try:
+                pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
+                    args.modelo, controlnet=controlnet, variant="fp16", **comuns
+                )
+            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
+                pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
+                    args.modelo, controlnet=controlnet, **comuns
+                )
+        elif args.controlnet:
             from diffusers import ControlNetModel, StableDiffusionControlNetPipeline
 
+            modo = "controlnet_txt2img"
             try:
                 controlnet = ControlNetModel.from_pretrained(
                     args.controlnet, torch_dtype=dtype, variant="fp16"
@@ -161,7 +207,18 @@ def main() -> int:
                 pipe = StableDiffusionControlNetPipeline.from_pretrained(
                     args.modelo, controlnet=controlnet, **comuns
                 )
+        elif init_img is not None:
+            from diffusers import StableDiffusionImg2ImgPipeline
+
+            modo = "img2img"
+            try:
+                pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+                    args.modelo, variant="fp16", **comuns
+                )
+            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
+                pipe = StableDiffusionImg2ImgPipeline.from_pretrained(args.modelo, **comuns)
         else:
+            modo = "txt2img"
             try:
                 # no CPU os pesos fp16 sao carregados e convertidos para float32; evita baixar
                 # uma segunda copia (~3,4 GB) so para o fallback
@@ -170,6 +227,7 @@ def main() -> int:
                 )
             except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
                 pipe = StableDiffusionPipeline.from_pretrained(args.modelo, **comuns)
+        resultado["modo"] = modo
 
         pipe.set_progress_bar_config(disable=True)
 
@@ -177,6 +235,7 @@ def main() -> int:
             # Mantem VAE em float32 para evitar NaN / imagem preta sob fp16.
             pipe.vae.to(dtype=torch.float32)
             orig_decode = pipe.vae.decode
+            orig_encode = getattr(pipe.vae, "encode", None)
 
             def _decode_fp32(z, *d_args, **d_kwargs):
                 if hasattr(z, "to"):
@@ -184,6 +243,22 @@ def main() -> int:
                 return orig_decode(z, *d_args, **d_kwargs)
 
             pipe.vae.decode = _decode_fp32
+            if orig_encode is not None:
+
+                def _encode_fp32(x, *e_args, **e_kwargs):
+                    alvo_dtype = getattr(x, "dtype", None)
+                    if hasattr(x, "to"):
+                        x = x.to(dtype=torch.float32)
+                    out = orig_encode(x, *e_args, **e_kwargs)
+                    if alvo_dtype is not None and hasattr(out, "latent_dist"):
+                        ld = out.latent_dist
+                        for attr in ("parameters", "mean", "std", "logvar", "var"):
+                            val = getattr(ld, attr, None)
+                            if hasattr(val, "to"):
+                                setattr(ld, attr, val.to(dtype=alvo_dtype))
+                    return out
+
+                pipe.vae.encode = _encode_fp32
 
         if hasattr(pipe, "enable_attention_slicing"):
             pipe.enable_attention_slicing()
@@ -219,18 +294,29 @@ def main() -> int:
         resultado["prompt_truncado"] = tokens_antes > tokens_depois
 
         gerador = torch.Generator(device=args.device).manual_seed(args.seed)
-        chamada_kwargs = {
+        chamada_kwargs: dict = {
             "prompt": prompt_efetivo,
             "negative_prompt": args.negative or None,
             "num_inference_steps": args.passos,
             "guidance_scale": args.guidance,
-            "width": args.largura,
-            "height": args.altura,
             "generator": gerador,
         }
-        if pose_img is not None:
-            chamada_kwargs["image"] = pose_img
+        if init_img is not None and pose_img is not None:
+            chamada_kwargs["image"] = init_img
+            chamada_kwargs["control_image"] = pose_img
+            chamada_kwargs["strength"] = float(args.strength)
             chamada_kwargs["controlnet_conditioning_scale"] = args.controlnet_scale
+            chamada_kwargs["width"] = args.largura
+            chamada_kwargs["height"] = args.altura
+        elif init_img is not None:
+            chamada_kwargs["image"] = init_img
+            chamada_kwargs["strength"] = float(args.strength)
+        else:
+            chamada_kwargs["width"] = args.largura
+            chamada_kwargs["height"] = args.altura
+            if pose_img is not None:
+                chamada_kwargs["image"] = pose_img
+                chamada_kwargs["controlnet_conditioning_scale"] = args.controlnet_scale
         imagem = pipe(**chamada_kwargs).images[0]
         t_gerar = time.monotonic()
 

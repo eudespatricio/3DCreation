@@ -739,12 +739,19 @@ def exportar_r15(
             attachments_por_parte.setdefault(parte_nome, []).append(
                 _attachment_xml(att_nome, att_ref, pos)
             )
-    if "Head" in partes:
-        hat_ref = f"RBX{prox_ref}"
+    anexos_padrao = (
+        ("Head", "HatAttachment", lambda tam: (0.0, tam[1] / 2.0, 0.0)),
+        ("UpperTorso", "BodyBackAttachment", lambda tam: (0.0, 0.0, tam[2] / 2.0)),
+        ("RightHand", "RightGripAttachment", lambda tam: (0.0, -tam[1] / 2.0, 0.0)),
+    )
+    for parte_nome, att_nome, pos_fn in anexos_padrao:
+        if parte_nome not in partes:
+            continue
+        att_ref = f"RBX{prox_ref}"
         prox_ref += 1
         total_attachments += 1
-        attachments_por_parte.setdefault("Head", []).append(
-            _attachment_xml("HatAttachment", hat_ref, (0.0, partes["Head"]["tamanho"][1] / 2.0, 0.0))
+        attachments_por_parte.setdefault(parte_nome, []).append(
+            _attachment_xml(att_nome, att_ref, pos_fn(partes[parte_nome]["tamanho"]))
         )
 
     humanoid_ref = f"RBX{prox_ref}"

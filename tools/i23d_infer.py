@@ -17,10 +17,14 @@ depois no ``blender/postprocess.py``, que nao depende de CUDA.
 from __future__ import annotations
 
 import argparse
+import gc
+import inspect
 import json
+import os
 import time
 import traceback
 from pathlib import Path
+from typing import Any
 
 
 def _salvar(caminho: str, obj: dict) -> None:
@@ -44,6 +48,11 @@ def _args() -> argparse.Namespace:
         "--remover-fundo",
         action="store_true",
         help="usa rembg; sem isso a imagem precisa ter fundo neutro/alfa",
+    )
+    p.add_argument(
+        "--rembg-modelo",
+        default=os.environ.get("FORGE3D_REMBG_MODELO", "birefnet-general"),
+        help="modelo rembg para recorte (default: birefnet-general, fallback offline: u2net)",
     )
     return p.parse_args()
 
@@ -104,6 +113,69 @@ def _erodir_alfa_seguro(
     return resultado
 
 
+def _bleed_rgb_borda_transparente(rgba, raio: int = 6):
+    """Preenche pixels alpha==0 com a cor da borda mais proxima (sem blur no interior opaco)."""
+    from PIL import Image, ImageFilter
+
+    img = rgba.convert("RGBA")
+    r_ch, g_ch, b_ch, a_ch = img.split()
+    if a_ch.getextrema()[0] == 255 or a_ch.getextrema()[1] == 0:
+        return img
+
+    mask_bin = a_ch.point(lambda a: 255 if a >= 128 else 0)
+    m_bytes = mask_bin.tobytes()
+    mask_f = mask_bin.filter(ImageFilter.BoxBlur(raio)).tobytes()
+    a_bytes = a_ch.tobytes()
+
+    canais_out: list[Any] = []
+    for canal in (r_ch, g_ch, b_ch):
+        orig = canal.tobytes()
+        zerado = Image.frombytes(
+            "L",
+            img.size,
+            bytes(v if m else 0 for v, m in zip(orig, m_bytes)),
+        )
+        borrado = zerado.filter(ImageFilter.BoxBlur(raio)).tobytes()
+        ajustado = bytes(
+            orig[i]
+            if a_bytes[i] >= 128
+            else (min(255, round(borrado[i] * 255.0 / mask_f[i])) if mask_f[i] > 0 else orig[i])
+            for i in range(len(orig))
+        )
+        canais_out.append(Image.frombytes("L", img.size, ajustado))
+    return Image.merge("RGBA", (*canais_out, a_ch))
+
+
+def _gerar_cutout_para_textura(
+    imagem,
+    *,
+    desmultiplicar: bool,
+    alfa_minimo: int = 160,
+    razao_opaca_minima: float = 0.08,
+):
+    """Prepara RGBA alinhado com borda limpa e bleed de cor para projecao UV sem halo."""
+    from PIL import Image
+
+    rgba = imagem.convert("RGBA")
+    if desmultiplicar:
+        rgba = _desmultiplicar_alfa(rgba, alfa_minimo=alfa_minimo)
+    # Mantem nucleo opaco sem comer a silhueta dos membros; borda alpha<160 vira 0 + RGB bleed.
+    raw = bytearray(rgba.tobytes())
+    for i in range(0, len(raw), 4):
+        if raw[i + 3] < alfa_minimo:
+            raw[i + 3] = 0
+        else:
+            raw[i + 3] = 255
+    rgba = Image.frombytes("RGBA", rgba.size, bytes(raw))
+    if desmultiplicar:
+        rgba = _erodir_alfa_seguro(
+            rgba,
+            alfa_minimo=200,
+            razao_opaca_minima=razao_opaca_minima,
+        )
+    return _bleed_rgb_borda_transparente(rgba, raio=6)
+
+
 def _compor_cutout_neutro(
     imagem,
     *,
@@ -126,21 +198,76 @@ def _compor_cutout_neutro(
     return Image.alpha_composite(fundo, rgba).convert("RGB")
 
 
-def _preparar_imagem(caminho: str, remover_fundo: bool, foreground_ratio: float):
+def _criar_sessao_rembg(modelo_nome: str = "birefnet-general") -> tuple[Any, str, bool]:
+    """Cria sessao rembg com ``modelo_nome`` e cai em ``u2net`` se rede/download falhar."""
+    import rembg
+
+    alvo = (modelo_nome or "birefnet-general").strip() or "birefnet-general"
+    try:
+        sig = inspect.signature(rembg.new_session)
+        params = [
+            p
+            for p in sig.parameters.values()
+            if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)
+        ]
+        aceita_arg = bool(params)
+    except (TypeError, ValueError):
+        aceita_arg = True
+
+    if not aceita_arg:
+        return rembg.new_session(), "u2net", False
+
+    try:
+        return rembg.new_session(alvo), alvo, False
+    except ValueError as exc:
+        if "No session class found" in str(exc) or alvo == "u2net":
+            raise
+    except Exception:  # noqa: BLE001 - fallback offline para u2net em cache
+        if alvo == "u2net":
+            raise
+    return rembg.new_session("u2net"), "u2net", True
+
+
+def _preparar_imagem(
+    caminho: str,
+    remover_fundo: bool,
+    foreground_ratio: float,
+    rembg_modelo: str | None = None,
+    rembg_info: dict[str, Any] | None = None,
+    rgba_textura_out: list[Any] | None = None,
+):
     from PIL import Image
 
     imagem = Image.open(caminho).convert("RGBA")
     if remover_fundo:
-        import rembg
         from tsr.utils import remove_background, resize_foreground
 
         era_opaca = imagem.getchannel("A").getextrema()[0] == 255
-        sessao = rembg.new_session()
-        recortada = remove_background(imagem, sessao)
+        modelo_solicitado = (
+            rembg_modelo or os.environ.get("FORGE3D_REMBG_MODELO", "birefnet-general")
+        )
+        sessao, modelo_usado, fallback = _criar_sessao_rembg(modelo_solicitado)
+        if rembg_info is not None:
+            rembg_info["rembg_modelo"] = modelo_usado
+            rembg_info["rembg_fallback"] = fallback
+        try:
+            recortada = remove_background(imagem, sessao)
+        finally:
+            del sessao
+            gc.collect()
         if era_opaca and recortada.convert("RGBA").getchannel("A").getextrema()[1] >= 24:
             recortada = _limpar_ruido_alfa(recortada)
         recortada = resize_foreground(recortada, foreground_ratio)
+        if rgba_textura_out is not None:
+            rgba_textura_out.append(
+                _gerar_cutout_para_textura(recortada, desmultiplicar=era_opaca)
+            )
         return _compor_cutout_neutro(recortada, desmultiplicar=era_opaca)
+    if rembg_info is not None:
+        rembg_info["rembg_modelo"] = None
+        rembg_info["rembg_fallback"] = False
+    if rgba_textura_out is not None:
+        rgba_textura_out.append(_gerar_cutout_para_textura(imagem, desmultiplicar=False))
     # fundo neutro: compoe alfa reto sobre cinza medio (o modelo foi treinado assim)
     return _compor_cutout_neutro(imagem, desmultiplicar=False)
 
@@ -167,8 +294,20 @@ def main() -> int:
 
         from tsr.system import TSR
 
-        imagem = _preparar_imagem(args.imagem, args.remover_fundo, args.foreground_ratio)
+        rembg_info: dict[str, Any] = {}
+        rgba_tex_holder: list[Any] = []
+        imagem = _preparar_imagem(
+            args.imagem,
+            args.remover_fundo,
+            args.foreground_ratio,
+            rembg_modelo=args.rembg_modelo,
+            rembg_info=rembg_info,
+            rgba_textura_out=rgba_tex_holder,
+        )
+        resultado.update(rembg_info)
         imagem.save(saida_dir / "input.png")
+        if rgba_tex_holder:
+            rgba_tex_holder[0].save(saida_dir / "input_rgba.png")
 
         t0 = time.monotonic()
         modelo = TSR.from_pretrained(

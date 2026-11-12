@@ -10,13 +10,14 @@ from . import paths
 from .errors import erro_ambiente
 
 __all__ = [
-    "carregar",
-    "caminho_perfil",
-    "perfis_disponiveis",
-    "escala_saida",
-    "retarget",
-    "FRACAO_EMPUNHADURA",
     "ANIMACOES_SUPORTADAS",
+    "FRACAO_EMPUNHADURA",
+    "caminho_perfil",
+    "carregar",
+    "escala_saida",
+    "limite_tri_hero",
+    "perfis_disponiveis",
+    "retarget",
 ]
 
 #: Regra numerica da `empunhadura` (D58): fracao da altura medida a partir da base.
@@ -78,6 +79,16 @@ def pivot_padrao(perfil: dict, tipo: str) -> str:
 def limite_tri_padrao(perfil: dict, tipo: str) -> int:
     orc = perfil.get("orcamento_triangulos", {})
     return int(orc.get(tipo, 1500))
+
+
+def limite_tri_hero(perfil: dict, tipo: str) -> int:
+    """Orcamento de triangulos no modo hero, respeitando teto por parte do perfil."""
+    base = limite_tri_padrao(perfil, tipo)
+    if tipo not in ("personagem_humanoide", "criatura"):
+        return base
+    if perfil.get("perfil") == "roblox-r15":
+        return min(10000, max(base, 10000))
+    return max(base, 12000)
 
 
 def colisao_padrao(perfil: dict, tipo: str) -> str:

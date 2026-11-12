@@ -155,3 +155,25 @@ def test_concept_negativo_inclui_guardas_de_halo_dentro_do_orcamento_clip():
         assert termo in neg, f"termo ausente em NEGATIVO_PADRAO: {termo}"
 
     assert concept.estimar_tokens_clip(concept.NEGATIVO_PADRAO) <= concept.LIMITE_TOKENS_CLIP
+
+
+def test_cutout_para_textura_zera_halo_alpha_e_sangra_rgb_na_borda():
+    mod = _carregar_i23d()
+
+    # Miolo opaco vermelho-pele com anel anti-aliased branco e fundo preto transparente
+    img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
+    for y in range(12, 36):
+        for x in range(12, 36):
+            if 14 <= x < 34 and 14 <= y < 34:
+                img.putpixel((x, y), (190, 140, 105, 255))
+            else:
+                img.putpixel((x, y), (250, 250, 250, 100))
+
+    cut = mod._gerar_cutout_para_textura(img, desmultiplicar=False)
+    assert cut.mode == "RGBA"
+    # Miolo intacto e alfa opaco
+    assert cut.getpixel((24, 24)) == (190, 140, 105, 255)
+    # Anel semi-transparente branco zerado no canal alfa e preenchido com cor do miolo (bleed)
+    r_rim, g_rim, b_rim, a_rim = cut.getpixel((12, 24))
+    assert a_rim == 0
+    assert r_rim > b_rim + 30 and r_rim < 220, (r_rim, g_rim, b_rim, a_rim)

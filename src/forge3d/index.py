@@ -73,6 +73,13 @@ def _indice_upsert(manifesto: dict, destino: Path) -> None:
     con.close()
 
 
+def _indice_remover(asset_id: str) -> None:
+    con = _conexao()
+    with con:
+        con.execute("DELETE FROM assets WHERE asset_id = ?", (asset_id,))
+    con.close()
+
+
 def consultar(
     projeto: str | None = None,
     max_tris: int | None = None,

@@ -103,11 +103,12 @@ def _executar_item(
     destino: Path,
     run_id: str,
     publicar_arquivos: bool,
+    no_cache: bool = False,
 ) -> dict:
     from . import qc as qc_mod
 
     chave = tarefa["chave"]
-    entrada_cache = publish.ler_cache(chave)
+    entrada_cache = None if no_cache else publish.ler_cache(chave)
 
     if entrada_cache is not None:
         origem, entrada = entrada_cache
@@ -130,7 +131,8 @@ def _executar_item(
         resultado = _pos_processar(item, perfil, bruto, run_id)
         resultado["determinism"] = provider.determinism
         # cada provider declara a propria licenca: blocky/import sao procedurais, mesh e o modelo
-        licenca = dict(provider.licenca)
+        modelo_meta = str((bruto.meta or {}).get("modelo") or "")
+        licenca = dict(providers.LICENCAS.get(modelo_meta) or provider.licenca)
         resultado["licenca"] = licenca
 
         relatorio_qc = qc_mod.verificar(item, perfil, Path(resultado["dir_final"]), resultado)
@@ -190,6 +192,7 @@ def _executar_item(
         "triangulos": relatorio_qc["medidas"]["triangulos"],
         "artefatos": artefatos,
         "manifesto": f"{item['id']}.manifest.json" if publicar_arquivos else None,
+        "manifesto_doc": manifesto if publicar_arquivos else None,
     }
 
 
@@ -201,6 +204,8 @@ def executar(
     *,
     plano_apenas: bool = False,
     publicar_arquivos: bool = True,
+    no_cache: bool = False,
+    clean_dest: bool = False,
 ) -> tuple[dict, int]:
     doc = spec.carregar_arquivo(caminho)
     spec_doc, perfil, avisos = spec.preparar(doc)
@@ -209,7 +214,17 @@ def executar(
     run_id = novo_id()
     caminho_run = _runs(run_id)
 
-    tarefas = plan.montar(spec_doc, perfil, lambda chave: publish.ler_cache(chave) is not None)
+    req = spec_doc.get("requisicao") or {}
+    isolamento = req.get("isolamento", "padrao")
+    ignorar_cache = no_cache or (isolamento == "estrito")
+    deve_limpar = clean_dest or bool(req.get("limpar_destino", False))
+
+    tarefas = plan.montar(
+        spec_doc,
+        perfil,
+        lambda chave: publish.ler_cache(chave) is not None,
+        no_cache=ignorar_cache,
+    )
     resumo_plano = plan.resumo(tarefas)
 
     _escrever_json(
@@ -252,6 +267,7 @@ def executar(
     por_id = {item["id"]: item for item in spec_doc["lote"]}
     politica = (spec_doc.get("politica") or {}).get("falha", "continuar")
     codigos: list[int] = []
+    manifestos_publicados: list[dict] = []
 
     for tarefa in tarefas:
         item = por_id[tarefa["id"]]
@@ -279,9 +295,12 @@ def executar(
                 destino=destino,
                 run_id=run_id,
                 publicar_arquivos=publicar_arquivos,
+                no_cache=ignorar_cache,
             )
             relatorio["itens"].append(saida)
             relatorio["artifacts"].extend(saida["artefatos"])
+            if saida.get("manifesto_doc"):
+                manifestos_publicados.append(saida["manifesto_doc"])
             codigos.append(EXIT_OK)
         except ForgeError as exc:
             estado = _estado_por_codigo(exc.codigo)
@@ -313,6 +332,11 @@ def executar(
     codigo_saida = _agregar(codigos, relatorio["itens"])
     relatorio["exit"] = codigo_saida
     relatorio["resumo"] = _resumo(relatorio["itens"], resumo_plano)
+
+    if publicar_arquivos and deve_limpar and codigo_saida == EXIT_OK and manifestos_publicados:
+        expurgados = publish.expurgar_orfaos_destino(destino, manifestos_publicados, run_id)
+        if expurgados:
+            relatorio["expurgados"] = expurgados
 
     _escrever_json(caminho_run / "relatorio.json", relatorio)
     publish.registrar_ledger(

@@ -49,6 +49,11 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "lote": {"type": "string", "description": "Caminho para o arquivo de lote."},
+                "no_cache": {
+                    "type": "boolean",
+                    "description": "Quando verdadeiro, ignora o cache e projeta execucao completa.",
+                    "default": False,
+                },
             },
             "required": ["lote"],
             "additionalProperties": False,
@@ -64,6 +69,16 @@ TOOLS: list[dict[str, Any]] = [
                 "nao_publicar": {
                     "type": "boolean",
                     "description": "Quando verdadeiro, executa e valida QC sem gravar no destino.",
+                    "default": False,
+                },
+                "no_cache": {
+                    "type": "boolean",
+                    "description": "Quando verdadeiro, ignora cache e forca nova geracao de todos os itens.",
+                    "default": False,
+                },
+                "clean_dest": {
+                    "type": "boolean",
+                    "description": "Quando verdadeiro, remove manifestos e arquivos legados no destino que nao pertencem ao lote.",
                     "default": False,
                 },
             },
@@ -133,15 +148,24 @@ def _executar_tool(nome: str, args: dict[str, Any]) -> tuple[dict[str, Any], boo
 
     if nome == "forge3d_plan":
         lote = _exigir_str(args, "lote")
-        relatorio, _codigo = pipeline.executar(lote, plano_apenas=True)
+        kw_plan: dict[str, Any] = {"plano_apenas": True}
+        if "no_cache" in args:
+            kw_plan["no_cache"] = bool(args["no_cache"])
+        relatorio, _codigo = pipeline.executar(lote, **kw_plan)
         return relatorio, False
 
     if nome == "forge3d_run":
         lote = _exigir_str(args, "lote")
         nao_publicar = bool(args.get("nao_publicar", False))
-        relatorio, codigo = pipeline.executar(
-            lote, plano_apenas=False, publicar_arquivos=not nao_publicar
-        )
+        kw_run: dict[str, Any] = {
+            "plano_apenas": False,
+            "publicar_arquivos": not nao_publicar,
+        }
+        if "no_cache" in args:
+            kw_run["no_cache"] = bool(args["no_cache"])
+        if "clean_dest" in args:
+            kw_run["clean_dest"] = bool(args["clean_dest"])
+        relatorio, codigo = pipeline.executar(lote, **kw_run)
         return relatorio, codigo != 0
 
     if nome == "forge3d_verify":

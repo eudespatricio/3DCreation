@@ -19,10 +19,18 @@ def perfil_resolvido(perfil: dict) -> dict:
     return {k: v for k, v in perfil.items() if not k.startswith("_")}
 
 
-def montar(spec_doc: dict, perfil: dict, cache_disponivel) -> list[dict]:
+def montar(
+    spec_doc: dict,
+    perfil: dict,
+    cache_disponivel,
+    *,
+    no_cache: bool = False,
+) -> list[dict]:
     """Lista de tarefas resolvidas. Rota nao implementada vira ``bloqueada``, nao erro fatal."""
     tarefas: list[dict] = []
     perfil_para_chave = perfil_resolvido(perfil)
+    isolamento = (spec_doc.get("requisicao") or {}).get("isolamento", "padrao")
+    ignorar_cache = no_cache or (isolamento == "estrito")
 
     for item in spec_doc["lote"]:
         tarefa = {
@@ -54,7 +62,7 @@ def montar(spec_doc: dict, perfil: dict, cache_disponivel) -> list[dict]:
         tarefa["chave"] = chave
         tarefa["provedor"] = {"nome": provider.nome, "versao": provider.versao}
         tarefa["estimativa"] = provider.custo(item, perfil)
-        tarefa["cache_hit"] = bool(cache_disponivel(chave))
+        tarefa["cache_hit"] = False if ignorar_cache else bool(cache_disponivel(chave))
 
         avaliar = getattr(provider, "preflight_item", None)
         pronto, razao = avaliar(item) if callable(avaliar) else provider.preflight()

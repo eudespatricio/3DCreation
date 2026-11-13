@@ -106,3 +106,186 @@ def test_sem_blender_o_doctor_responde_em_vez_de_derrubar(monkeypatch):
     assert ok is False
     assert "blender" in detalhe
     assert doctor.checar()["blender"] is None
+
+
+def test_doctor_exigir_valida_checks_extras_e_recusa_desconhecido(monkeypatch):
+    doctor.exigir(("python", "schemas", "perfis"))
+
+    with pytest.raises(ForgeError) as exc_unk:
+        doctor.exigir(("check_inexistente",))
+    assert exc_unk.value.codigo == "FORGE-E-AMBIENTE"
+
+    orig_checar = doctor.checar
+    monkeypatch.setattr(
+        doctor,
+        "checar",
+        lambda: {
+            **orig_checar(),
+            "checks": [
+                {"nome": "python", "ok": True, "detalhe": "3.12", "critico": True},
+                {"nome": "schemas", "ok": False, "detalhe": "schema quebrado", "critico": True},
+            ],
+        },
+    )
+    with pytest.raises(ForgeError) as exc_fail:
+        doctor.exigir(("python", "schemas"))
+    assert exc_fail.value.codigo == "FORGE-E-AMBIENTE"
+    assert any("schemas" in p for p in exc_fail.value.detalhes.get("problemas", []))
+
+
+def test_publish_r15_traduz_osso_anexo_e_rig_esqueleto(tmp_path):
+    from forge3d import profiles
+    from forge3d.canonical import sha256_arquivo
+
+    glb = tmp_path / "item.glb"
+    glb.write_bytes(b"glTF-dummy")
+    perfil_r15 = profiles.carregar("roblox-r15")
+
+    esperados = {
+        "corpo": "HumanoidRootPart",
+        "calcas": "LowerTorso",
+        "peitoral": "UpperTorso",
+        "capa": "UpperTorso",
+        "arma": "RightHand",
+        "luvas": "RightHand",
+        "escudo": "LeftLowerArm",
+        "botas": "RightFoot",
+        "ombreiras": "UpperTorso",
+        "cabelo": "Head",
+    }
+    for parte, osso_r15 in esperados.items():
+        man = publish.montar_manifesto(
+            item={"id": f"kit.{parte}.01", "rota": "mesh", "parte": parte, "seed": 1},
+            spec_doc={"projeto": "demo", "perfil": "roblox-r15", "_arquivo": "lote.yaml"},
+            spec_hash="sha256:" + "0" * 64,
+            perfil_nome="roblox-r15",
+            perfil=perfil_r15,
+            provider={"nome": "mesh", "versao": "0.1.8", "determinism": "D2"},
+            resultado={
+                "arquivos": [
+                    {
+                        "caminho": "item.glb",
+                        "papel": "mesh",
+                        "nivel": 0,
+                        "triangulos": 100,
+                        "sha256": sha256_arquivo(glb),
+                        "bytes": glb.stat().st_size,
+                    }
+                ],
+                "determinism": "D2",
+            },
+            relatorio_qc={
+                "aprovado": True,
+                "gates": [{"id": "G1", "status": "ok"}],
+                "medidas": {
+                    "triangulos": 100,
+                    "vertices": 80,
+                    "bbox_m": [0.5, 0.5, 0.5],
+                    "materiais": 1,
+                    "ossos": 16,
+                    "partes_colisao": 0,
+                },
+            },
+            licenca={"modelo": "MIT", "uso_comercial": True, "notice": "teste"},
+            run_id="run-r15",
+        )
+        assert man["anexo"]["osso"] == osso_r15
+        if man["anexo"]["skinned"]:
+            assert man["rig"] == {"esqueleto": "r15@1", "ossos": 16}
+
+    # Override explicito do usuario nao e sobrescrito
+    man_override = publish.montar_manifesto(
+        item={"id": "kit.arma.custom", "rota": "mesh", "parte": "arma", "osso": "LeftHand", "seed": 1},
+        spec_doc={"projeto": "demo", "perfil": "roblox-r15", "_arquivo": "lote.yaml"},
+        spec_hash="sha256:" + "0" * 64,
+        perfil_nome="roblox-r15",
+        perfil=perfil_r15,
+        provider={"nome": "mesh", "versao": "0.1.8", "determinism": "D2"},
+        resultado={
+            "arquivos": [
+                {
+                    "caminho": "item.glb",
+                    "papel": "mesh",
+                    "nivel": 0,
+                    "triangulos": 100,
+                    "sha256": sha256_arquivo(glb),
+                    "bytes": glb.stat().st_size,
+                }
+            ],
+            "determinism": "D2",
+        },
+        relatorio_qc={
+            "aprovado": True,
+            "gates": [{"id": "G1", "status": "ok"}],
+            "medidas": {
+                "triangulos": 100,
+                "vertices": 80,
+                "bbox_m": [0.5, 0.5, 0.5],
+                "materiais": 1,
+                "ossos": 0,
+                "partes_colisao": 0,
+            },
+        },
+        licenca={"modelo": "MIT", "uso_comercial": True, "notice": "teste"},
+        run_id="run-r15",
+    )
+    assert man_override["anexo"]["osso"] == "LeftHand"
+
+
+def test_verify_preserva_budget_hero_g9(tmp_path):
+    from forge3d import profiles, qc
+    from forge3d.canonical import sha256_arquivo
+    from tests.test_seguranca_e_qc import _glb_bytes
+
+    destino = tmp_path / "hero_dest"
+    destino.mkdir()
+    # GLB valido com ~2500 KB (> 2048 KB padrao do godot4, <= 4096 KB hero)
+    glb_base = _glb_bytes()
+    padding = b"\x00" * (2600 * 1024)
+    glb_hero = glb_base + padding
+    arq = destino / "hero.glb"
+    arq.write_bytes(glb_hero)
+
+    perfil = profiles.carregar("godot4")
+    item = {
+        "id": "hero.espada.01",
+        "altura_metros": 1.0,
+        "pivot": "base",
+        "limite_triangulos": 1000,
+        "qualidade": "hero",
+        "auto_rig": False,
+        "colisao": "none",
+    }
+    resultado = {
+        "medidas": {"nao_manifold": 0, "degeneradas": 0, "partes_colisao": 0},
+        "arquivos": [
+            {
+                "caminho": "hero.glb",
+                "papel": "mesh",
+                "nivel": 0,
+                "triangulos": 12,
+                "sha256": sha256_arquivo(arq),
+                "bytes": arq.stat().st_size,
+            }
+        ],
+        "licenca": {"modelo": "MIT", "uso_comercial": True, "notice": "hero"},
+        "determinism": "D2",
+    }
+    rel_qc = qc.verificar(item, perfil, destino, resultado, escala_saida=1.0)
+    assert rel_qc["aprovado"] is True, rel_qc["gates"]
+    man = publish.montar_manifesto(
+        item={**item, "rota": "mesh", "seed": 7},
+        spec_doc={"projeto": "demo", "perfil": "godot4", "_arquivo": "lote.yaml"},
+        spec_hash="sha256:" + "0" * 64,
+        perfil_nome="godot4",
+        perfil=perfil,
+        provider={"nome": "mesh", "versao": "0.1.8", "determinism": "D2"},
+        resultado=resultado,
+        relatorio_qc=rel_qc,
+        licenca={"modelo": "MIT", "uso_comercial": True, "notice": "hero"},
+        run_id="run-hero",
+    )
+    (destino / "hero.espada.01.manifest.json").write_text(json.dumps(man), encoding="utf-8")
+
+    rel_verify = publish.verificar(destino)
+    assert rel_verify["ok"] is True, rel_verify["erros"]

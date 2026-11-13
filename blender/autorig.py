@@ -534,13 +534,15 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
 
 
 def _alinhar_roll_ossos(rig_obj) -> None:
-    """Alinha o eixo local X dos membros ao plano de flexão (frente +Y), inclusive em T/A-pose."""
+    """Alinha o eixo local dos membros sem singularidade colinear no pe (+Y)."""
     _selecionar_unico(rig_obj)
     bpy.ops.object.mode_set(mode="EDIT")
     frente = Vector((0.0, 1.0, 0.0))
+    cima = Vector((0.0, 0.0, 1.0))
     for eb in rig_obj.data.edit_bones:
         if eb.name in _OSSOS_BRACO or eb.name in _OSSOS_PERNA:
-            eb.align_roll(frente)
+            alvo = cima if abs(eb.y_axis.y) > 0.92 else frente
+            eb.align_roll(alvo)
     bpy.ops.object.mode_set(mode="OBJECT")
     rig_obj.select_set(False)
 
@@ -1267,7 +1269,7 @@ def _pesos_ilha_geodesicos(
             vx, _vy, _vz = coords_xyz[vi]
             abs_x = vx if vx >= 0.0 else -vx
             brutos_wn = []
-            for nome, dist_v, lado_id, cat_id in bones_meta:
+            for nome, dist_v, _lado_id, cat_id in bones_meta:
                 d = dist_v[vi]
                 if d >= inf or not _osso_permitido(nome, coords[vi], m, bracos_baixos, tem_neck=tem_neck, lim=b):
                     continue
@@ -1371,7 +1373,7 @@ def _atribuir_pesos_inverso(
             a = Vector(o["cabeca"])
             b = Vector(o["cauda"])
             d_best = float("inf")
-            for vi, v in enumerate(coords):
+            for _vi, v in enumerate(coords):
                 if _osso_permitido_semente(nome, v, m, bracos_baixos, tem_neck=tem_neck, lim=lim_anat):
                     d_v = _dist_ponto_segmento(v, a, b)
                     if d_v < d_best:
@@ -1380,6 +1382,12 @@ def _atribuir_pesos_inverso(
                 globais_min[nome] = d_best
 
     pesos_por_vertice: dict[int, list[tuple[str, float]]] = {}
+    ossos_por_nome = {o["nome"]: o for o in ossos}
+    hands_pos = [
+        (hn, Vector(ossos_por_nome[hn]["cabeca"]))
+        for hn in ("Hand.L", "Hand.R", "LeftHand", "RightHand")
+        if hn in ossos_por_nome
+    ]
 
     for idx_ilha, ilha in enumerate(ilhas):
         xs = [coords_xyz[vi][0] for vi in ilha]
@@ -1387,10 +1395,21 @@ def _atribuir_pesos_inverso(
         zs = [coords_xyz[vi][2] for vi in ilha]
         diag = Vector((max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))).length
 
+        arma_mao_osso: str | None = None
         if idx_ilha == 0:
             e_acessorio = False
         elif tem_ilha_principal:
             e_acessorio = (len(ilha) < 0.12 * n_total) or (diag < 0.22 * h)
+            if not e_acessorio and diag < 0.90 * h and hands_pos:
+                unilateral = min(xs) > 0.14 * h or max(xs) < -0.14 * h
+                if unilateral:
+                    d_hand = min(
+                        (hn, min((coords[vi] - hp).length for vi in ilha))
+                        for hn, hp in hands_pos
+                    )
+                    if d_hand[1] < 0.14 * h:
+                        e_acessorio = True
+                        arma_mao_osso = d_hand[0]
         else:
             e_acessorio = diag < 0.18 * h
 
@@ -1400,7 +1419,7 @@ def _atribuir_pesos_inverso(
         if calculados is not None:
             pesos_por_vertice.update(calculados)
         else:
-            osso_unico = _osso_acessorio_ilha(
+            osso_unico = arma_mao_osso or _osso_acessorio_ilha(
                 ilha,
                 coords,
                 coords_xyz,
@@ -1412,6 +1431,45 @@ def _atribuir_pesos_inverso(
             )
             for vi in ilha:
                 pesos_por_vertice[vi] = [(osso_unico, 1.0)]
+
+    # Suavizacao central apenas quando existe ponte continua de saia/tunica abaixo da virilha
+    crotch_z = float(m.get("crotch_z", m["hip_z"]))
+    z0_m = float(m.get("z_min", 0.0))
+    tem_saia_central = any(
+        (z0_m + 0.12 * h < coords_xyz[vi][2] < crotch_z - 0.02 * h)
+        and abs(coords_xyz[vi][0]) < 0.022 * h
+        for vi in ilhas[0]
+    )
+    if tem_saia_central:
+        banda_costura = [
+            vi
+            for vi in ilhas[0]
+            if (z0_m + 0.08 * h < coords_xyz[vi][2] < crotch_z)
+            and abs(coords_xyz[vi][0]) <= 0.042 * h
+        ]
+        for _ in range(2):
+            novos_pesos: dict[int, list[tuple[str, float]]] = {}
+            for vi in banda_costura:
+                acum: dict[str, float] = {n: w * 0.5 for n, w in pesos_por_vertice.get(vi, ())}
+                viz = adj[vi]
+                if viz:
+                    peso_v = 0.5 / float(len(viz))
+                    for vj in viz:
+                        for n, w in pesos_por_vertice.get(vj, ()):
+                            acum[n] = acum.get(n, 0.0) + w * peso_v
+                novos_pesos[vi] = _normalizar_top4([(w, n) for n, w in acum.items()])
+            pesos_por_vertice.update(novos_pesos)
+        # Mantem isolamento lateral estrito fora da faixa central (<= 0.045 para lado oposto)
+        for vi in range(n_total):
+            vx = coords_xyz[vi][0]
+            if abs(vx) > 0.042 * h:
+                lado_opp = "R" if vx > 0.0 else "L"
+                filtrados = [
+                    (n, min(w, 0.045) if _lado_osso(n) == lado_opp else w)
+                    for n, w in pesos_por_vertice.get(vi, ())
+                ]
+                if filtrados:
+                    pesos_por_vertice[vi] = _normalizar_top4([(w, n) for n, w in filtrados])
 
     cabelo_slots = {
         idx
@@ -1529,6 +1587,11 @@ def aplicar_animacoes_multi(rig_obj, clipes: list[dict]) -> list[dict]:
 
         for chave in clipe.get("chaves") or []:
             frame = int(chave["frame"])
+            for pb in rig_obj.pose.bones:
+                pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0, 0.0))
+                pb.location = Vector((0.0, 0.0, 0.0))
+            tocados_rot: list[str] = []
+            tocados_loc: list[str] = []
             for pose in chave.get("poses") or []:
                 osso = pose.get("osso")
                 if not osso or osso not in rig_obj.pose.bones:
@@ -1540,8 +1603,27 @@ def aplicar_animacoes_multi(rig_obj, clipes: list[dict]) -> list[dict]:
                     "Z": (0.0, 0.0, 1.0),
                 }.get(eixo, (1.0, 0.0, 0.0))
                 pb = rig_obj.pose.bones[osso]
-                pb.rotation_quaternion = Quaternion(vetor, math.radians(float(pose.get("graus", 0.0))))
-                pb.keyframe_insert("rotation_quaternion", frame=frame)
+                pb.rotation_quaternion = pb.rotation_quaternion @ Quaternion(
+                    vetor, math.radians(float(pose.get("graus", 0.0)))
+                )
+                if osso not in tocados_rot:
+                    tocados_rot.append(osso)
+                desloc = pose.get("deslocamento_m")
+                if isinstance(desloc, (list, tuple)) and len(desloc) == 3:
+                    delta_arm = Vector((float(desloc[0]), float(desloc[1]), float(desloc[2])))
+                    delta_local = pb.bone.matrix_local.to_3x3().inverted_safe() @ delta_arm
+                    pb.location = pb.location + delta_local
+                    if osso not in tocados_loc:
+                        tocados_loc.append(osso)
+            for osso in tocados_rot:
+                rig_obj.pose.bones[osso].keyframe_insert("rotation_quaternion", frame=frame)
+            for osso in tocados_loc:
+                rig_obj.pose.bones[osso].keyframe_insert("location", frame=frame)
+
+        if clipe.get("loop", True):
+            for fc in acao.fcurves:
+                for kp in fc.keyframe_points:
+                    kp.interpolation = "LINEAR"
 
         track = rig_obj.animation_data.nla_tracks.new()
         track.name = nome
@@ -1553,6 +1635,7 @@ def aplicar_animacoes_multi(rig_obj, clipes: list[dict]) -> list[dict]:
         rig_obj.animation_data.action = None
         for pb in rig_obj.pose.bones:
             pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+            pb.location = (0.0, 0.0, 0.0)
 
         duracao_s = float(clipe["duracao_s"])
         frames = int(round(duracao_s * fps))

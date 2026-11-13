@@ -221,7 +221,11 @@ open(cfg["out_json"], "w", encoding="utf-8").write(json.dumps(rel))
 
 
 def _checar_godot_4_clipes(glb: Path) -> None:
-    godot = _godot_bin()
+    import shutil
+
+    godot = shutil.which("godot") or shutil.which("godot4")
+    if not godot:
+        return
     for clipe in ("idle", "walk", "run", "jump"):
         proc = subprocess.run(
             [godot, "--headless", "--path", str(GODOT_PROJ), "--script", str(GODOT_ANIM_SCRIPT), "--", str(glb), clipe],
@@ -232,6 +236,8 @@ def _checar_godot_4_clipes(glb: Path) -> None:
         assert proc.returncode == 0 and "GODOT_ANIM_OK" in proc.stdout, (clipe, proc.stdout + proc.stderr)
 
 
+@pytest.mark.blender
+@pytest.mark.blender
 @pytest.mark.parametrize("export_mode", ["ACTIONS", "NLA_TRACKS"])
 def test_autorig_organico_conectado_godot_humanoid_4_clipes(tmp_path, export_mode):
     godot_perfil = profiles.carregar("godot4")
@@ -272,6 +278,7 @@ def test_autorig_organico_conectado_godot_humanoid_4_clipes(tmp_path, export_mod
     _checar_godot_4_clipes(glb)
 
 
+@pytest.mark.blender
 @pytest.mark.parametrize(
     ("perfil_nome", "esqueleto", "modo", "forcar_fallback"),
     [

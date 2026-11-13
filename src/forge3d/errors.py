@@ -28,8 +28,8 @@ class ForgeError(Exception):
         self.exit_code = exit_code
         self.detalhes = detalhes or {}
 
-    def como_dict(self) -> dict:
-        d = {"codigo": self.codigo, "mensagem": self.mensagem}
+    def como_dict(self) -> dict[str, object]:
+        d: dict[str, object] = {"codigo": self.codigo, "mensagem": self.mensagem}
         if self.detalhes:
             d["detalhes"] = self.detalhes
         return d

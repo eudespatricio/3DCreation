@@ -19,17 +19,39 @@ def _dir_cache(chave: str) -> Path:
 
 
 def salvar_cache(chave: str, origem: Path, entrada: dict) -> None:
-    """Persiste artefatos finais e metadados em cache usando escrita atomica do JSON."""
+    """Persiste artefatos finais e metadados em cache com staging e troca atomica."""
     base = _dir_cache(chave)
+    base.mkdir(parents=True, exist_ok=True)
+    pid = os.getpid()
     final = base / "final"
-    if final.exists():
-        shutil.rmtree(final)
-    final.mkdir(parents=True, exist_ok=True)
-    for arq in entrada["resultado"].get("arquivos", []):
-        shutil.copyfile(origem / arq["caminho"], final / arq["caminho"])
-    tmp = base / "entrada.json.tmp"
-    tmp.write_text(json.dumps(entrada, sort_keys=True, indent=1), encoding="utf-8")
-    os.replace(tmp, base / "entrada.json")
+    final_tmp = base / f"final.tmp.{pid}"
+    final_old = base / f"final.old.{pid}"
+    if final_tmp.exists():
+        shutil.rmtree(final_tmp)
+    final_tmp.mkdir(parents=True, exist_ok=True)
+    try:
+        for arq in entrada["resultado"].get("arquivos", []):
+            dst = final_tmp / arq["caminho"]
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(origem / arq["caminho"], dst)
+
+        tmp = base / f"entrada.json.tmp.{pid}"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(entrada, sort_keys=True, indent=1))
+            fh.flush()
+            os.fsync(fh.fileno())
+
+        if final_old.exists():
+            shutil.rmtree(final_old)
+        if final.exists():
+            os.replace(final, final_old)
+        os.replace(final_tmp, final)
+        if final_old.exists():
+            shutil.rmtree(final_old, ignore_errors=True)
+        os.replace(tmp, base / "entrada.json")
+    except Exception:
+        shutil.rmtree(final_tmp, ignore_errors=True)
+        raise
 
 
 def ler_cache(chave: str) -> tuple[Path, dict] | None:

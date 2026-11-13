@@ -8,8 +8,9 @@ Uso:
     python tools/mcp_studio.py --estado
     python tools/mcp_studio.py --exec 'return workspace:FindFirstChild("X") ~= nil'
 
-O binario do proxy muda a cada versao do Studio; `--binario` ou `FORGE3D_STUDIOMCP` apontam
-para o caminho certo (default: a versao vista nesta maquina).
+O binario do proxy muda a cada versao do Studio; `--binario`, `FORGE3D_STUDIOMCP` ou a
+descoberta dinamica em `/mnt/c/Users/*/AppData/Local/Roblox/Versions/version-*/StudioMCP.exe`
+apontam para o executavel mais recente.
 """
 
 from __future__ import annotations
@@ -20,18 +21,41 @@ import queue
 import subprocess
 import threading
 import time
+from pathlib import Path
 
-_PADRAO = (
-    "/mnt/c/Users/Eudes/AppData/Local/Roblox/Versions/version-63eb6055af4e4688/StudioMCP.exe"
-)
+_USUARIOS_WIN = Path("/mnt/c/Users")
+_SUBCAMINHO_STUDIOMCP = "AppData/Local/Roblox/Versions/version-*/StudioMCP.exe"
 
 
-def binario() -> str:
-    return os.environ.get("FORGE3D_STUDIOMCP", _PADRAO)
+def descobrir_binario(base_users: str | Path = _USUARIOS_WIN) -> str | None:
+    """Encontra o ``StudioMCP.exe`` mais recente sob ``base_users`` por mtime."""
+    raiz = Path(base_users)
+    if not raiz.is_dir():
+        return None
+    candidatos = [p for p in raiz.glob(f"*/{_SUBCAMINHO_STUDIOMCP}") if p.is_file()]
+    if not candidatos:
+        return None
+    candidatos.sort(key=lambda p: (p.stat().st_mtime, str(p)), reverse=True)
+    return str(candidatos[0])
+
+
+def binario(base_users: str | Path = _USUARIOS_WIN) -> str:
+    env = (os.environ.get("FORGE3D_STUDIOMCP") or "").strip()
+    if env:
+        return env
+    encontrado = descobrir_binario(base_users=base_users)
+    if encontrado:
+        return encontrado
+    raise FileNotFoundError(
+        "StudioMCP.exe nao encontrado; defina FORGE3D_STUDIOMCP ou passe --binario"
+    )
+
+
+_MAX_MENSAGEM_BYTES = 10 * 1024 * 1024
 
 
 class Cliente:
-    """MCP sobre stdio: uma linha JSON por mensagem, resposta casada por id."""
+    """MCP sobre stdio: suporta Content-Length (LSP/MCP) e NDJSON, casando respostas por id."""
 
     def __init__(self, exe: str | None = None):
         self.proc = subprocess.Popen(
@@ -47,23 +71,54 @@ class Cliente:
         self.id = 0
 
     def _ler(self):
-        for linha in self.proc.stdout:
-            texto = linha.decode("utf-8", "replace").strip()
-            if texto:
-                self.fila.put(texto)
+        stdout = self.proc.stdout
+        if stdout is None:
+            self.fila.put(None)
+            return
+        while True:
+            linha = stdout.readline()
+            if not linha:
+                break
+            texto_bruto = linha.decode("utf-8", "replace")
+            if texto_bruto.lower().startswith("content-length:"):
+                try:
+                    tamanho = int(texto_bruto.split(":", 1)[1].strip())
+                except ValueError:
+                    continue
+                if tamanho < 0 or tamanho > _MAX_MENSAGEM_BYTES:
+                    break
+                while True:
+                    hdr = stdout.readline()
+                    if not hdr or hdr in (b"\r\n", b"\n"):
+                        break
+                corpo = stdout.read(tamanho)
+                if not corpo:
+                    break
+                self.fila.put(corpo.decode("utf-8", "replace").strip())
+            else:
+                texto = texto_bruto.strip()
+                if texto:
+                    self.fila.put(texto)
         self.fila.put(None)
 
     def _ler_err(self):
+        if self.proc.stderr is None:
+            return
         for linha in self.proc.stderr:
             self.erros.append(linha.decode("utf-8", "replace").strip())
+
+    def _enviar(self, payload: dict) -> None:
+        if self.proc.stdin is None:
+            return
+        self.proc.stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
+        self.proc.stdin.flush()
 
     def pedir(self, metodo: str, params=None, timeout: float = 30) -> dict | None:
         self.id += 1
         msg = {"jsonrpc": "2.0", "id": self.id, "method": metodo}
         if params is not None:
             msg["params"] = params
-        self.proc.stdin.write((json.dumps(msg) + "\n").encode())
-        self.proc.stdin.flush()
+        self._enviar(msg)
         limite = time.time() + timeout
         while time.time() < limite:
             try:
@@ -84,8 +139,7 @@ class Cliente:
         msg = {"jsonrpc": "2.0", "method": metodo}
         if params is not None:
             msg["params"] = params
-        self.proc.stdin.write((json.dumps(msg) + "\n").encode())
-        self.proc.stdin.flush()
+        self._enviar(msg)
 
     def abrir(self) -> None:
         self.pedir(

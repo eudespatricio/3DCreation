@@ -1,4 +1,4 @@
-"""Migracao de lote entre versoes do contrato de entrada (`spec@1`/`@2` -> `spec@3`).
+"""Migracao de lote entre versoes do contrato de entrada (`spec@1`/`@2`/`@3` -> `spec@4`).
 
 A migracao e **textual** de proposito: lote e documento de gente, com comentarios, e um
 ``yaml.safe_dump`` os apagaria. O que muda entre versoes:
@@ -28,7 +28,7 @@ from .errors import ForgeError, erro_spec
 __all__ = ["ALVO", "ORDEM", "planejar", "gravar", "migrar_texto"]
 
 #: cadeia de contratos de entrada, do mais velho ao corrente
-ORDEM = ("forge3d/spec@1", "forge3d/spec@2", "forge3d/spec@3")
+ORDEM = ("forge3d/spec@1", "forge3d/spec@2", "forge3d/spec@3", "forge3d/spec@4")
 ALVO = ORDEM[-1]
 
 _RE_SCHEMA = re.compile(r"^schema:[ \t]*(forge3d/spec@[0-9]+)[ \t]*$")

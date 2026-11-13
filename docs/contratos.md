@@ -15,20 +15,23 @@
 | Encoding | UTF-8, LF. JSON de saída com chaves ordenadas e sem espaços variáveis (hash estável) |
 | Relógio | `created_at` em UTC ISO-8601; nunca entra na chave de cache |
 
-## 2. `spec@1`, `spec@2` e `spec@3` — a entrada
+## 2. `spec@1`, `spec@2`, `spec@3` e `spec@4` — a entrada
 
 Exemplo canônico: [`../examples/lote_01.yaml`](../examples/lote_01.yaml). O kit P3-D usa
 [`../examples/lote_03_kit.yaml`](../examples/lote_03_kit.yaml) (`spec@2`).
 
-`spec@2` é extensão **retrocompatível** de `spec@1`: adiciona `parte` (`corpo`/`capa`/`arma`) ao
-item. `spec@1` continua aceito; o validador escolhe o schema pelo campo `schema`. O manifesto
-permanece `manifest@1` — a versão do spec viaja no `spec_hash`.
+Cada revisão é superset aditivo da anterior (`spec@4` é o contrato corrente; `@1`–`@3` continuam
+aceitos na leitura e o validador seleciona o schema pelo campo `schema`): `spec@2` adiciona `parte`,
+`spec@3` adiciona `modular`, e `spec@4` adiciona `estilo` por item, `retopologia`,
+`quadriflow_faces` e `modo_rig_roblox` (além de suportar `requisicao`, `qualidade`, `pose_guard`,
+`extrudir_2d`, `template_humanoide`, `makehuman_cabelo`, `cor_cabelo`, `macro`, `skinned` e kit de
+armadura modular).
 
 ### Raiz
 
 | Campo | Tipo | Obrig. | Regra |
 |---|---|---|---|
-| `schema` | string | sim | `forge3d/spec@1` ou `forge3d/spec@2` |
+| `schema` | string | sim | `forge3d/spec@1` \| `spec@2` \| `spec@3` \| `spec@4` |
 | `projeto` | string | sim | slug `^[a-z][a-z0-9_-]*$` |
 | `perfil` | string | sim | `godot4` \| `roblox-r15` \| caminho para YAML de perfil |
 | `destino_exportacao` | string | sim | sob allowlist (D23); `~` é expandido; recusa `/mnt/*` e UNC |
@@ -61,7 +64,7 @@ nunca aparece em manifesto publicado (I14).
 | `esqueleto` | string | não | `godot-humanoid@1` \| `r15@1`; default do perfil |
 | `animacoes_base` | string[] | não | **reservado** (D14). Preenchido ⇒ aviso `FORGE-W-ANIM`, nunca erro |
 | `origem` | string | cond. | obrigatório em `rota: import`; na `mesh` é a imagem de concept (PNG/JPEG/WebP) |
-| `parte` | string | não | `corpo` \| `capa` \| `arma`; só `spec@2` e só rota `blocky` (B11–B13) |
+| `parte` | string | não | `corpo` \| `capa` \| `arma` \| `cabelo` \| `elmo` \| `ombreiras` \| `peitoral` \| `luvas` \| `calcas` \| `botas` \| `escudo` (`blocky` ou `mesh`, B11–B13) |
 | `tags` | string[] | não | `^[a-z0-9][a-z0-9_-]*$`, ≤ 8, sem nome de franquia (I14) |
 
 ### Regras de negócio (além do schema)
@@ -78,18 +81,20 @@ nunca aparece em manifesto publicado (I14).
 | B8 | `paleta` ≤ 16 cores, todas `#rrggbb` | erro |
 | B9 | `prompt` não vazio quando exigido | erro |
 | B10 | Esqueleto declarado existe no perfil | erro |
-| B11 | `parte` só existe na rota `blocky` | erro (schema `spec@2`) |
-| B12 | `parte: corpo/capa` exige `personagem_humanoide`; `parte: arma` exige `prop_equipavel` | erro |
-| B13 | `parte: capa` é peça estática (`auto_rig: false`) | erro |
+| B11 | `parte` só existe em `blocky` ou `mesh` | erro (schema `spec@2`+) |
+| B12 | `parte` de vestuário/armadura exige `personagem_humanoide`; `arma`/`escudo` exige `prop_equipavel` | erro |
+| B13 | `parte: capa` e acessórios rígidos exigem `auto_rig: false` (salvo `skinned: true` em armadura) | erro |
 
-## 3. `manifest@1`/`@2`/`@3` — a saída
+## 3. `manifest@1`/`@2`/`@3`/`@4` — a saída
 
 Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o Forge3D instalado.
-`@2` acrescenta `unidades_export` (D62); `@1` continua aceito na leitura.
+`@2` acrescenta `unidades_export` (D62), `@3` acrescenta `animacoes` (D67), e `@4` é o contrato
+corrente (aditivo: papéis `orm`/`roughness`/`metallic`/`manifesto` e metadados PBR/QC V2); `@1`–`@3`
+continuam aceitos na leitura.
 
 | Campo | Tipo | Conteúdo |
 |---|---|---|
-| `schema` | string | `forge3d/manifest@1` (legado) · `@2` (unidades) · `@3` (animação) |
+| `schema` | string | `forge3d/manifest@1` (legado) · `@2` (unidades) · `@3` (animação) · `@4` (corrente) |
 | `asset_id` / `projeto` / `perfil` / `rota` | string | identidade, alvo e técnica de geração |
 | `tags` | string[] | rótulos do item; consultáveis por `forge3d query --tag` |
 | `spec_hash` | string | `sha256:` do spec canônico que originou o asset |
@@ -98,11 +103,12 @@ Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o 
 | `providers` | objeto | `geometry` e `texture`: `{name, version, license, seed}` |
 | `geometry` | objeto | `triangulos`, `vertices`, `bbox_m[3]` (**sempre em metros**), `materiais` |
 | `unidades_export` | objeto | `@2`+: `{metros_por_unidade, escala_saida}` — a unidade do arquivo |
-| `animacoes` | objeto[] | só `@3`: `{nome, duracao_s, ossos}` — clipes embutidos no glb (vazio se não há) |
-| `rig` | objeto\|null | `{esqueleto, ossos}` |
+| `animacoes` | objeto[] | `@3`+: `{nome, duracao_s, ossos}` — clipes embutidos no glb (vazio se não há) |
+| `rig` | objeto\|null | `{esqueleto, ossos, modo_rig_roblox?}` |
+| `anexo` | objeto\|null | `{parte, osso, attachment_roblox, skinned?}` — peças modulares e armaduras (D88) |
 | `lod` | objeto[] | `{nivel, triangulos, arquivo}` |
 | `colisao` | objeto | `{tipo, partes, arquivo}` |
-| `files` | objeto[] | `{caminho, papel, sha256, bytes}` — `papel` ∈ `mesh\|textura\|normal\|colisor\|lod\|animacao` |
+| `files` | objeto[] | `{caminho, papel, sha256, bytes}` — `papel` ∈ `mesh\|textura\|normal\|orm\|roughness\|metallic\|colisor\|lod\|animacao\|manifesto` |
 | `qc` | objeto | `{aprovado, gates: [{id, status, medido, limite}]}` |
 | `licenca` | objeto | `{modelo, uso_comercial, notice}` |
 | `origem_spec` | objeto | `{arquivo, hash}` |
@@ -110,6 +116,8 @@ Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o 
 
 Schema completo: [`../schemas/manifest.v1.schema.json`](../schemas/manifest.v1.schema.json) ·
 [`../schemas/manifest.v2.schema.json`](../schemas/manifest.v2.schema.json) ·
+[`../schemas/manifest.v3.schema.json`](../schemas/manifest.v3.schema.json) ·
+[`../schemas/manifest.v4.schema.json`](../schemas/manifest.v4.schema.json);
 exemplos: [`../examples/manifest.exemplo.json`](../examples/manifest.exemplo.json) e
 [`../examples/manifest.exemplo.v2.json`](../examples/manifest.exemplo.v2.json).
 
@@ -230,6 +238,7 @@ publicou ou veio do cache.
 | `FORGE-W-ALIAS` | alias legado de estilo usado | — |
 | `FORGE-W-ANIM` | `animacoes_base` com clipe sem gerador nesta fase | — |
 | `FORGE-W-LOD` | LOD de `blocky` abaixo de 50% (perde a silhueta, medido em GAP-013) | — |
+| `FORGE-W-QC` | reservado: gate em `warn` **não emite código** hoje (só `falhou` vira `FORGE-E-QC`) | — |
 
 ### spec@3 — bloco `modular` (D75)
 
@@ -247,7 +256,13 @@ Regras: `B15` — `modular` só existe na rota `modular`, e a rota `modular` exi
 `B16` — `setor` dentro da grade; `B17` — nomes de módulo do catálogo (`corredor`, `sala`, `curva`);
 `B2` vale para `modular` também (seed vem de `politica.seed_base` quando ausente). `altura_metros`
 default **2,4 m** (pé-direito) quando a rota é `modular` e o item não declara.
-| `FORGE-W-QC` | reservado: gate em `warn` **não emite código** hoje (só `falhou` vira `FORGE-E-QC`) | — |
+
+### spec@4 — retopologia, rig Roblox e estilo por item (D89)
+
+Aditivo sobre `spec@3`: `estilo` (`blocky_voxel` \| `lowpoly_lit` \| `stylized_pbr`) por item,
+`retopologia` (`padrao` \| `quadriflow` \| `decimate`), `quadriflow_faces` (`250..50000`) e
+`modo_rig_roblox` (`motor6d` \| `bone`). `forge3d migrate <lote>` reescreve `schema:` até
+`forge3d/spec@4` mantendo comentários e validando o resultado sem inventar valores.
 
 ## 7. Compatibilidade
 

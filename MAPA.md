@@ -9,7 +9,7 @@
 | `INVARIANTES.md` | regras cujo desrespeito é bug, com comando de verificação | antes de concluir qualquer tarefa |
 | `CONSELHOS.md` | quando convocar conselho e como ele decide | decisão irreversível ou sem oráculo |
 | `docs/arquitetura.md` | fluxo, camadas, fronteiras | desenhar/alterar etapa do pipeline |
-| `docs/contratos.md` | `spec@1`–`spec@3`, `manifest@1`–`@3`, exit codes, códigos de erro | mexer na fronteira com o jogo |
+| `docs/contratos.md` | `spec@1`–`spec@4`, `manifest@1`–`@4`, exit codes, códigos de erro | mexer na fronteira com o jogo |
 | `docs/rotas-e-providers.md` | as 4 rotas, interface de provider, roteamento | adicionar gerador novo |
 | `docs/perfis-export.md` | `godot4` e `roblox-r15`: eixos, escala, rig, colisão | exportar ou integrar no jogo |
 | `docs/qc-e-verificacao.md` | gates G1–G10, severidade, remediação, `verify` reexecutando | asset reprovado no QC |
@@ -18,8 +18,8 @@
 | `docs/roadmap.md` | P0–P6 com portão de saída por fase; §Depois da P6 = backlog sem fase nova | planejar próxima fase |
 | `docs/integracao.md` | como outro projeto chama a CLI: instalar, allowlist, lote, exit codes, manifesto | integrar num projeto de jogo |
 | `docs/gaps.md` | lacunas abertas com dono e condição de fechamento | fim de fase |
-| `schemas/spec.v1.schema.json` · `schemas/spec.v2.schema.json` · `schemas/spec.v3.schema.json` | contrato de entrada (fonte de verdade; corrente = `spec@3`, D75) | validar lote |
-| `schemas/manifest.v1.schema.json` · `schemas/manifest.v2.schema.json` · `schemas/manifest.v3.schema.json` | contrato de saída (v2 = D62 `unidades_export`; v3 = D67 `animacoes`) | consumir asset no jogo |
+| `schemas/spec.v1.schema.json` · `schemas/spec.v2.schema.json` · `schemas/spec.v3.schema.json` · `schemas/spec.v4.schema.json` | contrato de entrada (corrente = `spec@4`, D89; `@1`–`@3` aceitos) | validar lote |
+| `schemas/manifest.v1.schema.json` · `schemas/manifest.v2.schema.json` · `schemas/manifest.v3.schema.json` · `schemas/manifest.v4.schema.json` | contrato de saída (corrente = `manifest@4`, D89; `@1`–`@3` aceitos) | consumir asset no jogo |
 | `profiles/godot4.yaml` · `profiles/roblox-r15.yaml` | perfis de export | exportar para Godot/Roblox |
 | `examples/lote_01.yaml` · `lote_03_kit` · `lote_04_mesh` · `lote_05_mesh_concept` · `lote_06_mesh_split` · `lote_07_cape` · `lote_08_ab_hybrid` · `lote_09_r15` (prefixo `examples/`) | fixtures: blocky, kit, mesh, concept, split, capa | exemplo canônico e fixture de teste |
 | `examples/concepts/` | PNGs de entrada da rota `mesh` (teapot MIT) | rodar o exemplo mesh |

@@ -336,3 +336,4 @@ def test_blender_template_body_cabelo_mhclo_cc0_passa_g1(tmp_path):
     assert topo["nao_manifold"] == 0
     assert topo["degeneradas"] == 0
     assert len(gltf.get("materials", [])) == 1
+    assert gltf["materials"][0].get("alphaMode") == "MASK"

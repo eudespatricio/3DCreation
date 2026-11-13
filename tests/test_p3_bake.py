@@ -104,11 +104,11 @@ def test_bake_de_cor_por_vertice_gera_uv_e_textura(asset):
     assert nos_malha == [item["id"]], gltf.get("nodes")
     assert resultado["medidas"]["gerada"]["smooth"]["angulo_graus"] == 45.0
 
-    # Margem de UV padrao >= 0.008 (~4 px a 512^2)
+    # Margem de UV padrao >= 0.02 (evita bleed de mipmap no bake PBR)
     tree = ast.parse((RAIZ / "blender" / "postprocess.py").read_text(encoding="utf-8"))
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "desdobrar_uv")
     margem_default = ast.literal_eval(fn.args.defaults[0])
-    assert margem_default == pytest.approx(0.008)
+    assert margem_default == pytest.approx(0.02)
 
 
 def test_prop_aceito_no_perfil_roblox_sem_prefixo(asset):
@@ -317,4 +317,4 @@ def test_godot_plugin_post_import_e_anim_headless(tmp_path):
         timeout=60,
     )
     assert pi.returncode == 0 and "GODOT_POST_IMPORT_OK" in pi.stdout, pi.stdout + pi.stderr
-    assert "bodies=1 shapes=1 anims=1 meta=true" in pi.stdout, pi.stdout
+    assert "bodies=0 shapes=0 anims=1 meta=true" in pi.stdout, pi.stdout

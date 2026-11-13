@@ -34,6 +34,7 @@ def _glb_bytes(
     png_wh: tuple[int, int] = (8, 8),
     materiais: list[dict] | None = None,
     ossos: list[str] | None = None,
+    pesos_skin: list[tuple[float, float, float, float]] | None = None,
     no_nome: str = "Asset",
     com_uv: bool = True,
 ) -> bytes:
@@ -59,7 +60,8 @@ def _glb_bytes(
             (1, 2, 6), (1, 6, 5),
         ]
     if uvs is None:
-        uvs = [(0.1, 0.1) if i % 2 == 0 else (0.9, 0.9) for i in range(len(verts))]
+        padrao_uv = [(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)]
+        uvs = [padrao_uv[i % 4] for i in range(len(verts))]
 
     buf = bytearray()
 
@@ -121,6 +123,21 @@ def _glb_bytes(
     nodes = [{"name": no_nome, "mesh": 0}]
     skins = []
     if ossos:
+        j_off = len(buf)
+        for _ in range(len(verts)):
+            buf.extend(struct.pack("<BBBB", 0, 0, 0, 0))
+        j_len = len(buf) - j_off
+        w_off = len(buf)
+        pesos_v = pesos_skin if pesos_skin is not None else [(1.0, 0.0, 0.0, 0.0)] * len(verts)
+        for w0, w1, w2, w3 in pesos_v:
+            buf.extend(struct.pack("<ffff", w0, w1, w2, w3))
+        w_len = len(buf) - w_off
+        bvs.append({"buffer": 0, "byteOffset": j_off, "byteLength": j_len})
+        accs.append({"bufferView": len(bvs) - 1, "componentType": 5121, "count": len(verts), "type": "VEC4"})
+        attrs["JOINTS_0"] = len(accs) - 1
+        bvs.append({"buffer": 0, "byteOffset": w_off, "byteLength": w_len})
+        accs.append({"bufferView": len(bvs) - 1, "componentType": 5126, "count": len(verts), "type": "VEC4"})
+        attrs["WEIGHTS_0"] = len(accs) - 1
         joint_indices = []
         for nome in ossos:
             joint_indices.append(len(nodes))
@@ -408,3 +425,197 @@ def test_qc_g7_fail_closed_e_prefixo_colisor_invalido(tmp_path):
         col_glb=col_errado,
     )
     assert _gate(rel, "G7")["status"] == "falhou"
+
+
+def test_qc_gates_inclui_g10():
+    assert "G10" in qc.GATES
+
+
+def test_qc_g2_libera_empunhadura_e_equipavel_assimetrico_em_xz(tmp_path):
+    # Empunhadura deslocada em X nao falha G2 quando Y respeita FRACAO_EMPUNHADURA (0.20)
+    verts_emp = [
+        (0.2, -0.2, -0.5), (1.2, -0.2, -0.5), (1.2, 0.8, -0.5), (0.2, 0.8, -0.5),
+        (0.2, -0.2, 0.5), (1.2, -0.2, 0.5), (1.2, 0.8, 0.5), (0.2, 0.8, 0.5),
+    ]
+    rel_emp = _rodar_qc(
+        tmp_path,
+        _glb_bytes(verts=verts_emp),
+        item_extra={"tipo": "prop_equipavel", "pivot": "empunhadura"},
+    )
+    assert _gate(rel_emp, "G2")["status"] == "ok"
+
+    # Centro continua exigindo centralizacao em XZ
+    rel_centro = _rodar_qc(
+        tmp_path,
+        _glb_bytes(verts=[
+            (0.2, -0.5, -0.5), (1.2, -0.5, -0.5), (1.2, 0.5, -0.5), (0.2, 0.5, -0.5),
+            (0.2, -0.5, 0.5), (1.2, -0.5, 0.5), (1.2, 0.5, 0.5), (0.2, 0.5, 0.5),
+        ]),
+        item_extra={"tipo": "prop_equipavel", "pivot": "centro"},
+    )
+    assert _gate(rel_centro, "G2")["status"] == "falhou"
+
+
+def test_qc_g5_aceita_base_color_factor_e_color_0(tmp_path):
+    # 1. Material sem textura com baseColorFactor
+    mats_factor = [{"name": "m0", "pbrMetallicRoughness": {"baseColorFactor": [0.8, 0.2, 0.2, 1.0]}}]
+    rel_factor = _rodar_qc(tmp_path, _glb_bytes(materiais=mats_factor))
+    assert _gate(rel_factor, "G5")["status"] == "ok"
+
+    # 2. Material vazio com atributo COLOR_0 na primitiva
+    glb_base = _glb_bytes(materiais=[{"name": "vc", "pbrMetallicRoughness": {}}])
+    # Injeta COLOR_0 no JSON do GLB sintetico (reusa accessor 0 apenas para inspecao de atributo)
+    magic, ver, _ = struct.unpack_from("<III", glb_base, 0)
+    jlen, jtype = struct.unpack_from("<II", glb_base, 12)
+    gltf = json.loads(glb_base[20 : 20 + jlen].decode("utf-8"))
+    gltf["meshes"][0]["primitives"][0]["attributes"]["COLOR_0"] = 0
+    bin_hdr = 20 + jlen
+    blen, btype = struct.unpack_from("<II", glb_base, bin_hdr)
+    bin_data = glb_base[bin_hdr + 8 : bin_hdr + 8 + blen]
+    jb = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    while len(jb) % 4:
+        jb += b" "
+    glb_vc = (
+        struct.pack("<III", magic, ver, 12 + 8 + len(jb) + 8 + len(bin_data))
+        + struct.pack("<II", len(jb), jtype)
+        + jb
+        + struct.pack("<II", len(bin_data), btype)
+        + bin_data
+    )
+    rel_vc = _rodar_qc(tmp_path, glb_vc)
+    assert _gate(rel_vc, "G5")["status"] == "ok"
+
+
+def test_qc_v2_g1_invertidas_g3_uv_e_g4_crc_webp(tmp_path):
+    # G1 reprova cubo com winding invertido (volume negativo)
+    tris_inv = [
+        (0, 1, 2), (0, 2, 3),
+        (4, 6, 5), (4, 7, 6),
+        (0, 5, 1), (0, 4, 5),
+        (2, 7, 3), (2, 6, 7),
+        (0, 7, 4), (0, 3, 7),
+        (1, 6, 2), (1, 5, 6),
+    ]
+    d_g1 = tmp_path / "g1_inv"
+    d_g1.mkdir()
+    rel_inv = _rodar_qc(d_g1, _glb_bytes(tris=tris_inv))
+    g1_inv = _gate(rel_inv, "G1")
+    assert g1_inv["status"] == "falhou"
+    assert g1_inv["medido"]["invertidas"] == 1
+
+    # G3 reprova UV colapsada e permite tiling apenas quando item pede
+    d_g3c = tmp_path / "g3_col"
+    d_g3c.mkdir()
+    rel_col = _rodar_qc(d_g3c, _glb_bytes(uvs=[(0.5, 0.5)] * 8))
+    assert _gate(rel_col, "G3")["status"] == "falhou"
+    assert _gate(rel_col, "G3")["medido"]["uv_colapsada"] == 1
+
+    d_g3t = tmp_path / "g3_tile"
+    d_g3t.mkdir()
+    rel_tile = _rodar_qc(
+        d_g3t,
+        _glb_bytes(uvs=[(0.1, 0.1), (2.4, 0.1), (2.4, 2.4), (0.1, 2.4)] * 2),
+        item_extra={"permitir_tiling": True},
+    )
+    assert _gate(rel_tile, "G3")["status"] == "ok"
+
+    # G4 reprova PNG com CRC adulterado e aceita WEBP valido
+    from PIL import Image
+
+    d_png = tmp_path / "g4_crc"
+    d_png.mkdir()
+    glb_crc = bytearray(_glb_bytes())
+    idx_iend = glb_crc.rfind(b"IEND")
+    assert idx_iend > 0
+    glb_crc[idx_iend + 4] ^= 0xFF
+    assert _gate(_rodar_qc(d_png, bytes(glb_crc)), "G4")["status"] == "falhou"
+
+    d_webp = tmp_path / "g4_webp"
+    d_webp.mkdir()
+    Image.new("RGBA", (8, 8), (120, 40, 20, 255)).save(d_webp / "m_albedo.webp", format="WEBP")
+    (d_webp / "m.glb").write_bytes(_glb_bytes(materiais=[{"name": "m0", "pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1]}}]))
+    rel_webp = qc.verificar(
+        {"id": "prop.webp.01", "altura_metros": 1.0, "pivot": "base", "limite_triangulos": 500, "colisao": "none"},
+        profiles.carregar("godot4"),
+        d_webp,
+        {
+            "medidas": {"nao_manifold": 0, "degeneradas": 0},
+            "arquivos": [
+                {"caminho": "m.glb", "papel": "mesh", "nivel": 0, "triangulos": 12},
+                {"caminho": "m_albedo.webp", "papel": "textura"},
+            ],
+            "licenca": {"modelo": "CC0", "uso_comercial": True},
+        },
+        escala_saida=1.0,
+    )
+    assert _gate(rel_webp, "G4")["status"] == "ok"
+
+
+def test_qc_v2_g5_tangent_g6_pesos_g7_coplanar_e_g9_lod(tmp_path):
+    # G5 exige TANGENT quando ha normalTexture
+    mats_norm = [{
+        "name": "m0",
+        "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}},
+        "normalTexture": {"index": 0},
+    }]
+    d_g5 = tmp_path / "g5"
+    d_g5.mkdir()
+    assert _gate(_rodar_qc(d_g5, _glb_bytes(materiais=mats_norm)), "G5")["status"] == "falhou"
+
+    # G6 valida soma de WEIGHTS_0
+    d_g6 = tmp_path / "g6"
+    d_g6.mkdir()
+    ossos_godot = profiles.carregar("godot4")["rig"]["mapas"]["godot-humanoid@1"]
+    rel_g6 = _rodar_qc(
+        d_g6,
+        _glb_bytes(ossos=ossos_godot, pesos_skin=[(0.2, 0.0, 0.0, 0.0)] * 8),
+        item_extra={"auto_rig": True, "esqueleto": "godot-humanoid@1"},
+    )
+    assert _gate(rel_g6, "G6")["status"] == "falhou"
+
+    # G7 reprova colisor coplanar e colisor fora da AABB
+    d_g7_cop = tmp_path / "g7_cop"
+    d_g7_cop.mkdir()
+    col_cop = _glb_bytes(
+        verts=[(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.0, 0.5, 0.0), (0.5, 0.5, 0.0)],
+        tris=[(0, 1, 2), (1, 3, 2)],
+        uvs=[(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)],
+        no_nome="UCX_cop",
+    )
+    assert _gate(_rodar_qc(d_g7_cop, _glb_bytes(), item_extra={"colisao": "convex"}, col_glb=col_cop), "G7")["status"] == "falhou"
+
+    d_g7_oob = tmp_path / "g7_oob"
+    d_g7_oob.mkdir()
+    verts_oob = [(x + 5.0, y, z) for (x, y, z) in [
+        (-0.5, 0.0, -0.5), (0.5, 0.0, -0.5), (0.5, 1.0, -0.5), (-0.5, 1.0, -0.5),
+        (-0.5, 0.0, 0.5), (0.5, 0.0, 0.5), (0.5, 1.0, 0.5), (-0.5, 1.0, 0.5),
+    ]]
+    assert _gate(
+        _rodar_qc(d_g7_oob, _glb_bytes(), item_extra={"colisao": "convex"}, col_glb=_glb_bytes(verts=verts_oob, no_nome="UCX_oob")),
+        "G7",
+    )["status"] == "falhou"
+
+    # G9 reprova LOD com silhueta divergente
+    d_g9 = tmp_path / "g9_lod"
+    d_g9.mkdir()
+    (d_g9 / "m.glb").write_bytes(_glb_bytes())
+    verts_mini = [
+        (-0.05, 0.0, -0.05), (0.05, 0.0, -0.05), (0.05, 0.1, -0.05), (-0.05, 0.1, -0.05),
+        (-0.05, 0.0, 0.05), (0.05, 0.0, 0.05), (0.05, 0.1, 0.05), (-0.05, 0.1, 0.05),
+    ]
+    (d_g9 / "m_LOD1.glb").write_bytes(_glb_bytes(verts=verts_mini))
+    rel_g9 = qc.verificar(
+        {"id": "prop.lod.01", "altura_metros": 1.0, "pivot": "base", "limite_triangulos": 500, "colisao": "none"},
+        profiles.carregar("godot4"),
+        d_g9,
+        {
+            "medidas": {"nao_manifold": 0, "degeneradas": 0},
+            "arquivos": [
+                {"caminho": "m.glb", "papel": "mesh", "nivel": 0, "triangulos": 12},
+                {"caminho": "m_LOD1.glb", "papel": "lod", "nivel": 1, "triangulos": 12},
+            ],
+            "licenca": {"modelo": "CC0", "uso_comercial": True},
+        },
+        escala_saida=1.0,
+    )
+    assert _gate(rel_g9, "G9")["status"] == "falhou"

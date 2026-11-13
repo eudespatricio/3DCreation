@@ -11,6 +11,7 @@ import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from . import __version__, locks
 from .cache import _dir_cache, ler_cache, salvar_cache  # noqa: F401
@@ -45,13 +46,45 @@ _ANEXOS_POR_PARTE: dict[str, dict[str, Any]] = {
     "arma": {"parte": "arma", "osso": "Hand.R", "attachment_roblox": "RightGripAttachment", "skinned": False},
     "corpo": {"parte": "corpo", "osso": "Root", "attachment_roblox": "HumanoidRootPart", "skinned": True},
     "elmo": {"parte": "elmo", "osso": "Head", "attachment_roblox": "HatAttachment", "skinned": False},
-    "ombreiras": {"parte": "ombreiras", "osso": "Shoulder.L", "attachment_roblox": "LeftCollarAttachment", "skinned": False},
+    "ombreiras": {"parte": "ombreiras", "osso": "Shoulder.L", "attachment_roblox": "LeftCollarAttachment", "skinned": True},
     "peitoral": {"parte": "peitoral", "osso": "Chest", "attachment_roblox": "BodyFrontAttachment", "skinned": True},
     "luvas": {"parte": "luvas", "osso": "Hand.R", "attachment_roblox": "RightGripAttachment", "skinned": True},
     "calcas": {"parte": "calcas", "osso": "Hips", "attachment_roblox": "WaistCenterAttachment", "skinned": True},
     "botas": {"parte": "botas", "osso": "Foot.R", "attachment_roblox": "RightFootAttachment", "skinned": True},
     "escudo": {"parte": "escudo", "osso": "LowerArm.L", "attachment_roblox": "LeftGripAttachment", "skinned": False},
 }
+
+_OSSO_GODOT_PARA_R15: dict[str, str] = {
+    "Root": "HumanoidRootPart",
+    "Hips": "LowerTorso",
+    "Chest": "UpperTorso",
+    "Hand.R": "RightHand",
+    "LowerArm.L": "LeftLowerArm",
+    "Foot.R": "RightFoot",
+    "Shoulder.L": "UpperTorso",
+    "Head": "Head",
+}
+
+_SEMANTICO_GODOT: dict[str, str] = {
+    "Chest": "tronco",
+    "Head": "cabeca",
+    "LowerArm.L": "antebraco_e",
+}
+
+
+def _traduzir_osso_anexo(osso: str, esqueleto: str, perfil: dict | None) -> str:
+    """Traduz osso canonico Godot para o esqueleto alvo quando o perfil nao e Godot."""
+    if not esqueleto or esqueleto.startswith("godot-humanoid"):
+        return osso
+    retarget = (((perfil or {}).get("rig") or {}).get("retarget") or {}).get(esqueleto) or {}
+    if osso in retarget:
+        return str(retarget[osso])
+    semantico = _SEMANTICO_GODOT.get(osso)
+    if semantico and semantico in retarget:
+        return str(retarget[semantico])
+    if esqueleto.startswith("r15@"):
+        return _OSSO_GODOT_PARA_R15.get(osso, osso)
+    return osso
 
 
 def _agora() -> str:
@@ -141,6 +174,9 @@ def montar_manifesto(
                 licenca_manifesto["notice"].rstrip() + " Concept: " + c_lic["notice"]
             ).strip()
 
+    esqueleto_padrao = ((perfil or {}).get("rig") or {}).get("esqueleto_padrao") or "godot-humanoid@1"
+    esqueleto_alvo = item.get("esqueleto") or esqueleto_padrao
+
     parte = item.get("parte")
     if parte == "calças":
         parte = "calcas"
@@ -151,17 +187,19 @@ def montar_manifesto(
             anexo["skinned"] = bool(item["skinned"])
         if item.get("osso"):
             anexo["osso"] = str(item["osso"])
+        else:
+            anexo["osso"] = _traduzir_osso_anexo(anexo["osso"], esqueleto_alvo, perfil)
         if item.get("attachment_roblox"):
             anexo["attachment_roblox"] = str(item["attachment_roblox"])
 
     rig = None
     if item.get("auto_rig") and medidas.get("ossos"):
-        rig = {"esqueleto": item.get("esqueleto") or "", "ossos": int(medidas["ossos"])}
+        rig = {"esqueleto": esqueleto_alvo, "ossos": int(medidas["ossos"])}
     elif (item.get("skinned") or (anexo and anexo.get("skinned"))) and medidas.get("ossos"):
-        rig = {"esqueleto": item.get("esqueleto") or "godot-humanoid@1", "ossos": int(medidas["ossos"])}
+        rig = {"esqueleto": esqueleto_alvo, "ossos": int(medidas["ossos"])}
 
     return {
-        "schema": "forge3d/manifest@3",
+        "schema": "forge3d/manifest@4",
         "asset_id": item["id"],
         "projeto": spec_doc["projeto"],
         "perfil": perfil_nome,
@@ -351,7 +389,7 @@ def expurgar_orfaos_destino(
 
             old_id = antigo.get("asset_id") or man_path.stem.removesuffix(".manifest")
             if old_id:
-                _indice_remover(old_id)
+                _indice_remover(old_id, destino)
 
         _fsync_dir(destino)
     return removidos

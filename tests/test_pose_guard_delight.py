@@ -924,3 +924,69 @@ def test_mesh_template_humanoide_usa_mpfb2_sem_triposr(monkeypatch, tmp_path):
     lic_mpfb = providers.LICENCAS["mpfb2"]
     assert lic_mpfb["uso_comercial"] is True
     assert "CC0" in lic_mpfb["notice"]
+
+
+def test_pose_guard_metricas_ai_stack_e_concept_retry(monkeypatch, tmp_path):
+    from PIL import ImageDraw
+
+    pg = _carregar_modulo("pose_guard_ai", POSE_GUARD_PATH)
+    img = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse([(56, 8), (72, 24)], fill=(255, 255, 255, 255))
+    d.rectangle([(52, 24), (76, 72)], fill=(255, 255, 255, 255))
+    d.rectangle([(20, 28), (52, 38)], fill=(255, 255, 255, 255))
+    d.rectangle([(76, 28), (108, 38)], fill=(255, 255, 255, 255))
+    d.rectangle([(52, 72), (60, 120)], fill=(255, 255, 255, 255))
+    d.rectangle([(68, 72), (76, 120)], fill=(255, 255, 255, 255))
+    p_ok = tmp_path / "tpose_simetrico.png"
+    img.save(p_ok)
+    rep = pg.detectar_pose_imagem(p_ok)
+    assert rep["pose"] == "tpose_apose"
+    assert rep["cabeca_ok"] is True
+    assert rep["simetria_iou"] >= 0.8
+    assert rep["pernas_separadas"] is True
+    assert rep["apto_rig"] is True
+    assert rep["score_pose"] >= 0.8
+
+    from forge3d.providers import concept as _concept
+
+    tentativas: list[int] = []
+
+    class FakeConcept:
+        def gerar(self, item, dest):
+            dest.mkdir(parents=True, exist_ok=True)
+            tentativas.append(int(item["seed"]))
+            png_out = dest / "concept.png"
+            img.save(png_out)
+            return {"png": png_out, "meta": {"seed": item["seed"]}}
+
+    monkeypatch.setattr(_concept, "ConceptProvider", FakeConcept)
+    monkeypatch.setattr(
+        mesh.subprocess,
+        "run",
+        lambda cmd, **_kw: (
+            Path(cmd[cmd.index("--resultado") + 1]).write_text(
+                json.dumps({"score_pose": 0.91 if len(tentativas) == 2 else 0.30, "apto_rig": len(tentativas) == 2}),
+                encoding="utf-8",
+            ),
+            subprocess.CompletedProcess(cmd, 0, "", ""),
+        )[1],
+    )
+    prov = mesh.MeshProvider()
+    png_res, meta_res = prov._gerar_concept_com_retry(
+        {"id": "h.retry", "tipo": "personagem_humanoide", "auto_rig": True, "seed": 10},
+        tmp_path / "out_retry",
+        {},
+        max_tentativas=3,
+    )
+    assert len(tentativas) == 2
+    assert meta_res["seed"] == 111
+    assert meta_res["concept_score_pose"] == 0.91
+    assert png_res.is_file()
+
+    # Verifica resize cap <= 1024px no i23d_infer
+    infer_mod = _carregar_modulo("i23d_infer_cap", I23D_PATH)
+    grande = tmp_path / "grande.png"
+    Image.new("RGBA", (2048, 1024), (100, 120, 140, 255)).save(grande)
+    res_cap = infer_mod._preparar_imagem(str(grande), False, 0.85)
+    assert max(res_cap.size) == 1024 and min(res_cap.size) == 512

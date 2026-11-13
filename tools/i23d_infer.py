@@ -217,15 +217,33 @@ def _criar_sessao_rembg(modelo_nome: str = "birefnet-general") -> tuple[Any, str
     if not aceita_arg:
         return rembg.new_session(), "u2net", False
 
+    usar_sess_opts = False
+    if getattr(rembg, "__file__", None):
+        try:
+            usar_sess_opts = "sess_opts" in inspect.signature(rembg.new_session).parameters
+        except (TypeError, ValueError):
+            usar_sess_opts = False
+    sess_kwargs: dict[str, Any] = {}
+    if usar_sess_opts:
+        try:
+            import onnxruntime as ort
+
+            opts = ort.SessionOptions()
+            opts.enable_mem_pattern = False
+            opts.enable_cpu_mem_arena = False
+            sess_kwargs["sess_opts"] = opts
+        except Exception:  # noqa: BLE001 - fallback sem SessionOptions se onnxruntime indisponivel
+            sess_kwargs = {}
+
     try:
-        return rembg.new_session(alvo), alvo, False
+        return rembg.new_session(alvo, **sess_kwargs), alvo, False
     except ValueError as exc:
         if "No session class found" in str(exc) or alvo == "u2net":
             raise
     except Exception:  # noqa: BLE001 - fallback offline para u2net em cache
         if alvo == "u2net":
             raise
-    return rembg.new_session("u2net"), "u2net", True
+    return rembg.new_session("u2net", **sess_kwargs), "u2net", True
 
 
 def _preparar_imagem(
@@ -239,6 +257,10 @@ def _preparar_imagem(
     from PIL import Image
 
     imagem = Image.open(caminho).convert("RGBA")
+    if max(imagem.size) > 1024:
+        fator = 1024.0 / float(max(imagem.size))
+        novo_tam = (max(1, round(imagem.width * fator)), max(1, round(imagem.height * fator)))
+        imagem = imagem.resize(novo_tam, Image.Resampling.LANCZOS)
     if remover_fundo:
         from tsr.utils import remove_background, resize_foreground
 

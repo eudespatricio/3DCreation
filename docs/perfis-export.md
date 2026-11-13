@@ -40,6 +40,11 @@ para acontecer com a segunda engine.
 | `material.filtro` | `nearest` | **o glTF não força filtro**; precisa do preset de import no Godot (`[verificar]` na importação) |
 | `validacao` | escala `0.5 %` · pivô `1 mm` · materiais `≤ 8` · bytes `≤ 2048 KB` | consumido pelo QC |
 
+**Export e paridade Godot 4 (`v0.6.0`, D90):** `addons/forge3d/` configura import automático para
+`UCX_` (colisor irmão), `_LOD1`/`_LOD2`, loop em clipes e preservação do canal `UV2` (lightmap);
+`forge3d sync <origem> --para <alvo> --godot-gd Forge3DAssets.gd` copia o destino verificado e gera
+um módulo GDScript tipado pronto para consumo no Godot 4.
+
 ## 3. `roblox-r15`
 
 | Chave | Valor | Nota |
@@ -57,11 +62,12 @@ para acontecer com a segunda engine.
 | `lod` | `nenhum` | Roblox tem `RenderFidelity` próprio; LOD exportado é ignorado |
 | `validacao` | escala `1 %` (arredondamento de stud) · pivô por junta `2 mm` · tri/parte `≤ 10.000` · partes `≤ 15` | |
 
-**Export nativo:** `forge3d export-r15 <lote> --item <id>` monta um place `.rbxlx` com **16
-Parts** (agregando as caixas de cada osso) e **15 Motor6D** com `CFrame`/`C0`/`C1` no joint. O
-arquivo abre direto no Studio — `R15_RBXLX_PASS partes=16 motores=15` — sem upload, sem 3D
-Importer e sem textura (as Part usam a cor do blocky). Textura/atlas e `MeshPart` continuam no
-`glb` e em P8.
+**Export nativo e PBR Roblox (`v0.6.0`, D90):** além do `forge3d export-r15 <lote> --item <id>`
+(`--modo-rig motor6d` por Parts + Motor6D ou `forge3d export-r15 <lote> --item <id> --modo-rig bone`
+com `MeshPart` + 16 Bones), o CLI oferece `forge3d export-surface <origem> --item <id>` (gera `.rbxmx`
+de `SurfaceAppearance` PBR multi-canal), `forge3d export-acessorio <origem> --item <id>` (gera
+`.rbxmx` de `Accessory` + `Handle` `MeshPart` + `Attachment`), `forge3d export-anim <lote> --item <id> --todos`
+e `forge3d sync <origem> --para <alvo> --rojo-lua Assets.lua` para integrar os AssetIds ao Rojo.
 
 ### Upload Open Cloud (free)
 
@@ -140,20 +146,26 @@ perfil e a validação de rig confere nome a nome, não "parece razoável".
 
 Nome de arquivo é **determinístico a partir do `id`**: nada de timestamp, nada de sufixo `_final_v2`.
 
-### 5.1 Retarget da animação base (D66)
+### 5.1 Retarget das animações base (D66 / D91)
 
-O clipe `idle` é gerado no Blender em **espaço semântico** e materializado por `rig.retarget` do perfil:
+Os **8 clipes suportados** (`idle`, `walk`, `run`, `jump`, `attack`, `block`, `hit`, `death`) são
+gerados em **espaço semântico** de **16 ossos** e materializados por `rig.retarget` do perfil:
 
 | Osso semântico | `godot-humanoid@1` | `r15@1` |
 |---|---|---|
+| `quadril` | `Hips` | `LowerTorso` |
 | `coluna` | `Spine1` | `LowerTorso` |
 | `tronco` | `Chest` | `UpperTorso` |
 | `cabeca` | `Head` | `Head` |
-| `braco_e` | `UpperArm.L` | `LeftUpperArm` |
-| `braco_d` | `UpperArm.R` | `RightUpperArm` |
+| `ombro_e` / `ombro_d` | `Shoulder.L` / `Shoulder.R` | `LeftUpperArm` / `RightUpperArm` |
+| `braco_e` / `braco_d` | `UpperArm.L` / `UpperArm.R` | `LeftUpperArm` / `RightUpperArm` |
+| `antebraco_e` / `antebraco_d` | `LowerArm.L` / `LowerArm.R` | `LeftLowerArm` / `RightLowerArm` |
+| `perna_e` / `perna_d` | `UpperLeg.L` / `UpperLeg.R` | `LeftUpperLeg` / `RightUpperLeg` |
+| `canela_e` / `canela_d` | `LowerLeg.L` / `LowerLeg.R` | `LeftLowerLeg` / `RightLowerLeg` |
+| `pe_e` / `pe_d` | `Foot.L` / `Foot.R` | `LeftFoot` / `RightFoot` |
 
-Medido: o mesmo clipe move exatamente esses cinco ossos nos dois esqueletos; no Godot 4.3 headless o
-R15 importa com 5 tracks e o android com 7, ambos com 0,0697 rad de amplitude máxima.
+No `r15@1`, `rbx.py` compõe com `_mul_mat3` as rotações quando mais de um osso semântico mapeia para a
+mesma junta R15 (ex.: `quadril` + `coluna` em `LowerTorso`, ou múltiplas rotações por membro).
 
 ## 6. Incertezas declaradas
 

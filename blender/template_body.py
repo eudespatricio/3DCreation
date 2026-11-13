@@ -71,7 +71,7 @@ def _mpfb():
         from bl_ext.user_default.mpfb.services.humanservice import HumanService
         from bl_ext.user_default.mpfb.services.targetservice import TargetService
     except ImportError as exc:  # pragma: no cover - depende do DCC
-        raise SystemExit(f"MPFB2 ausente no Blender (extensao 'mpfb'): {exc}")
+        raise SystemExit(f"MPFB2 ausente no Blender (extensao 'mpfb'): {exc}") from exc
     return HumanService, TargetService
 
 
@@ -435,7 +435,7 @@ def projetar_e_assar(obj, foto: Foto, saida: str, tam: int, marcos: dict | None 
             and abs(px_proj[0] - pele_srgb[0]) <= 0.16
         )
 
-        frente = max(0.0, min(1.0, (-nrm[i].y - 0.08) / 0.36))
+        frente = max(0.0, min(1.0, (-nrm[i].y - 0.14) / 0.42))
         peso_cab = _peso_grupo(v, ids_cab) + _peso_grupo(v, ids_olhos)
         peso_bra = _peso_grupo(v, ids_bracos)
         peso_bra_distal = _peso_grupo(v, ids_bracos_distais)
@@ -444,24 +444,23 @@ def projetar_e_assar(obj, foto: Foto, saida: str, tam: int, marcos: dict | None 
         if peso_bra > 0.35 and tem_fatia[k]:
             if (tronco_min_x[k] - 0.025) <= p.x <= (tronco_max_x[k] + 0.025):
                 colide_quadril = True
-        na_borda_quadril = False
+        fator_borda = 1.0
         if peso_bra <= 0.35 and tem_fatia[k]:
             larg_k = max(0.01, tronco_max_x[k] - tronco_min_x[k])
-            if abs(p.x - xc) > 0.42 * larg_k:
-                na_borda_quadril = True
+            raz_x = abs(p.x - xc) / larg_k
+            if raz_x > 0.32:
+                fator_borda = max(0.0, min(1.0, 1.0 - (raz_x - 0.32) / 0.14))
 
         usa_pele_fixa = min(1.0, max(0.0, max(peso_cab * 1.4, (peso_bra - 0.12) * 1.45)))
 
         if colide_quadril:
             w_frente = 0.0
-        elif na_borda_quadril:
-            w_frente = min(frente, 0.25)
         elif peso_bra_distal > 0.35:
             # Antebracos e maos usam preenchimento uniforme quente sem palido estourado nem halo de A-pose
             usa_pele_fixa = 1.0
             w_frente = min(frente, 0.18) if proj_pele_limpa else 0.0
         elif peso_bra > 0.18:
-            base_f = max(0.0, min(1.0, (-nrm[i].y - 0.12) / 0.38))
+            base_f = max(0.0, min(1.0, (-nrm[i].y - 0.14) / 0.40))
             if not proj_pele_limpa:
                 w_frente = 0.0
                 usa_pele_fixa = 1.0
@@ -469,11 +468,11 @@ def projetar_e_assar(obj, foto: Foto, saida: str, tam: int, marcos: dict | None 
                 w_frente = base_f * 0.55
                 usa_pele_fixa = max(usa_pele_fixa, 0.85)
         elif peso_cab > 0.25:
-            w_frente = max(0.0, min(1.0, (-nrm[i].y - 0.12) / 0.38))
+            w_frente = max(0.0, min(1.0, (-nrm[i].y - 0.14) / 0.40))
             if px_proj[3] < 0.75:
                 w_frente = 0.0
         else:
-            w_frente = max(0.0, min(1.0, (-nrm[i].y - 0.10) / 0.35))
+            w_frente = max(0.0, min(1.0, (-nrm[i].y - 0.18) / 0.42)) * fator_borda
 
         attr_frente.data[i].color = (w_frente, w_frente, w_frente, 1.0)
         attr_pele.data[i].color = (usa_pele_fixa, usa_pele_fixa, usa_pele_fixa, 1.0)
@@ -487,10 +486,10 @@ def projetar_e_assar(obj, foto: Foto, saida: str, tam: int, marcos: dict | None 
         t_warp = _mapear_t_z(t_raw, anc_src, anc_dst)
         yy = foto.y0 + t_warp * (foto.y1 - foto.y0)
         xx = cx_foto + (p.x - xc) * s
-        # Mantem proj_limpo no pano liso longe da costura central do short/top
+        # Mantem proj_limpo no pano liso longe da costura central do short/top e das bordas laterais
         dx = p.x - xc
         sinal = 1.0 if dx >= 0.0 else -1.0
-        dx_limpo = sinal * max(0.032 * h_tot, min(0.055 * h_tot, abs(dx) * 0.38))
+        dx_limpo = sinal * max(0.028 * h_tot, min(0.048 * h_tot, abs(dx) * 0.30))
         xx_limpo = cx_foto + dx_limpo * s
         uvp.data[lp.index].uv = (xx / foto.w, yy / foto.h)
         uvl.data[lp.index].uv = (xx_limpo / foto.w, yy / foto.h)
@@ -502,23 +501,34 @@ def projetar_e_assar(obj, foto: Foto, saida: str, tam: int, marcos: dict | None 
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     em = nt.nodes.new("ShaderNodeEmission")
 
-    uv_f = nt.nodes.new("ShaderNodeUVMap"); uv_f.uv_map = "proj"
-    ti_f = nt.nodes.new("ShaderNodeTexImage"); ti_f.image = foto.img; ti_f.extension = "EXTEND"
+    uv_f = nt.nodes.new("ShaderNodeUVMap")
+    uv_f.uv_map = "proj"
+    ti_f = nt.nodes.new("ShaderNodeTexImage")
+    ti_f.image = foto.img
+    ti_f.extension = "EXTEND"
     nt.links.new(uv_f.outputs[0], ti_f.inputs[0])
 
-    uv_b = nt.nodes.new("ShaderNodeUVMap"); uv_b.uv_map = "proj_limpo"
-    ti_b = nt.nodes.new("ShaderNodeTexImage"); ti_b.image = foto.img; ti_b.extension = "EXTEND"
+    uv_b = nt.nodes.new("ShaderNodeUVMap")
+    uv_b.uv_map = "proj_limpo"
+    ti_b = nt.nodes.new("ShaderNodeTexImage")
+    ti_b.image = foto.img
+    ti_b.extension = "EXTEND"
     nt.links.new(uv_b.outputs[0], ti_b.inputs[0])
 
-    at_p = nt.nodes.new("ShaderNodeAttribute"); at_p.attribute_name = "usa_pele"
-    at_cp = nt.nodes.new("ShaderNodeAttribute"); at_cp.attribute_name = "pele_local"
-    mix_back = nt.nodes.new("ShaderNodeMix"); mix_back.data_type = "RGBA"
+    at_p = nt.nodes.new("ShaderNodeAttribute")
+    at_p.attribute_name = "usa_pele"
+    at_cp = nt.nodes.new("ShaderNodeAttribute")
+    at_cp.attribute_name = "pele_local"
+    mix_back = nt.nodes.new("ShaderNodeMix")
+    mix_back.data_type = "RGBA"
     nt.links.new(at_p.outputs["Fac"], mix_back.inputs[0])
     nt.links.new(ti_b.outputs[0], mix_back.inputs[6])
     nt.links.new(at_cp.outputs["Color"], mix_back.inputs[7])
 
-    at_f = nt.nodes.new("ShaderNodeAttribute"); at_f.attribute_name = "frente"
-    mix_fin = nt.nodes.new("ShaderNodeMix"); mix_fin.data_type = "RGBA"
+    at_f = nt.nodes.new("ShaderNodeAttribute")
+    at_f.attribute_name = "frente"
+    mix_fin = nt.nodes.new("ShaderNodeMix")
+    mix_fin.data_type = "RGBA"
     nt.links.new(at_f.outputs["Fac"], mix_fin.inputs[0])
     nt.links.new(mix_back.outputs[2], mix_fin.inputs[6])
     nt.links.new(ti_f.outputs[0], mix_fin.inputs[7])
@@ -526,7 +536,8 @@ def projetar_e_assar(obj, foto: Foto, saida: str, tam: int, marcos: dict | None 
     nt.links.new(em.outputs[0], out.inputs[0])
 
     alvo = bpy.data.images.new("baseColor", tam, tam)
-    tn = nt.nodes.new("ShaderNodeTexImage"); tn.image = alvo
+    tn = nt.nodes.new("ShaderNodeTexImage")
+    tn.image = alvo
     nt.nodes.active = tn
     me.materials.clear()
     me.materials.append(mat)
@@ -535,20 +546,26 @@ def projetar_e_assar(obj, foto: Foto, saida: str, tam: int, marcos: dict | None 
     me.uv_layers.active = me.uv_layers[uv_orig]
 
     sc = bpy.context.scene
-    sc.render.engine = "CYCLES"; sc.cycles.samples = 1; sc.cycles.device = "CPU"
+    sc.render.engine = "CYCLES"
+    sc.cycles.samples = 1
+    sc.cycles.device = "CPU"
     sc.render.bake.margin = 8
     bpy.ops.object.select_all(action="DESELECT")
-    obj.select_set(True); bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
     bpy.ops.object.bake(type="EMIT")
     caminho = os.path.join(saida, "baseColor.png")
-    alvo.filepath_raw = caminho; alvo.file_format = "PNG"; alvo.save()
+    alvo.filepath_raw = caminho
+    alvo.file_format = "PNG"
+    alvo.save()
 
     alvo.pack()
     final = bpy.data.materials.new("template_pele")
     final.use_nodes = True
     final.use_backface_culling = True
     bsdf = final.node_tree.nodes["Principled BSDF"]
-    tx = final.node_tree.nodes.new("ShaderNodeTexImage"); tx.image = alvo
+    tx = final.node_tree.nodes.new("ShaderNodeTexImage")
+    tx.image = alvo
     final.node_tree.links.new(tx.outputs[0], bsdf.inputs["Base Color"])
     if "Roughness" in bsdf.inputs:
         bsdf.inputs["Roughness"].default_value = 0.78
@@ -724,7 +741,7 @@ def _preparar_cabelo_manifold(hair_obj, target_tris: int) -> dict:
     bm.to_mesh(hair_obj.data)
     bm.free()
     hair_obj.data.shade_smooth()
-    hair_obj.data.set_sharp_from_angle(angle=math.radians(45.0))
+    hair_obj.data.set_sharp_from_angle(angle=math.radians(85.0))
     hair_obj.data.update()
     return {
         "triangulos": tris,
@@ -789,13 +806,13 @@ def _preparar_textura_e_material_cabelo(
         r, g, b, a = px[off], px[off + 1], px[off + 2], px[off + 3]
         if alvo_tint is not None and a > 0.02:
             lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
-            rel = min(1.8, lum / avg_lum)
-            fator = 0.35 + 0.65 * rel
+            rel = min(1.35, lum / avg_lum)
+            fator = 0.25 + 0.75 * rel
             r = min(1.0, alvo_tint[0] * fator)
             g = min(1.0, alvo_tint[1] * fator)
             b = min(1.0, alvo_tint[2] * fator)
-        if a < 0.35:
-            # Remove borda branca de alpha=0 nas pontas de mechas para evitar halo no Alpha Clip
+        if a < 0.50:
+            # Remove borda branca de alpha=0..0.5 nas pontas de mechas para evitar halo no Alpha Clip
             r, g, b = fill_r, fill_g, fill_b
         px[off], px[off + 1], px[off + 2] = r, g, b
     img.pixels[:] = px
@@ -821,18 +838,112 @@ def _preparar_textura_e_material_cabelo(
     usar_clip = (material_modo == "alpha_clip") or (tem_alfa and material_modo != "opaque")
     if usar_clip:
         mat.blend_method = "CLIP"
+        if hasattr(mat, "surface_render_method"):
+            mat.surface_render_method = "DITHERED"
         if hasattr(mat, "alpha_threshold"):
             mat.alpha_threshold = 0.5
-        nt.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+        cut = nt.nodes.new("ShaderNodeMath")
+        cut.operation = "GREATER_THAN"
+        cut.inputs[1].default_value = 0.5
+        nt.links.new(tex.outputs["Alpha"], cut.inputs[0])
+        nt.links.new(cut.outputs["Value"], bsdf.inputs["Alpha"])
     if "Roughness" in bsdf.inputs:
-        bsdf.inputs["Roughness"].default_value = 0.78
+        bsdf.inputs["Roughness"].default_value = 0.85
     if "Specular IOR Level" in bsdf.inputs:
-        bsdf.inputs["Specular IOR Level"].default_value = 0.18
+        bsdf.inputs["Specular IOR Level"].default_value = 0.08
     if "Metallic" in bsdf.inputs:
         bsdf.inputs["Metallic"].default_value = 0.0
     hair_obj.data.materials.clear()
     hair_obj.data.materials.append(mat)
     return caminho
+
+
+def _unificar_materiais_corpo_cabelo(
+    body_obj,
+    hair_obj,
+    tex_corpo_path: str,
+    tex_cabelo_path: str,
+    tex_px: int,
+) -> None:
+    """Combina corpo e cabelo em 1 material e 1 atlas lado-a-lado (materiais_max=1)."""
+    if not body_obj.data.uv_layers or not hair_obj.data.uv_layers:
+        return
+    if not body_obj.data.materials:
+        return
+
+    uv_b = body_obj.data.uv_layers[0].data
+    for lp in uv_b:
+        u = max(0.0, min(1.0, float(lp.uv[0])))
+        v = max(0.0, min(1.0, float(lp.uv[1])))
+        lp.uv = (0.002 + 0.496 * u, v)
+
+    uv_h = hair_obj.data.uv_layers[0].data
+    for lp in uv_h:
+        u = max(0.0, min(1.0, float(lp.uv[0])))
+        v = max(0.0, min(1.0, float(lp.uv[1])))
+        lp.uv = (0.502 + 0.496 * u, v)
+
+    img_c = bpy.data.images.load(tex_corpo_path, check_existing=True)
+    img_h = bpy.data.images.load(tex_cabelo_path, check_existing=True)
+    c_tmp = img_c.copy()
+    h_tmp = img_h.copy()
+    if int(c_tmp.size[0]) != tex_px or int(c_tmp.size[1]) != tex_px:
+        c_tmp.scale(tex_px, tex_px)
+    if int(h_tmp.size[0]) != tex_px or int(h_tmp.size[1]) != tex_px:
+        h_tmp.scale(tex_px, tex_px)
+    px_c = list(c_tmp.pixels)
+    px_h = list(h_tmp.pixels)
+    bpy.data.images.remove(c_tmp)
+    bpy.data.images.remove(h_tmp)
+
+    half = tex_px // 2
+    buf = [1.0] * (tex_px * tex_px * 4)
+    for y in range(tex_px):
+        row_off = y * tex_px
+        for x in range(half):
+            sx = min(tex_px - 1, x * 2)
+            src = (row_off + sx) * 4
+            dst = (row_off + x) * 4
+            buf[dst] = px_c[src]
+            buf[dst + 1] = px_c[src + 1]
+            buf[dst + 2] = px_c[src + 2]
+            buf[dst + 3] = 1.0
+        for x in range(half, tex_px):
+            sx = min(tex_px - 1, (x - half) * 2)
+            src = (row_off + sx) * 4
+            dst = (row_off + x) * 4
+            buf[dst] = px_h[src]
+            buf[dst + 1] = px_h[src + 1]
+            buf[dst + 2] = px_h[src + 2]
+            buf[dst + 3] = px_h[src + 3]
+
+    img_unif = bpy.data.images.new("unified_baseColor", width=tex_px, height=tex_px, alpha=True)
+    img_unif.pixels.foreach_set(buf)
+    sc = bpy.context.scene
+    ant_mode = sc.render.image_settings.color_mode
+    sc.render.image_settings.color_mode = "RGBA"
+    img_unif.filepath_raw = tex_corpo_path
+    img_unif.file_format = "PNG"
+    img_unif.save()
+    sc.render.image_settings.color_mode = ant_mode
+    img_unif.pack()
+
+    mat_corpo = body_obj.data.materials[0]
+    nt = mat_corpo.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex_node = next((n for n in nt.nodes if n.type == "TEX_IMAGE"), None)
+    if tex_node is not None:
+        tex_node.image = img_unif
+        if bsdf is not None and "Alpha" in bsdf.inputs:
+            nt.links.new(tex_node.outputs["Alpha"], bsdf.inputs["Alpha"])
+    hair_usa_clip = any(getattr(m, "blend_method", "OPAQUE") == "CLIP" for m in hair_obj.data.materials if m)
+    if hair_usa_clip:
+        mat_corpo.blend_method = "CLIP"
+        if hasattr(mat_corpo, "alpha_threshold"):
+            mat_corpo.alpha_threshold = 0.5
+
+    hair_obj.data.materials.clear()
+    hair_obj.data.materials.append(mat_corpo)
 
 
 def exportar(obj, rig, saida: str, manter_rig: bool, nome_glb: str = "template_body.glb") -> str:
@@ -860,7 +971,24 @@ def exportar(obj, rig, saida: str, manter_rig: bool, nome_glb: str = "template_b
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     obj.select_set(True)
     glb = os.path.join(saida, nome_glb)
-    bpy.ops.export_scene.gltf(filepath=glb, use_selection=True, export_format="GLB", export_animations=False)
+    tem_normal = any(
+        inp.is_linked
+        for mat in (obj.data.materials if obj and obj.data else ())
+        if mat and mat.use_nodes
+        for node in mat.node_tree.nodes
+        if node.type == "BSDF_PRINCIPLED"
+        for inp in [node.inputs.get("Normal")]
+        if inp is not None
+    )
+    export_kw = {
+        "filepath": glb,
+        "use_selection": True,
+        "export_format": "GLB",
+        "export_animations": False,
+    }
+    if tem_normal:
+        export_kw["export_tangents"] = True
+    bpy.ops.export_scene.gltf(**export_kw)
     return glb
 
 
@@ -937,7 +1065,7 @@ def main() -> int:
         limite_total = int(job.get("limite_triangulos", 12000))
         hair_budget = min(max(1500, limite_total // 3), 4500)
         topo_hair = _preparar_cabelo_manifold(hair_obj, hair_budget)
-        _preparar_textura_e_material_cabelo(
+        tex_cabelo = _preparar_textura_e_material_cabelo(
             hair_obj,
             estilo or "hair",
             saida,
@@ -963,6 +1091,14 @@ def main() -> int:
             _pp.decimar(obj, body_budget, proteger_cabeca_maos=True)
         if hair_obj.data.uv_layers and obj.data.uv_layers:
             hair_obj.data.uv_layers[0].name = obj.data.uv_layers[0].name
+        if int(job.get("materiais_max") or 8) <= 1:
+            _unificar_materiais_corpo_cabelo(
+                obj,
+                hair_obj,
+                tex,
+                tex_cabelo,
+                int(job.get("textura", 1024)),
+            )
         bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         hair_obj.select_set(True)

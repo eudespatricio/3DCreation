@@ -168,8 +168,8 @@ def chamar(agentapi: str, modelo: str, prompt: str, titulo: str, timeout: int) -
     cmd = [agentapi, "new-conversation", f"--model={modelo}", f"--title={titulo}", prompt]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise SystemExit(f"[FORGE-E-RESPOSTA] timeout de {timeout}s criando a conversa")
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(f"[FORGE-E-RESPOSTA] timeout de {timeout}s criando a conversa") from exc
     if proc.returncode != 0:
         raise SystemExit(f"[FORGE-E-AMBIENTE] agentapi rc={proc.returncode}: {proc.stderr[-400:]}")
     try:

@@ -26,7 +26,7 @@ blender --version | head -1 | grep -q "^Blender 4\.2\." || {
 
 mkdir -p "$RAIZ/lote"
 cat > "$RAIZ/lote/minimo.yaml" <<YAML
-schema: forge3d/spec@3
+schema: forge3d/spec@4
 projeto: ci
 perfil: godot4
 destino_exportacao: $DESTINO
@@ -89,7 +89,7 @@ assert nos_malha == ["ci.bloco.01"], f"nome de no inesperado: {nos_malha}"
 
 tree = ast.parse(pathlib.Path("blender/postprocess.py").read_text(encoding="utf-8"))
 fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "desdobrar_uv")
-assert abs(ast.literal_eval(fn.args.defaults[0]) - 0.008) < 1e-9
+assert abs(ast.literal_eval(fn.args.defaults[0]) - 0.02) < 1e-9
 print("GLB_PACOTE3_OK", nos_malha)
 PY
 

@@ -509,7 +509,12 @@ class BlockyProvider:
             if item.get("esqueleto") == "r15@1":
                 # R15: 16 partes; as caixas do template godot sao remapeadas para as partes R15
                 for caixa in caixas:
-                    caixa["osso"] = MAPA_OSSO_R15.get(caixa.get("osso"), caixa.get("osso"))
+                    osso_caixa = caixa.get("osso")
+                    caixa["osso"] = (
+                        MAPA_OSSO_R15.get(osso_caixa, osso_caixa)
+                        if isinstance(osso_caixa, str)
+                        else osso_caixa
+                    )
                 tabela = OSSOS_R15
             else:
                 tabela = OSSOS_HUMANOIDE

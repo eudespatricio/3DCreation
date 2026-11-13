@@ -83,16 +83,21 @@ def estado() -> dict:
         return {"ocupado": False}
     if fcntl is None:
         return {"ocupado": True, "detalhe": "fcntl indisponivel nesta plataforma"}
-    with open(arq, "a+", encoding="utf-8") as fh:
-        try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            return {"ocupado": False}
-        except (BlockingIOError, OSError):
-            pass
+    try:
+        with open(arq, "r", encoding="utf-8") as fh:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                return {"ocupado": False}
+            except (BlockingIOError, OSError):
+                pass
+    except FileNotFoundError:
+        return {"ocupado": False}
+    except OSError:
+        pass
     try:
         conteudo = json.loads(arq.read_text(encoding="utf-8") or "{}")
-    except ValueError:
+    except (ValueError, OSError):
         return {"ocupado": True, "detalhe": "conteudo ilegivel"}
     return {"ocupado": True, **conteudo}
 
@@ -104,10 +109,12 @@ def _lock_arquivo(arq: Path, run_id: str, nome: str, esperar: bool = True, timeo
     arq.parent.mkdir(parents=True, exist_ok=True)
     fh = open(arq, "a+", encoding="utf-8")
     iniciado = time.monotonic()
+    adquirido = False
     try:
         while True:
             try:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                adquirido = True
                 fh.seek(0)
                 fh.truncate()
                 fh.write(json.dumps({"pid": os.getpid(), "run_id": run_id, "desde": time.time()}))
@@ -128,9 +135,13 @@ def _lock_arquivo(arq: Path, run_id: str, nome: str, esperar: bool = True, timeo
         yield {"ocupado": False, "run_id": run_id}
     finally:
         try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            fh.seek(0)
-            fh.truncate()
+            if adquirido:
+                try:
+                    fh.seek(0)
+                    fh.truncate()
+                    fh.flush()
+                finally:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
         finally:
             fh.close()
 

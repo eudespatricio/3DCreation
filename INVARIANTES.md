@@ -169,14 +169,14 @@ python tools/conformidade.py; echo "exit=$?"
 Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparecer em `DECISOES.md`
 (ledger de fato medido) e em `pendencias.md` (ação do operador), não nos contratos.
 
-## Estado da automação (P1, 10/11/2026)
+## Estado da automação (v0.6.0, 13/11/2026)
 
-| Invariante | Como está (medido em 11/11/2026) |
+| Invariante | Como está (medido em 13/11/2026) |
 |---|---|
 | I1 determinismo | **automatizado** — `test_i1_determinismo` compara sha256 de 12 artefatos em 2 runs com cache limpo |
 | I2 spec inválida | **automatizado** — `test_i2_spec_invalida_sai_2_sem_tocar_provider` |
 | I3 publish atômico | **automatizado** — `tests/test_atomico.py`: thread observadora, `spy` em `os.replace`, falha no meio (GAP-014/C14) |
-| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (G1–G10) |
+| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (G1–G10, `@1`–`@4`) |
 | I5 QC sem bypass | **automatizado** — `test_i5_qc_nao_tem_bypass` (varre a fonte) |
 | I6 lock de GPU | **parcial** — `test_locks.py` cobre recusa e liberação; falta teste com dois *jobs* reais |
 | I7 licença | **parcial** — a allowlist comercial é asseverada em `test_concept.py`; falta exercitar a recusa |

@@ -17,11 +17,12 @@ __all__ = [
 
 MANIFEST_SCHEMA_CACHE: dict[str, dict] = {}
 
-#: versao do contrato por `schema`; `manifest@1` continua aceito na leitura (D62)
+#: versao do contrato por `schema`; `manifest@1..@3` continuam aceitos na leitura (D62)
 _VERSAO_POR_SCHEMA = {
     "forge3d/manifest@1": "1",
     "forge3d/manifest@2": "2",
     "forge3d/manifest@3": "3",
+    "forge3d/manifest@4": "4",
 }
 
 #: aspectos que o `verify --only` sabe recortar (I8/I10)
@@ -60,6 +61,8 @@ def _faltando_proveniencia(man: dict) -> list[str]:
     for campo in ("name", "version"):
         if not str(geometria.get(campo) or "").strip():
             ausentes.append(f"providers.geometry.{campo}")
+    if man.get("determinism") == "D2" and geometria.get("seed") is None:
+        ausentes.append("providers.geometry.seed")
     licenca = man.get("licenca") or {}
     for campo in ("modelo", "notice"):
         if not str(licenca.get(campo) or "").strip():
@@ -138,7 +141,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                     }
                 )
 
-        if pedidos is not None and "manifesto" in pedidos:
+        if pedidos is None or "manifesto" in pedidos:
             ausentes = _faltando_proveniencia(man)
             if ausentes:
                 faltando.extend({"manifesto": caminho.name, "campo": c} for c in ausentes)
@@ -182,7 +185,10 @@ def verificar(destino: Path, only: str | None = None) -> dict:
 
         gates_antigos = {g["id"]: g for g in man["qc"]["gates"]}
         medido_g2 = (gates_antigos.get("G2") or {}).get("medido", {})
-        medido_g9 = (gates_antigos.get("G9") or {}).get("medido", {})
+        g9_antigo = gates_antigos.get("G9") or {}
+        medido_g9 = g9_antigo.get("medido", {})
+        limite_g9 = g9_antigo.get("limite") or {}
+        bytes_max_kb_g9 = int(limite_g9.get("bytes_max_kb") or 0)
         # C7/GAP-037: manifesto anterior ao C2 nao tem pivo_regra e o G2 pularia o pivo
         # em silencio; ausencia de regra e reprovacao, nao perdao.
         if not medido_g2.get("pivo_regra"):
@@ -195,7 +201,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             continue
         # D62: manifest@1 nao declara unidade — o arquivo dele esta em metros (escala 1.0).
         escala = 1.0
-        if versao in ("2", "3"):
+        if versao in ("2", "3", "4"):
             unidades = man["unidades_export"]
             escala = float(unidades["escala_saida"])
             metros = float(unidades["metros_por_unidade"])
@@ -220,6 +226,12 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                         ),
                     }
                 )
+        qualidade_item = medido_g9.get("qualidade") or (
+            "hero"
+            if bytes_max_kb_g9 >= 4096 and int(perfil["validacao"]["bytes_max_kb"]) < 4096
+            else None
+        )
+        anexo_man = man.get("anexo")
         item = {
             "id": man["asset_id"],
             "altura_metros": medido_g2.get("esperado_m"),
@@ -230,6 +242,9 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             "auto_rig": bool(man.get("rig")),
             "esqueleto": (man.get("rig") or {}).get("esqueleto"),
             "colisao": (man.get("colisao") or {}).get("tipo", "none"),
+            "escala_preservada": bool(medido_g2.get("escala_preservada")),
+            **({"anexo": anexo_man, "parte": anexo_man.get("parte")} if isinstance(anexo_man, dict) else {}),
+            **({"qualidade": qualidade_item} if qualidade_item else {}),
         }
         if item["altura_metros"] is None or item["limite_triangulos"] is None:
             erros.append(
@@ -271,7 +286,14 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             "determinism": man.get("determinism"),
         }
         try:
-            revalidado = qc.verificar(item, perfil, destino, resultado, escala_saida=escala)
+            revalidado = qc.verificar(
+                item,
+                perfil,
+                destino,
+                resultado,
+                escala_saida=escala,
+                exigir_tangent_normal=(versao == "4"),
+            )
         except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto
             erros.append({"manifesto": caminho.name, "erro": f"QC reexecutado falhou: {exc}"})
             continue

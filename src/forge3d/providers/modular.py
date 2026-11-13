@@ -77,7 +77,8 @@ class ModularProvider:
     def gerar(self, item: dict, perfil: dict, destino: Path) -> RawAsset:
         destino.mkdir(parents=True, exist_ok=True)
         bloco = item.get("modular") or {}
-        grade = tuple(int(v) for v in (bloco.get("grade") or [2, 2]))
+        grade_lista = [int(v) for v in (bloco.get("grade") or [2, 2])]
+        grade: tuple[int, int] = (grade_lista[0], grade_lista[1])
         nomes = [str(m) for m in (bloco.get("modulos") or sorted(catalogo_modular.CATALOGO))]
         setor = tuple(int(v) for v in (bloco.get("setor") or [0, 0]))
         tamanho = float(bloco.get("tamanho_modulo") or TAMANHO_PADRAO)

@@ -10,6 +10,7 @@ que o valor canonico apareca em manifesto publicado (I14).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import jsonschema
@@ -19,6 +20,14 @@ from . import paths, profiles
 from .errors import erro_input_tampered, erro_spec
 
 __all__ = ["carregar_arquivo", "preparar", "SPEC_SCHEMA"]
+
+#: I14: nomes de franquia proibidos em id/tags/prompt de ativos de contrato (evita bare 'halo')
+_RE_I14 = re.compile(
+    r"(?<![a-z0-9])("
+    r"minecraft|fortnite|zelda|mario|pokemon|pok[eé]mon|nintendo|overwatch|valorant|call[ _-]?of[ _-]?duty"
+    r")(?![a-z0-9])",
+    re.IGNORECASE,
+)
 
 #: alias legado -> valor canonico (D19). Sempre gera FORGE-W-ALIAS.
 ALIASES_ESTILO = {
@@ -64,16 +73,25 @@ CAMPOS_CANONICOS_ITEM = (
     "makehuman_cabelo",
     "cor_cabelo",
     "macro",
+    "modular",
+    "skinned",
+    "attachment_roblox",
+    "osso",
     "tags",
     "animacoes_base",
     "paleta",
+    "estilo",
+    "retopologia",
+    "quadriflow_faces",
+    "modo_rig_roblox",
 )
 
-#: contratos de entrada aceitos. spec@2 e superset retrocompativel de spec@1.
+#: contratos de entrada aceitos. spec@2..@4 sao supersets retrocompativeis de spec@1.
 SPEC_SCHEMAS = {
     "forge3d/spec@1": "spec.v1.schema.json",
     "forge3d/spec@2": "spec.v2.schema.json",
     "forge3d/spec@3": "spec.v3.schema.json",
+    "forge3d/spec@4": "spec.v4.schema.json",
 }
 _SPEC_SCHEMA_CACHE: dict[str, dict] = {}
 
@@ -140,9 +158,21 @@ def _normalizar(doc: dict, avisos: list[dict]) -> None:
     for item in doc.get("lote") or []:
         if not isinstance(item, dict):
             continue
-        # rota derivada do estilo global quando ausente
+        item_estilo = item.get("estilo")
+        if isinstance(item_estilo, str) and item_estilo in ALIASES_ESTILO:
+            avisos.append(
+                {
+                    "codigo": "FORGE-W-ALIAS",
+                    "mensagem": (
+                        f"{item.get('id', '?')}: estilo legado '{item_estilo}' "
+                        f"normalizado para '{ALIASES_ESTILO[item_estilo]}'"
+                    ),
+                }
+            )
+            item["estilo"] = ALIASES_ESTILO[item_estilo]
+        # rota derivada do estilo do item ou estilo global quando ausente
         if "rota" not in item:
-            tabela = ROTEAMENTO.get(doc.get("estilo_global", ""), {})
+            tabela = ROTEAMENTO.get(item.get("estilo") or doc.get("estilo_global", ""), {})
             item["rota"] = tabela.get(item.get("tipo", ""), tabela.get("*", "blocky"))
         # prompt vazio conta como ausente
         if isinstance(item.get("prompt"), str) and not item["prompt"].strip():
@@ -160,8 +190,11 @@ def _normalizar(doc: dict, avisos: list[dict]) -> None:
 
 
 def _resolver_defaults(doc: dict, perfil: dict, avisos: list[dict]) -> None:
+    paleta_lote = doc.get("paleta")
     for item in doc["lote"]:
         tipo = item["tipo"]
+        if isinstance(paleta_lote, list) and paleta_lote and "paleta" not in item:
+            item["paleta"] = list(paleta_lote)
         item.setdefault("pivot", profiles.pivot_padrao(perfil, tipo))
         if "limite_triangulos" not in item:
             if item.get("qualidade") == "hero":
@@ -307,11 +340,39 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
             if not origem:
                 erros.append({"id": iid, "regra": "B3", "mensagem": "rota import exige 'origem'"})
             else:
+                from .providers import importer
+
                 p = Path(origem).expanduser()
                 if not p.is_file():
                     erros.append(
                         {"id": iid, "regra": "B3", "mensagem": f"origem inexistente: {p}"}
                     )
+                elif p.suffix.lower() not in importer.EXTENSOES:
+                    erros.append(
+                        {
+                            "id": iid,
+                            "regra": "B3",
+                            "mensagem": (
+                                f"extensao '{p.suffix}' nao suportada na rota import "
+                                f"(aceitas: {', '.join(sorted(importer.EXTENSOES))})"
+                            ),
+                        }
+                    )
+
+        campos_i14 = [str(iid)] + [str(t) for t in (item.get("tags") or [])]
+        if item.get("prompt"):
+            campos_i14.append(str(item["prompt"]))
+        for txt_i14 in campos_i14:
+            achado_i14 = _RE_I14.search(txt_i14)
+            if achado_i14:
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "I14",
+                        "mensagem": f"termo de franquia proibido '{achado_i14.group(0)}' (use termo generico)",
+                    }
+                )
+                break
 
         lod = item.get("lod") or [100]
         if lod[0] != 100 or any(a <= b for a, b in zip(lod, lod[1:])):
@@ -350,7 +411,7 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                 "cabelo": ("personagem_humanoide", "prop_estatico"),
                 "arma": ("prop_equipavel",),
                 "elmo": ("prop_equipavel", "prop_estatico"),
-                "ombreiras": ("prop_equipavel", "prop_estatico"),
+                "ombreiras": ("prop_equipavel", "prop_estatico", "personagem_humanoide"),
                 "peitoral": ("prop_equipavel", "personagem_humanoide"),
                 "luvas": ("prop_equipavel", "personagem_humanoide"),
                 "calcas": ("prop_equipavel", "personagem_humanoide"),
@@ -374,7 +435,7 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                         "mensagem": f"parte '{parte}' exige tipo {permitidos}",
                     }
                 )
-            if parte in ("capa", "cabelo", "elmo", "ombreiras", "escudo") and item.get("auto_rig"):
+            if parte in ("capa", "cabelo", "elmo", "escudo") and item.get("auto_rig"):
                 erros.append(
                     {
                         "id": iid,
@@ -498,6 +559,17 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                 )
 
     req = doc.get("requisicao")
+    if isinstance(req, dict) and req.get("isolamento") == "estrito" and "base_externa" not in req:
+        for item in doc["lote"]:
+            item_orig = str(item.get("origem") or "").strip()
+            if item_orig and not item_orig.startswith("makehuman://"):
+                raise erro_input_tampered(
+                    f"item '{item.get('id')}' referencia origem externa nao selada '{item_orig}' "
+                    "sem bloco requisicao.base_externa sob isolamento estrito",
+                    id=item.get("id"),
+                    origem=item_orig,
+                    regra="B22",
+                )
     if isinstance(req, dict) and "base_externa" in req:
         base_ext = req["base_externa"]
         if isinstance(base_ext, dict):
@@ -521,9 +593,16 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                     obtido=hash_real,
                     regra="B22",
                 )
+            isolamento = str(req.get("isolamento", "padrao")).strip()
+            p_res = p.resolve(strict=False)
             for item in doc.get("lote") or []:
                 item_orig = str(item.get("origem") or "").strip()
-                if item_orig and Path(item_orig).expanduser() == p:
+                if not item_orig:
+                    continue
+                if "://" in item_orig:
+                    continue
+                item_p = Path(item_orig).expanduser().resolve(strict=False)
+                if item_p == p_res:
                     if "tipo" in base_ext and base_ext["tipo"] != item.get("tipo"):
                         erros.append(
                             {
@@ -535,6 +614,14 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                                 ),
                             }
                         )
+                elif isolamento == "estrito":
+                    raise erro_input_tampered(
+                        f"item '{item.get('id')}' referencia origem externa nao selada '{item_orig}' fora de base_externa sob isolamento estrito",
+                        id=item.get("id"),
+                        origem=item_orig,
+                        base_externa=origem_raw,
+                        regra="B22",
+                    )
 
     if erros:
         raise erro_spec(

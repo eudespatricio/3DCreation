@@ -293,7 +293,7 @@ def test_manifest_v3_schema_aceita_anexo_opcional_e_retrocompatibilidade():
         ("arma", {"parte": "arma", "osso": "Hand.R", "attachment_roblox": "RightGripAttachment", "skinned": False}),
         ("corpo", {"parte": "corpo", "osso": "Root", "attachment_roblox": "HumanoidRootPart", "skinned": True}),
         ("elmo", {"parte": "elmo", "osso": "Head", "attachment_roblox": "HatAttachment", "skinned": False}),
-        ("ombreiras", {"parte": "ombreiras", "osso": "Shoulder.L", "attachment_roblox": "LeftCollarAttachment", "skinned": False}),
+        ("ombreiras", {"parte": "ombreiras", "osso": "Shoulder.L", "attachment_roblox": "LeftCollarAttachment", "skinned": True}),
         ("peitoral", {"parte": "peitoral", "osso": "Chest", "attachment_roblox": "BodyFrontAttachment", "skinned": True}),
         ("luvas", {"parte": "luvas", "osso": "Hand.R", "attachment_roblox": "RightGripAttachment", "skinned": True}),
         ("calcas", {"parte": "calcas", "osso": "Hips", "attachment_roblox": "WaistCenterAttachment", "skinned": True}),
@@ -403,11 +403,16 @@ def test_montar_manifesto_popula_anexo_e_passa_verificar(tmp_path, monkeypatch, 
 # ---------------------------------------------------------------- Roblox R15 attachments
 
 
-def test_rbx_export_r15_inclui_bodyback_e_rightgrip_attachments(tmp_path):
+def test_rbx_export_r15_inclui_bodyback_e_rightgrip_attachments(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "cfg" / "config.yaml"))
+    from forge3d import config
+
+    config.adicionar(tmp_path)
     saida = tmp_path / "r15_onda3.rbxlx"
     rel = rbx.exportar_r15("examples/lote_09_r15.yaml", "personagem.r15.guard.01", saida=saida)
     assert rel["ok"] is True
-    assert rel["attachments"] == 33
+    assert rel["attachments"] == 39
 
     raiz = ElementTree.fromstring(saida.read_text(encoding="utf-8"))
     modelo = next(e for e in raiz.iter("Item") if e.get("class") == "Model")

@@ -7,6 +7,7 @@ e a biblioteca padrao (sem Pillow nem numpy, invariante I9).
 from __future__ import annotations
 
 import math
+import os
 from array import array
 
 import bmesh
@@ -136,8 +137,12 @@ def _maior_componente_8(mask: list[list[bool]], gw: int, gh: int) -> list[tuple[
     return melhor
 
 
-def _preencher_buracos(grade: list[list[bool]], pw: int, ph: int) -> None:
-    """Preenche buracos internos (4-conexos) para tracado externo limpo."""
+def _filtrar_buracos_pequenos(
+    grade: list[list[bool]], pw: int, ph: int, min_pixels: int | None = None
+) -> list[list[tuple[int, int]]]:
+    """Preenche micro-ruidos internos e extrai contornos de recortes reais >= min_pixels."""
+    if min_pixels is None:
+        min_pixels = max(12, int(pw * ph * 0.0012))
     ext = [[False] * pw for _ in range(ph)]
     pilha = [(0, 0)]
     ext[0][0] = True
@@ -148,10 +153,42 @@ def _preencher_buracos(grade: list[list[bool]], pw: int, ph: int) -> None:
             if 0 <= nx < pw and 0 <= ny < ph and not ext[ny][nx] and not grade[ny][nx]:
                 ext[ny][nx] = True
                 pilha.append((nx, ny))
+
+    visitado = [[False] * pw for _ in range(ph)]
+    buracos_reais: list[list[tuple[int, int]]] = []
     for y in range(ph):
         for x in range(pw):
-            if not grade[y][x] and not ext[y][x]:
-                grade[y][x] = True
+            if grade[y][x] or ext[y][x] or visitado[y][x]:
+                continue
+            comp: list[tuple[int, int]] = []
+            q = [(x, y)]
+            visitado[y][x] = True
+            while q:
+                px, py = q.pop()
+                comp.append((px, py))
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nx, ny = px + dx, py + dy
+                    if (
+                        0 <= nx < pw
+                        and 0 <= ny < ph
+                        and not visitado[ny][nx]
+                        and not grade[ny][nx]
+                        and not ext[ny][nx]
+                    ):
+                        visitado[ny][nx] = True
+                        q.append((nx, ny))
+            if len(comp) >= min_pixels:
+                buraco_grade = [[False] * pw for _ in range(ph)]
+                for hx, hy in comp:
+                    buraco_grade[hy][hx] = True
+                exp_b = _expandir_2x2(buraco_grade, pw, ph)
+                contorno_b = _tracar_moore(exp_b, pw + 1, ph + 1)
+                if len(contorno_b) >= 4:
+                    buracos_reais.append(contorno_b)
+            # Preenche o buraco na grade externa para tracado limpo do perimetro exterior
+            for hx, hy in comp:
+                grade[hy][hx] = True
+    return buracos_reais
 
 
 def _expandir_2x2(grade: list[list[bool]], pw: int, ph: int) -> list[list[bool]]:
@@ -436,6 +473,141 @@ def _simplificar_e_escalar(
     return poly_3d, uv_bbox
 
 
+def _largura_na_altura(poly: list[tuple[float, float]], z_alvo: float) -> float:
+    """Largura horizontal (max_x - min_x) do poligono 2D na cota z_alvo."""
+    xs: list[float] = []
+    n = len(poly)
+    for i in range(n):
+        ax, az = poly[i]
+        bx, bz = poly[(i + 1) % n]
+        if (az <= z_alvo < bz) or (bz <= z_alvo < az):
+            t = (z_alvo - az) / (bz - az)
+            xs.append(ax + t * (bx - ax))
+    if len(xs) < 2:
+        return 0.0
+    return max(xs) - min(xs)
+
+
+def _normalizar_poly_3d(pts: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Centraliza X em 0 e normaliza Z para [0, 1] mantendo CCW."""
+    xs = [p[0] for p in pts]
+    zs = [p[1] for p in pts]
+    cx = 0.5 * (min(xs) + max(xs))
+    z0 = min(zs)
+    span_z = max(max(zs) - z0, 1e-6)
+    out = [((px - cx) / span_z, (pz - z0) / span_z) for px, pz in pts]
+    if _area_assinada(out) < 0.0:
+        out.reverse()
+    return out
+
+
+def _simplificar_buracos(
+    buracos_raw: list[list[tuple[int, int]]],
+    contorno_ext: list[tuple[int, int]],
+) -> list[list[tuple[float, float]]]:
+    """Simplifica e mapeia buracos no mesmo sistema normalizado do contorno externo."""
+    if not buracos_raw or len(contorno_ext) < 4:
+        return []
+    xs_e = [float(x) for x, _y in contorno_ext]
+    ys_e = [float(y) for _x, y in contorno_ext]
+    cx_e = 0.5 * (min(xs_e) + max(xs_e))
+    min_y_e = min(ys_e)
+    span_z = max(max(ys_e) - min_y_e, 1e-6)
+    out: list[list[tuple[float, float]]] = []
+    for raw in buracos_raw:
+        pts_f = [(float(x), float(y)) for x, y in raw]
+        cand = _rdp_fechado(pts_f, max(0.35, span_z * 0.008))
+        cand = _limpar_colineares_e_duplicados(cand, min_dist=0.25, min_pts=4)
+        if len(cand) < 4:
+            continue
+        poly_b = [(-((px - cx_e) / span_z), (py - min_y_e) / span_z) for px, py in cand]
+        if abs(_area_assinada(poly_b)) < 1e-4:
+            continue
+        if _area_assinada(poly_b) > 0.0:
+            poly_b.reverse()  # buracos CW para tessellate_polygon
+        out.append(poly_b)
+    return out
+
+
+def _transformar_lista_com_ref(
+    pts: list[tuple[float, float]],
+    cx: float,
+    z0: float,
+    span_z: float,
+    inverter: bool = False,
+) -> list[tuple[float, float]]:
+    out = [((px - cx) / span_z, (pz - z0) / span_z) for px, pz in pts]
+    if inverter:
+        out.reverse()
+    return out
+
+
+def _orientar_arma_para_empunhadura(
+    poly: list[tuple[float, float]],
+    modo: str,
+    pivot: str,
+    holes: list[list[tuple[float, float]]] | None = None,
+) -> tuple[list[tuple[float, float]], int, list[list[tuple[float, float]]]]:
+    """Garante arma em pe com ponta para cima (+Z) quando pivot=='empunhadura'."""
+    holes_out = [list(h) for h in (holes or [])]
+    if modo != "arma" or len(poly) < 3:
+        return poly, 0, holes_out
+
+    pts = list(poly)
+    rotacao = 0
+    xs = [p[0] for p in pts]
+    zs = [p[1] for p in pts]
+    dx = max(xs) - min(xs)
+    dz = max(zs) - min(zs)
+    if dx > 1.5 * max(dz, 1e-6):
+        pts_rot = [(-pz, px) for px, pz in pts]
+        xs_r = [p[0] for p in pts_rot]
+        zs_r = [p[1] for p in pts_rot]
+        cx_r = 0.5 * (min(xs_r) + max(xs_r))
+        z0_r = min(zs_r)
+        span_r = max(max(zs_r) - z0_r, 1e-6)
+        pts = _normalizar_poly_3d(pts_rot)
+        holes_out = [
+            _transformar_lista_com_ref([(-hz, hx) for hx, hz in h], cx_r, z0_r, span_r)
+            for h in holes_out
+        ]
+        rotacao = 90
+
+    if pivot == "empunhadura":
+        w_03 = _largura_na_altura(pts, 0.03)
+        w_10 = _largura_na_altura(pts, 0.10)
+        w_20 = _largura_na_altura(pts, 0.20)
+        melhor_z = 0.5
+        melhor_w = -1.0
+        for step in range(3, 48):
+            z_q = step * 0.02
+            wq = _largura_na_altura(pts, z_q)
+            if wq > melhor_w:
+                melhor_w = wq
+                melhor_z = z_q
+        ponta_embaixo = (
+            w_20 > 1e-4
+            and w_03 < 0.50 * w_20
+            and w_10 <= 0.95 * w_20
+            and melhor_z > 0.50
+        )
+        if ponta_embaixo:
+            pts_rot = [(-px, 1.0 - pz) for px, pz in pts]
+            xs_r = [p[0] for p in pts_rot]
+            zs_r = [p[1] for p in pts_rot]
+            cx_r = 0.5 * (min(xs_r) + max(xs_r))
+            z0_r = min(zs_r)
+            span_r = max(max(zs_r) - z0_r, 1e-6)
+            pts = _normalizar_poly_3d(pts_rot)
+            holes_out = [
+                _transformar_lista_com_ref([(-hx, 1.0 - hz) for hx, hz in h], cx_r, z0_r, span_r)
+                for h in holes_out
+            ]
+            rotacao = (rotacao + 180) % 360
+
+    return pts, rotacao, holes_out
+
+
 def _dist_borda(px: float, pz: float, poly: list[tuple[float, float]]) -> float:
     n = len(poly)
     melhor = float("inf")
@@ -448,27 +620,33 @@ def _dist_borda(px: float, pz: float, poly: list[tuple[float, float]]) -> float:
     return melhor
 
 
-def _ciclo_borda_bmesh(bm: bmesh.types.BMesh) -> list[bmesh.types.BMVert]:
-    """Percorre a cadeia fechada de vertices de borda de um disco 2D em ``bmesh``."""
-    arestas_borda = [e for e in bm.edges if e.is_boundary]
-    if not arestas_borda:
-        return []
-    inicio = arestas_borda[0].verts[0]
-    atual = arestas_borda[0].verts[1]
-    aresta_ant = arestas_borda[0]
-    ciclo = [inicio]
-    while atual != inicio and len(ciclo) <= len(bm.verts) + 2:
-        ciclo.append(atual)
-        prox_e = None
-        for e in atual.link_edges:
-            if e.is_boundary and e != aresta_ant:
-                prox_e = e
+def _ciclos_borda_bmesh(bm: bmesh.types.BMesh) -> list[list[bmesh.types.BMVert]]:
+    """Percorre todas as cadeias fechadas de borda (externa + recortes internos) em ``bmesh``."""
+    usadas: set[bmesh.types.BMEdge] = set()
+    ciclos: list[list[bmesh.types.BMVert]] = []
+    for e_ini in bm.edges:
+        if not e_ini.is_boundary or e_ini in usadas:
+            continue
+        usadas.add(e_ini)
+        inicio = e_ini.verts[0]
+        atual = e_ini.verts[1]
+        aresta_ant = e_ini
+        ciclo = [inicio]
+        while atual != inicio and len(ciclo) <= len(bm.verts) + 2:
+            ciclo.append(atual)
+            prox_e = None
+            for e in atual.link_edges:
+                if e.is_boundary and e != aresta_ant and e not in usadas:
+                    prox_e = e
+                    break
+            if prox_e is None:
                 break
-        if prox_e is None:
-            break
-        atual = prox_e.other_vert(atual)
-        aresta_ant = prox_e
-    return ciclo
+            usadas.add(prox_e)
+            atual = prox_e.other_vert(atual)
+            aresta_ant = prox_e
+        if len(ciclo) >= 3:
+            ciclos.append(ciclo)
+    return ciclos
 
 
 def _construir_malha_solida(
@@ -476,15 +654,44 @@ def _construir_malha_solida(
     modo: str,
     uv_bbox: tuple[float, float, float, float],
     nome: str,
+    rotacao_graus: int = 0,
+    holes: list[list[tuple[float, float]]] | None = None,
 ) -> bpy.types.Mesh:
-    """Triangula ``poly`` 2D e constrói casca dupla fechada + borda estanque (0 nao-manifold)."""
+    """Triangula ``poly`` 2D (com eventuais recortes) e constroi casca dupla fechada estanque."""
     bm_2d = bmesh.new()
     try:
-        verts_2d = [bm_2d.verts.new((px, 0.0, pz)) for px, pz in poly]
-        face_2d = bm_2d.faces.new(verts_2d)
-        bmesh.ops.triangulate(
-            bm_2d, faces=[face_2d], quad_method="BEAUTY", ngon_method="BEAUTY"
-        )
+        construido_com_buracos = False
+        if holes:
+            from mathutils import Vector
+            from mathutils.geometry import tessellate_polygon
+
+            outer_ccw = list(poly)
+            if _area_assinada(outer_ccw) < 0.0:
+                outer_ccw.reverse()
+            loops_3d = [[Vector((px, pz, 0.0)) for px, pz in outer_ccw]]
+            pts_flat = [bm_2d.verts.new((px, 0.0, pz)) for px, pz in outer_ccw]
+            for h in holes:
+                hcw = list(h)
+                if _area_assinada(hcw) > 0.0:
+                    hcw.reverse()
+                loops_3d.append([Vector((hx, hz, 0.0)) for hx, hz in hcw])
+                pts_flat.extend(bm_2d.verts.new((hx, 0.0, hz)) for hx, hz in hcw)
+            tris = tessellate_polygon(loops_3d)
+            if tris:
+                for i0, i1, i2 in tris:
+                    try:
+                        bm_2d.faces.new((pts_flat[i0], pts_flat[i1], pts_flat[i2]))
+                    except ValueError:
+                        pass
+                construido_com_buracos = len(bm_2d.faces) > 0
+            if not construido_com_buracos:
+                bm_2d.clear()
+        if not construido_com_buracos:
+            verts_2d = [bm_2d.verts.new((px, 0.0, pz)) for px, pz in poly]
+            face_2d = bm_2d.faces.new(verts_2d)
+            bmesh.ops.triangulate(
+                bm_2d, faces=[face_2d], quad_method="BEAUTY", ngon_method="BEAUTY"
+            )
 
         # Subdivide arestas internas (e de borda na capa) para espinha/curvatura suave
         if modo == "capa":
@@ -567,18 +774,18 @@ def _construir_malha_solida(
                 except ValueError:
                     pass
 
-            borda = _ciclo_borda_bmesh(bm_2d)
-            n_b = len(borda)
-            for i in range(n_b):
-                va = borda[i]
-                vb = borda[(i + 1) % n_b]
-                fa, fb = frente_v[va.index], frente_v[vb.index]
-                ba, bb = tras_v[va.index], tras_v[vb.index]
-                for tri in ((fa, ba, bb), (fa, bb, fb)):
-                    try:
-                        bm.faces.new(tri)
-                    except ValueError:
-                        pass
+            for borda in _ciclos_borda_bmesh(bm_2d):
+                n_b = len(borda)
+                for i in range(n_b):
+                    va = borda[i]
+                    vb = borda[(i + 1) % n_b]
+                    fa, fb = frente_v[va.index], frente_v[vb.index]
+                    ba, bb = tras_v[va.index], tras_v[vb.index]
+                    for tri in ((fa, ba, bb), (fa, bb, fb)):
+                        try:
+                            bm.faces.new(tri)
+                        except ValueError:
+                            pass
 
             bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-6)
             bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=list(bm.edges))
@@ -598,13 +805,32 @@ def _construir_malha_solida(
             u0, u1, v0, v1 = uv_bbox
 
             uv_layer = bm.loops.layers.uv.new("UVMap")
+            u_ctr = 0.5 * (u0 + u1)
+            v_ctr = 0.5 * (v0 + v1)
             for f in bm.faces:
+                f.normal_update()
+                eh_borda_lateral = abs(f.normal.y) < 0.35
                 for loop in f.loops:
                     co = loop.vert.co
-                    tx = (x_max - co.x) / dx
-                    tz = (co.z - z_min) / dz
+                    nx = (x_max - co.x) / dx
+                    nz = (co.z - z_min) / dz
+                    if rotacao_graus == 180:
+                        tx = (co.x - x_min) / dx
+                        tz = (z_max - co.z) / dz
+                    elif rotacao_graus == 90:
+                        tx = (z_max - co.z) / dz
+                        tz = (x_max - co.x) / dx
+                    elif rotacao_graus == 270:
+                        tx = (co.z - z_min) / dz
+                        tz = (co.x - x_min) / dx
+                    else:
+                        tx = nx
+                        tz = nz
                     u = max(0.0, min(1.0, u0 + tx * (u1 - u0)))
                     v_uv = max(0.0, min(1.0, v0 + tz * (v1 - v0)))
+                    if eh_borda_lateral and co.y < 0.0:
+                        u = max(0.0, min(1.0, u + (u_ctr - u) * 0.008))
+                        v_uv = max(0.0, min(1.0, v_uv + (v_ctr - v_uv) * 0.008))
                     loop[uv_layer].uv = (u, v_uv)
 
             malha = bpy.data.meshes.new(nome)
@@ -721,7 +947,11 @@ def _preparar_textura(img_orig, nome: str, usa_alfa: bool):
 
 
 def construir_malha_2d(
-    imagem_png: str, modo: str = "arma", nome: str = "extrude_2d"
+    imagem_png: str,
+    modo: str = "arma",
+    nome: str = "extrude_2d",
+    saida_dir: str | None = None,
+    pivot: str = "empunhadura",
 ) -> "bpy.types.Object":
     """Extrude uma silhueta 2D PNG para malha 3D estanque com UV frontal/traseira e material PBR."""
     img_orig = bpy.data.images.load(imagem_png, check_existing=False)
@@ -736,6 +966,7 @@ def construir_malha_2d(
     mask, gw, gh, usa_alfa = _amostrar_mascara(buf, w, h, max_dim=128)
     comp = _maior_componente_8(mask, gw, gh)
 
+    holes_poly: list[list[tuple[float, float]]] = []
     if len(comp) < 4:
         poly = _poligono_caixa_fallback()
         uv_bbox = (0.0, 1.0, 0.0, 1.0)
@@ -745,10 +976,11 @@ def construir_malha_2d(
         grade = [[False] * pw for _ in range(ph)]
         for gx, gy in comp:
             grade[gy + pad][gx + pad] = True
-        _preencher_buracos(grade, pw, ph)
+        buracos_raw = _filtrar_buracos_pequenos(grade, pw, ph)
         exp = _expandir_2x2(grade, pw, ph)
         contorno = _tracar_moore(exp, pw + 1, ph + 1)
         poly, uv_bbox = _simplificar_e_escalar(contorno, gw, gh, pad=pad)
+        holes_poly = _simplificar_buracos(buracos_raw, contorno)
 
     modo_lower = str(modo).lower()
     if modo_lower == "capa":
@@ -757,11 +989,24 @@ def construir_malha_2d(
         modo_norm = "escudo"
     else:
         modo_norm = "arma"
-    malha = _construir_malha_solida(poly, modo_norm, uv_bbox, nome)
+
+    poly, rotacao_graus, holes_poly = _orientar_arma_para_empunhadura(
+        poly, modo_norm, str(pivot or "empunhadura"), holes=holes_poly
+    )
+    malha = _construir_malha_solida(
+        poly, modo_norm, uv_bbox, nome, rotacao_graus=rotacao_graus, holes=holes_poly
+    )
     obj = bpy.data.objects.new(nome, malha)
     bpy.context.collection.objects.link(obj)
 
     img_tex = _preparar_textura(img_orig, nome, usa_alfa)
+    if saida_dir:
+        os.makedirs(saida_dir, exist_ok=True)
+        out_png = os.path.join(saida_dir, f"{nome}_baseColor.png")
+        img_tex.filepath_raw = out_png
+        img_tex.file_format = "PNG"
+        img_tex.save()
+        img_tex.pack()
     mat = bpy.data.materials.new(f"{nome}_mat")
     mat.use_nodes = True
     mat.use_backface_culling = True

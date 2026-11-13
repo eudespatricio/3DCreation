@@ -36,7 +36,7 @@ def construir_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="diagnostico do ambiente")
     d.add_argument("--json", action="store_true")
 
-    v = sub.add_parser("validate", help="valida o lote contra spec@1/spec@2 + regras de negocio")
+    v = sub.add_parser("validate", help="valida o lote contra spec@1..@4 + regras de negocio")
     v.add_argument("lote")
     v.add_argument("--json", action="store_true")
 
@@ -84,7 +84,7 @@ def construir_parser() -> argparse.ArgumentParser:
     q.add_argument("--json", action="store_true")
 
     mi = sub.add_parser(
-        "migrate", help="sobe um lote para o contrato corrente (spec@3), sem inventar valor"
+        "migrate", help="sobe um lote para o contrato corrente (spec@4), sem inventar valor"
     )
     mi.add_argument("lote")
     mi.add_argument("--saida", help="grava o lote migrado neste arquivo")
@@ -106,6 +106,9 @@ def construir_parser() -> argparse.ArgumentParser:
     sy.add_argument("--para", required=True, help="pasta de destino alvo")
     sy.add_argument("--limpar", action="store_true", help="remove orfaos no destino alvo")
     sy.add_argument("--rojo-lua", help="gera modulo Luau Assets.lua para Rojo com os assetIds")
+    sy.add_argument("--godot-gd", help="gera Forge3DAssets.gd tipado para Godot 4")
+    sy.add_argument("--gd-class-name", default="Forge3DAssets", help="class_name do script GDScript")
+    sy.add_argument("--res-prefix", default="", help="prefixo res:// aplicado aos caminhos Godot")
     sy.add_argument("--json", action="store_true")
 
     ea = sub.add_parser("export-anim", help="gera .rbxmx do KeyframeSequence (Animation do Roblox)")
@@ -124,11 +127,14 @@ def construir_parser() -> argparse.ArgumentParser:
     ea.add_argument("--saida")
     ea.add_argument("--json", action="store_true")
 
-    e = sub.add_parser("export-r15", help="gera .rbxlx R15 nativo (Parts+Motor6D) do blocky")
+    e = sub.add_parser("export-r15", help="gera .rbxlx R15 nativo (Parts+Motor6D ou Bone skinned) do blocky")
     e.add_argument("lote")
     e.add_argument("--item", required=True)
     e.add_argument("--saida")
     e.add_argument("--texturas-dir", help="diretorio com texturas PBR para SurfaceAppearance")
+    e.add_argument("--modo-rig", choices=["motor6d", "bone"], default="motor6d")
+    e.add_argument("--anchored-root", action="store_true", help="ancora o HumanoidRootPart/MeshPart no place")
+    e.add_argument("--no-ledger", action="store_true", help="ignora ledger.jsonl ao resolver AssetIds")
     e.add_argument("--json", action="store_true")
 
     es = sub.add_parser(
@@ -138,7 +144,18 @@ def construir_parser() -> argparse.ArgumentParser:
     es.add_argument("origem", help="diretorio publicado ou caminho para .manifest.json")
     es.add_argument("--item", help="id do asset (opcional quando um manifesto e passado)")
     es.add_argument("--saida", help="arquivo .rbxmx de saida (padrao ao lado da origem/asset)")
+    es.add_argument("--no-ledger", action="store_true", help="ignora ledger.jsonl ao resolver AssetIds")
     es.add_argument("--json", action="store_true")
+
+    ec = sub.add_parser(
+        "export-acessorio",
+        help="gera .rbxmx do Accessory + Handle MeshPart + Attachment + SurfaceAppearance",
+    )
+    ec.add_argument("origem", help="diretorio publicado, manifesto JSON ou .glb")
+    ec.add_argument("--item", help="id do asset (obrigatorio ao passar diretorio)")
+    ec.add_argument("--saida", help="arquivo .rbxmx de saida (padrao ao lado da origem/asset)")
+    ec.add_argument("--no-ledger", action="store_true", help="ignora ledger.jsonl ao resolver AssetIds")
+    ec.add_argument("--json", action="store_true")
 
     u = sub.add_parser("upload-model", help="sobe um .glb via Open Cloud Assets (Model)")
     u.add_argument("arquivo")
@@ -235,6 +252,8 @@ def _executar(args) -> int:
         return _export_anim(args)
     if args.cmd == "export-surface":
         return _export_surface(args)
+    if args.cmd == "export-acessorio":
+        return _export_acessorio(args)
     if args.cmd == "upload-model":
         return _upload_model(args)
     if args.cmd == "upload-image":
@@ -516,7 +535,13 @@ def _export_r15(args) -> int:
     from .. import rbx
 
     relatorio = rbx.exportar_r15(
-        args.lote, args.item, args.saida, texturas_dir=args.texturas_dir
+        args.lote,
+        args.item,
+        args.saida,
+        anchored_root=args.anchored_root,
+        texturas_dir=args.texturas_dir,
+        ledger=False if args.no_ledger else True,
+        modo_rig=args.modo_rig,
     )
     if args.json:
         _json(relatorio)
@@ -552,7 +577,12 @@ def _export_surface(args) -> int:
             nome_base = item_id or "surface"
             saida = origem / f"{nome_base}_surface.rbxmx"
 
-    relatorio = rbx.exportar_surface_appearance(origem, item_id=item_id, saida=saida)
+    relatorio = rbx.exportar_surface_appearance(
+        origem,
+        item_id=item_id,
+        saida=saida,
+        ledger=None if args.no_ledger else True,
+    )
     if args.json:
         _json(relatorio)
     else:
@@ -560,6 +590,36 @@ def _export_surface(args) -> int:
         print(
             f"rbxmx {relatorio['saida']}  canais {canais}  "
             f"materiais {relatorio['materiais']}  {relatorio['bytes']} B"
+        )
+    return 0
+
+
+def _export_acessorio(args) -> int:
+    from .. import rbx
+
+    origem = Path(args.origem).expanduser()
+    item_id = (args.item or "").strip() or None
+    saida: str | Path | None = args.saida
+    if saida is None and origem.exists():
+        if origem.is_file():
+            nome_base = item_id or origem.stem.removesuffix(".manifest")
+            saida = origem.parent / f"{nome_base}_accessory.rbxmx"
+        elif origem.is_dir():
+            nome_base = item_id or "accessory"
+            saida = origem / f"{nome_base}_accessory.rbxmx"
+
+    relatorio = rbx.exportar_acessorio_rbxmx(
+        origem,
+        item_id=item_id,
+        saida=saida,
+        ledger=None if args.no_ledger else True,
+    )
+    if args.json:
+        _json(relatorio)
+    else:
+        print(
+            f"rbxmx {relatorio['saida']}  attachment {relatorio['attachment']}  "
+            f"skinned={relatorio['skinned']}  {relatorio['bytes']} B"
         )
     return 0
 
@@ -585,12 +645,20 @@ def _sync(args) -> int:
     from .. import sync
 
     relatorio = sync.executar(
-        args.origem, args.para, limpar=args.limpar, rojo_lua=args.rojo_lua
+        args.origem,
+        args.para,
+        limpar=args.limpar,
+        rojo_lua=args.rojo_lua,
+        godot_gd=args.godot_gd,
+        gd_class_name=args.gd_class_name,
+        res_prefix=args.res_prefix,
     )
     if args.json:
         _json(relatorio)
     else:
         extra = f"  rojo={relatorio['rojo_lua']} ({relatorio['rojo_assets']})" if "rojo_lua" in relatorio else ""
+        if "godot_gd" in relatorio:
+            extra += f"  godot={relatorio['godot_gd']} ({relatorio['godot_assets']})"
         print(
             f"sync {relatorio['origem']} -> {relatorio['destino']}  "
             f"{relatorio['ativos']} ativo(s), {len(relatorio['copiados'])} copiado(s), "

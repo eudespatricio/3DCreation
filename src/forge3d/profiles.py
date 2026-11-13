@@ -26,7 +26,7 @@ FRACAO_EMPUNHADURA = 0.20
 
 #: Clipes base procedurais e determinísticos suportados pelo pipeline (D66 / Fase B).
 #: Pedir clipe fora desta lista não é erro: vira aviso `FORGE-W-ANIM`.
-ANIMACOES_SUPORTADAS = ("idle", "walk", "run", "jump")
+ANIMACOES_SUPORTADAS = ("idle", "walk", "run", "jump", "attack", "block", "hit", "death")
 
 _BLOCOS_OBRIGATORIOS = ("unidades", "eixos", "pivot", "colisao", "rig", "material", "validacao")
 

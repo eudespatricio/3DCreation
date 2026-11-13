@@ -1,0 +1,136 @@
+# Lote de referencia v4: Hero base + set completo de armadura modular (6 pecas + escudo)
+schema: forge3d/spec@4
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/lote_11_hero_armor
+estilo_global: stylized_pbr
+paleta:
+  - "#2C303A"
+  - "#C59B27"
+  - "#8B1E24"
+  - "#D8CFC4"
+
+politica:
+  falha: continuar
+  custo_max_min: 120
+  seed_base: 20261113
+
+lote:
+  - id: hero.paladin.base
+    tipo: personagem_humanoide
+    rota: mesh
+    template_humanoide: true
+    qualidade: hero
+    prompt: >-
+      Medieval paladin hero in silver and gold trimmed plate tunic, neutral A-pose,
+      clean proportions, game-ready silhouette.
+    altura_metros: 1.80
+    pivot: base
+    limite_triangulos: 12000
+    material: pbr
+    colisao: convex
+    auto_rig: true
+    esqueleto: godot-humanoid@1
+    animacoes_base: [idle, walk, run, jump, attack, block, hit, death]
+    seed: 20261113
+    lod: [100, 50]
+    tags: [hero, armor, modular]
+
+  - id: armor.paladin.helm
+    tipo: prop_equipavel
+    rota: mesh
+    parte: elmo
+    skinned: false
+    prompt: Full medieval knight helm with gold visor trim
+    altura_metros: 0.30
+    pivot: origem
+    limite_triangulos: 1800
+    material: pbr
+    colisao: none
+    seed: 20261114
+    tags: [armor, helm]
+
+  - id: armor.paladin.pauldrons
+    tipo: prop_equipavel
+    rota: mesh
+    parte: ombreiras
+    skinned: true
+    prompt: Symmetric medieval paladin shoulder pauldrons in brushed steel and gold
+    altura_metros: 0.35
+    pivot: origem
+    limite_triangulos: 2000
+    material: pbr
+    colisao: none
+    seed: 20261115
+    tags: [armor, pauldrons]
+
+  - id: armor.paladin.cuirass
+    tipo: prop_equipavel
+    rota: mesh
+    parte: peitoral
+    skinned: true
+    prompt: Medieval engraved paladin breastplate cuirass
+    altura_metros: 0.65
+    pivot: origem
+    limite_triangulos: 3200
+    material: pbr
+    colisao: none
+    seed: 20261116
+    tags: [armor, cuirass]
+
+  - id: armor.paladin.gauntlets
+    tipo: prop_equipavel
+    rota: mesh
+    parte: luvas
+    skinned: true
+    prompt: Articulated knight plate gauntlets
+    altura_metros: 0.30
+    pivot: origem
+    limite_triangulos: 1600
+    material: pbr
+    colisao: none
+    seed: 20261117
+    tags: [armor, gauntlets]
+
+  - id: armor.paladin.greaves
+    tipo: prop_equipavel
+    rota: mesh
+    parte: calcas
+    skinned: true
+    prompt: Medieval knight armored cuisses and greaves
+    altura_metros: 0.85
+    pivot: origem
+    limite_triangulos: 2200
+    material: pbr
+    colisao: none
+    seed: 20261118
+    tags: [armor, greaves]
+
+  - id: armor.paladin.boots
+    tipo: prop_equipavel
+    rota: mesh
+    parte: botas
+    skinned: true
+    prompt: Heavy medieval knight sabaton boots
+    altura_metros: 0.25
+    pivot: origem
+    limite_triangulos: 1400
+    material: pbr
+    colisao: none
+    seed: 20261119
+    tags: [armor, boots]
+
+  - id: armor.paladin.shield
+    tipo: prop_equipavel
+    rota: mesh
+    parte: escudo
+    skinned: false
+    prompt: Kite shield in steel with crimson emblem and golden border
+    altura_metros: 0.80
+    pivot: empunhadura
+    limite_triangulos: 1500
+    material: pbr
+    colisao: convex
+    seed: 20261120
+    tags: [armor, shield]

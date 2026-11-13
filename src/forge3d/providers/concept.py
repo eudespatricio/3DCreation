@@ -172,17 +172,21 @@ def dir_venv() -> Path:
 
 
 def script_inferencia() -> Path:
+    from .. import paths
+
     env = os.environ.get("FORGE3D_CONCEPT_SCRIPT")
     if env:
         return Path(env).expanduser().resolve()
-    return Path(__file__).resolve().parents[3] / "tools" / "concept_infer.py"
+    return paths.raiz_dados() / "tools" / "concept_infer.py"
 
 
 def script_pose_map() -> Path:
+    from .. import paths
+
     env = os.environ.get("FORGE3D_POSE_MAP_SCRIPT")
     if env:
         return Path(env).expanduser().resolve()
-    return Path(__file__).resolve().parents[3] / "tools" / "pose_map.py"
+    return paths.raiz_dados() / "tools" / "pose_map.py"
 
 
 def _cache_hf() -> Path:
@@ -208,7 +212,15 @@ def _pose_env_raw() -> str:
 
 
 def resolver_pose(item: dict) -> str:
-    """Resolve ``FORGE3D_CONCEPT_POSE`` ('' | 'tpose' | 'apose' | 'auto')."""
+    """Resolve ``FORGE3D_CONCEPT_POSE`` ('' | 'tpose' | 'apose' | 'auto'; default inteligente quando unset)."""
+    if "FORGE3D_CONCEPT_POSE" not in os.environ:
+        if (
+            item.get("tipo") == "personagem_humanoide"
+            and bool(item.get("auto_rig"))
+            and controlnet_disponivel()
+        ):
+            return "apose"
+        return ""
     raw = _pose_env_raw()
     if raw in ("", "none", "off", "0"):
         return ""
@@ -216,11 +228,24 @@ def resolver_pose(item: dict) -> str:
         return raw
     if raw == "auto":
         if item.get("tipo") == "personagem_humanoide" and controlnet_disponivel():
-            return "tpose"
+            return "apose" if item.get("auto_rig") else "tpose"
         return ""
     raise ValueError(
         f"FORGE3D_CONCEPT_POSE invalido: {raw!r} (use '', 'tpose', 'apose' ou 'auto')"
     )
+
+
+def estado_pose_cache() -> str:
+    """Resumo deterministico da politica de pose ControlNet para chave de cache (D6)."""
+    cn = "cn1" if controlnet_disponivel() else "cn0"
+    if "FORGE3D_CONCEPT_POSE" not in os.environ:
+        return f"smart_{cn}"
+    raw = _pose_env_raw()
+    if raw in ("", "none", "off", "0"):
+        return "off"
+    if raw == "auto":
+        return f"auto_{cn}"
+    return raw
 
 
 def _gerar_pose_png(pose: str, destino_png: Path, largura: int, altura: int) -> Path:
@@ -422,9 +447,12 @@ def montar_comando(item: dict, destino: Path) -> tuple[list[str], dict]:
 
 class ConceptProvider:
     nome = "concept"
-    versao = VERSAO
     determinism = "D2"  # diffusion nunca e D1 (D7)
     usa_gpu = True
+
+    @property
+    def versao(self) -> str:
+        return f"{VERSAO}+{estado_pose_cache()}"
 
     @property
     def licenca(self) -> dict:

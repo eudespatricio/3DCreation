@@ -26,7 +26,7 @@ pivot:
   prop_estatico: base
   prop_equipavel: empunhadura
   personagem_humanoide: base    # objeto na base; membros usam os 16 bone heads R15 (D47)
-  criatura: junta
+  criatura: base
   modulo_cenario: base
   mapa_setor: centro
 
@@ -45,9 +45,12 @@ rig:
   # D66: retarget da animacao base — osso semantico -> nome da parte R15.
   retarget:
     "r15@1":
+      quadril: LowerTorso
       tronco: UpperTorso
       coluna: LowerTorso
       cabeca: Head
+      ombro_e: LeftUpperArm
+      ombro_d: RightUpperArm
       braco_e: LeftUpperArm
       braco_d: RightUpperArm
       antebraco_e: LeftLowerArm
@@ -56,6 +59,8 @@ rig:
       perna_d: RightUpperLeg
       canela_e: LeftLowerLeg
       canela_d: RightLowerLeg
+      pe_e: LeftFoot
+      pe_d: RightFoot
   mapas:
     "r15@1":
       - HumanoidRootPart

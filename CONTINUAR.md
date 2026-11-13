@@ -1,12 +1,11 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 11/11/2026 · **P0, P0.5, P1, P2, P3, P3.5, P4, P5, P6 e C5–C15 fechadas.** A P2 fechou pela
-escala (`manifest@2`, D62): package e `.rbxlx` medem **6,6071 studs** (D68). A C12 republicou
-**7 destinos, 16 manifestos** com `verify` **0 problemas**. A P4 saiu com `spec@3` + WFC (D74/D75).
-A P5 fechou: clipe `idle` por retarget (D66) em `manifest@3` (D67), tocando no Godot e no Roblox
-(D69), e LOD medido por silhueta (D71). A P6 fechou o produto (D80/D81): `migrate`, `verify` no CI
-de PR e wheel instalável. **157 verdes + 1 GPU (skip)** em 158 testes · CI no GitHub com **141
-testes** em 3 jobs.
+**Data:** 13/11/2026 · **P0–P6, C5–C15 e Ondas A–D fechadas (`v0.6.0`).** Contratos correntes
+`spec@4` e `manifest@4` (D89; `@1`–`@3` compatíveis na leitura). Paridade Godot 4 + Roblox R15
+(`export-r15 --modo-rig bone`, `export-surface`, `export-acessorio`, `sync --godot-gd` / `--rojo-lua`,
+D90), armaduras modulares manifold, bake PBR 360° e 8 clipes em 16 ossos (D91), QC V2 + stack IA
+6 GB e `ruff`/`mypy` zerados (D92). **398 verdes + 1 GPU (skip)** em 399 testes · CI com **347
+testes** em 3 jobs (`portoes`, `verificar`, `distribuicao`).
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 
@@ -59,25 +58,22 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   pilar as paredes só se cruzam em volume (G1 **nao_manifold=0**). `PIPELINE_VERSION` **0.3.7**,
   `modular` **0.2.1**; teste do vão inteiro em `tests/test_modular.py`; `render_preview.py` ganhou
   `--alto` (vista de cima) e enquadramento por diagonal.
-- **P6 — produto (D80/D81)** — `forge3d migrate` sobe `spec@1`/`@2` → `spec@3` textual (comentários
-  preservados) e **não inventa valor** (modular sem bloco segue recusado, B15). CI de PR com 2 jobs:
-  `verificar` (Blender 4.2.0 conferido por sha256, pipeline real, `verify` 0 problemas e exit 3 no
-  adulterado) e `distribuicao` (wheel → venv limpo → CLI fora do repo). **Sem bump**: a saída dos
-  assets não mudou (D6).
-- **Revisão da doc (D82)** — o CLI contra os `.md` tinha **10 de 15** invariantes com comando que não
-  roda. `verify --only` e `blender`/`modelos_aptos` no `doctor` **foram implementados**; I3/I4/I6/I11/
-  I13 corrigidos (+2 fixtures) e `tests/test_doc_comandos.py` virou o portão contra reincidência.
-- **Integração (`docs/integracao.md`)** — como outro projeto chama a CLI: instalar, allowlist, lote,
-  exit codes, manifesto e `verify --only` no CI do consumidor. **A P6 era a última fase do plano.**
+- **P6 + Doc (D80–D84)** — `forge3d migrate` (`@1..@3` → `@4`), CI com Blender 4.2.0 pinado por sha256
+  (`tools/ci_verify.sh`, `tools/ci_dist.sh`), `tests/test_doc_comandos.py`, `verify --only`,
+  `docs/integracao.md` e orientação por sola (`D84`).
+- **Ondas A–D (`v0.6.0`, D89–D92)** — `spec@4`/`manifest@4`, paridade Godot 4 (`UV2` lightmap,
+  `sync --godot-gd`) e Roblox (`export-r15 --modo-rig bone`, `export-surface`, `export-acessorio`,
+  `sync --rojo-lua`), armadura modular manifold (`_fechar_ciclos_borda_fan`), bake PBR 360°, 16
+  ossos/8 clipes, QC V2 (G1–G9), `pose_guard` com retry, `rembg` limitado e `ruff`/`mypy` zerados.
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **168 verdes + 1 GPU (skip)** em **169 testes** |
-| CI no GitHub | **152 testes** em `portoes` + `verificar` (pipeline, `verify` e a regressão de orientação) + `distribuicao` |
-| Instalação | wheel de **0.3.7** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
-| `forge3d migrate` | `lote_01` @1→@3 e `lote_03_kit` @2→@3 com `parte` e comentários intactos; `--saida`/`--em-lugar`; **10 testes** |
+| Suíte | **398 verdes + 1 GPU (skip)** em **399 testes** |
+| CI no GitHub | **347 testes** em `portoes` + `verificar` (pipeline, `verify` e a regressão de orientação) + `distribuicao` |
+| Instalação | wheel de **0.6.0** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
+| `forge3d migrate` | `@1..@3`→`@4` textual com comentários intactos; `--saida`/`--em-lugar` |
 | Heróis do teste (11/11/2026) | `mesh` elfo: **27,7 s**, VRAM **2.378 MB**, 7.958 tris, G1–G10 ok; cabeça-para-baixo corrigida em **0.3.8** (`invertido: false`). R15 blocky: **300 tris**, **16 ossos**, `idle` **2,042 s**, `.rbxlx` 16 partes/15 motores; `verify` 0 nos dois |
 | Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
@@ -116,7 +112,7 @@ silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo**
 **`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
 **`D79` parede cheia no lado fechado** · **`D80` `migrate` textual, sem inventar valor** ·
 **`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado** · **`D83` a P6 é a última fase; o resto é backlog** ·
-**`D84` orientação por contato da sola**.
+**`D84` orientação por contato da sola** · **`D85–D92` sync, qualidade 3D, request contract, armadura modular e ondas A–D (`v0.6.0`)**.
 
 ## Aberto
 
@@ -146,8 +142,8 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 168 verdes + 1 GPU
-bash tools/ci.sh                          # 152 testes + contexto + P0 (job `portoes`)
+python -m pytest                          # 398 verdes + 1 GPU
+bash tools/ci.sh                          # 347 testes + ruff + mypy + contexto + P0 (job `portoes`)
 bash tools/ci_verify.sh                   # pipeline real + verify (job `verificar`, precisa Blender)
 bash tools/ci_dist.sh                     # wheel em venv limpo (job `distribuicao`)
 bash tools/check-contexto.sh
@@ -195,6 +191,6 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 > Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P5 fechadas: 7
 > destinos/16 manifestos em `manifest@3` 0.2.7, `verify` 0 problemas, CI verde em
 > `github.com/eudespatricio/3DCreation`; key do Roblox em `~/.config/forge3d/roblox.key`, fora do repo.
-> P0–P6 fechadas: `manifest@3` 0.3.8, 3 jobs de CI e wheel instalável (D81). Próximo: operar num
-> projeto de jogo e medir custo por asset. Não reabra D3–D27, D52–D65 nem D66–D81 sem fato novo.
+> P0–P6 + Ondas A–D fechadas: `v0.6.0` (`spec@4`/`manifest@4`, `@1`–`@3` compatíveis), 3 jobs de CI e wheel
+> instalável (D81/D89–D92). Próximo: operar num projeto de jogo e medir custo por asset. Não reabra D3–D92 sem fato novo.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

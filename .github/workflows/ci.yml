@@ -48,4 +48,4 @@ jobs:
           echo "$RUNNER_TEMP/blender-4.2.0-linux-x64" >> "$GITHUB_PATH"
       - run: uv venv --python 3.12 .venv
       - run: uv pip install --python .venv/bin/python -e ".[dev]"
-      - run: bash tools/ci_verify.sh
+      - run: PYTHON=.venv/bin/python bash tools/ci_verify.sh

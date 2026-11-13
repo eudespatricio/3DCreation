@@ -16,9 +16,15 @@ from pathlib import Path
 
 import pytest
 
-from forge3d import config, mcp_server, paths, pipeline, plan, publish, spec
+from forge3d import mcp_server, paths, pipeline, spec
 from forge3d.canonical import sha256_arquivo
 from forge3d.errors import EXIT_SPEC, ForgeError
+
+
+@pytest.fixture(autouse=True)
+def _isolar_estado(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "forge3d_home"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "forge3d_config"))
 
 
 @pytest.fixture
@@ -132,6 +138,7 @@ def test_base_externa_conflito_tipo_com_item(base_spec_doc: dict, tmp_path: Path
     assert "B22" in str(exc_info.value.detalhes.get("erros", []))
 
 
+@pytest.mark.blender
 def test_isolamento_cache_no_cache_e_estrito(base_spec_doc: dict, tmp_path: Path):
     spec_path = tmp_path / "spec_exec.yaml"
     import yaml
@@ -170,6 +177,7 @@ def test_isolamento_cache_no_cache_e_estrito(base_spec_doc: dict, tmp_path: Path
     assert rel4["itens"][0]["trabalho_executado"] is True
 
 
+@pytest.mark.blender
 def test_clean_dest_expurga_orfaos(base_spec_doc: dict, tmp_path: Path):
     destino = Path(base_spec_doc["destino_exportacao"])
 
@@ -223,6 +231,7 @@ def test_clean_dest_expurga_orfaos(base_spec_doc: dict, tmp_path: Path):
     assert (destino / f"{item_id}.manifest.json").is_file()
 
 
+@pytest.mark.blender
 def test_mcp_server_no_cache_e_clean_dest(base_spec_doc: dict, tmp_path: Path):
     import yaml
 
@@ -261,6 +270,7 @@ def test_mcp_server_no_cache_e_clean_dest(base_spec_doc: dict, tmp_path: Path):
     assert resp_run["result"]["isError"] is False
 
 
+@pytest.mark.blender
 def test_cli_flags_no_cache_e_clean_dest(base_spec_doc: dict, tmp_path: Path):
     from forge3d.cli import comandos
     import yaml
@@ -275,3 +285,44 @@ def test_cli_flags_no_cache_e_clean_dest(base_spec_doc: dict, tmp_path: Path):
     # Testa run com --no-cache e --clean-dest
     ret_run = comandos.despachar(["run", str(spec_path), "--no-cache", "--clean-dest", "--json"])
     assert ret_run == 0
+
+
+def test_isolamento_estrito_rejeita_origem_nao_selada_fora_de_base_externa(
+    base_spec_doc: dict, tmp_path: Path
+):
+    img_base = tmp_path / "base_careca.jpg"
+    img_base.write_bytes(b"\xff\xd8\xff\xe0base")
+    img_antiga = tmp_path / "espada_antiga.png"
+    img_antiga.write_bytes(b"\x89PNG\r\n\x1a\nold")
+
+    doc = dict(base_spec_doc)
+    doc["requisicao"] = {
+        "id": "req-estrita-limpa",
+        "isolamento": "estrito",
+        "base_externa": {
+            "origem": str(img_base),
+            "sha256": sha256_arquivo(img_base),
+            "tipo": "personagem_humanoide",
+        },
+    }
+    doc["lote"] = [
+        {
+            "id": "heroi.base.01",
+            "tipo": "personagem_humanoide",
+            "prompt": "base careca",
+            "altura_metros": 1.72,
+            "origem": str(img_base),
+        },
+        {
+            "id": "arma.antiga.01",
+            "tipo": "prop_equipavel",
+            "prompt": "espada antiga fora do contrato",
+            "altura_metros": 1.0,
+            "origem": str(img_antiga),
+        },
+    ]
+    with pytest.raises(ForgeError) as exc_info:
+        spec.preparar(doc)
+    assert exc_info.value.codigo == "FORGE-E-INPUT-TAMPERED"
+    assert exc_info.value.exit_code == EXIT_SPEC
+    assert exc_info.value.detalhes.get("regra") == "B22"

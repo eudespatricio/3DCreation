@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -168,7 +169,13 @@ def _python_imagem() -> Path:
 
 
 def _rembg_modelo() -> str:
-    return os.environ.get("FORGE3D_REMBG_MODELO", "birefnet-general").strip() or "birefnet-general"
+    env = os.environ.get("FORGE3D_REMBG_MODELO", "").strip()
+    if env:
+        return env
+    u2net_home = Path(os.environ.get("U2NET_HOME", str(Path.home() / ".u2net"))).expanduser()
+    if (u2net_home / "birefnet-general-lite.onnx").is_file():
+        return "birefnet-general-lite"
+    return "birefnet-general"
 
 
 def _pose_guard_modo(item: dict | None = None) -> str:
@@ -234,7 +241,7 @@ def _usar_modular_armor(item: dict) -> bool:
     if raw_origem.startswith("makehuman://clothes/"):
         return True
     parte = str(item.get("parte") or "").strip().lower()
-    if parte in ("elmo", "ombreiras", "peitoral", "luvas", "calcas", "calças", "botas"):
+    if parte in ("elmo", "ombreiras", "peitoral", "luvas", "calcas", "calças", "botas", "escudo"):
         return True
     return False
 
@@ -396,7 +403,7 @@ class MeshProvider:
             os.environ.get("FORGE3D_MODELO_CONCEPT", "sd15").strip().replace("/", "_")
         )
         c_ver = _concept.VERSAO
-        c_pose = os.environ.get("FORGE3D_CONCEPT_POSE", "").strip().lower() or "auto"
+        c_pose = _concept.estado_pose_cache()
         c_step = os.environ.get("FORGE3D_CONCEPT_PASSOS", "25").strip()
         c_w = os.environ.get("FORGE3D_CONCEPT_LARGURA", "512").strip()
         c_h = os.environ.get("FORGE3D_CONCEPT_ALTURA", "512").strip()
@@ -434,8 +441,17 @@ class MeshProvider:
     def custo(self, item: dict, perfil: dict) -> dict:
         if _usar_makehuman_cabelo(item):
             return {"segundos_estimados": 6.0, "vram_mb": 0, "disco_mb": 20}
+        if _usar_modular_armor(item):
+            return {"segundos_estimados": 10.0, "vram_mb": 0, "disco_mb": 50}
         if _usar_template_humanoide(item):
-            return {"segundos_estimados": 18.0 if item.get("origem") else 35.0, "vram_mb": 0, "disco_mb": 120}
+            vram_tmpl = 0 if (item.get("origem") or _device().startswith("cpu")) else 3500
+            return {
+                "segundos_estimados": 18.0 if item.get("origem") else 35.0,
+                "vram_mb": vram_tmpl,
+                "disco_mb": 120,
+            }
+        if _usar_extrude_2d(item):
+            return {"segundos_estimados": 10.0, "vram_mb": 0, "disco_mb": 50}
         # [estimado] mesh medido (23,3 s) + concept SD1.5 (a medir); vram no pico do i23d
         if _device().startswith("cpu"):
             return {"segundos_estimados": 220.0 if not item.get("origem") else 200.0, "vram_mb": 0, "disco_mb": 4500}
@@ -533,6 +549,17 @@ class MeshProvider:
             return True, f"pronto (template MPFB2); concept: {c_razao}"
 
         if _usar_extrude_2d(item):
+            from ..errors import ForgeError
+            from ..post import binario
+
+            try:
+                binario()
+            except ForgeError as exc:
+                return False, exc.mensagem
+            if not _python_imagem().is_file():
+                return False, f"P3: venv de imagem ausente em {dir_venv()}"
+            if not script_pose_guard().is_file():
+                return False, f"script tools/pose_guard.py ausente em {script_pose_guard()}"
             if item.get("origem"):
                 return True, "pronto (extrude 2D com origem)"
             from .concept import ConceptProvider
@@ -846,12 +873,14 @@ class MeshProvider:
         prep_data = json.loads(prep_json.read_text(encoding="utf-8"))
 
         tex_max = int((perfil.get("material") or {}).get("textura_max") or 1024)
+        mat_max = int((perfil.get("validacao") or {}).get("materiais_max") or 8)
         job_path = destino / "template_job.json"
         job_data: dict[str, Any] = {
             "foto": prep_data["foto_template"],
             "saida": str(destino),
             "marcos": prep_data.get("marcos") or {},
             "textura": max(256, min(tex_max, 2048)),
+            "materiais_max": mat_max,
             "limite_triangulos": int(item.get("limite_triangulos") or 12000),
             "rig": False,
         }
@@ -886,6 +915,13 @@ class MeshProvider:
             )
 
         rel_tmpl = json.loads(rel_path.read_text(encoding="utf-8"))
+        metallic_hint = str(prep_data.get("metallic_hint") or "").strip()
+        if not metallic_hint and (destino / "metallic_hint.png").is_file():
+            metallic_hint = "metallic_hint.png"
+        roughness_hint = str(prep_data.get("roughness_hint") or "").strip()
+        if not roughness_hint and (destino / "roughness_hint.png").is_file():
+            roughness_hint = "roughness_hint.png"
+
         modelo: dict[str, Any] = {
             "schema": "forge3d/bruto-arquivo@1",
             "arquivo": "template_body.glb",
@@ -897,6 +933,10 @@ class MeshProvider:
             "concept": concept_meta,
             "proteger_decimate": True,
         }
+        if metallic_hint:
+            modelo["metallic_hint"] = metallic_hint
+        if roughness_hint:
+            modelo["roughness_hint"] = roughness_hint
         arq_modelo = destino / "modelo.json"
         arq_modelo.write_text(
             json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
@@ -924,6 +964,8 @@ class MeshProvider:
                 destino / "baseColor.png",
                 destino / "hair_baseColor.png",
                 destino / "input_template.png",
+                destino / "metallic_hint.png",
+                destino / "roughness_hint.png",
             )
             if p.is_file()
         ]
@@ -997,6 +1039,14 @@ class MeshProvider:
 
         rel_tmpl = json.loads(rel_path.read_text(encoding="utf-8"))
         estilo_norm = str(rel_tmpl.get("estilo") or estilo)
+        pivos_cabelo: dict[str, Any] = {}
+        if isinstance(rel_tmpl.get("pivos"), dict):
+            pivos_cabelo.update(rel_tmpl["pivos"])
+        if rel_tmpl.get("cabeca"):
+            pivos_cabelo["cabeca"] = rel_tmpl["cabeca"]
+        if rel_tmpl.get("encaixe_cabeca"):
+            pivos_cabelo["encaixe_cabeca"] = rel_tmpl["encaixe_cabeca"]
+
         modelo: dict[str, Any] = {
             "schema": "forge3d/bruto-arquivo@1",
             "arquivo": "template_hair.glb",
@@ -1004,7 +1054,7 @@ class MeshProvider:
             "origem_nome": f"makehuman://hair/{estilo_norm}",
             "canonicalizar": False,
             "suavizar": False,
-            "pivos": {},
+            "pivos": pivos_cabelo,
             "concept": None,
             "proteger_decimate": False,
         }
@@ -1056,6 +1106,15 @@ class MeshProvider:
             parte = "calcas"
 
         limite_tri = int(item.get("limite_triangulos") or 10000)
+        tex_teto = 2048 if _qualidade(item) == "hero" else 1024
+        tex_max = int((perfil.get("material") or {}).get("textura_max") or tex_teto)
+        if _qualidade(item) == "hero":
+            tex_max = max(tex_max, 2048)
+        esqueleto = str(
+            item.get("esqueleto")
+            or (perfil.get("rig") or {}).get("esqueleto_padrao")
+            or "godot-humanoid@1"
+        )
         job_path = destino / "modular_armor_job.json"
         job_data: dict[str, Any] = {
             "saida": str(destino),
@@ -1063,10 +1122,17 @@ class MeshProvider:
             "parte": parte,
             "origem": str(item.get("origem") or "").strip(),
             "altura_metros": float(item.get("altura_metros") or 1.72),
-            "esqueleto": str(item.get("esqueleto") or "godot-humanoid@1"),
+            "esqueleto": esqueleto,
             "limite_triangulos": limite_tri,
+            "textura": max(64, min(tex_max, 2048)),
             "pivot": str(item.get("pivot") or "base"),
         }
+        if item.get("prompt"):
+            job_data["prompt"] = str(item["prompt"]).strip()
+        if item.get("paleta"):
+            job_data["paleta"] = list(item["paleta"])
+        if item.get("cor"):
+            job_data["cor"] = str(item["cor"]).strip()
         if item.get("skinned") is not None:
             job_data["skinned"] = bool(item["skinned"])
         if item.get("macro"):
@@ -1104,6 +1170,9 @@ class MeshProvider:
             "origem_nome": str(item.get("origem") or f"modular_armor://{parte}"),
             "canonicalizar": False,
             "suavizar": False,
+            "armadura_modular": bool(rel_armor.get("armadura_modular", True)),
+            "escala_preservada": bool(rel_armor.get("escala_preservada", False)),
+            "retopologia": str(item.get("retopologia") or "auto"),
             "pivos": {},
             "concept": None,
             "proteger_decimate": False,
@@ -1117,9 +1186,10 @@ class MeshProvider:
         resultado = {
             "ok": True,
             "modo": "modular_armor",
-            "modelo": "mpfb2_armor",
+            "modelo": "mpfb2",
             "parte": parte,
             "skinned": rel_armor.get("skinned", False),
+            "armadura_modular": True,
             "template": rel_armor,
             "tempo_provider_s": round(time.monotonic() - t0, 3),
         }
@@ -1132,14 +1202,165 @@ class MeshProvider:
             determinism=self.determinism,
             arquivos=[arq_modelo, glb, resultado_path],
             meta={
-                "modelo": "mpfb2_armor",
+                "modelo": "mpfb2",
                 "modo": "modular_armor",
                 "parte": parte,
                 "skinned": rel_armor.get("skinned", False),
+                "armadura_modular": True,
                 "template": rel_armor,
                 "concept": None,
             },
         )
+
+    def _gerar_extrude_2d(
+        self,
+        item: dict,
+        destino: Path,
+        imagem: Path,
+        concept_meta: dict | None,
+        env: dict[str, str],
+        t0: float,
+    ) -> RawAsset:
+        cutout_png, cutout_info = self._executar_cutout_2d(
+            imagem, destino, env, item.get("id")
+        )
+        delight_ativo = _delight_ativo(item)
+        delight_meta: dict[str, Any] = {"ativo": delight_ativo, "executado": False}
+        arquivos_extras: list[Path] = []
+        metallic_hint = ""
+        roughness_hint = ""
+        origem_textura = ""
+        if delight_ativo and script_delight().is_file() and cutout_png.is_file():
+            dl = self._executar_delight(cutout_png, destino, env)
+            delight_meta = dl["report"]
+            origem_textura = dl["albedo"]
+            metallic_hint = dl["metallic_hint"]
+            roughness_hint = dl["roughness_hint"]
+            arquivos_extras = dl["arquivos"]
+
+        modelo: dict[str, Any] = {
+            "schema": "forge3d/bruto-extrude@1",
+            "modo": str(item.get("parte") or "arma"),
+            "imagem": "input_cutout.png",
+            "origem_nome": imagem.name,
+            "pivos": {},
+            "concept": concept_meta,
+        }
+        if origem_textura:
+            modelo["origem_textura"] = origem_textura
+        if metallic_hint:
+            modelo["metallic_hint"] = metallic_hint
+        if roughness_hint:
+            modelo["roughness_hint"] = roughness_hint
+
+        arq_modelo = destino / "modelo.json"
+        arq_modelo.write_text(
+            json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        resultado_path = destino / "i23d_resultado.json"
+        resultado: dict[str, Any] = {
+            "ok": True,
+            "modo": "extrude_2d",
+            "modelo": "procedural",
+            "parte": modelo["modo"],
+            "cutout": cutout_info,
+            "delight": delight_meta,
+            "tempo_provider_s": round(time.monotonic() - t0, 3),
+        }
+        resultado_path.write_text(
+            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
+        )
+        return RawAsset(
+            dir=destino,
+            schema="forge3d/bruto-extrude@1",
+            determinism=self.determinism,
+            arquivos=[arq_modelo, cutout_png, resultado_path, *arquivos_extras],
+            meta={
+                "modelo": "procedural",
+                "modo": modelo["modo"],
+                "cutout": cutout_info,
+                "delight": delight_meta,
+                "concept": concept_meta,
+            },
+        )
+
+    def _gerar_concept_com_retry(
+        self,
+        item: dict,
+        destino: Path,
+        env: dict[str, str],
+        max_tentativas: int = 3,
+    ) -> tuple[Path, dict[str, Any]]:
+        from .concept import ConceptProvider
+
+        prov = ConceptProvider()
+        eh_rigged = item.get("tipo") == "personagem_humanoide" and bool(item.get("auto_rig"))
+        tentativas = max(1, int(max_tentativas)) if eh_rigged else 1
+        if tentativas == 1:
+            concept = prov.gerar(item, destino)
+            return concept["png"], concept["meta"]
+
+        pg_script = script_pose_guard()
+        py_img = _python_imagem()
+        melhor_score = -1.0
+        melhor: tuple[Path, dict[str, Any]] | None = None
+        seed_base = int(item.get("seed", 20261110))
+        historico: list[dict[str, Any]] = []
+
+        for i in range(tentativas):
+            sub_dir = destino / f"concept_try_{i}"
+            sub_item = dict(item)
+            sub_item["seed"] = seed_base + i * 101
+            concept = prov.gerar(sub_item, sub_dir)
+            png_i: Path = concept["png"]
+            meta_i: dict[str, Any] = dict(concept["meta"])
+
+            score = 0.0
+            apto = False
+            if pg_script.is_file() and py_img.is_file():
+                res_pg = sub_dir / "pose_detect.json"
+                try:
+                    proc = subprocess.run(
+                        [
+                            str(py_img),
+                            str(pg_script),
+                            "--acao",
+                            "detectar",
+                            "--imagem",
+                            str(png_i),
+                            "--resultado",
+                            str(res_pg),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        env=env,
+                        check=False,
+                    )
+                    if proc.returncode == 0 and res_pg.is_file():
+                        info_pg = json.loads(res_pg.read_text(encoding="utf-8"))
+                        score = float(info_pg.get("score_pose", 0.0))
+                        apto = bool(info_pg.get("apto_rig", False))
+                except (OSError, subprocess.SubprocessError, ValueError):
+                    pass
+
+            historico.append({"tentativa": i + 1, "seed": sub_item["seed"], "score_pose": score, "apto_rig": apto})
+            if melhor is None or score > melhor_score:
+                melhor_score = score
+                melhor = (png_i, meta_i)
+            if apto or score >= 0.72:
+                break
+
+        assert melhor is not None
+        png_escolhido, meta_escolhido = melhor
+        destino_png = destino / png_escolhido.name
+        if png_escolhido != destino_png:
+            shutil.copyfile(png_escolhido, destino_png)
+        meta_escolhido["concept_tentativas"] = len(historico)
+        meta_escolhido["concept_score_pose"] = round(max(0.0, melhor_score), 4)
+        meta_escolhido["concept_historico"] = historico
+        return destino_png, meta_escolhido
 
     def gerar(self, item: dict, perfil: dict, destino: Path) -> RawAsset:
         from ..errors import erro_provider_run
@@ -1194,11 +1415,7 @@ class MeshProvider:
                     f"formato de concept não suportado: {imagem.suffix}", id=item.get("id")
                 )
         else:
-            from .concept import ConceptProvider
-
-            concept = ConceptProvider().gerar(item, destino)
-            imagem = concept["png"]
-            concept_meta = concept["meta"]
+            imagem, concept_meta = self._gerar_concept_com_retry(item, destino, env)
 
         if _usar_template_humanoide(item):
             return self._gerar_template_humanoide(
@@ -1206,67 +1423,7 @@ class MeshProvider:
             )
 
         if _usar_extrude_2d(item):
-            cutout_png, cutout_info = self._executar_cutout_2d(
-                imagem, destino, env, item.get("id")
-            )
-            delight_ativo = _delight_ativo(item)
-            delight_meta: dict[str, Any] = {"ativo": delight_ativo, "executado": False}
-            arquivos_extras: list[Path] = []
-            metallic_hint = ""
-            roughness_hint = ""
-            origem_textura = ""
-            if delight_ativo and script_delight().is_file() and cutout_png.is_file():
-                dl = self._executar_delight(cutout_png, destino, env)
-                delight_meta = dl["report"]
-                origem_textura = dl["albedo"]
-                metallic_hint = dl["metallic_hint"]
-                roughness_hint = dl["roughness_hint"]
-                arquivos_extras = dl["arquivos"]
-
-            modelo: dict[str, Any] = {
-                "schema": "forge3d/bruto-extrude@1",
-                "modo": str(item.get("parte") or "arma"),
-                "imagem": "input_cutout.png",
-                "origem_nome": imagem.name,
-                "pivos": {},
-                "concept": concept_meta,
-            }
-            if origem_textura:
-                modelo["origem_textura"] = origem_textura
-            if metallic_hint:
-                modelo["metallic_hint"] = metallic_hint
-            if roughness_hint:
-                modelo["roughness_hint"] = roughness_hint
-
-            arq_modelo = destino / "modelo.json"
-            arq_modelo.write_text(
-                json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
-                encoding="utf-8",
-            )
-            resultado: dict[str, Any] = {
-                "ok": True,
-                "modo": "extrude_2d",
-                "parte": modelo["modo"],
-                "cutout": cutout_info,
-                "delight": delight_meta,
-                "tempo_provider_s": round(time.monotonic() - t0, 3),
-            }
-            resultado_path.write_text(
-                json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-            )
-            return RawAsset(
-                dir=destino,
-                schema="forge3d/bruto-extrude@1",
-                determinism=self.determinism,
-                arquivos=[arq_modelo, cutout_png, resultado_path, *arquivos_extras],
-                meta={
-                    "modelo": "extrude_2d",
-                    "modo": modelo["modo"],
-                    "cutout": cutout_info,
-                    "delight": delight_meta,
-                    "concept": concept_meta,
-                },
-            )
+            return self._gerar_extrude_2d(item, destino, imagem, concept_meta, env, t0)
 
         imagem, pose_guard_report = self._executar_pose_guard(item, imagem, destino, env)
 
@@ -1347,13 +1504,16 @@ class MeshProvider:
             roughness_hint = dl["roughness_hint"]
             arquivos_extras = [*arquivos_extras, *dl["arquivos"]]
 
-        textura_px = int(os.environ.get("FORGE3D_TEX_PX", "1024"))
-        modelo = {
+        tex_default = "2048" if _qualidade(item) == "hero" else "1024"
+        tex_max_lim = 2048 if _qualidade(item) == "hero" else 1024
+        textura_px = int(os.environ.get("FORGE3D_TEX_PX", tex_default))
+        modelo: dict[str, Any] = {
             "schema": "forge3d/bruto-arquivo@1",
             "arquivo": "modelo.glb",
             "origem_nome": imagem.name,
             "canonicalizar": True,
-            "textura_px": max(64, min(textura_px, 1024)),
+            "textura_px": max(64, min(textura_px, tex_max_lim)),
+            "retopologia": str(item.get("retopologia") or "auto"),
             "pivos": {},
             "concept": concept_meta,
             "proteger_decimate": item.get("tipo") in ("personagem_humanoide", "criatura"),

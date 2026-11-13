@@ -21,9 +21,12 @@ ROBLOX = profiles.carregar("roblox-r15")
 
 
 CHAVES_RETARGET_ESPERADAS = {
+    "quadril",
     "tronco",
     "coluna",
     "cabeca",
+    "ombro_e",
+    "ombro_d",
     "braco_e",
     "braco_d",
     "antebraco_e",
@@ -32,6 +35,8 @@ CHAVES_RETARGET_ESPERADAS = {
     "perna_d",
     "canela_e",
     "canela_d",
+    "pe_e",
+    "pe_d",
 }
 
 
@@ -77,10 +82,10 @@ def test_spec_aceita_idle_sem_aviso_de_animacao():
     assert not [a for a in avisos if a["codigo"] == "FORGE-W-ANIM"], avisos
 
 
-def test_spec_aceita_todos_os_quatro_clipes_suportados():
+def test_spec_aceita_todos_os_oito_clipes_suportados():
     from forge3d import spec
 
-    pedidos = ["idle", "walk", "run", "jump"]
+    pedidos = ["idle", "walk", "run", "jump", "attack", "block", "hit", "death"]
     spec_doc, _perfil, avisos = spec.preparar(_doc({"animacoes_base": pedidos}))
     assert spec_doc["lote"][0]["animacoes_base"] == pedidos
     assert not [a for a in avisos if a["codigo"] == "FORGE-W-ANIM"], avisos
@@ -177,6 +182,33 @@ def test_multi_clipes_walk_run_jump_sao_deterministicos_e_movem_11_ossos():
             for antebraco in (mapa["antebraco_e"], mapa["antebraco_d"]):
                 vals = [p["graus"] for ch in cl["chaves"] for p in ch["poses"] if p["osso"] == antebraco]
                 assert min(vals) >= -1e-6, (esqueleto, clipe_nome, antebraco, vals)
+
+
+def test_clipes_combate_e_deslocamento_quadril():
+    from forge3d import animacao, rbx
+
+    pedidos = ["attack", "block", "hit", "death"]
+    for perfil, esqueleto in ((GODOT, "godot-humanoid@1"), (ROBLOX, "r15@1")):
+        clipes_comb = animacao.clipes(perfil, esqueleto, pedidos)
+        assert [c["nome"] for c in clipes_comb] == pedidos
+        for cl in clipes_comb:
+            assert cl["loop"] is False
+            assert cl["duracao_s"] >= 0.45
+            desls = [
+                p["deslocamento_m"][2]
+                for ch in cl["chaves"]
+                for p in ch["poses"]
+                if "deslocamento_m" in p
+            ]
+            assert desls and max(desls) - min(desls) > 0.005, (esqueleto, cl["nome"], desls)
+            if cl["nome"] == "death":
+                assert min(desls) < -0.5
+
+    walk_r15 = animacao.clipes(ROBLOX, "r15@1", ["walk"])[0]
+    assert walk_r15["loop"] is True
+    xml = "\n".join(rbx._sequencia_xml(walk_r15, 10)[0])
+    assert "<Y>0.025000</Y>" in xml
+    assert "<Z>0</Z>" in xml
 
 
 # ------------------------------------------------------------------ G10
@@ -322,7 +354,7 @@ CLIPES = [
 
 def test_manifesto_v3_declara_os_clipes():
     man = _manifesto(CLIPES)
-    assert man["schema"] == "forge3d/manifest@3"
+    assert man["schema"] == "forge3d/manifest@4"
     assert man["animacoes"] == [
         {
             "nome": "idle",
@@ -330,17 +362,17 @@ def test_manifesto_v3_declara_os_clipes():
             "ossos": ["Chest", "Head", "Spine1", "UpperArm.L", "UpperArm.R"],
         }
     ]
-    jsonschema.validate(man, _schema("3"))
+    jsonschema.validate(man, _schema("4"))
 
 
 def test_manifesto_v3_sem_animacoes_reprova():
     man = _manifesto(CLIPES)
     man.pop("animacoes")
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(man, _schema("3"))
+        jsonschema.validate(man, _schema("4"))
 
 
 def test_manifesto_v3_com_animacao_vazia_e_valido():
     man = _manifesto([])
     assert man["animacoes"] == []
-    jsonschema.validate(man, _schema("3"))
+    jsonschema.validate(man, _schema("4"))

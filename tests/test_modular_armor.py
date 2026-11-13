@@ -4,13 +4,12 @@ import hashlib
 import json
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 
 import jsonschema
 import pytest
 
-from forge3d import profiles, publish, spec
+from forge3d import post, profiles, publish, spec
 from forge3d.errors import ForgeError
 from forge3d.providers import mesh
 
@@ -171,7 +170,7 @@ def test_makehuman_clothes_em_cabelo_falha_b21():
     ("parte", "osso_esperado", "attachment_esperado", "skinned_esperado"),
     [
         ("elmo", "Head", "HatAttachment", False),
-        ("ombreiras", "Shoulder.L", "LeftCollarAttachment", False),
+        ("ombreiras", "Shoulder.L", "LeftCollarAttachment", True),
         ("peitoral", "Chest", "BodyFrontAttachment", True),
         ("luvas", "Hand.R", "RightGripAttachment", True),
         ("calcas", "Hips", "WaistCenterAttachment", True),
@@ -335,7 +334,15 @@ def test_set_completo_6_pecas_mais_escudo_valida_em_lote():
 # ------------------------------------------------------------------ Execucao Blender modular_armor.py
 
 
+@pytest.mark.blender
 def test_blender_modular_armor_gera_peitoral_skinned_e_elmo_socket(tmp_path):
+    if not _tem_mpfb2_clothes():
+        pytest.skip("MPFB2 clothes nao instalados no ambiente")
+    try:
+        blender_bin = post.binario()
+    except ForgeError:
+        pytest.skip("Blender 4.2 nao disponivel neste ambiente")
+
     # 1. Testa Peitoral Skinned com DATA_TRANSFER
     dir_peitoral = tmp_path / "peitoral"
     dir_peitoral.mkdir()
@@ -351,7 +358,7 @@ def test_blender_modular_armor_gera_peitoral_skinned_e_elmo_socket(tmp_path):
     jf_peitoral.write_text(json.dumps(job_peitoral), encoding="utf-8")
 
     proc = subprocess.run(
-        ["blender", "-b", "--python", "blender/modular_armor.py", "--", str(jf_peitoral)],
+        [blender_bin, "-b", "--python", "blender/modular_armor.py", "--", str(jf_peitoral)],
         capture_output=True,
         text=True,
         timeout=60,
@@ -379,7 +386,7 @@ def test_blender_modular_armor_gera_peitoral_skinned_e_elmo_socket(tmp_path):
     jf_elmo.write_text(json.dumps(job_elmo), encoding="utf-8")
 
     proc_elmo = subprocess.run(
-        ["blender", "-b", "--python", "blender/modular_armor.py", "--", str(jf_elmo)],
+        [blender_bin, "-b", "--python", "blender/modular_armor.py", "--", str(jf_elmo)],
         capture_output=True,
         text=True,
         timeout=60,
@@ -390,3 +397,454 @@ def test_blender_modular_armor_gera_peitoral_skinned_e_elmo_socket(tmp_path):
     assert rel_e["ok"] is True
     assert rel_e["skinned"] is False
     assert rel_e["osso"] == "Head"
+
+
+def _tem_mpfb2_clothes() -> bool:
+    base = Path.home() / ".config" / "blender" / "4.2" / "extensions"
+    return any(base.glob("**/mpfb/data/clothes/shoes01/shoes01.mhclo"))
+
+
+def test_custo_preflight_e_licenca_rotas_cpu():
+    """Modular armor (incl. escudo) e extrude_2d nao exigem GPU VRAM; template sem origem exige."""
+    prov = mesh.MeshProvider()
+    perfil = profiles.carregar("godot4")
+
+    item_escudo = {
+        "id": "set.teste.escudo.01",
+        "tipo": "prop_equipavel",
+        "rota": "mesh",
+        "parte": "escudo",
+        "altura_metros": 0.85,
+        "prompt": "escudo templario prateado",
+        "seed": 11,
+    }
+    assert mesh._usar_modular_armor(item_escudo) is True
+    assert mesh._usar_modular_armor({**item_escudo, "extrudir_2d": True}) is False
+
+    c_armor = prov.custo(item_escudo, perfil)
+    assert c_armor["vram_mb"] == 0
+    ok_a, _ = prov.preflight_item(item_escudo)
+    assert ok_a is True
+
+    item_extrude = {
+        "id": "prop.espada.01",
+        "tipo": "prop_equipavel",
+        "rota": "mesh",
+        "parte": "arma",
+        "extrudir_2d": True,
+        "altura_metros": 1.1,
+        "prompt": "espada longa de aco",
+        "seed": 12,
+    }
+    c_ext = prov.custo(item_extrude, perfil)
+    assert c_ext["vram_mb"] == 0
+
+    item_hum = {
+        "id": "char.heroi.01",
+        "tipo": "personagem_humanoide",
+        "rota": "mesh",
+        "altura_metros": 1.75,
+        "prompt": "guerreiro medieval em A-pose",
+        "seed": 13,
+    }
+    c_hum = prov.custo(item_hum, perfil)
+    assert 3500 <= c_hum["vram_mb"] <= 4000
+
+
+def test_r15_mapeamento_e_mhclo_aninhado_e_estilo(tmp_path):
+    """r15@1 usa ossos R15, _encontrar_mhclo resolve URIs aninhadas e estilo parseia prompt/paleta/cor."""
+    import importlib.util
+
+    spec_mod = importlib.util.spec_from_file_location(
+        "modular_armor_mod",
+        Path(__file__).resolve().parent.parent / "blender" / "modular_armor.py",
+    )
+    assert spec_mod and spec_mod.loader
+    import types
+    import sys
+
+    fake_bpy = types.ModuleType("bpy")
+    fake_bmesh = types.ModuleType("bmesh")
+    fake_mu = types.ModuleType("mathutils")
+    fake_mu.Matrix = object
+    fake_mu.Quaternion = object
+    fake_mu.Vector = object
+    sys_backup = {k: sys.modules.get(k) for k in ("bpy", "bmesh", "mathutils")}
+    sys.modules["bpy"] = fake_bpy
+    sys.modules["bmesh"] = fake_bmesh
+    sys.modules["mathutils"] = fake_mu
+    try:
+        mod = importlib.util.module_from_spec(spec_mod)
+        spec_mod.loader.exec_module(mod)
+    finally:
+        for k, v in sys_backup.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+    assert mod._osso_socket("peitoral", "r15@1") == "UpperTorso"
+    assert mod._osso_socket("calcas", "r15@1") == "LowerTorso"
+    assert mod._osso_socket("elmo", "r15@1") == "Head"
+    assert mod._osso_socket("escudo", "r15@1") == "LeftHand"
+    assert mod._osso_socket("luvas", "r15@1") == "RightHand"
+    assert mod._osso_socket("botas", "r15@1") == "RightFoot"
+    assert mod._osso_socket("ombreiras", "r15@1") == "LeftUpperArm"
+
+    clothes_dir = tmp_path / "clothes" / "cavaleiro" / "elmo01"
+    clothes_dir.mkdir(parents=True)
+    mhclo_alvo = clothes_dir / "elmo01.mhclo"
+    mhclo_alvo.write_text("name elmo01\n", encoding="utf-8")
+
+    ant_env = os.environ.get("FORGE3D_MPFB_ASSETS")
+    os.environ["FORGE3D_MPFB_ASSETS"] = str(tmp_path)
+    try:
+        achado = mod._encontrar_mhclo("makehuman://clothes/cavaleiro/elmo01", subpasta="clothes")
+        assert Path(achado).resolve() == mhclo_alvo.resolve()
+    finally:
+        if ant_env is None:
+            os.environ.pop("FORGE3D_MPFB_ASSETS", None)
+        else:
+            os.environ["FORGE3D_MPFB_ASSETS"] = ant_env
+
+    estilo = mod._resolver_estilo_visual(
+        {
+            "parte": "peitoral",
+            "prompt": "armadura de esmeralda e ouro polido",
+            "paleta": ["#198f57", "#d9ad3d"],
+        }
+    )
+    assert estilo["tint"] is not None and estilo["tint"][1] > estilo["tint"][0]
+    assert estilo["metallic"] >= 0.8
+    assert estilo["roughness"] < 0.35
+
+
+def test_extrude_orientacao_espada_invertida():
+    """Espada desenhada de ponta-cabeca e virada 180 graus quando pivot == 'empunhadura'."""
+    import importlib.util
+    import sys
+    import types
+
+    spec_mod = importlib.util.spec_from_file_location(
+        "extrude_2d_mod",
+        Path(__file__).resolve().parent.parent / "blender" / "extrude_2d.py",
+    )
+    assert spec_mod and spec_mod.loader
+    sys_backup = {k: sys.modules.get(k) for k in ("bpy", "bmesh")}
+    sys.modules["bpy"] = types.ModuleType("bpy")
+    sys.modules["bmesh"] = types.ModuleType("bmesh")
+    try:
+        mod = importlib.util.module_from_spec(spec_mod)
+        spec_mod.loader.exec_module(mod)
+    finally:
+        for k, v in sys_backup.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+    # Espada de ponta-cabeca: ponta fina em z=0, lamina alargando ate z=0.70, guarda em z=0.72..0.80, cabo z=0.80..1.0
+    espada_invertida = [
+        (0.0, 0.0),
+        (0.06, 0.25),
+        (0.08, 0.70),
+        (0.24, 0.72),
+        (0.24, 0.79),
+        (0.04, 0.80),
+        (0.04, 1.00),
+        (-0.04, 1.00),
+        (-0.04, 0.80),
+        (-0.24, 0.79),
+        (-0.24, 0.72),
+        (-0.08, 0.70),
+        (-0.06, 0.25),
+    ]
+    pts_corrigidos, rot, _ = mod._orientar_arma_para_empunhadura(espada_invertida, "arma", "empunhadura")
+    assert rot == 180
+    assert mod._largura_na_altura(pts_corrigidos, 0.97) < mod._largura_na_altura(pts_corrigidos, 0.25)
+
+    # Machado normal (cabo uniforme embaixo, lamina em cima) NAO deve ser invertido
+    machado_em_pe = [
+        (-0.03, 0.0),
+        (0.03, 0.0),
+        (0.03, 0.65),
+        (0.22, 0.70),
+        (0.24, 0.95),
+        (0.03, 1.00),
+        (-0.03, 1.00),
+        (-0.03, 0.65),
+    ]
+    _, rot_ax, _ = mod._orientar_arma_para_empunhadura(machado_em_pe, "arma", "empunhadura")
+    assert rot_ax == 0
+
+
+def test_delight_bronze_e_gunmetal():
+    """delight._mapas_pbr_pil reconhece bronze/cobre e gunmetal escuro com contraste sem quebrar couro."""
+    from PIL import Image, ImageDraw
+    import importlib.util
+
+    spec_mod = importlib.util.spec_from_file_location(
+        "delight_mod",
+        Path(__file__).resolve().parent.parent / "tools" / "delight.py",
+    )
+    assert spec_mod and spec_mod.loader
+    mod = importlib.util.module_from_spec(spec_mod)
+    spec_mod.loader.exec_module(mod)
+
+    # Bronze com realce especular sobre fundo transparente (contraste >= 18)
+    im_bronze = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    d_b = ImageDraw.Draw(im_bronze)
+    d_b.rectangle([(8, 8), (56, 56)], fill=(195, 118, 56, 255))
+    d_b.rectangle([(24, 24), (40, 40)], fill=(245, 195, 130, 255))
+    met_b, _ = mod._mapas_pbr_pil(im_bronze)
+    assert met_b.getpixel((23, 32)) >= 200
+
+    # Gunmetal escuro com realce sobre fundo transparente
+    im_gun = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    d_g = ImageDraw.Draw(im_gun)
+    d_g.rectangle([(8, 8), (56, 56)], fill=(66, 70, 76, 255))
+    d_g.rectangle([(26, 26), (38, 38)], fill=(125, 130, 138, 255))
+    met_g, _ = mod._mapas_pbr_pil(im_gun)
+    assert met_g.getpixel((25, 32)) >= 190
+
+
+@pytest.mark.blender
+def test_autorig_composicao_quaternions_multiplos_eixos():
+    """aplicar_animacoes_multi compoe rotacoes no mesmo osso e frame sem sobrescrever eixo anterior."""
+    script = """
+import bpy, math, sys
+from mathutils import Quaternion
+sys.path.insert(0, ".")
+from blender import autorig
+bpy.ops.wm.read_factory_settings(use_empty=True)
+arm = bpy.data.armatures.new("a")
+rig = bpy.data.objects.new("rig", arm)
+bpy.context.collection.objects.link(rig)
+bpy.context.view_layer.objects.active = rig
+bpy.ops.object.mode_set(mode="EDIT")
+b = arm.edit_bones.new("UpperArm.L")
+b.head = (0, 0, 1)
+b.tail = (0.3, 0, 1)
+bpy.ops.object.mode_set(mode="OBJECT")
+clipes = [{
+    "nome": "slash",
+    "duracao_s": 0.5,
+    "fps": 24,
+    "ossos": ["UpperArm.L"],
+    "chaves": [{
+        "frame": 1,
+        "poses": [
+            {"osso": "UpperArm.L", "eixo": "X", "graus": 30.0},
+            {"osso": "UpperArm.L", "eixo": "Z", "graus": 45.0},
+        ],
+    }],
+}]
+autorig.aplicar_animacoes_multi(rig, clipes)
+qx = Quaternion((1, 0, 0), math.radians(30.0))
+qz = Quaternion((0, 0, 1), math.radians(45.0))
+esperado = qx @ qz
+acao = bpy.data.actions["slash"]
+bpy.context.scene.frame_set(1)
+rig.animation_data.action = acao
+bpy.context.view_layer.update()
+obtido = rig.pose.bones["UpperArm.L"].rotation_quaternion
+dot = abs(obtido.dot(esperado))
+assert dot > 0.9999, f"dot={dot}, obtido={obtido}, esperado={esperado}"
+print("QUAT_COMPOSE_OK")
+"""
+    proc = subprocess.run(
+        ["blender", "-b", "--python-expr", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0 and "QUAT_COMPOSE_OK" in proc.stdout, proc.stderr + proc.stdout
+
+
+@pytest.mark.blender
+def test_e2e_forge3d_run_modular_armor_e_extrude_2d(tmp_path):
+    """E2E real `forge3d plan` + `forge3d run`: peitoral, botas, elmo, escudo e espada extrude_2d (G1-G9)."""
+    if not _tem_mpfb2_clothes():
+        pytest.skip("Pacote MPFB2 clothes nao instalado no ambiente")
+
+    from PIL import Image, ImageDraw
+    import sys
+
+    f_home = tmp_path / "f_home"
+    f_cfg = tmp_path / "f_cfg"
+    saida = f_home / "saida" / "e2e_armadura"
+    f_home.mkdir(parents=True)
+    f_cfg.mkdir(parents=True)
+    saida.mkdir(parents=True)
+
+    # Espada desenhada de ponta-cabeca (ponta no topo Y=490 da imagem PIL -> bottom Z=0 no Blender antes do fix!)
+    espada_png = tmp_path / "espada_inv.png"
+    im = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(im)
+    # Cabo e pomo em cima (y pequeno = topo da imagem = z alto antes da correcao)
+    draw.ellipse([(116, 10), (140, 28)], fill=(215, 175, 55, 255))
+    draw.rectangle([(120, 26), (136, 60)], fill=(115, 65, 30, 255))
+    draw.rectangle([(84, 58), (172, 72)], fill=(215, 175, 55, 255))
+    # Lamina apontando para baixo (y=246)
+    draw.polygon([(114, 72), (142, 72), (139, 200), (128, 246), (117, 200)], fill=(205, 215, 230, 255))
+    im.save(espada_png)
+
+    from forge3d.canonical import sha256_arquivo
+
+    spec_doc = {
+        "schema": "forge3d/spec@3",
+        "projeto": "e2e_armor_test",
+        "perfil": "godot4",
+        "destino_exportacao": str(saida),
+        "requisicao": {
+            "id": "req-e2e-01",
+            "isolamento": "estrito",
+            "base_externa": {
+                "origem": str(espada_png),
+                "sha256": sha256_arquivo(espada_png),
+                "tipo": "prop_equipavel",
+            },
+        },
+        "lote": [
+            {
+                "id": "e2e.peitoral.01",
+                "tipo": "prop_equipavel",
+                "rota": "mesh",
+                "parte": "peitoral",
+                "altura_metros": 1.65,
+                "esqueleto": "godot-humanoid@1",
+                "prompt": "peitoral de armadura esmeralda e ouro",
+                "paleta": ["#198f57", "#d9ad3d"],
+                "colisao": "none",
+                "seed": 201,
+            },
+            {
+                "id": "e2e.botas.01",
+                "tipo": "prop_equipavel",
+                "rota": "mesh",
+                "parte": "botas",
+                "altura_metros": 0.35,
+                "esqueleto": "godot-humanoid@1",
+                "prompt": "botas de ferro escuro",
+                "colisao": "none",
+                "seed": 202,
+            },
+            {
+                "id": "e2e.elmo.01",
+                "tipo": "prop_equipavel",
+                "rota": "mesh",
+                "parte": "elmo",
+                "altura_metros": 0.32,
+                "pivot": "base",
+                "prompt": "elmo de cavaleiro prateado",
+                "colisao": "none",
+                "seed": 203,
+            },
+            {
+                "id": "e2e.escudo.01",
+                "tipo": "prop_equipavel",
+                "rota": "mesh",
+                "parte": "escudo",
+                "altura_metros": 0.78,
+                "pivot": "centro",
+                "prompt": "escudo real de ouro e rubi",
+                "colisao": "none",
+                "seed": 204,
+            },
+            {
+                "id": "e2e.espada.01",
+                "tipo": "prop_equipavel",
+                "rota": "mesh",
+                "parte": "arma",
+                "extrudir_2d": True,
+                "origem": str(espada_png),
+                "altura_metros": 1.05,
+                "pivot": "empunhadura",
+                "prompt": "espada longa de aco",
+                "colisao": "convex",
+                "seed": 205,
+            },
+        ],
+    }
+    spec_file = tmp_path / "spec.json"
+    spec_file.write_text(json.dumps(spec_doc, indent=2), encoding="utf-8")
+
+    env = dict(os.environ)
+    env["FORGE3D_HOME"] = str(f_home)
+    env["FORGE3D_CONFIG"] = str(f_cfg)
+    env["FORGE3D_DEVICE"] = "cpu"
+
+    cli_bin = str(Path(sys.executable).parent / "forge3d")
+
+    # 1. `forge3d plan`: zero VRAM para todas as pecas
+    p_plan = subprocess.run(
+        [cli_bin, "plan", "--json", "--no-cache", str(spec_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+    assert p_plan.returncode == 0, p_plan.stderr + p_plan.stdout
+    plano = json.loads(p_plan.stdout)
+    for it in plano.get("itens", []):
+        assert it["custo"]["vram_mb"] == 0, f"VRAM nao zerada para {it['id']}: {it['custo']}"
+
+    # 2. `forge3d run`: G1-G9 verdes, licenca G8 correta e escala exata
+    p_run = subprocess.run(
+        [cli_bin, "run", "--json", "--no-cache", str(spec_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=300,
+    )
+    assert p_run.returncode == 0, p_run.stderr + p_run.stdout
+    rel_run = json.loads(p_run.stdout)
+    assert rel_run.get("resumo", {}).get("publicados") == 5, rel_run
+
+    licencas_esperadas = {
+        "e2e.peitoral.01": "MPFB2 / MakeHuman Base Mesh",
+        "e2e.botas.01": "MPFB2 / MakeHuman Base Mesh",
+        "e2e.elmo.01": "MPFB2 / MakeHuman Base Mesh",
+        "e2e.escudo.01": "MPFB2 / MakeHuman Base Mesh",
+        "e2e.espada.01": "procedural (sem modelo de terceiro)",
+    }
+    for item_id, mod_esp in licencas_esperadas.items():
+        man = json.loads((saida / f"{item_id}.manifest.json").read_text(encoding="utf-8"))
+        assert man["qc"]["aprovado"] is True, f"QC falhou para {item_id}: {man['qc']}"
+        assert man["licenca"]["modelo"] == mod_esp, f"Licenca incorreta para {item_id}: {man['licenca']}"
+        for g_res in man["qc"]["gates"]:
+            assert g_res["status"] == "ok", f"{item_id} falhou {g_res['id']}: {g_res}"
+
+    import struct
+
+    def _ler_positions_glb(glb_bytes: bytes) -> list[tuple[float, float, float]]:
+        jlen = struct.unpack_from("<I", glb_bytes, 12)[0]
+        g_json = json.loads(glb_bytes[20 : 20 + jlen])
+        bin_off = 20 + jlen + 8
+        acc = g_json["accessors"][g_json["meshes"][0]["primitives"][0]["attributes"]["POSITION"]]
+        bv = g_json["bufferViews"][acc["bufferView"]]
+        return [
+            struct.unpack_from(
+                "<fff", glb_bytes, bin_off + bv.get("byteOffset", 0) + acc.get("byteOffset", 0) + i * 12
+            )
+            for i in range(acc["count"])
+        ]
+
+    # Confirma altura exata de botas no POSITION do GLB (sem distorcao de Icosphere)
+    pts_botas = _ler_positions_glb((saida / "e2e.botas.01.glb").read_bytes())
+    alt_botas = max(p[1] for p in pts_botas) - min(p[1] for p in pts_botas)
+    assert abs(alt_botas - 0.35) < 0.002, f"altura botas glTF={alt_botas}"
+
+    # Confirma baseColor standalone da espada e ponta orientada para cima (+Y no glTF)
+    assert (saida / "e2e.espada.01_baseColor.png").is_file()
+    pts_espada = _ler_positions_glb((saida / "e2e.espada.01.glb").read_bytes())
+    y_min = min(p[1] for p in pts_espada)
+    y_max = max(p[1] for p in pts_espada)
+    topo_xs = [abs(p[0]) for p in pts_espada if p[1] > y_min + 0.90 * (y_max - y_min)]
+    guarda_xs = [
+        abs(p[0])
+        for p in pts_espada
+        if (y_min + 0.12 * (y_max - y_min)) <= p[1] <= (y_min + 0.38 * (y_max - y_min))
+    ]
+    # Guarda na metade inferior e ponta fina no topo (+Y)
+    assert max(topo_xs) < max(guarda_xs) * 0.5, f"espada invertida: topo={max(topo_xs)}, guarda={max(guarda_xs)}"

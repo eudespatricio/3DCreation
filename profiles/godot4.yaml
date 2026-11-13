@@ -33,6 +33,7 @@ colisao:
 lod:
   sufixos: ["_LOD0", "_LOD1", "_LOD2"]
   preservar_materiais: true
+  distancia_m: 25.0
 
 rig:
   esqueleto_padrao: "godot-humanoid@1"
@@ -41,9 +42,12 @@ rig:
   # O mesmo clipe e materializado nos dois esqueletos por esta tabela, nunca por nome igual.
   retarget:
     "godot-humanoid@1":
+      quadril: Hips
       tronco: Chest
       coluna: Spine1
       cabeca: Head
+      ombro_e: Shoulder.L
+      ombro_d: Shoulder.R
       braco_e: UpperArm.L
       braco_d: UpperArm.R
       antebraco_e: LowerArm.L
@@ -52,6 +56,8 @@ rig:
       perna_d: UpperLeg.R
       canela_e: LowerLeg.L
       canela_d: LowerLeg.R
+      pe_e: Foot.L
+      pe_d: Foot.R
   mapas:
     "godot-humanoid@1":
       - Root

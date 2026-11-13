@@ -204,6 +204,12 @@ def _analisar_perfil_silhueta(linhas_xs: list[list[int]], metodo: str) -> dict[s
             "precisa_repose": True,
             "aspecto": 0.0,
             "waist_elbow_gap": 0.0,
+            "cabeca_ok": False,
+            "simetria_iou": 0.0,
+            "leg_gap_ratio": 0.0,
+            "pernas_separadas": False,
+            "apto_rig": False,
+            "score_pose": 0.0,
             "metodo_mascara": metodo,
         }
 
@@ -284,6 +290,45 @@ def _analisar_perfil_silhueta(linhas_xs: list[list[int]], metodo: str) -> dict[s
     else:
         pose = "arms_down"
 
+    cabeca_spans: list[float] = []
+    leg_total = 0
+    leg_com_gap = 0
+    x_mid = (x_min + x_max) / 2.0
+    sim_inter = 0
+    sim_union = 0
+    for y in range(y_min, y_max + 1):
+        xs = linhas_xs[y]
+        if not xs:
+            continue
+        norm_y = (y - y_min) / max(1, fg_h - 1) if fg_h > 1 else 0.5
+        span_px = xs[-1] - xs[0] + 1
+        if 0.0 <= norm_y <= 0.14:
+            cabeca_spans.append(span_px / fg_h)
+        if 0.62 <= norm_y <= 0.96:
+            leg_total += 1
+            if any((b - a - 1) >= gap_min_px for a, b in zip(xs, xs[1:])):
+                leg_com_gap += 1
+        orig_set = set(xs)
+        mir_set = {round(2.0 * x_mid - x) for x in xs}
+        sim_inter += len(orig_set & mir_set)
+        sim_union += len(orig_set | mir_set)
+
+    cabeca_w = _percentil(cabeca_spans, 0.90) if cabeca_spans else 0.0
+    cabeca_ok = bool(cabeca_spans) and 0.03 <= cabeca_w <= 0.35
+    simetria_iou = sim_inter / float(sim_union) if sim_union > 0 else 0.0
+    leg_gap_ratio = leg_com_gap / float(leg_total) if leg_total > 0 else 0.0
+    pernas_separadas = leg_gap_ratio >= 0.30
+    apto_rig = bool(
+        pose == "tpose_apose" and cabeca_ok and simetria_iou >= 0.60 and pernas_separadas
+    )
+    score_pose = (
+        0.35 * (1.0 if pose == "tpose_apose" else 0.0)
+        + 0.25 * min(1.0, simetria_iou)
+        + 0.20 * min(1.0, leg_gap_ratio / 0.5)
+        + 0.10 * min(1.0, razao_flanco / 0.35)
+        + (0.10 if cabeca_ok else 0.0)
+    )
+
     return {
         "pose": pose,
         "razao_flanco": round(float(razao_flanco), 4),
@@ -291,6 +336,12 @@ def _analisar_perfil_silhueta(linhas_xs: list[list[int]], metodo: str) -> dict[s
         "precisa_repose": pose == "arms_down",
         "aspecto": round(float(aspecto), 4),
         "waist_elbow_gap": round(float(waist_elbow_gap), 4),
+        "cabeca_ok": cabeca_ok,
+        "simetria_iou": round(float(simetria_iou), 4),
+        "leg_gap_ratio": round(float(leg_gap_ratio), 4),
+        "pernas_separadas": pernas_separadas,
+        "apto_rig": apto_rig,
+        "score_pose": round(float(score_pose), 4),
         "metodo_mascara": metodo,
     }
 

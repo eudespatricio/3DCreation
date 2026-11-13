@@ -20,15 +20,15 @@ Duas consequências:
 
 | # | Gate | Mede | Como | Padrão de limite | Sev. |
 |---|---|---|---|---|---|
-| **G1** | Geometria sã | arestas não-manifold, faces degeneradas, normais invertidas, buracos | `bpy`: `bmesh` + checagem de normais | `0` não-manifold, `0` degenerada | erro |
-| **G2** | Escala e pivô | altura da AABB (÷ `escala_saida`) vs `altura_metros`; posição do pivô vs regra | leitura do `.glb` (accessor min/max), sem Blender | `≤ 0,5 %` e `≤ 1 mm` | erro |
-| **G3** | UV | `TEXCOORD_0` presente em todo primitivo; UV em `[0,1]` no modo atlas | parse do `.glb` | cobertura `100 %` | erro |
-| **G4** | Textura | dimensão POT, `≤ textura_max`, sem upscale, canais corretos | header PNG | `≤ 1024`, POT obrigatório | erro |
-| **G5** | Material | nº de materiais, todos com textura existente, sem caminho absoluto | parse do `.glb` + `fsck` de arquivo | `≤ 8` por asset | erro |
-| **G6** | Rig | nº de ossos, nomes contra o mapa do perfil, root na origem, sem escala em osso | parse de `skins`/`nodes` | `≤ 64` (Godot) / `≤ 24` (R15) | erro |
-| **G7** | Colisão | presença, nº de partes, prefixo `UCX_`, convexidade, dentro da AABB visual | parse de nodes + `bpy` para convexidade | `≤ 15` partes | erro |
+| **G1** | Geometria sã | arestas não-manifold, faces degeneradas, normais invertidas por componente (`invertidas` + guarda de cavidade), buracos | `bpy` + volume assinado em Python puro | `0` não-manifold, `0` degenerada | erro |
+| **G2** | Escala e pivô | altura da AABB (matrizes de mundo ÷ `escala_saida`) vs `altura_metros`; pivô vs regra; `escala_preservada` (`skinned`) | leitura do `.glb` (sem Blender) | `≤ 0,5 %` e `≤ 1 mm` | erro |
+| **G3** | UV | `TEXCOORD_0` presente, UV em `[0,1]` (salvo `permitir_tiling`) e área UV 2D não colapsada (`uv_colapsada`) | parse do `.glb` + buffer binário | cobertura `100 %`, área UV > 0 | erro |
+| **G4** | Textura | dimensão POT, `≤ textura_max`, integridade PNG (`CRC32`/`IHDR`/`IEND`), JPEG e WEBP | header/chunks + `PIL.Image` | `≤ 1024`, POT obrigatório | erro |
+| **G5** | Material | nº de materiais, texturas existentes, sem caminho absoluto e normais/tangentes PBR (`exigir_tangent_normal` em `@4`) | parse do `.glb` + `fsck` de arquivo | `≤ 8` por asset | erro |
+| **G6** | Rig | nº de ossos, nomes contra mapa do perfil, root na origem, sem escala, e `JOINTS_0`/`WEIGHTS_0` válidos | parse de `skins`/`nodes`/primitivos | `≤ 64` (Godot) / `≤ 24` (R15) | erro |
+| **G7** | Colisão | presença, nº de partes, prefixo `UCX_`, convexidade 1 mm/m e detecção coplanar/degenerada | parse de nodes + análise geométrica | `≤ 15` partes | erro |
 | **G8** | Licença | modelo na allowlist, `uso_comercial: true`, `NOTICE` presente | manifesto + allowlist | obrigatório | erro |
-| **G9** | Orçamento | triângulos vs `limite_triangulos`, bytes por arquivo, nº de primitivos | parse do `.glb` | tri `≤` orçamento · `≤ 2048 KB` | erro |
+| **G9** | Orçamento | triângulos vs `limite_triangulos` (`qualidade: hero` elevado), bytes por arquivo e silhueta IoU 128×128 entre LODs | parse do `.glb` + render 2D Pillow | tri `≤` orçamento · `≤ 2048 KB` (`hero`: `≤ 4096 KB`) | erro |
 | **G10** | Animação | clipes pedidos em `animacoes_base` existem, duração > 0,2 s e canais em ossos do rig | parse de `animations` do `.glb` | clipe presente · ≥ 1 canal | erro |
 
 **G1 mede topologia soldada.** O glTF divide vértice em cada costura de UV; sem soldar, todo asset
@@ -67,10 +67,12 @@ Vai para `.forge/staging/<id>/relatorio_qc.json` e é embutido no manifesto:
 
 `status` ∈ `ok` · `warn` · `falhou`. Um único `falhou` ⇒ `aprovado: false` ⇒ `exit 3`.
 
-**LOD não é gate de QC** (D71): o QC aprova o asset, não compara LODs entre si. A qualidade do LOD
-é medida por `tools/lod_qualidade.py` — IoU de silhueta (frente e lado), pior faixa vertical (8) e
-delta de bbox contra o LOD0 — e o critério é IoU ≥ 0,85, faixa ≥ 0,75 e bbox ≤ 2%. Roda na máquina
-do operador depois do `run`; a decisão de *se* o asset deve ter LOD é do perfil/exemplo.
+**LOD não é bloqueador fora do critério de silhueta** (D71/D92): no QC V2 o **G9** compara a silhueta
+ortográfica 128×128 (Pillow) dos LODs quando declarados; e o script `tools/lod_qualidade.py` mede IoU
+(frente e lado), pior faixa vertical (8) e delta de bbox contra o LOD0 — critério padrão IoU ≥ 0,85,
+faixa ≥ 0,75 e bbox ≤ 2% (adaptado para `0,78` / `0,65` quando o LOD0 tem `< 200` tris). Roda na máquina
+do operador depois do `run`; `verify` preserva `exigir_tangent_normal` apenas em `manifest@4` para manter
+todos os destinos legados `@1`–`@3` verdes.
 
 ## 4. Verificação em CI (`forge3d verify`)
 

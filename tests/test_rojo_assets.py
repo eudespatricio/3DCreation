@@ -8,7 +8,7 @@ import subprocess
 
 import pytest
 
-from forge3d import index, sync
+from forge3d import index, rbx, sync, upload
 from forge3d.cli.comandos import despachar
 from forge3d.errors import ForgeError
 from tests.test_sync import _publicar_valido
@@ -149,3 +149,44 @@ def test_cli_sync_com_rojo_lua_e_limpar(tmp_path, monkeypatch, capsys):
     conteudo = assets_lua.read_text(encoding="utf-8")
     assert '["prop.sync.01"] = "rbxassetid://134628989553440"' in conteudo
     assert not (alvo / "velho.txt").exists()
+
+
+def test_ledger_upload_alimenta_rojo_assets_e_surface_appearance(tmp_path):
+    """Ledger com uploads por (asset_id, role) alimenta Assets.lua, SurfaceAppearance e Accessory."""
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text(
+        "\n".join(
+            [
+                json.dumps({"evento": "upload", "id": "armadura.ombreira.01", "role": "mesh", "asset_id": "5001"}),
+                json.dumps({"evento": "upload", "id": "armadura.ombreira.01", "role": "ColorMap", "asset_id": "5002"}),
+                json.dumps({"evento": "upload", "id": "armadura.ombreira.01", "role": "NormalMap", "asset_id": "5003"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    pares = upload.resolver_ledger(ledger)
+    assert pares[("armadura.ombreira.01", "mesh")] == "rbxassetid://5001"
+    assert pares[("armadura.ombreira.01", "ColorMap")] == "rbxassetid://5002"
+
+    sa_rel = rbx.exportar_surface_appearance(
+        {"ColorMap": "omb_baseColor.png", "NormalMap": "omb_normal.png"},
+        item_id="armadura.ombreira.01",
+        ledger=ledger,
+    )
+    assert sa_rel["mapas"] == {
+        "ColorMap": "rbxassetid://5002",
+        "NormalMap": "rbxassetid://5003",
+    }
+
+    lua = tmp_path / "Assets.lua"
+    res_lua = sync.gerar_assets_lua(ledger, lua)
+    assert res_lua["assets"]["armadura.ombreira.01"] == {
+        "ColorMap": "rbxassetid://5002",
+        "NormalMap": "rbxassetid://5003",
+        "mesh": "rbxassetid://5001",
+    }
+    lua_txt = lua.read_text(encoding="utf-8")
+    assert '["ColorMap"] = "rbxassetid://5002"' in lua_txt
+    assert '["mesh"] = "rbxassetid://5001"' in lua_txt

@@ -58,8 +58,8 @@ def versao() -> tuple[int, int, int]:
     try:
         numeros = linha.split("Blender")[1].strip().split(" ")[0].split(".")
         return (int(numeros[0]), int(numeros[1]), int(numeros[2]) if len(numeros) > 2 else 0)
-    except (IndexError, ValueError):  # pragma: no cover - saida inesperada
-        raise erro_ambiente(f"nao consegui interpretar a versao do blender: {linha!r}")
+    except (IndexError, ValueError) as exc:  # pragma: no cover - saida inesperada
+        raise erro_ambiente(f"nao consegui interpretar a versao do blender: {linha!r}") from exc
 
 
 def preflight() -> tuple[bool, str]:

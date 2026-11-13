@@ -16,6 +16,7 @@ fechar a borda exige um módulo de parede, que não entra nos 3 da fatiada.
 from __future__ import annotations
 
 import random
+from typing import Any
 
 __all__ = [
     "CATALOGO",
@@ -74,7 +75,7 @@ VIZINHOS = (
 )
 
 
-def _encosta(a: str, lado_a: int, b: str, lado_b: int) -> bool:
+def _encosta(a: dict[str, Any], lado_a: int, b: dict[str, Any], lado_b: int) -> bool:
     return a["sockets"][lado_a] == b["sockets"][lado_b]
 
 
@@ -109,7 +110,7 @@ def conectado(layout: list[list[str]], grade: tuple[int, int]) -> bool:
     while pilha:
         x, y = pilha.pop()
         modulo = CATALOGO[layout[y][x]]
-        for dx, dy, meu, dele in VIZINHOS:
+        for dx, dy, meu, _dele in VIZINHOS:
             vx, vy = x + dx, y + dy
             if not (0 <= vx < nx and 0 <= vy < ny):
                 continue

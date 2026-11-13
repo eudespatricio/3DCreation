@@ -31,7 +31,7 @@ TETOS_LINHAS = {
 
 # I14: Franquias proibidas em contratos/exemplos/perfis/schemas
 RE_FRANQUIA = re.compile(
-    r"minecraft|fortnite|zelda|mario|pokemon|call of duty",
+    r"(?<![a-z0-9])(minecraft|fortnite|zelda|mario|pokemon|pok[eé]mon|nintendo|overwatch|valorant|call[ _-]?of[ _-]?duty)(?![a-z0-9])",
     re.IGNORECASE,
 )
 

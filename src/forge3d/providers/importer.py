@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 from .base import RawAsset
 
@@ -52,7 +53,7 @@ class ImportProvider:
         nome = f"fonte{origem.suffix.lower()}"
         shutil.copyfile(origem, destino / nome)
 
-        modelo = {
+        modelo: dict[str, Any] = {
             "schema": "forge3d/bruto-arquivo@1",
             "arquivo": nome,
             "origem_nome": origem.name,
@@ -64,7 +65,7 @@ class ImportProvider:
         )
         return RawAsset(
             dir=destino,
-            schema=modelo["schema"],
+            schema=str(modelo["schema"]),
             determinism=self.determinism,
             arquivos=[arq, destino / nome],
             meta={"origem": str(origem)},

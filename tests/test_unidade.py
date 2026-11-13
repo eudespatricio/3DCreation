@@ -325,3 +325,121 @@ def test_rota_mesh_sem_vram_bloqueia_como_recurso_exit_6(monkeypatch, tmp_path):
     assert tarefa["estado_previsto"] == "bloqueada"
     assert tarefa["codigo"] == "FORGE-E-RECURSO"
     assert "VRAM" in tarefa["razao"]
+
+
+def test_resolver_item_diferencia_campos_modular_skinned_attachment_osso():
+    base = _item_minimo()
+    campos = [
+        ("modular", {"grade": [2, 2], "modulos": ["sala"]}),
+        ("skinned", True),
+        ("attachment_roblox", "RightGripAttachment"),
+        ("osso", "Hand.R"),
+    ]
+    chaves = {canonical.chave_cache(spec.resolver_item(base), "1", {}, {})}
+    for campo, valor in campos:
+        variante = {**base, campo: valor}
+        chaves.add(canonical.chave_cache(spec.resolver_item(variante), "1", {}, {}))
+    assert len(chaves) == len(campos) + 1
+
+
+def test_salvar_cache_cria_subdiretorios_aninhados(tmp_path, monkeypatch):
+    from forge3d import cache
+
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))
+    origem = tmp_path / "origem"
+    (origem / "textures").mkdir(parents=True)
+    arq = origem / "textures" / "albedo.png"
+    arq.write_bytes(b"png-bytes")
+    entrada = {
+        "resultado": {
+            "arquivos": [
+                {
+                    "caminho": "textures/albedo.png",
+                    "papel": "textura",
+                    "sha256": canonical.sha256_arquivo(arq),
+                }
+            ]
+        }
+    }
+    cache.salvar_cache("chave-aninhada", origem, entrada)
+    lido = cache.ler_cache("chave-aninhada")
+    assert lido is not None
+    final_dir, _ = lido
+    assert (final_dir / "textures" / "albedo.png").read_bytes() == b"png-bytes"
+
+
+def test_plan_e_pipeline_permitem_cache_hit_sem_gpu(monkeypatch, tmp_path):
+    from forge3d import cache, pipeline, plan
+    from forge3d.providers import mesh
+
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "config"))
+    monkeypatch.setenv("FORGE3D_VENV_I23D", str(tmp_path / "venv-ausente"))
+
+    destino = paths.dir_saida() / "cache_sem_gpu"
+    doc = _spec_mesh()
+    doc["destino_exportacao"] = str(destino)
+    spec_path = tmp_path / "lote_mesh.yaml"
+    import yaml
+
+    spec_path.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+
+    spec_doc, perfil, _ = spec.preparar(dict(doc))
+    tarefas_miss = plan.montar(spec_doc, perfil, lambda _c: False)
+    assert tarefas_miss[0]["estado_previsto"] == "bloqueada"
+    resumo_miss = plan.resumo(tarefas_miss)
+    assert resumo_miss["a_executar"] == 0
+    assert resumo_miss["vram_pico_mb"] == 0
+
+    chave = tarefas_miss[0]["chave"]
+    origem = tmp_path / "staging_ok"
+    origem.mkdir()
+    glb = origem / "weapon.axe.ice.01.glb"
+    glb.write_bytes(b"glTF-cached")
+    cache.salvar_cache(
+        chave,
+        origem,
+        {
+            "resultado": {
+                "arquivos": [
+                    {
+                        "caminho": "weapon.axe.ice.01.glb",
+                        "papel": "mesh",
+                        "nivel": 0,
+                        "triangulos": 120,
+                        "sha256": canonical.sha256_arquivo(glb),
+                        "bytes": glb.stat().st_size,
+                    }
+                ],
+                "determinism": "D2",
+            },
+            "qc": {
+                "aprovado": True,
+                "gates": [{"id": "G1", "status": "ok"}],
+                "medidas": {
+                    "triangulos": 120,
+                    "vertices": 80,
+                    "bbox_m": [0.3, 1.2, 0.2],
+                    "materiais": 1,
+                    "ossos": 0,
+                    "partes_colisao": 0,
+                },
+            },
+            "provider": {"nome": "mesh", "versao": mesh.MeshProvider().versao, "determinism": "D2"},
+            "licenca": {"modelo": "MIT", "uso_comercial": True, "notice": "teste"},
+        },
+    )
+
+    tarefas_hit = plan.montar(spec_doc, perfil, lambda c: cache.ler_cache(c) is not None)
+    assert tarefas_hit[0]["cache_hit"] is True
+    assert tarefas_hit[0]["estado_previsto"] == "pronto"
+    assert tarefas_hit[0].get("aviso_preflight")
+    resumo_hit = plan.resumo(tarefas_hit)
+    assert resumo_hit["cache_hits"] == 1
+    assert resumo_hit["a_executar"] == 0
+    assert resumo_hit["vram_pico_mb"] == 0
+
+    rel, codigo = pipeline.executar(spec_path, plano_apenas=False, publicar_arquivos=True)
+    assert codigo == 0
+    assert rel["itens"][0]["estado"] == "cache_hit"
+    assert (destino / "weapon.axe.ice.01.glb").is_file()

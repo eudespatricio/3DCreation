@@ -22,9 +22,9 @@ _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
 if _BLENDER_DIR not in sys.path:
     sys.path.insert(0, _BLENDER_DIR)
 
-import autorig
-import bake_pbr
-import extrude_2d
+import autorig  # noqa: E402
+import bake_pbr  # noqa: E402
+import extrude_2d  # noqa: E402
 
 # faces de um cubo por indice de vertice; a orientacao e corrigida depois por recalc
 FACES_CUBO = (
@@ -57,7 +57,11 @@ def limpar_cena() -> None:
 
 
 def objetos_malha() -> list:
-    return [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    ignorar = set()
+    col_ne = bpy.data.collections.get("glTF_not_exported")
+    if col_ne is not None:
+        ignorar.update(o.name for o in col_ne.objects)
+    return [o for o in bpy.context.scene.objects if o.type == "MESH" and o.name not in ignorar]
 
 
 # ------------------------------------------------------------------ construcao
@@ -165,13 +169,29 @@ def criar_armadura(ossos: list[dict], nome: str = "Armature") -> "bpy.types.Obje
             criados[osso["nome"]].use_connect = False
     bpy.ops.object.mode_set(mode="OBJECT")
     obj.select_set(False)
+    if any(b.name in autorig._OSSOS_BRACO or b.name in autorig._OSSOS_PERNA for b in obj.data.bones):
+        autorig._alinhar_roll_ossos(obj)
     return obj
+
+
+def _limpar_objetos_gltf_internos() -> None:
+    """Remove colecoes/objetos auxiliares do importador glTF (ex: Icosphere de custom_shape)."""
+    for arm in bpy.data.objects:
+        if arm.type == "ARMATURE" and arm.pose is not None:
+            for pb in arm.pose.bones:
+                pb.custom_shape = None
+    for col in list(bpy.data.collections):
+        if col.name.startswith("glTF_not_exported"):
+            for obj in list(col.objects):
+                bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.collections.remove(col)
 
 
 def importar_fonte(arquivo: str) -> None:
     ext = os.path.splitext(arquivo)[1].lower()
     if ext == ".glb" or ext == ".gltf":
         bpy.ops.import_scene.gltf(filepath=arquivo)
+        _limpar_objetos_gltf_internos()
     elif ext == ".obj":
         if bpy.app.version >= (4, 0, 0):
             bpy.ops.wm.obj_import(filepath=arquivo)
@@ -257,6 +277,91 @@ def _remover_ilhas_de_uma_face(bm) -> int:
     return len(remover)
 
 
+def _fechar_ciclos_borda_fan(bm) -> int:
+    """Fecha ciclos simples de borda nao-planares via leque ao centroide preservando pesos e UV."""
+    restantes = [e for e in bm.edges if len(e.link_faces) == 1]
+    if not restantes:
+        return 0
+    dvert_lay = bm.verts.layers.deform.active
+    uv_lays = list(bm.loops.layers.uv.values())
+    criadas = 0
+    visitadas: set = set()
+    for e0 in restantes:
+        if e0 in visitadas or len(e0.link_faces) != 1:
+            continue
+        comp_e = []
+        fila = [e0]
+        visitadas.add(e0)
+        adj: dict = {}
+        while fila:
+            ec = fila.pop()
+            comp_e.append(ec)
+            for v in ec.verts:
+                adj.setdefault(v, []).append(ec)
+                for en in v.link_edges:
+                    if len(en.link_faces) == 1 and en not in visitadas:
+                        visitadas.add(en)
+                        fila.append(en)
+        if len(comp_e) < 3 or any(len(es) != 2 for es in adj.values()):
+            continue
+        f_adj = comp_e[0].link_faces[0]
+        va, vb = comp_e[0].verts[0], comp_e[0].verts[1]
+        for lp in f_adj.loops:
+            if lp.edge == comp_e[0]:
+                va, vb = lp.link_loop_next.vert, lp.vert
+                break
+        ciclo = [va, vb]
+        usadas = {comp_e[0]}
+        while len(ciclo) < len(comp_e):
+            atual = ciclo[-1]
+            prox_e = next((e for e in adj[atual] if e not in usadas), None)
+            if prox_e is None:
+                break
+            usadas.add(prox_e)
+            ciclo.append(prox_e.other_vert(atual))
+        if len(ciclo) != len(comp_e):
+            continue
+        centro = sum((v.co for v in ciclo), Vector((0.0, 0.0, 0.0))) / len(ciclo)
+        vc = bm.verts.new(centro)
+        if dvert_lay is not None:
+            pesos: dict[int, float] = {}
+            for v in ciclo:
+                for grp, w in v[dvert_lay].items():
+                    pesos[grp] = pesos.get(grp, 0.0) + w / len(ciclo)
+            tot = sum(pesos.values())
+            if tot > 1e-8:
+                for grp, w in pesos.items():
+                    vc[dvert_lay][grp] = w / tot
+        uv_map: dict = {}
+        for uvl in uv_lays:
+            uv_map[uvl] = {
+                v: next((lp[uvl].uv.copy() for lp in v.link_loops), Vector((0.5, 0.5)))
+                for v in ciclo
+            }
+        mat_idx = f_adj.material_index
+        for i in range(len(ciclo)):
+            v1 = ciclo[i]
+            v2 = ciclo[(i + 1) % len(ciclo)]
+            try:
+                nf = bm.faces.new((v1, v2, vc))
+            except ValueError:
+                continue
+            nf.material_index = mat_idx
+            criadas += 1
+            for uvl in uv_lays:
+                uv1 = uv_map[uvl][v1]
+                uv2 = uv_map[uvl][v2]
+                uvc = sum(uv_map[uvl].values(), Vector((0.0, 0.0))) / len(ciclo)
+                for lp in nf.loops:
+                    if lp.vert == v1:
+                        lp[uvl].uv = uv1
+                    elif lp.vert == v2:
+                        lp[uvl].uv = uv2
+                    else:
+                        lp[uvl].uv = uvc
+    return criadas
+
+
 def reparar_malha(obj) -> dict:
     """Solda, remove ilha solta e fecha buraco antes do export."""
     antes = (len(obj.data.vertices), len(obj.data.polygons))
@@ -280,8 +385,45 @@ def reparar_malha(obj) -> dict:
     bordas = [e for e in bm.edges if len(e.link_faces) == 1]
     if bordas:
         bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
+        if any(len(e.link_faces) == 1 for e in bm.edges):
+            _fechar_ciclos_borda_fan(bm)
         # holes_fill pode criar uma face solta; remove de novo
         _remover_ilhas_de_uma_face(bm)
+    bmesh.ops.triangulate(bm, faces=list(bm.faces))
+    vistos_faces: set[frozenset] = set()
+    dups_ou_deg = []
+    for f in bm.faces:
+        chave = frozenset(f.verts)
+        if len(chave) < 3 or f.calc_area() < 1e-10 or chave in vistos_faces:
+            dups_ou_deg.append(f)
+        else:
+            vistos_faces.add(chave)
+    if dups_ou_deg:
+        bmesh.ops.delete(bm, geom=dups_ou_deg, context="FACES")
+    for _ in range(2):
+        excedentes_nm = set()
+        for e in bm.edges:
+            if len(e.link_faces) > 2:
+                ordenadas = sorted(e.link_faces, key=lambda f: f.calc_area(), reverse=True)
+                for f in ordenadas[2:]:
+                    excedentes_nm.add(f)
+        if not excedentes_nm:
+            break
+        bmesh.ops.delete(bm, geom=list(excedentes_nm), context="FACES")
+        _remover_ilhas_de_uma_face(bm)
+        bordas_pos = [e for e in bm.edges if len(e.link_faces) == 1]
+        if bordas_pos:
+            bmesh.ops.holes_fill(bm, edges=bordas_pos, sides=0)
+            if any(len(e.link_faces) == 1 for e in bm.edges):
+                _fechar_ciclos_borda_fan(bm)
+            _remover_ilhas_de_uma_face(bm)
+            bmesh.ops.triangulate(bm, faces=list(bm.faces))
+    soltas_e_pos = [e for e in bm.edges if not e.link_faces]
+    if soltas_e_pos:
+        bmesh.ops.delete(bm, geom=soltas_e_pos, context="EDGES")
+    soltos_pos = [v for v in bm.verts if not v.link_faces]
+    if soltos_pos:
+        bmesh.ops.delete(bm, geom=soltos_pos, context="VERTS")
     bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
     bm.to_mesh(obj.data)
     bm.free()
@@ -396,6 +538,8 @@ def decimar(obj, alvo_tris: int, proteger_cabeca_maos: bool = False) -> int:
             if hasattr(mod, "vertex_group_factor"):
                 mod.vertex_group_factor = 0.80
         _selecionar(obj)
+        if len(obj.modifiers) > 1:
+            bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
         bpy.ops.object.modifier_apply(modifier=mod.name)
     finally:
         if vg_name is not None:
@@ -408,6 +552,8 @@ def decimar(obj, alvo_tris: int, proteger_cabeca_maos: bool = False) -> int:
         mod_fb = obj.modifiers.new("forge3d_decimate_fallback", "DECIMATE")
         mod_fb.ratio = max(0.01, min(1.0, (alvo_tris * 0.995) / tris_pos))
         _selecionar(obj)
+        if len(obj.modifiers) > 1:
+            bpy.ops.object.modifier_move_to_index(modifier=mod_fb.name, index=0)
         bpy.ops.object.modifier_apply(modifier=mod_fb.name)
         tris_pos = malha_triangulada(obj)
 
@@ -552,14 +698,41 @@ def suavizar_por_angulo(obj, angulo_graus: float = 45.0) -> dict:
     return {"angulo_graus": angulo_graus, "arestas_vivas": arestas_vivas}
 
 
-def desdobrar_uv(obj, margem: float = 0.008) -> str:
+def aplicar_weighted_normal(obj) -> dict:
+    """Aplica normais ponderadas por area/angulo em pecas hard-surface."""
+    _selecionar(obj)
+    mod = obj.modifiers.new(name="WeightedNormal", type="WEIGHTED_NORMAL")
+    mod.mode = "FACE_AREA_WITH_ANGLE"
+    mod.keep_sharp = True
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    obj.data.update()
+    return {"weighted_normal": True}
+
+
+def retopologizar_quadriflow(obj, alvo_tris: int) -> bool:
+    """Retopologia Quadriflow opcional; devolve False se a malha nao suportar remesh."""
+    _selecionar(obj)
+    alvos_quads = max(200, int(alvo_tris) // 2)
+    try:
+        bpy.ops.object.quadriflow_remesh(
+            use_mesh_symmetry=False,
+            use_preserve_sharp=True,
+            use_preserve_boundary=True,
+            target_faces=alvos_quads,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def desdobrar_uv(obj, margem: float = 0.02) -> str:
     _selecionar(obj)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.uv.smart_project(
         angle_limit=1.15192,  # 66 graus
-        island_margin=margem,
-        area_weight=0.0,
+        island_margin=max(0.02, float(margem)),
+        area_weight=0.5,
         correct_aspect=True,
         scale_to_bounds=False,
     )
@@ -567,6 +740,29 @@ def desdobrar_uv(obj, margem: float = 0.008) -> str:
     if not obj.data.uv_layers:
         raise RuntimeError("smart_project nao criou camada UV")
     return obj.data.uv_layers.active.name
+
+
+def gerar_uv_lightmap(obj) -> str:
+    """Gera UVMap_Lightmap (TEXCOORD_1) sem substituir o UV principal (TEXCOORD_0)."""
+    if not obj.data.uv_layers:
+        desdobrar_uv(obj)
+    nome_primario = obj.data.uv_layers[0].name
+    lm = obj.data.uv_layers.get("UVMap_Lightmap") or obj.data.uv_layers.new(name="UVMap_Lightmap")
+    obj.data.uv_layers.active = lm
+    _selecionar(obj)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(
+        angle_limit=1.15192,
+        island_margin=0.03,
+        area_weight=0.5,
+        correct_aspect=True,
+        scale_to_bounds=True,
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.data.uv_layers.active = obj.data.uv_layers[nome_primario]
+    obj.data.uv_layers[nome_primario].active_render = True
+    return lm.name
 
 
 def assar_cor_vertices(obj, png: str, px: int) -> dict:
@@ -627,6 +823,7 @@ def assar_cor_vertices(obj, png: str, px: int) -> dict:
 
 def transformar_armadura(rig, escala: float, deslocamento: Vector) -> None:
     """Ossos acompanham a geometria: skinning rigido exige osso e vertice no mesmo espaco."""
+    _aplicar_transformes(rig)
     bpy.context.view_layer.objects.active = rig
     rig.select_set(True)
     bpy.ops.object.mode_set(mode="EDIT")
@@ -635,6 +832,88 @@ def transformar_armadura(rig, escala: float, deslocamento: Vector) -> None:
         osso.tail = (osso.tail * escala) + deslocamento
     bpy.ops.object.mode_set(mode="OBJECT")
     rig.select_set(False)
+
+
+def _imagens_exportaveis() -> list:
+    """Lista todas as imagens exportaveis carregadas na cena (exclui render targets)."""
+    imgs = []
+    for img in bpy.data.images:
+        if getattr(img, "type", "IMAGE") == "RENDER_TARGET":
+            continue
+        if img.name in ("Render Result", "Viewer Node"):
+            continue
+        w, h = int(img.size[0]), int(img.size[1])
+        if w <= 0 or h <= 0:
+            continue
+        imgs.append(img)
+    return imgs
+
+
+def _redimensionar_imagem(img, nw: int, nh: int) -> None:
+    """Redimensiona imagem para (nw, nh) substituindo buffer empacotado via user_remap."""
+    nome_orig = img.name
+    cs = img.colorspace_settings.name if hasattr(img, "colorspace_settings") else "sRGB"
+    img.scale(nw, nh)
+    px = list(img.pixels)
+    dst = bpy.data.images.new(name=f"{nome_orig}_r", width=nw, height=nh, alpha=True)
+    try:
+        dst.colorspace_settings.name = cs
+    except Exception:
+        pass
+    dst.pixels.foreach_set(px)
+    dst.pack()
+    img.user_remap(dst)
+    bpy.data.images.remove(img)
+    dst.name = nome_orig
+
+
+def _pot_abaixo(valor: int) -> int:
+    """Maior potencia de 2 menor ou igual a valor (minimo 4px) para G4."""
+    v = max(4, int(valor))
+    if (v & (v - 1)) == 0:
+        return v
+    return 1 << (v.bit_length() - 1)
+
+
+def _enquadrar_texturas_no_teto(textura_max: int) -> None:
+    """Redimensiona qualquer imagem em cena maior que textura_max preservando POT (G4)."""
+    if textura_max <= 0:
+        return
+    for img in _imagens_exportaveis():
+        w, h = int(img.size[0]), int(img.size[1])
+        maior = max(w, h)
+        if maior > textura_max:
+            fator = float(textura_max) / float(maior)
+            nw = _pot_abaixo(max(4, int(round(w * fator))))
+            nh = _pot_abaixo(max(4, int(round(h * fator))))
+            _redimensionar_imagem(img, nw, nh)
+
+
+def _reduzir_imagens_embutidas_orcamento(
+    caminho_glb: str,
+    bytes_max: int,
+    exportar_fn,
+) -> None:
+    """Encolhe texturas embutidas (incluindo .mhclo) preservando POT quando GLB excede bytes_max (G9)."""
+    if bytes_max <= 0 or not os.path.isfile(caminho_glb):
+        return
+    if os.path.getsize(caminho_glb) <= bytes_max:
+        return
+    for teto in (512, 256, 128):
+        mudou = False
+        for img in _imagens_exportaveis():
+            w, h = int(img.size[0]), int(img.size[1])
+            maior = max(w, h)
+            if maior > teto:
+                fator = float(teto) / float(maior)
+                nw = _pot_abaixo(max(4, int(round(w * fator))))
+                nh = _pot_abaixo(max(4, int(round(h * fator))))
+                _redimensionar_imagem(img, nw, nh)
+                mudou = True
+        if mudou:
+            exportar_fn()
+            if os.path.getsize(caminho_glb) <= bytes_max:
+                return
 
 
 def bbox_local() -> tuple[Vector, Vector]:
@@ -974,13 +1253,33 @@ def animar(rig_obj, clipes: list[dict]) -> list[dict]:
 # ------------------------------------------------------------------ export
 
 
-def exportar(caminho: str, objetos: list, com_rig: bool, com_animacao: bool = False) -> None:
+def _tem_normal_map(objetos: list) -> bool:
+    for obj in objetos:
+        if getattr(obj, "type", None) != "MESH" or not obj.data:
+            continue
+        for mat in obj.data.materials:
+            if mat and mat.use_nodes:
+                for node in mat.node_tree.nodes:
+                    if node.type == "BSDF_PRINCIPLED":
+                        inp = node.inputs.get("Normal")
+                        if inp is not None and inp.is_linked:
+                            return True
+    return False
+
+
+def exportar(
+    caminho: str,
+    objetos: list,
+    com_rig: bool,
+    com_animacao: bool = False,
+    export_tangents: bool = False,
+) -> None:
     bpy.ops.object.select_all(action="DESELECT")
     for obj in objetos:
         obj.select_set(True)
     bpy.context.view_layer.objects.active = objetos[0]
 
-    kwargs = {
+    kwargs: dict = {
         "filepath": caminho,
         "export_format": "GLB",
         "use_selection": True,
@@ -998,6 +1297,8 @@ def exportar(caminho: str, objetos: list, com_rig: bool, com_animacao: bool = Fa
         "export_cameras": False,
         "export_lights": False,
     }
+    if export_tangents:
+        kwargs["export_tangents"] = True
     props = set(bpy.ops.export_scene.gltf.get_rna_type().properties.keys())
     kwargs = {k: v for k, v in kwargs.items() if k in props}
     bpy.ops.export_scene.gltf(**kwargs)
@@ -1040,7 +1341,22 @@ def processar(job: dict) -> dict:
             bruto_dir, bruto.get("origem_textura")
         ) or os.path.join(bruto_dir, bruto["imagem"])
         modo = str(bruto.get("modo", "arma"))
-        obj = extrude_2d.construir_malha_2d(imagem_path, modo=modo, nome=nome_base)
+        obj = extrude_2d.construir_malha_2d(
+            imagem_path,
+            modo=modo,
+            nome=nome_base,
+            saida_dir=saida_dir,
+            pivot=str(item.get("pivot") or "empunhadura"),
+        )
+        base_tex_path = os.path.join(saida_dir, f"{nome_base}_baseColor.png")
+        if os.path.isfile(base_tex_path):
+            texturas_geradas.append(
+                {
+                    "caminho": f"{nome_base}_baseColor.png",
+                    "papel": "textura",
+                    "bytes": os.path.getsize(base_tex_path),
+                }
+            )
         grupos = {}
         info_gerada["extrude_2d"] = {
             "modo": modo,
@@ -1050,7 +1366,9 @@ def processar(job: dict) -> dict:
         limite_tris = int(item["limite_triangulos"])
         if malha_triangulada(obj) > limite_tris:
             decimar(obj, limite_tris)
+            info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
         info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=35.0)
+        info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
         met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
         rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
         if met_hint or rough_hint:
@@ -1062,6 +1380,7 @@ def processar(job: dict) -> dict:
                 px_ext,
                 metallic_hint_png=met_hint,
                 roughness_hint_png=rough_hint,
+                perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
             )
             if res_hints:
                 texturas_geradas.extend(res_hints["arquivos_textura"])
@@ -1072,6 +1391,7 @@ def processar(job: dict) -> dict:
         armatures = [o for o in bpy.data.objects if o.type == "ARMATURE"]
         if armatures:
             rig_obj = armatures[0]
+            _aplicar_transformes(rig_obj)
             grupos = {vg.name: vg for vg in obj.vertex_groups}
         if bruto.get("canonicalizar"):
             info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
@@ -1097,6 +1417,7 @@ def processar(job: dict) -> dict:
                 metallic_hint_png=met_hint,
                 roughness_hint_png=rough_hint,
                 proteger_superficie=proteger,
+                perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
             )
             bake_meta = res_bake["bake"]
             info_gerada["triangulos_antes_decimate"] = bake_meta["triangulos_high"]
@@ -1115,16 +1436,28 @@ def processar(job: dict) -> dict:
             tris_antes = malha_triangulada(obj)
             limite_tris = int(item["limite_triangulos"])
             info_gerada["triangulos_antes_decimate"] = tris_antes
-            if tris_antes > limite_tris:
+            if bruto.get("retopologia") == "quadriflow" and tris_antes > limite_tris:
+                if retopologizar_quadriflow(obj, limite_tris):
+                    info_gerada["retopologia"] = "quadriflow"
+                    desdobrar_uv(obj)
+            if malha_triangulada(obj) > limite_tris:
                 decimar(obj, limite_tris, proteger_cabeca_maos=proteger)
                 info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
                 info_gerada["smooth"] = suavizar_por_angulo(
                     obj, angulo_graus=85.0 if proteger else 45.0
                 )
+            elif bruto.get("armadura_modular"):
+                info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
             elif bruto.get("suavizar"):
                 info_gerada["smooth"] = suavizar_por_angulo(
                     obj, angulo_graus=85.0 if proteger else 45.0
                 )
+            if (
+                rig_obj is None
+                and item.get("tipo") in ("prop_equipavel", "modulo_cenario")
+                and not bruto.get("armadura_modular")
+            ):
+                info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
             info_gerada["triangulos_pos_decimate"] = malha_triangulada(obj)
         if bool(item.get("auto_rig")) and item.get("tipo") in ("personagem_humanoide", "criatura"):
             esq = str(
@@ -1135,6 +1468,12 @@ def processar(job: dict) -> dict:
             rig_obj, grupos = autorig.auto_rigar_humanoide(obj, esq, criar_armadura)
     else:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
+
+    if bruto["schema"] != "forge3d/bruto-blocky@1" and item.get("tipo") in (
+        "modulo_cenario",
+        "prop_estatico",
+    ):
+        gerar_uv_lightmap(obj)
 
     obj.name = nome_base
     if obj.data is not None:
@@ -1151,17 +1490,29 @@ def processar(job: dict) -> dict:
     altura_atual = maximo.z - minimo.z
     if altura_atual <= 0:
         raise RuntimeError("geometria com altura zero")
-    alvo = float(item["altura_metros"])
-    escala = (alvo / altura_atual) * escala_saida
+    escala_preservada = bool(bruto.get("escala_preservada"))
+    if escala_preservada:
+        escala = 1.0 * escala_saida
+        pivo = Vector((0.0, 0.0, 0.0))
+        origem_regra = "preservada"
+    else:
+        alvo = float(item["altura_metros"])
+        escala = (alvo / altura_atual) * escala_saida
 
-    pivo_declarado = (bruto.get("pivos") or {}).get(item["pivot"])
-    pivo, origem_regra = calcular_pivo(item["pivot"], minimo * escala, maximo * escala, pivo_declarado)
-    if pivo_declarado:
-        pivo = Vector(pivo_declarado) * escala
+        pivo_declarado = (bruto.get("pivos") or {}).get(item["pivot"])
+        pivo, origem_regra = calcular_pivo(
+            item["pivot"], minimo * escala, maximo * escala, pivo_declarado
+        )
+        if pivo_declarado:
+            pivo = Vector(pivo_declarado) * escala
 
     transformar(escala, -pivo)
     if rig_obj is not None:
         transformar_armadura(rig_obj, escala, -pivo)
+
+    geom_pos_escala = medir_geometria(obj)
+    if geom_pos_escala["nao_manifold"] > 0 or geom_pos_escala["degeneradas"] > 0:
+        info_gerada["reparo_pos_escala"] = reparar_malha(obj)
 
     if rig_obj is not None and grupos:
         if obj.parent is not rig_obj:
@@ -1192,10 +1543,22 @@ def processar(job: dict) -> dict:
         "ossos": len(rig_obj.data.bones) if rig_obj is not None else 0,
         "animacoes": animacoes_geradas,
         "pivo_regra": origem_regra,
+        "escala_preservada": escala_preservada,
         "aabb_min": [minimo.x / escala_saida, minimo.z / escala_saida, -maximo.y / escala_saida],
         "aabb_max": [maximo.x / escala_saida, maximo.z / escala_saida, -minimo.y / escala_saida],
     }
     medidas_base.update(medir_geometria(obj))
+
+    qualidade_item = str(item.get("qualidade") or "").strip().lower()
+    textura_max_perfil = int(
+        (perfil.get("material") or {}).get("textura_max")
+        or (perfil.get("validacao") or {}).get("textura_max")
+        or 0
+    )
+    if qualidade_item == "hero" and textura_max_perfil > 0:
+        textura_max_perfil = max(textura_max_perfil, 2048)
+    if textura_max_perfil > 0:
+        _enquadrar_texturas_no_teto(textura_max_perfil)
 
     arquivos: list[dict] = []
 
@@ -1213,21 +1576,47 @@ def processar(job: dict) -> dict:
                 mod_lod = alvo_obj.modifiers.new("armature", "ARMATURE")
                 mod_lod.object = rig_obj
             info_lod = aplicar_lod(alvo_obj, pct)
+            reparar_malha(alvo_obj)
             medidas_base.setdefault("lod_modo", {})[str(nivel)] = info_lod
         nome = job["nome_arquivo"] if nivel == 0 else f"{job['nome_base']}_LOD{nivel}.glb"
         caminho = os.path.join(saida_dir, nome)
         selecionados = [alvo_obj] + ([rig_obj] if rig_obj is not None else [])
-        exportar(caminho, selecionados, rig_obj is not None, com_animacao=bool(animacoes_geradas))
+        usar_tangents = _tem_normal_map([alvo_obj])
+        exportar(
+            caminho,
+            selecionados,
+            rig_obj is not None,
+            com_animacao=bool(animacoes_geradas),
+            export_tangents=usar_tangents,
+        )
         bytes_max_kb = int((perfil.get("validacao") or {}).get("bytes_max_kb") or 0)
-        if nivel == 0 and bytes_max_kb > 0 and texturas_geradas:
-            bake_pbr.ajustar_resolucao_orcamento(
-                alvo_obj,
-                saida_dir,
-                texturas_geradas,
+        if qualidade_item == "hero" and bytes_max_kb > 0:
+            bytes_max_kb = max(bytes_max_kb, 4096)
+        if nivel == 0 and bytes_max_kb > 0:
+            if texturas_geradas:
+                bake_pbr.ajustar_resolucao_orcamento(
+                    alvo_obj,
+                    saida_dir,
+                    texturas_geradas,
+                    caminho,
+                    bytes_max_kb * 1024,
+                    lambda c=caminho, s=selecionados, t=usar_tangents: exportar(
+                        c,
+                        s,
+                        rig_obj is not None,
+                        com_animacao=bool(animacoes_geradas),
+                        export_tangents=t,
+                    ),
+                )
+            _reduzir_imagens_embutidas_orcamento(
                 caminho,
                 bytes_max_kb * 1024,
-                lambda c=caminho, s=selecionados: exportar(
-                    c, s, rig_obj is not None, com_animacao=bool(animacoes_geradas)
+                lambda c=caminho, s=selecionados, t=usar_tangents: exportar(
+                    c,
+                    s,
+                    rig_obj is not None,
+                    com_animacao=bool(animacoes_geradas),
+                    export_tangents=t,
                 ),
             )
         arquivos.append(

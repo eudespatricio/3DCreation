@@ -67,11 +67,14 @@ def montar(
         avaliar = getattr(provider, "preflight_item", None)
         pronto, razao = avaliar(item) if callable(avaliar) else provider.preflight()
         if not pronto:
-            tarefa["estado_previsto"] = "bloqueada"
-            tarefa["razao"] = razao
-            if "VRAM" in razao:
-                # D11/I6: falta de VRAM e recurso (exit 6), nao falha de provider (exit 5)
-                tarefa["codigo"] = "FORGE-E-RECURSO"
+            if tarefa["cache_hit"]:
+                tarefa["aviso_preflight"] = razao
+            else:
+                tarefa["estado_previsto"] = "bloqueada"
+                tarefa["razao"] = razao
+                if "VRAM" in razao:
+                    # D11/I6: falta de VRAM e recurso (exit 6), nao falha de provider (exit 5)
+                    tarefa["codigo"] = "FORGE-E-RECURSO"
         tarefas.append(tarefa)
 
     return tarefas
@@ -81,18 +84,28 @@ def resumo(tarefas: list[dict]) -> dict:
     total = len(tarefas)
     bloqueadas = sum(1 for t in tarefas if t["estado_previsto"] == "bloqueada")
     hits = sum(1 for t in tarefas if t["cache_hit"])
+    a_executar = sum(
+        1 for t in tarefas if t["estado_previsto"] != "bloqueada" and not t["cache_hit"]
+    )
     segundos = sum(
         float((t["estimativa"] or {}).get("segundos_estimados", 0))
         for t in tarefas
         if not t["cache_hit"]
     )
-    vram = max([int((t["estimativa"] or {}).get("vram_mb", 0)) for t in tarefas] or [0])
+    vram = max(
+        [
+            int((t["estimativa"] or {}).get("vram_mb", 0))
+            for t in tarefas
+            if t["estado_previsto"] != "bloqueada" and not t["cache_hit"]
+        ],
+        default=0,
+    )
     return {
         "total": total,
         "prontas": total - bloqueadas,
         "bloqueadas": bloqueadas,
         "cache_hits": hits,
-        "a_executar": total - bloqueadas - hits,
+        "a_executar": a_executar,
         "segundos_estimados": round(segundos, 1),
         "vram_pico_mb": vram,
     }

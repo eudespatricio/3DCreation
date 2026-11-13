@@ -39,7 +39,7 @@ cp examples/lote_01.yaml "$RAIZ/fora/lote.yaml"
 sed -i "s|^destino_exportacao:.*|destino_exportacao: $RAIZ/state/forge3d/saida/lote_01|" "$RAIZ/fora/lote.yaml"
 cd "$RAIZ/fora"
 "$FORGE3D" validate lote.yaml
-"$FORGE3D" migrate lote.yaml --json | grep -q '"para": "forge3d/spec@3"'
+"$FORGE3D" migrate lote.yaml --json | grep -q '"para": "forge3d/spec@4"'
 "$FORGE3D" plan lote.yaml --json > "$RAIZ/plan.json"
 grep -q '"tarefas"' "$RAIZ/plan.json"
 

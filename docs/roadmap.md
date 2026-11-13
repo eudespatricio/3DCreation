@@ -158,19 +158,20 @@ o `Animation` **116049702979137** (`Priority=Core`) toca no rig Motor6D no clien
 Índice consultável (`query`), `gc`, `migrate` de spec, CI de pull request com `verify`, distribuição
 (`uv tool install`), e — só se houver consumidor não-Python — o adaptador HTTP.
 
-**Estado em 11/11/2026 — P6 fechada:** `query` consulta o índice (filtros de projeto, perfil, tag e
-teto de tris) e tem teste próprio; `forge3d migrate` sobe `spec@1`/`@2` → `spec@3` sem reescrever o
-documento nem inventar valor (D80); o CI de PR tem dois jobs novos — `verificar` (Blender 4.2.0
-pinado por sha256, pipeline real, `verify` provando 0 problemas no íntegro e exit 3 no adulterado) e
-`distribuicao` (wheel → venv limpo → CLI fora do repo), D81. O adaptador HTTP segue condicionado a
-consumidor não-Python, como estava.
+**Estado em 13/11/2026 — P6 + Ondas A–D (`v0.6.0`) fechadas:** `query` consulta o índice (filtros de
+projeto, perfil, tag e teto de tris); `forge3d migrate` sobe `spec@1`–`@3` → `spec@4` sem reescrever o
+documento nem inventar valor (D80/D89); o CI de PR roda `portoes`, `verificar` (Blender 4.2.0 pinado
+por sha256, pipeline real e `verify`) e `distribuicao` (wheel em venv limpo), D81; as Ondas A–D
+(`D89`–`D92`) entregaram `spec@4`/`manifest@4`, paridade Godot 4 + Roblox R15 (`Bone`/`SurfaceAppearance`/
+`Accessory` + `sync`), armadura modular manifold + bake PBR 360° + retarget 16 ossos/8 clipes, e QC V2 +
+stack IA 6 GB + `ruff`/`mypy` zerados. O adaptador HTTP segue condicionado a consumidor não-Python.
 
 ## Depois da P6
 
-A P6 era a **última fase do plano**: não há P7 prevista. O que sobra não é fase — é backlog e
-operação:
+A P6 foi a **última fase do plano** e evoluiu até **v0.6.0** (Ondas A–D). O que resta não é fase — é
+backlog e operação:
 
-- **backlog** em `docs/gaps.md` (10 abertos; os de fase vencida estão marcados como backlog);
+- **backlog** em `docs/gaps.md` (9 abertos; os de fase vencida estão marcados como backlog);
 - **operação real**: rodar a esteira num projeto de jogo e medir o custo por asset;
 - **adaptador HTTP** só se aparecer consumidor não-Python;
 - revisão visual manual (LODs no Godot, clipe no Studio).

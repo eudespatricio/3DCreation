@@ -10,9 +10,10 @@ import math
 import os
 from array import array
 
-import bmesh  # noqa: F401 - reservado para utilidades de malha no bpy
+import bmesh
 import bpy
-from mathutils import Vector  # noqa: F401
+from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 
 def _contar_triangulos(obj) -> int:
@@ -206,8 +207,42 @@ def _projetar_uv_frontal_bmesh(
         bm.free()
 
 
-def _criar_nodos_fator_frontal(nt, nome_uv: str):
-    """Cria nodos Dot-Product entre Normal de mundo e direcao frontal (+Y)."""
+def _calcular_oclusao_frontal_bmesh(obj, nome_attr: str = "visivel_frente") -> str | None:
+    """Marca vertices visiveis ao longo da direcao frontal (+Y) via raycast BVHTree."""
+    if obj is None or obj.type != "MESH" or not obj.data.vertices:
+        return None
+    mw = obj.matrix_world
+    inv_rot = mw.to_3x3().inverted_safe()
+    dir_local = (inv_rot @ Vector((0.0, 1.0, 0.0))).normalized()
+    xs = [v.co.x for v in obj.data.vertices]
+    ys = [v.co.y for v in obj.data.vertices]
+    zs = [v.co.z for v in obj.data.vertices]
+    diag = math.sqrt((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2 + (max(zs) - min(zs)) ** 2)
+    eps = max(1e-4, diag * 0.004)
+    if diag <= 1e-6:
+        return None
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bvh = BVHTree.FromBMesh(bm)
+        attr = obj.data.color_attributes.get(nome_attr)
+        if attr is not None:
+            obj.data.color_attributes.remove(attr)
+        attr = obj.data.color_attributes.new(name=nome_attr, type="BYTE_COLOR", domain="POINT")
+        for idx, v in enumerate(bm.verts):
+            hit, _loc, _norm, _fidx = bvh.ray_cast(v.co + dir_local * eps, dir_local, diag * 2.0)
+            val = 0.0 if hit is not None else 1.0
+            attr.data[idx].color = (val, val, val, 1.0)
+        obj.data.update()
+        return nome_attr
+    finally:
+        bm.free()
+
+
+def _criar_nodos_fator_frontal(nt, nome_uv: str, nome_visivel: str | None = None):
+    """Cria nodos Dot-Product entre Normal de mundo e direcao frontal (+Y) com oclusao BVH."""
     geom = nt.nodes.new("ShaderNodeNewGeometry")
     dot = nt.nodes.new("ShaderNodeVectorMath")
     dot.operation = "DOT_PRODUCT"
@@ -222,9 +257,20 @@ def _criar_nodos_fator_frontal(nt, nome_uv: str):
     mr.inputs["To Max"].default_value = 1.0
     nt.links.new(dot.outputs["Value"], mr.inputs["Value"])
 
+    fator_out = mr.outputs["Result"]
+    if nome_visivel:
+        vis_node = nt.nodes.new("ShaderNodeVertexColor")
+        vis_node.layer_name = nome_visivel
+        mul_vis = nt.nodes.new("ShaderNodeMath")
+        mul_vis.operation = "MULTIPLY"
+        mul_vis.use_clamp = True
+        nt.links.new(fator_out, mul_vis.inputs[0])
+        nt.links.new(vis_node.outputs["Color"], mul_vis.inputs[1])
+        fator_out = mul_vis.outputs["Value"]
+
     uv_node = nt.nodes.new("ShaderNodeUVMap")
     uv_node.uv_map = nome_uv
-    return uv_node, mr.outputs["Result"]
+    return uv_node, fator_out
 
 
 def _criar_material_high_vc(
@@ -233,6 +279,7 @@ def _criar_material_high_vc(
     img_origem=None,
     nome_uv: str = "UV_Camera_Front",
     calibrar_vc: bool = False,
+    nome_visivel: str | None = None,
 ):
     """Material temporario para transferir ``color_attributes`` (e blend frontal 2D) no bake DIFFUSE."""
     mat = bpy.data.materials.new(nome_mat)
@@ -264,7 +311,7 @@ def _criar_material_high_vc(
         nt.links.new(vc_out, bsdf.inputs["Base Color"])
         return mat
 
-    uv_node, fator_frente = _criar_nodos_fator_frontal(nt, nome_uv)
+    uv_node, fator_frente = _criar_nodos_fator_frontal(nt, nome_uv, nome_visivel=nome_visivel)
     tex = nt.nodes.new("ShaderNodeTexImage")
     tex.image = img_origem
     tex.extension = "EXTEND"
@@ -290,8 +337,11 @@ def _criar_material_high_hints_emit(
     img_met,
     img_rough,
     nome_uv: str = "UV_Camera_Front",
+    nome_cor: str | None = None,
+    img_origem=None,
+    nome_visivel: str | None = None,
 ):
-    """Shader EMIT temporario que empacota R=metallic, G=roughness, B=peso_frontal."""
+    """Shader EMIT temporario que empacota R=metallic, G=roughness, B=peso_pbr."""
     mat = bpy.data.materials.new(nome_mat)
     mat.use_nodes = True
     nt = mat.node_tree
@@ -300,7 +350,37 @@ def _criar_material_high_hints_emit(
         nt.nodes.remove(bsdf)
     out = nt.nodes.get("Material Output")
 
-    uv_node, fator_frente = _criar_nodos_fator_frontal(nt, nome_uv)
+    uv_node, fator_frente = _criar_nodos_fator_frontal(nt, nome_uv, nome_visivel=nome_visivel)
+    fator_pbr = fator_frente
+    if nome_cor and img_origem is not None:
+        # Propaga hints PBR para flancos/traseira apenas onde COLOR_0 combina com o concept frontal
+        vc_hint = nt.nodes.new("ShaderNodeVertexColor")
+        vc_hint.layer_name = nome_cor
+        tex_orig = nt.nodes.new("ShaderNodeTexImage")
+        tex_orig.image = img_origem
+        tex_orig.extension = "EXTEND"
+        nt.links.new(uv_node.outputs["UV"], tex_orig.inputs["Vector"])
+
+        dist_cor = nt.nodes.new("ShaderNodeVectorMath")
+        dist_cor.operation = "DISTANCE"
+        nt.links.new(vc_hint.outputs["Color"], dist_cor.inputs[0])
+        nt.links.new(tex_orig.outputs["Color"], dist_cor.inputs[1])
+
+        mr_sim = nt.nodes.new("ShaderNodeMapRange")
+        mr_sim.clamp = True
+        mr_sim.inputs["From Min"].default_value = 0.22
+        mr_sim.inputs["From Max"].default_value = 0.50
+        mr_sim.inputs["To Min"].default_value = 1.0
+        mr_sim.inputs["To Max"].default_value = 0.0
+        nt.links.new(dist_cor.outputs["Value"], mr_sim.inputs["Value"])
+
+        max_pbr = nt.nodes.new("ShaderNodeMath")
+        max_pbr.operation = "MAXIMUM"
+        max_pbr.use_clamp = True
+        nt.links.new(fator_frente, max_pbr.inputs[0])
+        nt.links.new(mr_sim.outputs["Result"], max_pbr.inputs[1])
+        fator_pbr = max_pbr.outputs["Value"]
+
     comb = nt.nodes.new("ShaderNodeCombineColor")
     comb.mode = "RGB"
 
@@ -313,7 +393,7 @@ def _criar_material_high_hints_emit(
         mul_fa = nt.nodes.new("ShaderNodeMath")
         mul_fa.operation = "MULTIPLY"
         mul_fa.use_clamp = True
-        nt.links.new(fator_frente, mul_fa.inputs[0])
+        nt.links.new(fator_pbr, mul_fa.inputs[0])
         nt.links.new(tex_m.outputs["Alpha"], mul_fa.inputs[1])
 
         mul_m = nt.nodes.new("ShaderNodeMath")
@@ -335,7 +415,7 @@ def _criar_material_high_hints_emit(
         mul_r = nt.nodes.new("ShaderNodeMath")
         mul_r.operation = "MULTIPLY"
         mul_r.use_clamp = True
-        nt.links.new(fator_frente, mul_r.inputs[0])
+        nt.links.new(fator_pbr, mul_r.inputs[0])
         nt.links.new(tex_r.outputs["Alpha"], mul_r.inputs[1])
         nt.links.new(mul_r.outputs["Value"], comb.inputs[2])
     else:
@@ -435,6 +515,37 @@ def _empacotar_orm(
     img_orm.colorspace_settings.name = "Non-Color"
     img_orm.pixels.foreach_set(orm_buf)
     return img_orm
+
+
+def _extrair_canais_roblox(img_orm, saida_dir: str, nome_base: str, px: int, cena) -> list[dict]:
+    """Salva PNGs individuais Non-Color de Roughness (G) e Metallic (B) para Roblox SurfaceAppearance."""
+    total_floats = px * px * 4
+    orm_buf = array("f", [0.0]) * total_floats
+    img_orm.pixels.foreach_get(orm_buf)
+    r_buf = array("f", [0.0]) * total_floats
+    m_buf = array("f", [0.0]) * total_floats
+    for i in range(0, total_floats, 4):
+        rv = orm_buf[i + 1]
+        mv = orm_buf[i + 2]
+        r_buf[i] = r_buf[i + 1] = r_buf[i + 2] = rv
+        r_buf[i + 3] = 1.0
+        m_buf[i] = m_buf[i + 1] = m_buf[i + 2] = mv
+        m_buf[i + 3] = 1.0
+
+    saidas: list[dict] = []
+    for sufixo, papel, buf in (
+        ("roughness", "roughness", r_buf),
+        ("metallic", "metallic", m_buf),
+    ):
+        nome = f"{nome_base}_{sufixo}.png"
+        caminho = os.path.join(saida_dir, nome)
+        img_tmp = bpy.data.images.new(f"{nome_base}_{sufixo}_tmp", width=px, height=px, alpha=False)
+        img_tmp.colorspace_settings.name = "Non-Color"
+        img_tmp.pixels.foreach_set(buf)
+        img_tmp.save_render(filepath=caminho, scene=cena)
+        bpy.data.images.remove(img_tmp)
+        saidas.append({"caminho": nome, "papel": papel, "bytes": os.path.getsize(caminho)})
+    return saidas
 
 
 def _obter_grupo_gltf_occlusion():
@@ -588,6 +699,51 @@ def _corrigir_normais_invertidas(img_nm, px: int) -> int:
     return corrigidos
 
 
+def _adicionar_detalhe_sobel_normal(
+    img_nm, img_bc, px_nm: int, px_bc: int, forca: float = 0.16
+) -> None:
+    """Injeta micro-relevo sutil de luminancia Sobel do BaseColor no normal map tangente."""
+    if px_nm < 16 or px_bc < 16:
+        return
+    bc_buf = array("f", [0.0]) * (px_bc * px_bc * 4)
+    img_bc.pixels.foreach_get(bc_buf)
+    lum = [0.0] * (px_nm * px_nm)
+    escala = float(px_bc) / float(px_nm)
+    for y in range(px_nm):
+        sy = min(px_bc - 1, int(y * escala))
+        row_off = sy * px_bc
+        dst_off = y * px_nm
+        for x in range(px_nm):
+            sx = min(px_bc - 1, int(x * escala))
+            off = (row_off + sx) * 4
+            lum[dst_off + x] = 0.2126 * bc_buf[off] + 0.7152 * bc_buf[off + 1] + 0.0722 * bc_buf[off + 2]
+
+    nm_buf = array("f", [0.0]) * (px_nm * px_nm * 4)
+    img_nm.pixels.foreach_get(nm_buf)
+    for y in range(1, px_nm - 1):
+        rm = (y - 1) * px_nm
+        rc = y * px_nm
+        rp = (y + 1) * px_nm
+        for x in range(1, px_nm - 1):
+            gx = (
+                (lum[rm + x + 1] + 2.0 * lum[rc + x + 1] + lum[rp + x + 1])
+                - (lum[rm + x - 1] + 2.0 * lum[rc + x - 1] + lum[rp + x - 1])
+            )
+            gy = (
+                (lum[rp + x - 1] + 2.0 * lum[rp + x] + lum[rp + x + 1])
+                - (lum[rm + x - 1] + 2.0 * lum[rm + x] + lum[rm + x + 1])
+            )
+            off = (rc + x) * 4
+            nx = (nm_buf[off] - 0.5) * 2.0 - gx * forca
+            ny = (nm_buf[off + 1] - 0.5) * 2.0 - gy * forca
+            nz = max(0.25, (nm_buf[off + 2] - 0.5) * 2.0)
+            comp = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+            nm_buf[off] = 0.5 + 0.5 * (nx / comp)
+            nm_buf[off + 1] = 0.5 + 0.5 * (ny / comp)
+            nm_buf[off + 2] = 0.5 + 0.5 * (nz / comp)
+    img_nm.pixels.foreach_set(nm_buf)
+
+
 def executar_bake_high_low(
     obj,
     saida_dir: str,
@@ -602,14 +758,15 @@ def executar_bake_high_low(
     metallic_hint_png: str | None = None,
     roughness_hint_png: str | None = None,
     proteger_superficie: bool = False,
+    perfil_nome: str | None = None,
 ) -> dict:
     """Executa bake PBR High->Low (BaseColor, Normal, ORM) e atribui material glTF PBR em ``obj``."""
     if obj is None or obj.data is None or not obj.data.color_attributes:
         raise RuntimeError("malha sem atributo de cor por vertice para assar PBR")
 
     os.makedirs(saida_dir, exist_ok=True)
-    px = max(64, min(int(px), 1024))
-    px_sub = min(px, 512)
+    px = max(64, min(int(px), 2048))
+    px_sub = min(px, 1024 if px >= 2048 else 512)
 
     ativo_cor = obj.data.color_attributes.active_color
     nome_cor = ativo_cor.name if ativo_cor is not None else obj.data.color_attributes[0].name
@@ -651,6 +808,7 @@ def executar_bake_high_low(
             img_rough = bpy.data.images.load(roughness_hint_png, check_existing=False)
             img_rough.colorspace_settings.name = "Non-Color"
 
+        nome_visivel = None
         if img_origem is not None or img_met is not None or img_rough is not None:
             min_v, max_v = _calcular_bbox_mundo(high_obj)
             cam_obj, cam_data = _criar_camera_ortografica_frontal(
@@ -659,6 +817,7 @@ def executar_bake_high_low(
             img_ref = img_origem or img_met or img_rough
             uv_bbox = _detectar_bbox_uv_foreground(img_ref)
             _projetar_uv_frontal_bmesh(high_obj, min_v, max_v, uv_bbox, "UV_Camera_Front")
+            nome_visivel = _calcular_oclusao_frontal_bmesh(high_obj)
 
         decimar_fn(obj, int(limite_triangulos))
         info_reparo = reparo_fn(obj)
@@ -675,7 +834,7 @@ def executar_bake_high_low(
             max_ray_dist = max(0.025, 0.036 * diag)
         else:
             cage_extrusion = max(0.02, 0.03 * diag)
-            max_ray_dist = 0.0
+            max_ray_dist = max(0.025, 0.06 * diag)
 
         high_mat = _criar_material_high_vc(
             f"{nome_base}_high_bake_tmp",
@@ -683,6 +842,7 @@ def executar_bake_high_low(
             img_origem=img_origem,
             nome_uv="UV_Camera_Front",
             calibrar_vc=proteger_superficie,
+            nome_visivel=nome_visivel,
         )
         high_obj.data.materials.clear()
         high_obj.data.materials.append(high_mat)
@@ -738,8 +898,8 @@ def executar_bake_high_low(
         cena.render.bake.margin = max(4, px_sub // 128)
         _selecionar_high_para_low(high_obj, obj)
         bpy.ops.object.bake(type="NORMAL")
-        if proteger_superficie:
-            _corrigir_normais_invertidas(img_nm_tmp, px_sub)
+        _corrigir_normais_invertidas(img_nm_tmp, px_sub)
+        _adicionar_detalhe_sobel_normal(img_nm_tmp, img_bc, px_sub, px)
         img_nm = _salvar_e_recarregar_png(img_nm_tmp, path_nm, "Non-Color", cena)
 
         # 3. ORM via AO (4 samples) + hints opcionais (EMIT 1 sample) em `min(px, 512)`
@@ -764,6 +924,9 @@ def executar_bake_high_low(
                 img_met,
                 img_rough,
                 nome_uv="UV_Camera_Front",
+                nome_cor=nome_cor,
+                img_origem=img_origem,
+                nome_visivel=nome_visivel,
             )
             high_obj.data.materials.clear()
             high_obj.data.materials.append(high_hints_mat)
@@ -789,6 +952,11 @@ def executar_bake_high_low(
             piso_dieletrico_rough=0.68 if proteger_superficie else 0.0,
         )
         bpy.data.images.remove(img_ao_tmp)
+        extras_roblox = (
+            _extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
+            if str(perfil_nome or "").startswith("roblox")
+            else []
+        )
         img_orm = _salvar_e_recarregar_png(img_orm_tmp, path_orm, "Non-Color", cena)
 
         for atributo in list(obj.data.color_attributes):
@@ -851,6 +1019,7 @@ def executar_bake_high_low(
             {"caminho": nome_bc, "papel": "textura", "bytes": bytes_bc},
             {"caminho": nome_nm, "papel": "normal", "bytes": bytes_nm},
             {"caminho": nome_orm, "papel": "orm", "bytes": bytes_orm},
+            *extras_roblox,
         ],
     }
 
@@ -862,6 +1031,7 @@ def aplicar_hints_orm_em_material(
     px: int,
     metallic_hint_png: str | None = None,
     roughness_hint_png: str | None = None,
+    perfil_nome: str | None = None,
 ) -> dict | None:
     """Assa hints opcionais de ORM em objeto que ja tem UVMap e material (ex.: extrude_2d)."""
     tem_met = bool(metallic_hint_png and os.path.isfile(metallic_hint_png))
@@ -953,6 +1123,11 @@ def aplicar_hints_orm_em_material(
         nome_orm = f"{nome_base}_orm.png"
         path_orm = os.path.join(saida_dir, nome_orm)
         img_orm_tmp = _empacotar_orm(img_ao_tmp, f"{nome_base}_orm_tmp", px_sub, img_hints=img_hints_tmp)
+        extras_roblox = (
+            _extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
+            if str(perfil_nome or "").startswith("roblox")
+            else []
+        )
         img_orm = _salvar_e_recarregar_png(img_orm_tmp, path_orm, "Non-Color", cena)
 
         obj.data.materials[0] = mat_orig
@@ -987,7 +1162,7 @@ def aplicar_hints_orm_em_material(
     bytes_orm = os.path.getsize(path_orm)
     return {
         "orm_px": px_sub,
-        "arquivos_textura": [{"caminho": nome_orm, "papel": "orm", "bytes": bytes_orm}],
+        "arquivos_textura": [{"caminho": nome_orm, "papel": "orm", "bytes": bytes_orm}, *extras_roblox],
     }
 
 

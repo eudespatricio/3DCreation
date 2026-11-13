@@ -116,7 +116,7 @@ def _executar_item(
         relatorio_qc = entrada["qc"]
         provedor = entrada["provider"]
         licenca = entrada["licenca"]
-        estado = "cache_hit"
+        estado = "cache_hit" if publicar_arquivos else "aprovado_nao_publicado"
     else:
         provider = providers.obter(item["rota"])
         staging = paths.dir_staging() / run_id / item["id"] / "bruto"
@@ -131,8 +131,18 @@ def _executar_item(
         resultado = _pos_processar(item, perfil, bruto, run_id)
         resultado["determinism"] = provider.determinism
         # cada provider declara a propria licenca: blocky/import sao procedurais, mesh e o modelo
-        modelo_meta = str((bruto.meta or {}).get("modelo") or "")
-        licenca = dict(providers.LICENCAS.get(modelo_meta) or provider.licenca)
+        modelo_meta = str((bruto.meta or {}).get("modelo") or "").strip()
+        if modelo_meta:
+            licenca = providers.licenca_de(modelo_meta)
+        else:
+            licenca = dict(provider.licenca)
+        if not licenca.get("uso_comercial", False):
+            from .errors import erro_licenca
+
+            raise erro_licenca(
+                f"provider '{provider.nome}' sem uso comercial permitido (I7)",
+                modelo=licenca.get("modelo", modelo_meta or provider.nome),
+            )
         resultado["licenca"] = licenca
 
         relatorio_qc = qc_mod.verificar(item, perfil, Path(resultado["dir_final"]), resultado)
@@ -162,7 +172,7 @@ def _executar_item(
             },
         )
         origem = Path(resultado["dir_final"])
-        estado = "publicado"
+        estado = "publicado" if publicar_arquivos else "aprovado_nao_publicado"
 
     manifesto = publish.montar_manifesto(
         item=item,
@@ -262,7 +272,13 @@ def executar(
         relatorio["exit"] = EXIT_OK
         return relatorio, EXIT_OK
 
-    doctor.exigir(("blender", "estado"))
+    precisa_blender = any(
+        t["estado_previsto"] != "bloqueada" and not t["cache_hit"] for t in tarefas
+    )
+    if precisa_blender or not any(t["cache_hit"] for t in tarefas):
+        doctor.exigir(("blender", "estado"))
+    else:
+        doctor.exigir(("estado",))
 
     por_id = {item["id"]: item for item in spec_doc["lote"]}
     politica = (spec_doc.get("politica") or {}).get("falha", "continuar")
@@ -271,7 +287,7 @@ def executar(
 
     for tarefa in tarefas:
         item = por_id[tarefa["id"]]
-        if tarefa["estado_previsto"] == "bloqueada":
+        if tarefa["estado_previsto"] == "bloqueada" and not tarefa.get("cache_hit"):
             relatorio["itens"].append(
                 {
                     "id": tarefa["id"],
@@ -361,7 +377,9 @@ def _estado_por_codigo(codigo: str) -> str:
 
 def _agregar(codigos: list[int], itens: list[dict]) -> int:
     """Nada publicado => exit da causa mais grave; mistura => parcial (docs/contratos.md §5)."""
-    publicados = sum(1 for i in itens if i["estado"] in ("publicado", "cache_hit"))
+    publicados = sum(
+        1 for i in itens if i["estado"] in ("publicado", "cache_hit", "aprovado_nao_publicado")
+    )
     erros = [c for c in codigos if c != EXIT_OK]
     if not erros:
         return EXIT_OK

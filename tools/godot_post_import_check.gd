@@ -30,17 +30,28 @@ func _initialize() -> void:
 	PostImport.aplicar(cena, caminho)
 
 	var manifest_path := caminho.get_basename() + ".manifest.json"
+	var manifesto: Dictionary = {}
 	if FileAccess.file_exists(manifest_path):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(manifest_path))
+		if typeof(parsed) == TYPE_DICTIONARY:
+			manifesto = parsed
 		if not cena.has_meta("forge3d_manifest") or not cena.has_meta("forge3d_asset_id"):
 			print("GODOT_POST_IMPORT_FAIL metadados do manifesto ausentes")
 			cena.free()
 			quit(1)
 			return
 
+	var eh_personagem := str(manifesto.get("tipo", "")) == "personagem_humanoide" or manifesto.get("rig", null) != null
 	var col_path := caminho.get_basename() + "_colisao.glb"
 	var bodies := cena.find_children("*", "StaticBody3D", true, false)
 	var shapes := cena.find_children("*", "CollisionShape3D", true, false)
-	if FileAccess.file_exists(col_path):
+	if eh_personagem:
+		if not bodies.is_empty():
+			print("GODOT_POST_IMPORT_FAIL personagem/rigged nao deveria criar StaticBody3D irmao")
+			cena.free()
+			quit(1)
+			return
+	elif FileAccess.file_exists(col_path):
 		if bodies.is_empty() or shapes.is_empty():
 			print("GODOT_POST_IMPORT_FAIL colisor irmao nao virou StaticBody3D+CollisionShape3D")
 			cena.free()

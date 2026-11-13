@@ -6,8 +6,8 @@
 
 ## Abertos
 
-> Com P0–P6 fechadas, "Fecha em" vencida não é dívida de fase: é **backlog**. Nada aqui bloqueia
-> operação; cada linha fica até alguém decidir fazer (ou descartar).
+> Com P0–P6 e Ondas A–D (`v0.6.0`, D89–D92) fechadas, "Fecha em" vencida não é dívida de fase: é
+> **backlog**. Os 9 itens abaixo seguem abertos até alguém decidir implementar (ou descartar).
 
 | # | Lacuna | Aberto | Fecha em | Condição de fechamento |
 |---|---|---|---|---|

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
-from forge3d import upload
+import pytest
+
+from forge3d import index, upload
 
 
 class _Servidor(BaseHTTPRequestHandler):
@@ -117,3 +122,167 @@ def test_upload_image_dry_run(tmp_path):
     assert rel["content_type"] == "image/png"
     assert rel["request"]["assetType"] == "Image"
     assert rel["bytes"] == p.stat().st_size
+
+
+def test_upload_resolver_ledger_por_asset_id_e_role(tmp_path, monkeypatch):
+    """upload.resolver_ledger resolve (asset_id, role) -> rbxassetid://<id> do ledger.jsonl."""
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))
+
+    assert upload.formatar_rbxassetid("12345") == "rbxassetid://12345"
+    assert upload.formatar_rbxassetid("rbxassetid://12345") == "rbxassetid://12345"
+    assert upload.formatar_rbxassetid("") == ""
+    assert upload.resolver_ledger() == {}
+
+    index.registrar_ledger({"evento": "run", "projeto": "demo", "exit": 0})
+    index.registrar_ledger(
+        {"evento": "upload", "id": "sword.01", "role": "mesh", "asset_id": "100"}
+    )
+    index.registrar_ledger(
+        {"evento": "upload", "id": "sword.01", "role": "mesh", "asset_id": "101"}
+    )
+    index.registrar_ledger(
+        {
+            "evento": "upload",
+            "id": "sword.01",
+            "arquivo": "sword.01_baseColor.png",
+            "asset_type": "Image",
+            "asset_id": "201",
+        }
+    )
+    index.registrar_ledger(
+        {"evento": "upload", "id": "sword.01_normal", "asset_id": "202", "asset_type": "Image"}
+    )
+    index.registrar_ledger(
+        {"evento": "upload", "id": "shield.01", "papel": "orm", "asset_id": "301"}
+    )
+
+    mapa = upload.resolver_ledger()
+    assert mapa[("sword.01", "mesh")] == "rbxassetid://101"
+    assert mapa[("sword.01", "ColorMap")] == "rbxassetid://201"
+    assert mapa[("sword.01", "NormalMap")] == "rbxassetid://202"
+    assert mapa[("shield.01", "orm")] == "rbxassetid://301"
+
+    filtrado = upload.resolver_ledger(asset_id="sword.01")
+    assert all(k[0] == "sword.01" for k in filtrado)
+    assert upload.asset_ids_do_ledger("sword.01") == {
+        "mesh": "rbxassetid://101",
+        "ColorMap": "rbxassetid://201",
+        "NormalMap": "rbxassetid://202",
+    }
+
+    # Explicit ledger path with malformed line ignored
+    custom = tmp_path / "custom_ledger.jsonl"
+    custom.write_text(
+        "{corrompido\n"
+        + json.dumps({"evento": "upload", "id": "elmo.01", "canal": "ColorMap", "asset_id": "999"})
+        + "\n",
+        encoding="utf-8",
+    )
+    assert upload.resolver_ledger(custom) == {("elmo.01", "ColorMap"): "rbxassetid://999"}
+
+
+def test_mcp_studio_descoberta_dinamica_por_mtime_e_env(tmp_path, monkeypatch):
+    """tools/mcp_studio.py descobre StudioMCP.exe mais recente e preserva FORGE3D_STUDIOMCP."""
+    tools_dir = str(Path(__file__).resolve().parents[1] / "tools")
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    import mcp_studio  # noqa: E402
+
+    monkeypatch.delenv("FORGE3D_STUDIOMCP", raising=False)
+
+    # Empty users root -> None / FileNotFoundError
+    vazio = tmp_path / "Users"
+    vazio.mkdir()
+    assert mcp_studio.descobrir_binario(base_users=vazio) is None
+    with pytest.raises(FileNotFoundError):
+        mcp_studio.binario(base_users=vazio)
+
+    # Two Studio versions across users: newer mtime must win
+    antigo = vazio / "dev1" / "AppData/Local/Roblox/Versions/version-aaa111/StudioMCP.exe"
+    novo = vazio / "dev2" / "AppData/Local/Roblox/Versions/version-bbb222/StudioMCP.exe"
+    antigo.parent.mkdir(parents=True)
+    novo.parent.mkdir(parents=True)
+    antigo.write_bytes(b"old")
+    novo.write_bytes(b"new")
+    os.utime(antigo, (1_700_000_000, 1_700_000_000))
+    os.utime(novo, (1_800_000_000, 1_800_000_000))
+
+    assert mcp_studio.binario(base_users=vazio) == str(novo)
+
+    # Env override wins over glob discovery
+    monkeypatch.setenv("FORGE3D_STUDIOMCP", "/custom/StudioMCP.exe")
+    assert mcp_studio.binario(base_users=vazio) == "/custom/StudioMCP.exe"
+
+
+def test_http_retry_backoff_429_e_503(monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    class _Resp:
+        def __init__(self, payload: dict):
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return self._payload
+
+    def fake_urlopen(req, timeout=90):  # noqa: ARG001
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise urllib.error.HTTPError(
+                req.full_url, 429, "Too Many Requests", {"Retry-After": "0.2"}, io.BytesIO(b"rate")
+            )
+        if calls["n"] == 2:
+            raise urllib.error.HTTPError(
+                req.full_url, 503, "Unavailable", {}, io.BytesIO(b"busy")
+            )
+        return _Resp({"ok": True, "assetId": "777"})
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(upload.time, "sleep", lambda s: sleeps.append(s))
+
+    res = upload._http("https://apis.roblox.com/assets/v1/assets", "k", b"{}", "application/json")
+    assert res["assetId"] == "777"
+    assert calls["n"] == 3
+    assert len(sleeps) == 2
+
+
+def test_upload_rejeita_moderacao_reprovada(tmp_path, monkeypatch):
+    from forge3d.errors import ForgeError
+
+    p = _glb(tmp_path)
+    monkeypatch.setattr(
+        upload,
+        "_http",
+        lambda url, key, dados=None, content_type=None, **kw: (  # noqa: ARG005
+            {"path": "operations/op-rej"}
+            if dados is not None
+            else {
+                "done": True,
+                "response": {
+                    "assetId": "555",
+                    "moderationResult": {"moderationState": "MODERATION_STATE_REJECTED"},
+                },
+            }
+        ),
+    )
+    with pytest.raises(ForgeError) as exc_info:
+        upload.executar(
+            p,
+            creator_id="123",
+            key="test-key-123",
+            api_url="https://apis.roblox.com",
+            intervalo=0.01,
+            max_espera=5,
+        )
+    assert exc_info.value.codigo == "FORGE-E-UPLOAD"
+    assert "moderacao" in str(exc_info.value).lower()

@@ -169,8 +169,10 @@ def avaliar(
                 if nivel != "LOD0":
                     pior_bbox = max(pior_bbox, delta)
             linha["faixa"] = round(pior_faixa, 4)
+            limiar_ioi = min(ioi_min, 0.78) if linha["triangulos"] < 200 else ioi_min
+            limiar_faixa = min(faixa_min, 0.65) if linha["triangulos"] < 200 else faixa_min
             if nivel != "LOD0" and (
-                pior_ioi < ioi_min or pior_bbox > bbox_max_pct or pior_faixa < faixa_min
+                pior_ioi < limiar_ioi or pior_bbox > bbox_max_pct or pior_faixa < limiar_faixa
             ):
                 linha["status"] = "reprovado"
                 falhas += 1

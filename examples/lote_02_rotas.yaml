@@ -1,6 +1,6 @@
 # Lote de referencia das rotas que dependem de GPU/periodo posterior (P3 e P4).
 # Valida contra o schema hoje; executa a partir de P3/P4.
-schema: forge3d/spec@1
+schema: forge3d/spec@4
 
 projeto: demo
 perfil: godot4
@@ -42,4 +42,9 @@ lote:
     colisao: ucx
     seed: 20261110
     lod: [100, 50]
+    modular:
+      grade: [4, 4]
+      modulos: [reto_ns, reto_lo, curva_ne, quatro_bocas, beco]
+      setor: [0, 0]
+      tamanho_modulo: 4.0
     tags: [cenario, dungeon, lava]

@@ -210,8 +210,8 @@ def test_mcp_chama_doctor_validate_plan_verify_query_e_run(tmp_path, monkeypatch
     monkeypatch.setattr(
         mcp_server.pipeline,
         "executar",
-        lambda path, plano_apenas=False, publicar_arquivos=True: (
-            {"comando": "run", "exit": 0, "publicar_arquivos": publicar_arquivos},
+        lambda path, **kw: (
+            {"comando": "run", "exit": 0, "publicar_arquivos": kw.get("publicar_arquivos", True)},
             0,
         ),
     )
@@ -265,3 +265,70 @@ def test_cli_subcomando_mcp_stdio(tmp_path):
     assert [r["id"] for r in linhas] == [1, 2, 3]
     assert len(linhas[1]["result"]["tools"]) == 6
     assert json.loads(linhas[2]["result"]["content"][0]["text"])["total"] == 0
+
+
+def _frame_mcp(obj: dict) -> bytes:
+    body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    return f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
+
+
+def _parse_frames(raw: bytes) -> list[dict]:
+    msgs = []
+    pos = 0
+    while pos < len(raw):
+        sep = raw.find(b"\r\n\r\n", pos)
+        assert sep != -1, raw[pos:]
+        hdr = raw[pos:sep].decode("ascii")
+        length = int(hdr.split(":", 1)[1].strip())
+        start = sep + 4
+        msgs.append(json.loads(raw[start : start + length].decode("utf-8")))
+        pos = start + length
+    return msgs
+
+
+def test_mcp_content_length_framing_bytes_e_texto():
+    reqs = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26"}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {"nota": "olá-ação"}},
+    ]
+    payload = b"".join(_frame_mcp(r) for r in reqs)
+
+    # 1) Stream binario (BytesIO)
+    out_bin = io.BytesIO()
+    rc = mcp_server.servir(entrada=io.BytesIO(payload), saida=out_bin)
+    assert rc == 0
+    resps_bin = _parse_frames(out_bin.getvalue())
+    assert [r["id"] for r in resps_bin] == [1, 2]
+    assert resps_bin[0]["result"]["protocolVersion"] == "2025-03-26"
+
+    # 2) Stream texto (StringIO)
+    out_txt = io.StringIO()
+    rc_txt = mcp_server.servir(entrada=io.StringIO(payload.decode("utf-8")), saida=out_txt)
+    assert rc_txt == 0
+    resps_txt = _parse_frames(out_txt.getvalue().encode("utf-8"))
+    assert [r["id"] for r in resps_txt] == [1, 2]
+
+
+def test_cli_subcomando_mcp_stdio_content_length(tmp_path):
+    env = dict(os.environ)
+    env["FORGE3D_HOME"] = str(tmp_path / "state")
+    env["FORGE3D_CONFIG"] = str(tmp_path / "config")
+    env["FORGE3D_ROOT"] = str(RAIZ)
+    entrada = b"".join(
+        [
+            _frame_mcp({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+            _frame_mcp({"jsonrpc": "2.0", "id": 2, "method": "ping"}),
+        ]
+    )
+    proc = subprocess.run(
+        [sys.executable, "-m", "forge3d.cli.main", "mcp"],
+        cwd=str(RAIZ),
+        env=env,
+        input=entrada,
+        capture_output=True,
+        timeout=30,
+        check=True,
+    )
+    resps = _parse_frames(proc.stdout)
+    assert [r["id"] for r in resps] == [1, 2]

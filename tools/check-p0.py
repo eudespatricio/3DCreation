@@ -36,9 +36,11 @@ for rel in (
     "schemas/spec.v1.schema.json",
     "schemas/spec.v2.schema.json",
     "schemas/spec.v3.schema.json",
+    "schemas/spec.v4.schema.json",
     "schemas/manifest.v1.schema.json",
     "schemas/manifest.v2.schema.json",
     "schemas/manifest.v3.schema.json",
+    "schemas/manifest.v4.schema.json",
 ):
     try:
         s = json.loads((ROOT / rel).read_text(encoding="utf-8"))
@@ -51,7 +53,7 @@ for rel in (
 print("== exemplos yaml ==")
 LOTES = (
     ("examples/lote_01.yaml", "schemas/spec.v1.schema.json", "spec@1"),
-    ("examples/lote_02_rotas.yaml", "schemas/spec.v1.schema.json", "spec@1"),
+    ("examples/lote_02_rotas.yaml", "schemas/spec.v4.schema.json", "spec@4"),
     ("examples/lote_04_mesh.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_05_mesh_concept.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_06_mesh_split.yaml", "schemas/spec.v1.schema.json", "spec@1"),
@@ -59,6 +61,7 @@ LOTES = (
     ("examples/lote_09_r15.yaml", "schemas/spec.v1.schema.json", "spec@1"),
     ("examples/lote_03_kit.yaml", "schemas/spec.v2.schema.json", "spec@2"),
     ("examples/lote_10_modular.yaml", "schemas/spec.v3.schema.json", "spec@3"),
+    ("examples/lote_11_hero_armor_set.yaml", "schemas/spec.v4.schema.json", "spec@4"),
 )
 for rel, schema_rel, rotulo in LOTES:
     try:
@@ -83,15 +86,24 @@ for rel, schema_rel, rotulo in LOTES:
                     fail(f"{rel}: B3 origem ausente em {item['id']}")
                 parte = item.get("parte")
                 if parte:
-                    esperado = {
-                        "corpo": "personagem_humanoide",
-                        "capa": "personagem_humanoide",
-                        "arma": "prop_equipavel",
-                    }[parte]
-                    if item.get("tipo") != esperado:
+                    esperados = {
+                        "corpo": ("personagem_humanoide",),
+                        "capa": ("personagem_humanoide", "prop_estatico"),
+                        "cabelo": ("personagem_humanoide", "prop_estatico"),
+                        "arma": ("prop_equipavel",),
+                        "elmo": ("prop_equipavel", "prop_estatico"),
+                        "ombreiras": ("prop_equipavel", "prop_estatico", "personagem_humanoide"),
+                        "peitoral": ("prop_equipavel", "personagem_humanoide"),
+                        "luvas": ("prop_equipavel", "personagem_humanoide"),
+                        "calcas": ("prop_equipavel", "personagem_humanoide"),
+                        "calças": ("prop_equipavel", "personagem_humanoide"),
+                        "botas": ("prop_equipavel", "personagem_humanoide"),
+                        "escudo": ("prop_equipavel", "prop_estatico"),
+                    }.get(parte, ())
+                    if esperados and item.get("tipo") not in esperados:
                         fail(f"{rel}: B12 parte {parte} com tipo {item.get('tipo')}")
-                    if parte == "capa" and item.get("auto_rig"):
-                        fail(f"{rel}: B13 capa com auto_rig")
+                    if parte in ("capa", "cabelo", "elmo", "escudo") and item.get("auto_rig"):
+                        fail(f"{rel}: B13 {parte} com auto_rig")
     except Exception as e:  # noqa: BLE001
         fail(f"{rel}: {e}")
 
@@ -100,6 +112,7 @@ for rel_man, rel_schema, rotulo in (
     ("examples/manifest.exemplo.json", "schemas/manifest.v1.schema.json", "manifest@1"),
     ("examples/manifest.exemplo.v2.json", "schemas/manifest.v2.schema.json", "manifest@2"),
     ("examples/manifest.exemplo.v3.json", "schemas/manifest.v3.schema.json", "manifest@3"),
+    ("examples/manifest.exemplo.v4.json", "schemas/manifest.v4.schema.json", "manifest@4"),
 ):
     try:
         man = json.loads((ROOT / rel_man).read_text(encoding="utf-8"))
@@ -149,7 +162,10 @@ else:
     ok("nenhum caminho /mnt ou UNC em examples/profiles/schemas/docs")
 
 print("== I14 franquias em artefatos de contrato ==")
-franquia = re.compile(r"minecraft|fortnite|zelda|mario|pokemon|call of duty", re.I)
+franquia = re.compile(
+    r"(?<![a-z0-9])(minecraft|fortnite|zelda|mario|pokemon|pok[eé]mon|nintendo|overwatch|valorant|call[ _-]?of[ _-]?duty)(?![a-z0-9])",
+    re.I,
+)
 achou = []
 for base in ("examples", "profiles", "schemas"):
     for p in (ROOT / base).rglob("*"):

@@ -190,14 +190,14 @@ def _delight_cv2(rgba: Image.Image) -> Image.Image:
     l_fg = l_chan[fg_mask] if np.any(fg_mask) else l_chan
     l_ref = float(np.clip(np.median(l_fg), 90.0, 170.0))
 
-    razao = np.clip(l_ref / np.maximum(iluminacao, 12.0), 0.85, 1.15)
+    razao = np.clip(l_ref / np.maximum(iluminacao, 12.0), 0.82, 1.55)
     l_retinex = l_chan * razao
 
     # Supressao de picos especulares sem lavar tons medios nem inventar brilho no tecido fosco.
     excesso = np.maximum(0.0, l_chan - 200.0)
     l_retinex = np.where(l_chan > 200.0, l_retinex - 0.65 * excesso, l_retinex)
 
-    fator_blend = 0.42
+    fator_blend = np.where(l_chan < l_ref, 0.62, 0.42)
     l_out = (1.0 - fator_blend) * l_chan + fator_blend * l_retinex
     l_out = np.where(l_chan > 200.0, np.minimum(l_out, l_chan - 0.65 * excesso), l_out)
 
@@ -249,14 +249,15 @@ def _delight_pil(rgba: Image.Image) -> Image.Image:
         if not fg:
             y_out[i] = yv
             continue
-        razao = max(0.85, min(1.15, l_ref / max(float(iv), 12.0)))
+        razao = max(0.82, min(1.55, l_ref / max(float(iv), 12.0)))
         l_ret = yv * razao
         excesso = max(0.0, yv - 190.0)
         if yv > 190:
             l_ret -= 0.70 * excesso
             cb_out[i] = max(0, min(255, round(128 + (cb_bytes[i] - 128) * 0.88)))
             cr_out[i] = max(0, min(255, round(128 + (cr_bytes[i] - 128) * 0.88)))
-        l_val = 0.58 * yv + 0.42 * l_ret
+        peso = 0.62 if yv < l_ref else 0.42
+        l_val = (1.0 - peso) * yv + peso * l_ret
         if yv > 190:
             l_val = min(l_val, yv - 0.70 * excesso)
         y_out[i] = max(0, min(255, round(l_val)))
@@ -325,16 +326,35 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         & (local_min >= 80.0)
         & contraste_forte
     )
+    gunmetal = (
+        (s_hsv < 55)
+        & (l_lab >= 50)
+        & (l_lab < 95)
+        & (local_min >= 45.0)
+        & (local_max >= 95.0)
+        & (local_range >= 18.0)
+    )
     ouro = (h_deg >= 28.0) & (h_deg <= 52.0) & (s_hsv >= 75) & (s_hsv <= 210) & (v_hsv > 125)
-    metal = (prata | ouro) & fg
+    bronze = (
+        (h_deg >= 12.0)
+        & (h_deg < 28.0)
+        & (s_hsv >= 85)
+        & (s_hsv <= 230)
+        & (v_hsv >= 100)
+        & (local_range >= 18.0)
+    )
+    metal = (prata | gunmetal | ouro | bronze) & fg
 
     metallic = np.zeros((h, w), dtype=np.uint8)
-    # 220..245 (~0.86..0.96) em metal; 0 no restante.
+    # 210..245 em metal; 0 no restante.
     metal_val = np.clip(222.0 + (l_f32 - 95.0) * 0.14, 220.0, 245.0).astype(np.uint8)
     metallic[metal] = metal_val[metal]
+    gun_val = np.clip(212.0 + (l_f32 - 50.0) * 0.45, 210.0, 235.0).astype(np.uint8)
+    metallic[gunmetal & fg] = gun_val[gunmetal & fg]
+    metallic[bronze & fg] = 225
     metallic[ouro & fg] = 235
 
-    # Roughness: metal ~0.25..0.38, pele/couro ~0.55, pano/cabelo ~0.82.
+    # Roughness: metal ~0.25..0.42, pele/couro ~0.55, pano/cabelo ~0.82.
     roughness = np.full((h, w), 209, dtype=np.uint8)  # 0.82 * 255
     couro_pele = (
         fg
@@ -348,6 +368,10 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     roughness[couro_pele] = 140  # ~0.55
     metal_rough = np.clip(95.0 - (l_f32 / 255.0) * 26.0, 64.0, 97.0).astype(np.uint8)
     roughness[metal] = metal_rough[metal]
+    bronze_rough = np.clip(102.0 - (l_f32 / 255.0) * 28.0, 64.0, 105.0).astype(np.uint8)
+    roughness[bronze & fg] = bronze_rough[bronze & fg]
+    gun_rough = np.clip(112.0 - (l_f32 / 255.0) * 32.0, 72.0, 115.0).astype(np.uint8)
+    roughness[gunmetal & fg] = gun_rough[gunmetal & fg]
 
     return Image.fromarray(metallic, mode="L"), Image.fromarray(roughness, mode="L")
 
@@ -404,13 +428,23 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         contraste = (l_max[idx] - l_min[idx]) >= 18
 
         eh_prata = s_u8 < 45 and 95 <= l_u8 <= 240 and l_min[idx] >= 80 and contraste
+        eh_gunmetal = (
+            s_u8 < 55 and 50 <= l_u8 < 95 and l_min[idx] >= 45 and l_max[idx] >= 95 and contraste
+        )
         eh_ouro = 28.0 <= h_deg <= 52.0 and 75 <= s_u8 <= 210 and v_u8 > 125
+        eh_bronze = 12.0 <= h_deg < 28.0 and 85 <= s_u8 <= 230 and v_u8 >= 100 and contraste
         if eh_ouro:
             metallic[idx] = 235
             roughness[idx] = max(64, min(97, round(95.0 - (l_u8 / 255.0) * 26.0)))
+        elif eh_bronze:
+            metallic[idx] = 225
+            roughness[idx] = max(64, min(105, round(102.0 - (l_u8 / 255.0) * 28.0)))
         elif eh_prata:
             metallic[idx] = max(220, min(245, round(222.0 + (l_u8 - 95.0) * 0.14)))
             roughness[idx] = max(64, min(97, round(95.0 - (l_u8 / 255.0) * 26.0)))
+        elif eh_gunmetal:
+            metallic[idx] = max(210, min(235, round(212.0 + (l_u8 - 50.0) * 0.45)))
+            roughness[idx] = max(72, min(115, round(112.0 - (l_u8 / 255.0) * 32.0)))
         elif 4.0 <= h_deg <= 42.0 and 30 <= s_u8 <= 195 and v_u8 >= 45:
             roughness[idx] = 140
 

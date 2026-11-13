@@ -39,3 +39,7 @@ models/
 # Assets gerados NÃO entram no git deste repo (o destino é o repo do jogo)
 assets_out/
 out/
+dist/
+build/
+*.egg-info/
+tools/godot_project/.godot/

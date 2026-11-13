@@ -7,8 +7,15 @@ from xml.etree import ElementTree
 
 import pytest
 
-from forge3d import rbx
+from forge3d import config, rbx
 from forge3d.cli.comandos import despachar
+
+
+@pytest.fixture(autouse=True)
+def _isolar_allowlist(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "forge_home"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "forge_cfg"))
+    config.adicionar(tmp_path)
 
 R15 = {
     "HumanoidRootPart",
@@ -82,8 +89,8 @@ def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
     assert len(place["clipes"]) == 1
     clipe = place["clipes"][0]
     assert clipe["nome"] == "idle" and clipe["loop"] is True
-    # Core: com Idle (0) o Animator nao aplica a track por cima do que o Humanoid ja toca
-    assert clipe["priority"] == 1000
+    # idle usa Idle (0), movimentacao Movement (1), acoes Action (2)
+    assert clipe["priority"] == 0
     assert [c["tempo"] for c in clipe["chaves"]] == [0.0, 0.5, 1.0, 1.5, 2.0]
 
     esperado = animacao.clipes(profiles.carregar("roblox-r15"), "r15@1", ["idle"])[0]
@@ -132,7 +139,7 @@ def test_export_r15_attachments_transparency_e_anchored(tmp_path):
 
     saida = tmp_path / "r15.rbxlx"
     rel = rbx.exportar_r15("examples/lote_09_r15.yaml", "personagem.r15.guard.01", saida=saida)
-    assert rel["attachments"] == 33
+    assert rel["attachments"] == 39
 
     raiz = ElementTree.fromstring(saida.read_text(encoding="utf-8"))
     referents = [e.get("referent") for e in raiz.iter("Item") if e.get("referent")]
@@ -149,7 +156,7 @@ def test_export_r15_attachments_transparency_e_anchored(tmp_path):
         anchored = parte.findtext("./Properties/bool[@name='Anchored']")
         transp = parte.findtext("./Properties/float[@name='Transparency']")
         if nome == "HumanoidRootPart":
-            assert anchored == "true"
+            assert anchored == "false"
             assert float(transp) == pytest.approx(1.0)
         else:
             assert anchored == "false", f"{nome} deve ter Anchored=false"
@@ -164,10 +171,24 @@ def test_export_r15_attachments_transparency_e_anchored(tmp_path):
 
     atts_por_parte = {nome: _att_map(p) for nome, p in partes.items()}
     assert "HatAttachment" in atts_por_parte["Head"]
+    assert "HairAttachment" in atts_por_parte["Head"]
+    assert atts_por_parte["Head"]["HairAttachment"][1] > 0.0
     assert "BodyBackAttachment" in atts_por_parte["UpperTorso"]
     assert atts_por_parte["UpperTorso"]["BodyBackAttachment"][2] > 0.0
+    assert "BodyFrontAttachment" in atts_por_parte["UpperTorso"]
+    assert atts_por_parte["UpperTorso"]["BodyFrontAttachment"][2] < 0.0
+    assert "LeftCollarAttachment" in atts_por_parte["UpperTorso"]
+    assert atts_por_parte["UpperTorso"]["LeftCollarAttachment"][0] > 0.0
+    assert atts_por_parte["UpperTorso"]["LeftCollarAttachment"][1] > 0.0
+    assert "RightCollarAttachment" in atts_por_parte["UpperTorso"]
+    assert atts_por_parte["UpperTorso"]["RightCollarAttachment"][0] < 0.0
+    assert atts_por_parte["UpperTorso"]["RightCollarAttachment"][1] > 0.0
+    assert "WaistCenterAttachment" in atts_por_parte["LowerTorso"]
+    assert atts_por_parte["LowerTorso"]["WaistCenterAttachment"] == pytest.approx([0.0, 0.0, 0.0])
     assert "RightGripAttachment" in atts_por_parte["RightHand"]
     assert atts_por_parte["RightHand"]["RightGripAttachment"][1] < 0.0
+    assert "LeftGripAttachment" in atts_por_parte["LeftHand"]
+    assert atts_por_parte["LeftHand"]["LeftGripAttachment"][1] < 0.0
 
     place = rbx.ler_place(saida)
     for motor in place["motores"]:
@@ -185,7 +206,7 @@ def test_export_animacao_rbxmx_walk_run_jump_identico_ao_clip(tmp_path):
     roblox = profiles.carregar("roblox-r15")
     juntas = set(rbx.JOINT_R15.values())
 
-    for clipe_nome, loop_esperado in (("walk", True), ("run", True), ("jump", False)):
+    for clipe_nome, loop_esperado, prio_esperada in (("walk", True, 1), ("run", True, 1), ("jump", False, 2)):
         saida = tmp_path / f"{clipe_nome}.rbxmx"
         rel = rbx.exportar_animacao(
             "examples/lote_09_r15.yaml",
@@ -203,16 +224,20 @@ def test_export_animacao_rbxmx_walk_run_jump_identico_ao_clip(tmp_path):
         seq = lido["clipes"][0]
         assert seq["nome"] == clipe_nome
         assert seq["loop"] is loop_esperado
-        assert seq["priority"] == 1000
+        assert seq["priority"] == prio_esperada
 
         esperado = animacao.clipes(roblox, "r15@1", [clipe_nome])[0]
         for chave, ch_exp in zip(seq["chaves"], esperado["chaves"]):
             assert chave["tempo"] == pytest.approx(ch_exp["segundos"], abs=1e-4)
             assert {p["osso"] for p in chave["poses"]} == juntas
-            dadas = {rbx.JOINT_R15.get(p["osso"], p["osso"]): p for p in ch_exp["poses"]}
+            dadas_m: dict[str, list[float]] = {}
+            for p in ch_exp["poses"]:
+                junta = rbx.JOINT_R15.get(p["osso"], p["osso"])
+                m_p = rbx._matriz_rotacao(p["graus"], p["eixo"])
+                dadas_m[junta] = m_p if junta not in dadas_m else rbx._mul_mat3(dadas_m[junta], m_p)
+            identidade = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
             for pose in chave["poses"]:
-                fonte = dadas.get(pose["osso"], {"graus": 0.0, "eixo": "X"})
-                matriz = rbx._matriz_rotacao(fonte["graus"], fonte["eixo"])
+                matriz = dadas_m.get(pose["osso"], identidade)
                 assert pose["cframe"][3:] == pytest.approx(matriz, abs=1e-5)
 
 
@@ -299,13 +324,14 @@ def test_surface_appearance_xml_e_r15_com_pbr(tmp_path):
     referents = [e.get("referent") for e in raiz.iter("Item") if e.get("referent")]
     assert len(referents) == len(set(referents))
     modelo = next(e for e in raiz.iter("Item") if e.get("class") == "Model")
-    for parte in modelo.findall("Item[@class='Part']"):
-        nome = parte.findtext("Properties/string[@name='Name']")
-        sas = parte.findall("Item[@class='SurfaceAppearance']")
-        if nome == "HumanoidRootPart":
-            assert len(sas) == 0
-        else:
-            assert len(sas) == 1
+    hrps = modelo.findall("Item[@class='Part']")
+    assert len(hrps) == 1
+    assert hrps[0].findtext("Properties/string[@name='Name']") == "HumanoidRootPart"
+    assert len(hrps[0].findall("Item[@class='SurfaceAppearance']")) == 0
+    meshparts = modelo.findall("Item[@class='MeshPart']")
+    assert len(meshparts) == 15
+    for parte in meshparts:
+        assert len(parte.findall("Item[@class='SurfaceAppearance']")) == 1
     place = rbx.ler_place(rbxlx_pbr)
     assert len(place["surface_appearances"]) == 15
 
@@ -387,15 +413,20 @@ def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
     )
     assert rc == 0
     rel_todos = json.loads(capsys.readouterr().out)
-    assert rel_todos["clipes"] == ["idle", "walk", "run", "jump"]
-    assert rel_todos["keyframes"] == {"idle": 5, "walk": 9, "run": 9, "jump": 9}
+    todos_esperados = ["idle", "walk", "run", "jump", "attack", "block", "hit", "death"]
+    assert rel_todos["clipes"] == todos_esperados
+    assert rel_todos["keyframes"] == {
+        "idle": 5,
+        "walk": 9,
+        "run": 9,
+        "jump": 9,
+        "attack": 9,
+        "block": 9,
+        "hit": 9,
+        "death": 9,
+    }
     assert rel_todos["bytes"] == todos_rbxmx.stat().st_size
-    assert [c["nome"] for c in rbx.ler_place(todos_rbxmx)["clipes"]] == [
-        "idle",
-        "walk",
-        "run",
-        "jump",
-    ]
+    assert [c["nome"] for c in rbx.ler_place(todos_rbxmx)["clipes"]] == todos_esperados
 
     # 4) Unknown clip in list fails cleanly with FORGE-E-SPEC
     rc = despachar(
@@ -540,5 +571,213 @@ def test_cli_export_r15_com_texturas_dir(tmp_path, capsys):
     )
     assert rc2 == 0
     assert "+SurfaceAppearance" in capsys.readouterr().out
+
+
+def test_surface_appearance_injeta_rbxassetid_por_mapa_e_ledger(tmp_path):
+    """surface_appearance_xml e exportar_surface_appearance aceitam asset_ids e ledger."""
+    from forge3d.errors import ForgeError
+
+    xml = rbx.surface_appearance_xml(
+        {"ColorMap": "hero_baseColor.png", "NormalMap": "hero_normal.png", "RoughnessMap": "hero_orm.png"},
+        asset_ids={"ColorMap": "111222333", "hero_normal.png": "rbxassetid://444555666"},
+    )
+    sa_node = ElementTree.fromstring(xml)
+    assert sa_node.findtext("Properties/Content[@name='ColorMap']/url") == "rbxassetid://111222333"
+    assert sa_node.findtext("Properties/Content[@name='NormalMap']/url") == "rbxassetid://444555666"
+    assert sa_node.findtext("Properties/Content[@name='RoughnessMap']/url") == "hero_orm.png"
+
+    pub = tmp_path / "pub"
+    pub.mkdir()
+    asset_id = "set.silvanor.peitoral.01"
+    for suf in ("baseColor", "normal", "orm"):
+        (pub / f"{asset_id}_{suf}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    manifesto = pub / f"{asset_id}.manifest.json"
+    manifesto.write_text(
+        json.dumps(
+            {
+                "schema": "forge3d/manifest@3",
+                "asset_id": asset_id,
+                "files": [
+                    {"caminho": f"{asset_id}_baseColor.png", "papel": "textura"},
+                    {"caminho": f"{asset_id}_normal.png", "papel": "normal"},
+                    {"caminho": f"{asset_id}_orm.png", "papel": "orm"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text(
+        "\n".join(
+            [
+                json.dumps({"evento": "upload", "id": asset_id, "role": "ColorMap", "asset_id": "1001"}),
+                json.dumps({"evento": "upload", "id": asset_id, "papel": "normal", "asset_id": "1002"}),
+                json.dumps({"evento": "upload", "id": f"{asset_id}_orm", "asset_id": "1003"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    sa_out = tmp_path / "peitoral_sa.rbxmx"
+    rel = rbx.exportar_surface_appearance(manifesto, saida=sa_out, ledger=ledger)
+    assert rel["mapas"] == {
+        "ColorMap": "rbxassetid://1001",
+        "NormalMap": "rbxassetid://1002",
+        "RoughnessMap": "rbxassetid://1003",
+    }
+    lido = rbx.ler_place(sa_out)["surface_appearances"][0]
+    assert lido["ColorMap"] == "rbxassetid://1001"
+    assert lido["NormalMap"] == "rbxassetid://1002"
+    assert lido["RoughnessMap"] == "rbxassetid://1003"
+
+    # Negative: exportar_r15 continues rejecting non-blocky route
+    lote_mesh = tmp_path / "lote_mesh.yaml"
+    lote_mesh.write_text(
+        "\n".join(
+            [
+                "schema: forge3d/spec@3",
+                "projeto: demo",
+                "perfil: roblox-r15",
+                f"destino_exportacao: {tmp_path / 'out'}",
+                "lote:",
+                "  - id: personagem.mesh.01",
+                "    tipo: personagem_humanoide",
+                "    rota: mesh",
+                "    seed: 1",
+                "    prompt: guerreiro",
+                "    altura_metros: 1.85",
+                "    auto_rig: true",
+                "    esqueleto: r15@1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ForgeError) as exc:
+        rbx.exportar_r15(lote_mesh, "personagem.mesh.01")
+    assert exc.value.codigo == "FORGE-E-SPEC"
+
+
+def test_exportar_acessorio_rbxmx_manifesto_skinned_e_glb(tmp_path):
+    """exportar_acessorio_rbxmx gera Accessory + Handle MeshPart + Attachment + SurfaceAppearance."""
+    from forge3d.errors import ForgeError
+
+    pub = tmp_path / "pub"
+    pub.mkdir()
+    elmo_id = "set.armadura.elmo.01"
+    for suf in ("baseColor", "normal", "orm"):
+        (pub / f"{elmo_id}_{suf}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (pub / f"{elmo_id}.glb").write_bytes(b"glTF\x02\x00\x00\x00")
+    man_elmo = pub / f"{elmo_id}.manifest.json"
+    man_elmo.write_text(
+        json.dumps(
+            {
+                "schema": "forge3d/manifest@3",
+                "asset_id": elmo_id,
+                "geometry": {"bbox_m": [0.28, 0.28, 0.56]},
+                "unidades_export": {"metros_por_unidade": 0.28, "escala_saida": 3.5714},
+                "anexo": {
+                    "parte": "elmo",
+                    "osso": "Head",
+                    "attachment_roblox": "HatAttachment",
+                    "skinned": False,
+                },
+                "files": [
+                    {"caminho": f"{elmo_id}.glb", "papel": "mesh"},
+                    {"caminho": f"{elmo_id}_baseColor.png", "papel": "textura"},
+                    {"caminho": f"{elmo_id}_normal.png", "papel": "normal"},
+                    {"caminho": f"{elmo_id}_orm.png", "papel": "orm"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text(
+        "\n".join(
+            [
+                json.dumps({"evento": "upload", "id": elmo_id, "role": "mesh", "asset_id": "777001"}),
+                json.dumps({"evento": "upload", "id": elmo_id, "role": "ColorMap", "asset_id": "777002"}),
+                json.dumps({"evento": "upload", "id": elmo_id, "role": "NormalMap", "asset_id": "777003"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    out_elmo = tmp_path / "elmo.rbxmx"
+    rel = rbx.exportar_acessorio_rbxmx(man_elmo, saida=out_elmo, ledger=ledger)
+    assert rel["ok"] is True
+    assert rel["attachment"] == "HatAttachment"
+    assert rel["skinned"] is False
+    assert rel["mesh_id"] == "rbxassetid://777001"
+    assert rel["materiais"] == 1
+    assert rel["mapas"] == {
+        "ColorMap": "rbxassetid://777002",
+        "NormalMap": "rbxassetid://777003",
+        "RoughnessMap": f"{elmo_id}_orm.png",
+    }
+
+    raiz = ElementTree.fromstring(out_elmo.read_text(encoding="utf-8"))
+    acc = raiz.find("Item[@class='Accessory']")
+    assert acc is not None
+    handle = acc.find("Item[@class='MeshPart']")
+    assert handle is not None
+    assert handle.findtext("Properties/string[@name='Name']") == "Handle"
+    assert handle.findtext("Properties/Content[@name='MeshId']/url") == "rbxassetid://777001"
+    size_node = handle.find("Properties/Vector3[@name='size']")
+    assert float(size_node.findtext("X")) == pytest.approx(1.0, abs=1e-4)
+    assert float(size_node.findtext("Y")) == pytest.approx(2.0, abs=1e-4)
+    assert float(size_node.findtext("Z")) == pytest.approx(1.0, abs=1e-4)
+
+    place = rbx.ler_place(out_elmo)
+    assert place["acessorios"] == [
+        {
+            "nome": elmo_id,
+            "handle": "Handle",
+            "mesh_id": "rbxassetid://777001",
+            "attachments": ["HatAttachment"],
+        }
+    ]
+    assert len(place["surface_appearances"]) == 1
+    assert place["surface_appearances"][0]["parte"] == "Handle"
+    assert handle.find("Item[@class='WeldConstraint']") is not None
+
+    # Skinned MeshPart accessory directly from .glb + explicit asset_ids
+    glb_peito = pub / "peito.glb"
+    glb_peito.write_bytes(b"glTF\x02\x00\x00\x00")
+    (pub / "peito_baseColor.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    rel_sk = rbx.exportar_acessorio_rbxmx(
+        glb_peito,
+        attachment_name="BodyFrontAttachment",
+        skinned=True,
+        asset_ids={"mesh": "888001", "ColorMap": "888002"},
+    )
+    assert rel_sk["skinned"] is True
+    assert rel_sk["attachment"] == "BodyFrontAttachment"
+    assert rel_sk["mesh_id"] == "rbxassetid://888001"
+    assert rel_sk["mapas"] == {"ColorMap": "rbxassetid://888002"}
+    assert "WeldConstraint" not in rel_sk["xml"]
+
+    # Modo rig 'bone' em exportar_r15 gera MeshPart com arvore de Bones + Animator
+    out_bone = tmp_path / "r15_bone.rbxlx"
+    rel_bone = rbx.exportar_r15(
+        "examples/lote_09_r15.yaml",
+        "personagem.r15.guard.01",
+        saida=out_bone,
+        modo_rig="bone",
+    )
+    assert rel_bone["modo_rig"] == "bone"
+    assert rel_bone["partes"] == 1
+    raiz_bone = ElementTree.fromstring(out_bone.read_text(encoding="utf-8"))
+    assert len(raiz_bone.findall(".//Item[@class='Bone']")) == 16
+    assert raiz_bone.find(".//Item[@class='Animator']") is not None
+
+    # Negative: blocks writing to /mnt/ (I12)
+    with pytest.raises(ForgeError) as exc_mnt:
+        rbx.exportar_acessorio_rbxmx(glb_peito, saida="/mnt/c/temp/elmo.rbxmx")
+    assert exc_mnt.value.codigo == "FORGE-E-PATH"
+
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from forge3d import profiles
+from forge3d import profiles, rbx
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -262,3 +262,50 @@ def test_rig_eixos_direcoes_simetria_e_cadeia_de_pais(
         hr = por_nome[dir_nome]["head"]
         assert abs(hl[0] + hr[0]) < 1e-3, (esq_nome, hl, dir_nome, hr)
         assert abs(hl[2] - hr[2]) < 1e-3, (esq_nome, hl, dir_nome, hr)
+
+
+def test_r15_perfil_hierarquia_e_simetria_anexos_padrao(tmp_path, monkeypatch):
+    """Sem Blender: valida cadeia de pais R15, JOINT_R15 e simetria de Collar/Grip Attachments."""
+    from xml.etree import ElementTree
+
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "cfg" / "config.yaml"))
+    from forge3d import config
+
+    config.adicionar(tmp_path)
+
+    perfil = profiles.carregar("roblox-r15")
+    mapa = perfil["rig"]["mapas"]["r15@1"]
+    assert set(mapa) == set(_PAIS_ESPERADOS["r15@1"])
+    assert set(rbx.JOINT_R15) == {k for k, v in _PAIS_ESPERADOS["r15@1"].items() if v is not None}
+
+    saida = tmp_path / "r15_axes.rbxlx"
+    rel = rbx.exportar_r15("examples/lote_09_r15.yaml", "personagem.r15.guard.01", saida=saida)
+    assert rel["attachments"] == 39
+
+    place = rbx.ler_place(saida)
+    cadeia = {m["part1"]: m["part0"] for m in place["motores"]}
+    cadeia["HumanoidRootPart"] = None
+    assert cadeia == _PAIS_ESPERADOS["r15@1"]
+
+    raiz = ElementTree.fromstring(saida.read_text(encoding="utf-8"))
+    modelo = next(e for e in raiz.iter("Item") if e.get("class") == "Model")
+    atts: dict[str, dict[str, list[float]]] = {}
+    for parte in modelo.findall("Item[@class='Part']"):
+        pnome = parte.findtext("Properties/string[@name='Name']")
+        atts[pnome] = {
+            att.findtext("Properties/string[@name='Name']"): [
+                float(att.findtext(f"Properties/CoordinateFrame[@name='CFrame']/{ax}"))
+                for ax in ("X", "Y", "Z")
+            ]
+            for att in parte.findall("Item[@class='Attachment']")
+        }
+
+    lc = atts["UpperTorso"]["LeftCollarAttachment"]
+    rc = atts["UpperTorso"]["RightCollarAttachment"]
+    assert lc[0] == pytest.approx(-rc[0], abs=1e-5) and lc[0] > 0.0
+    assert lc[1] == pytest.approx(rc[1], abs=1e-5)
+
+    lg = atts["LeftHand"]["LeftGripAttachment"]
+    rg = atts["RightHand"]["RightGripAttachment"]
+    assert lg == pytest.approx(rg, abs=1e-5) and lg[1] < 0.0

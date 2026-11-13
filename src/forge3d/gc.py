@@ -10,9 +10,27 @@ import shutil
 import time
 from pathlib import Path
 
-from . import paths
+from . import locks, paths
 
 __all__ = ["executar"]
+
+
+def _esta_travado(p: Path) -> bool:
+    if locks.fcntl is None:
+        return False
+    for cand in p.glob("*.lock"):
+        if cand.is_symlink() or not cand.is_file():
+            continue
+        try:
+            with open(cand, "r", encoding="utf-8") as fh:
+                try:
+                    locks.fcntl.flock(fh.fileno(), locks.fcntl.LOCK_EX | locks.fcntl.LOCK_NB)
+                    locks.fcntl.flock(fh.fileno(), locks.fcntl.LOCK_UN)
+                except (BlockingIOError, OSError):
+                    return True
+        except OSError:
+            continue
+    return False
 
 
 def _tamanho(p: Path) -> int:
@@ -45,7 +63,9 @@ def executar(manter_dias: int = 30, aplicar: bool = False) -> dict:
         if not base.is_dir():
             continue
         for p in sorted(base.iterdir()):
-            if not p.is_dir() or p.name.startswith("."):
+            if p.is_symlink() or not p.is_dir() or p.name.startswith("."):
+                continue
+            if _esta_travado(p):
                 continue
             try:
                 idade = (agora - p.stat().st_mtime) / 86400.0

@@ -270,7 +270,7 @@ def test_r15_blocky_gera_16_ossos_com_nomes_r15(tmp_path):
 
     # D62 (opcao A da P2): o glb do roblox-r15 sai em studs e o manifesto declara a unidade.
     # `geometry.bbox_m` continua em metros; o arquivo tem 1,85 m * 3,5714 = 6,607 studs.
-    assert manifesto["schema"] == "forge3d/manifest@3"
+    assert manifesto["schema"] == "forge3d/manifest@4"
     assert manifesto["unidades_export"] == {"metros_por_unidade": 0.28, "escala_saida": 3.5714}
 
     # D66: o clipe base `idle` embutido no glb, retargetado para os 16 ossos do R15

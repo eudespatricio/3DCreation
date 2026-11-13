@@ -203,7 +203,7 @@ def test_sync_copia_texturas_pbr_e_gera_assets_lua(tmp_path, monkeypatch):
         "pipeline_version": "0.4.0",
         "determinism": "D2",
         "providers": {
-            "geometry": {"name": "mesh", "version": "0.1.8", "license": "MIT"}
+            "geometry": {"name": "mesh", "version": "0.1.8", "license": "MIT", "seed": 42}
         },
         "geometry": {"triangulos": 12, "vertices": 8, "bbox_m": [1.0, 1.0, 1.0], "materiais": 1},
         "unidades_export": {"metros_por_unidade": 1.0, "escala_saida": 1.0},
@@ -242,3 +242,87 @@ def test_sync_copia_texturas_pbr_e_gera_assets_lua(tmp_path, monkeypatch):
     for nome in rel["copiados"]:
         assert (alvo / nome).is_file()
     assert '["prop.pbr.01"] = "rbxassetid://987654321"' in lua_path.read_text(encoding="utf-8")
+
+
+def test_sync_limpar_preserva_metadados_godot(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "config"))
+    origem = _publicar_valido(tmp_path)
+
+    alvo = tmp_path / "godot_dst"
+    (alvo / ".godot" / "imported").mkdir(parents=True)
+    (alvo / ".godot" / "uid_cache.bin").write_bytes(b"cache")
+    (alvo / ".godot" / "imported" / "prop.sync.01.scn").write_bytes(b"scn")
+    (alvo / "prop.sync.01.glb.import").write_text("[remap]\n", encoding="utf-8")
+    (alvo / "prop.sync.01.glb.uid").write_text("uid://abc123\n", encoding="utf-8")
+    (alvo / "sub").mkdir()
+    (alvo / "sub" / "tex.png.import").write_text("[remap]\n", encoding="utf-8")
+    (alvo / "orfao.txt").write_text("remover", encoding="utf-8")
+    (alvo / "antigo").mkdir()
+    (alvo / "antigo" / "obsoleto.glb").write_bytes(b"velho")
+
+    rel = sync.executar(origem, alvo, limpar=True)
+    assert rel["ok"] is True
+    assert set(rel["removidos"]) == {"antigo/obsoleto.glb", "orfao.txt"}
+    assert (alvo / ".godot" / "uid_cache.bin").is_file()
+    assert (alvo / ".godot" / "imported" / "prop.sync.01.scn").is_file()
+    assert (alvo / "prop.sync.01.glb.import").is_file()
+    assert (alvo / "prop.sync.01.glb.uid").is_file()
+    assert (alvo / "sub" / "tex.png.import").is_file()
+    assert not (alvo / "orfao.txt").exists()
+    assert not (alvo / "antigo").exists()
+
+
+def test_gerar_assets_gd_deterministico_e_sync_godot(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "config"))
+    origem = _publicar_valido(tmp_path, asset_id="prop.gd.01")
+
+    gd_a = tmp_path / "out_gd" / "Forge3DAssets.gd"
+    gd_b = tmp_path / "out_gd" / "Forge3DAssets_dup.gd"
+    res_a = sync.gerar_assets_gd(origem, gd_a, res_prefix="res://assets/forge3d")
+    res_b = sync.gerar_assets_gd([origem / "prop.gd.01.manifest.json"], gd_b, res_prefix="res://assets/forge3d")
+
+    texto_a = gd_a.read_text(encoding="utf-8")
+    assert texto_a == gd_b.read_text(encoding="utf-8")
+    assert res_a["ok"] is True
+    assert res_a["total"] == 1
+    assert res_b["total"] == 1
+    assert "class_name Forge3DAssets" in texto_a
+    assert "extends RefCounted" in texto_a
+    assert "const ASSETS: Dictionary = {" in texto_a
+    assert '"mesh": "res://assets/forge3d/prop.gd.01.glb"' in texto_a
+    assert "static func get_mesh_path(asset_id: String) -> String:" in texto_a
+
+    with pytest.raises(ForgeError) as exc:
+        sync.gerar_assets_gd(origem, tmp_path / "Ruim.gd", class_name="123-invalido")
+    assert exc.value.codigo == "FORGE-E-SPEC"
+
+    alvo_proj = tmp_path / "godot_proj"
+    alvo_proj.mkdir()
+    (alvo_proj / "project.godot").write_text('[application]\nconfig/name="test"\n', encoding="utf-8")
+    rel = sync.executar(origem, alvo_proj, limpar=True)
+    assert rel["ok"] is True
+    assert rel["godot_assets"] == 1
+    gd_auto = alvo_proj / "forge3d_assets.gd"
+    assert rel["godot_gd"] == str(gd_auto.resolve())
+    assert gd_auto.is_file()
+    assert (alvo_proj / "project.godot").is_file()
+
+    godot = shutil.which("godot")
+    if not godot:
+        cand = Path.home() / ".gemini" / "antigravity" / "bin" / "godot"
+        if cand.is_file():
+            godot = str(cand)
+    if godot:
+        proj_repo = Path(__file__).resolve().parents[1] / "tools" / "godot_project"
+        chk = subprocess.run(
+            [godot, "--headless", "--path", str(proj_repo), "--check-only", "--quit", "--script", str(gd_auto)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert chk.returncode == 0, chk.stdout + chk.stderr

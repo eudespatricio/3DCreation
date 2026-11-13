@@ -41,7 +41,7 @@ def _canonicalizar(glb: Path) -> dict:
         timeout=180,
     )
     linha = next(
-        (l for l in proc.stdout.splitlines() if l.startswith("RESULTADO ")),
+        (linha_out for linha_out in proc.stdout.splitlines() if linha_out.startswith("RESULTADO ")),
         None,
     )
     assert linha is not None, (proc.stdout[-2000:], proc.stderr[-2000:])

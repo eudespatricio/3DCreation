@@ -6,6 +6,7 @@ Risco R1 medido no arquivo de riscos: a maior parte do tempo perdido em pipeline
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 
@@ -27,9 +28,11 @@ def _checar_schemas() -> dict:
         "spec.v1.schema.json",
         "spec.v2.schema.json",
         "spec.v3.schema.json",
+        "spec.v4.schema.json",
         "manifest.v1.schema.json",
         "manifest.v2.schema.json",
         "manifest.v3.schema.json",
+        "manifest.v4.schema.json",
     ):
         arq = paths.raiz_dados() / "schemas" / nome
         if not arq.is_file():
@@ -39,7 +42,7 @@ def _checar_schemas() -> dict:
             jsonschema.Draft202012Validator.check_schema(json.loads(arq.read_text(encoding="utf-8")))
         except jsonschema.SchemaError as exc:
             falhas.append(f"{nome}: {exc.message}")
-    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1..@3 e manifest@1..@3 validos")
+    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1..@4 e manifest@1..@4 validos")
 
 
 def _checar_perfis() -> dict:
@@ -58,7 +61,7 @@ def _checar_perfis() -> dict:
 def _checar_estado() -> dict:
     try:
         paths.garantir_dirs()
-        teste = paths.raiz_estado() / ".escrita"
+        teste = paths.raiz_estado() / f".escrita.{os.getpid()}"
         teste.write_text("ok", encoding="utf-8")
         teste.unlink()
         return _item("estado", True, str(paths.raiz_estado()))
@@ -170,15 +173,19 @@ def _checar_blender() -> dict:
 
 def exigir(necessario: tuple[str, ...] = ("blender",)) -> None:
     """Falha rapido quando o ambiente nao sustenta a execucao (exit 4)."""
+    rel = checar()
+    por_nome = {c["nome"]: c for c in rel.get("checks", [])}
+    desconhecidos = [nome for nome in necessario if nome not in por_nome]
+    if desconhecidos:
+        raise erro_ambiente(
+            f"check(s) desconhecido(s) em doctor.exigir: {', '.join(desconhecidos)}",
+            checks=desconhecidos,
+            disponiveis=sorted(por_nome),
+        )
     problemas = []
     for nome in necessario:
-        if nome == "blender":
-            ok, detalhe = post.preflight()
-            if not ok:
-                problemas.append(f"blender: {detalhe}")
-        elif nome == "estado":
-            r = _checar_estado()
-            if not r["ok"]:
-                problemas.append(f"estado: {r['detalhe']}")
+        c = por_nome[nome]
+        if not c["ok"]:
+            problemas.append(f"{nome}: {c['detalhe']}")
     if problemas:
         raise erro_ambiente("pré-requisito ausente — rode `forge3d doctor`", problemas=problemas)

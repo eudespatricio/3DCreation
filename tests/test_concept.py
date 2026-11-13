@@ -462,3 +462,21 @@ def test_concept_infer_controlnet_cpu_mock(monkeypatch, tmp_path):
     assert chamadas["empty_cache"] == 1
     assert chamadas["call_kwargs"]["controlnet_conditioning_scale"] == 0.8
     assert isinstance(chamadas["call_kwargs"]["image"], Image.Image)
+
+
+def test_resolver_pose_padrao_inteligente_quando_unset(monkeypatch, tmp_path):
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    monkeypatch.delenv("FORGE3D_CONCEPT_POSE", raising=False)
+    cache_cn = (
+        tmp_path / "hf" / "hub" / ("models--" + CONTROLNET_MODELO_PADRAO.replace("/", "--"))
+    )
+    cache_cn.mkdir(parents=True)
+
+    rigged = {"id": "p1", "tipo": "personagem_humanoide", "auto_rig": True, "prompt": "knight"}
+    static_hum = {"id": "p2", "tipo": "personagem_humanoide", "auto_rig": False, "prompt": "knight"}
+    assert resolver_pose(rigged) == "apose"
+    assert resolver_pose(static_hum) == ""
+    monkeypatch.setenv("FORGE3D_CONCEPT_POSE", "auto")
+    assert resolver_pose(rigged) == "apose"
+    assert resolver_pose(static_hum) == "tpose"
+    assert "smart_cn1" in ConceptProvider().versao or "auto_cn1" in ConceptProvider().versao

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forge3d"
-version = "0.5.2"
+version = "0.6.0"
 description = "Esteira de assets 3D por demanda: lote declarativo -> GLB verificado. Independente de projeto."
 requires-python = ">=3.12"
 dependencies = [
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.4", "mypy>=1.10"]
 
 [project.scripts]
 forge3d = "forge3d.cli.main:main"
@@ -29,11 +29,14 @@ packages = ["src/forge3d"]
 "profiles" = "forge3d/data/profiles"
 "blender" = "forge3d/data/blender"
 "addons" = "forge3d/data/addons"
+"tools" = "forge3d/data/tools"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
   "blender: exige o binario do Blender 4.2",
+  "godot: exige o binario do Godot 4 em headless",
   "lento: execucao de ponta a ponta, varios segundos",
   "rapido: ciclo completo em um asset, alvo < 30 s",
   "gpu: exige GPU/CUDA e modelos baixados",
@@ -41,9 +44,14 @@ markers = [
 addopts = "-q"
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "W"]
+ignore = ["E501", "B905"]
 
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true
+warn_unused_ignores = true

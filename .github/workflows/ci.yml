@@ -46,6 +46,15 @@ jobs:
           echo "4f4fd7646af01f6fee9d420408318381a6e52571268eb7cf9cd5033bd9e7a359  /tmp/blender.tar.xz" | sha256sum -c -
           tar -xf /tmp/blender.tar.xz -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/blender-4.2.0-linux-x64" >> "$GITHUB_PATH"
+      - name: Godot 4.3 headless pinado e verificado por sha256
+        run: |
+          curl -fsSL -o /tmp/godot.zip \
+            https://github.com/godotengine/godot-builds/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
+          unzip -q /tmp/godot.zip -d "$RUNNER_TEMP"
+          echo "6e100966e49c69a2d4c163673f606eec1bafe54b4c6170eec5a6a2ee50756ddd  $RUNNER_TEMP/Godot_v4.3-stable_linux.x86_64" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/Godot_v4.3-stable_linux.x86_64"
+          ln -sf "$RUNNER_TEMP/Godot_v4.3-stable_linux.x86_64" "$RUNNER_TEMP/godot"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - run: uv venv --python 3.12 .venv
       - run: uv pip install --python .venv/bin/python -e ".[dev]"
       - run: PYTHON=.venv/bin/python bash tools/ci_verify.sh

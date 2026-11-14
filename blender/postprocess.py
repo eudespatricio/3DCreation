@@ -26,6 +26,9 @@ import autorig  # noqa: E402
 import bake_pbr  # noqa: E402
 import extrude_2d  # noqa: E402
 
+# Limiar compartilhado com src/forge3d/qc.py para decidir frente/costas humanoide sem ambiguidade.
+LIMIAR_SCORE_FRENTE = 0.035
+
 # faces de um cubo por indice de vertice; a orientacao e corrigida depois por recalc
 FACES_CUBO = (
     (0, 3, 2, 1),
@@ -362,17 +365,48 @@ def _fechar_ciclos_borda_fan(bm) -> int:
     return criadas
 
 
+def _preencher_bordas_e_triangular(bm) -> int:
+    """Fecha bordas abertas (holes_fill + fallback fan), remove ilhas e triangula."""
+    bordas = [e for e in bm.edges if len(e.link_faces) == 1]
+    if bordas:
+        bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
+        if any(len(e.link_faces) == 1 for e in bm.edges):
+            _fechar_ciclos_borda_fan(bm)
+        _remover_ilhas_de_uma_face(bm)
+    bmesh.ops.triangulate(bm, faces=list(bm.faces))
+    return len(bordas)
+
+
+def _colapsar_faces_degeneradas(bm, area_min: float = 1e-12) -> int:
+    """Colapsa aresta mais curta de faces < area_min sem reabrir buracos na malha."""
+    colapsadas = 0
+    for _ in range(4):
+        degs = [f for f in bm.faces if f.is_valid and f.calc_area() < area_min]
+        if not degs:
+            break
+        arestas_alvo = set()
+        for f in degs:
+            if not f.is_valid or not f.edges:
+                continue
+            arestas_alvo.add(min(f.edges, key=lambda e: e.calc_length()))
+        arestas_validas = [e for e in arestas_alvo if e.is_valid]
+        if not arestas_validas:
+            break
+        bmesh.ops.collapse(bm, edges=arestas_validas)
+        colapsadas += len(arestas_validas)
+    return colapsadas
+
+
 def reparar_malha(obj) -> dict:
     """Solda, remove ilha solta e fecha buraco antes do export."""
     antes = (len(obj.data.vertices), len(obj.data.polygons))
     obj.data.validate(verbose=False)
     bm = bmesh.new()
     bm.from_mesh(obj.data)
-    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-5)
+    # 1.8e-5m > sqrt(3)*1e-5m: garante que vertices soldados no grid 1e-5m do QC saiam ja soldados.
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1.8e-5)
     bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=list(bm.edges))
-    # sliver de area 1e-9 sobrevive ao dissolve_degenerate (que olha aresta) e vira aresta de 3
-    # faces no G1; remover a face e seguro porque ela nao cobre area util
-    slivers = [f for f in bm.faces if f.calc_area() < 1e-8]
+    slivers = [f for f in bm.faces if f.calc_area() < 1e-12]
     if slivers:
         bmesh.ops.delete(bm, geom=slivers, context="FACES")
     soltas_e = [e for e in bm.edges if not e.link_faces]
@@ -382,42 +416,32 @@ def reparar_malha(obj) -> dict:
     if soltos:
         bmesh.ops.delete(bm, geom=soltos, context="VERTS")
     ilhas = _remover_ilhas_de_uma_face(bm)
-    bordas = [e for e in bm.edges if len(e.link_faces) == 1]
-    if bordas:
-        bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
-        if any(len(e.link_faces) == 1 for e in bm.edges):
-            _fechar_ciclos_borda_fan(bm)
-        # holes_fill pode criar uma face solta; remove de novo
-        _remover_ilhas_de_uma_face(bm)
-    bmesh.ops.triangulate(bm, faces=list(bm.faces))
-    vistos_faces: set[frozenset] = set()
-    dups_ou_deg = []
-    for f in bm.faces:
-        chave = frozenset(f.verts)
-        if len(chave) < 3 or f.calc_area() < 1e-10 or chave in vistos_faces:
-            dups_ou_deg.append(f)
-        else:
-            vistos_faces.add(chave)
-    if dups_ou_deg:
-        bmesh.ops.delete(bm, geom=dups_ou_deg, context="FACES")
-    for _ in range(2):
+    bordas_iniciais = _preencher_bordas_e_triangular(bm)
+    for _ in range(3):
+        vistos_faces: set[frozenset] = set()
+        dups = []
+        for f in bm.faces:
+            chave = frozenset(f.verts)
+            if len(chave) < 3 or chave in vistos_faces:
+                dups.append(f)
+            else:
+                vistos_faces.add(chave)
+        if dups:
+            bmesh.ops.delete(bm, geom=dups, context="FACES")
+        _colapsar_faces_degeneradas(bm, area_min=1e-12)
         excedentes_nm = set()
         for e in bm.edges:
             if len(e.link_faces) > 2:
                 ordenadas = sorted(e.link_faces, key=lambda f: f.calc_area(), reverse=True)
                 for f in ordenadas[2:]:
                     excedentes_nm.add(f)
-        if not excedentes_nm:
-            break
-        bmesh.ops.delete(bm, geom=list(excedentes_nm), context="FACES")
+        if excedentes_nm:
+            bmesh.ops.delete(bm, geom=list(excedentes_nm), context="FACES")
         _remover_ilhas_de_uma_face(bm)
-        bordas_pos = [e for e in bm.edges if len(e.link_faces) == 1]
-        if bordas_pos:
-            bmesh.ops.holes_fill(bm, edges=bordas_pos, sides=0)
-            if any(len(e.link_faces) == 1 for e in bm.edges):
-                _fechar_ciclos_borda_fan(bm)
-            _remover_ilhas_de_uma_face(bm)
-            bmesh.ops.triangulate(bm, faces=list(bm.faces))
+        bordas_pos = _preencher_bordas_e_triangular(bm)
+        if not dups and not excedentes_nm and bordas_pos == 0:
+            break
+    _colapsar_faces_degeneradas(bm, area_min=1e-12)
     soltas_e_pos = [e for e in bm.edges if not e.link_faces]
     if soltas_e_pos:
         bmesh.ops.delete(bm, geom=soltas_e_pos, context="EDGES")
@@ -435,7 +459,7 @@ def reparar_malha(obj) -> dict:
         "faces_depois": len(obj.data.polygons),
         "ilhas_removidas": ilhas,
         "slivers_removidos": len(slivers),
-        "bordas_preenchidas": len(bordas),
+        "bordas_preenchidas": bordas_iniciais,
     }
 
 
@@ -599,9 +623,18 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
     ordem = sorted(range(3), key=lambda i: extensao[i])
     profundidade = ordem[0]
     sobra = [i for i in range(3) if i != profundidade]
+    quadrupede = (
+        tipo == "criatura"
+        and extensao[2] >= 0.35 * max(extensao)
+        and max(extensao[0], extensao[1]) > 1.2 * extensao[2]
+    )
     # Em T-pose, a envergadura horizontal (X) frequentemente >= altura (Z): se o eixo fino de
     # profundidade ja e Y (glTF +Y up importado no Blender) e Z nao esta achatado, preserva Z up.
-    if (
+    if quadrupede:
+        altura = 2
+        profundidade = max((0, 1), key=lambda i: extensao[i])
+        largura = 1 - profundidade
+    elif (
         tipo in ("personagem_humanoide", "criatura")
         and profundidade == 1
         and extensao[2] >= 0.55 * extensao[0]
@@ -634,6 +667,11 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
         "largura_eixo": "XYZ"[largura],
         "profundidade_eixo": "XYZ"[profundidade],
     }
+    if quadrupede:
+        info["invertido"] = False
+        info["girado_frente"] = False
+        info["quadrupede"] = True
+        return info
     if tipo in ("personagem_humanoide", "criatura"):
         minimo, maximo = bbox_local()
         altura_z = maximo.z - minimo.z
@@ -669,23 +707,67 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
             and (razao_ends > 1.5 or (centro < n * 0.48 and razao_ends >= 0.5))
         )
         if total > 0 and deve_inverter:
-            # espelha Z: mantem frente (+Y) e lados (+-X), corrige cabeca para cima
-            for v in obj.data.vertices:
-                v.co.z = -v.co.z
-            obj.data.update()
-            bm = bmesh.new()
-            bm.from_mesh(obj.data)
-            bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-            bm.to_mesh(obj.data)
-            bm.free()
-            obj.data.update()
-            minimo, _maximo = bbox_local()
-            for v in obj.data.vertices:
-                v.co.z -= minimo.z
-            obj.data.update()
+            # rotacao pura 180 deg em X (det=+1): preserva lateralidade e winding sem espelhar
+            obj.matrix_world = Matrix.Rotation(math.pi, 4, "X") @ obj.matrix_world
+            _aplicar_transformes(obj)
+            minimo, maximo = bbox_local()
+            desloc = Vector(
+                (-(minimo.x + maximo.x) / 2.0, -(minimo.y + maximo.y) / 2.0, -minimo.z)
+            )
+            obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
+            _aplicar_transformes(obj)
             info["invertido"] = True
         else:
             info["invertido"] = False
+
+        # EIXO-05: se os pes (0..6% Z) ficam atras das canelas (12..30% Z) em Y, esta de costas (-Y)
+        alinh = _alinhar_frente_humanoide(obj)
+        info.update(alinh)
+    return info
+
+
+def _medir_score_frente_humanoide(obj) -> float | None:
+    """Metrica identica ao qc._g2_orientacao: (pes - canelas) em Y local / altura_z."""
+    zs = [v.co.z for v in obj.data.vertices]
+    if not zs:
+        return None
+    z_min, z_max = min(zs), max(zs)
+    altura_z = z_max - z_min
+    if altura_z <= 1e-6:
+        return None
+    pes_ys = [v.co.y for v in obj.data.vertices if v.co.z <= z_min + 0.06 * altura_z]
+    canela_ys = [
+        v.co.y
+        for v in obj.data.vertices
+        if z_min + 0.12 * altura_z <= v.co.z <= z_min + 0.30 * altura_z
+    ]
+    if not pes_ys or not canela_ys:
+        return None
+    pes_mean = sum(pes_ys) / len(pes_ys)
+    pes_mid = 0.5 * (min(pes_ys) + max(pes_ys))
+    can_mean = sum(canela_ys) / len(canela_ys)
+    can_mid = 0.5 * (min(canela_ys) + max(canela_ys))
+    return 0.5 * ((pes_mean - can_mean) + (pes_mid - can_mid)) / altura_z
+
+
+def _alinhar_frente_humanoide(obj, limiar: float = LIMIAR_SCORE_FRENTE) -> dict:
+    """Gira 180 em Z quando score_frente < -limiar (mesmo limiar do G2) e recentra a base."""
+    score_frente = _medir_score_frente_humanoide(obj)
+    info: dict = {}
+    if score_frente is not None:
+        info["score_frente"] = round(score_frente, 5)
+    girado_frente = False
+    if score_frente is not None and score_frente < -limiar:
+        obj.matrix_world = Matrix.Rotation(math.pi, 4, "Z") @ obj.matrix_world
+        _aplicar_transformes(obj)
+        xs = [v.co.x for v in obj.data.vertices]
+        ys = [v.co.y for v in obj.data.vertices]
+        zs = [v.co.z for v in obj.data.vertices]
+        desloc = Vector((-(min(xs) + max(xs)) / 2.0, -(min(ys) + max(ys)) / 2.0, -min(zs)))
+        obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
+        _aplicar_transformes(obj)
+        girado_frente = True
+    info["girado_frente"] = girado_frente
     return info
 
 def suavizar_por_angulo(obj, angulo_graus: float = 45.0) -> dict:
@@ -966,9 +1048,9 @@ def malha_triangulada(obj) -> int:
 def medir_geometria(obj) -> dict:
     bm = bmesh.new()
     bm.from_mesh(obj.data)
-    # glTF divide vertice em cada costura de UV/normal: solda antes de julgar topologia,
-    # senao toda aresta de um asset importado parece "borda aberta" (falso positivo).
-    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-5)
+    # glTF divide vertice em cada costura de UV/normal: solda apenas duplicatas exatas (1e-7),
+    # sem esconder fendas de 3e-6..9e-6 apos reducao de escala.
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-7)
     nao_manifold = sum(1 for e in bm.edges if len(e.link_faces) != 2)
     degeneradas = sum(1 for f in bm.faces if f.calc_area() < 1e-12)
     bm.free()
@@ -1459,6 +1541,8 @@ def processar(job: dict) -> dict:
             ):
                 info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
             info_gerada["triangulos_pos_decimate"] = malha_triangulada(obj)
+        if bruto.get("canonicalizar") and item.get("tipo") == "personagem_humanoide":
+            info_gerada["alinhamento_frente_pos_decimate"] = _alinhar_frente_humanoide(obj)
         if bool(item.get("auto_rig")) and item.get("tipo") in ("personagem_humanoide", "criatura"):
             esq = str(
                 item.get("esqueleto")
@@ -1511,7 +1595,11 @@ def processar(job: dict) -> dict:
         transformar_armadura(rig_obj, escala, -pivo)
 
     geom_pos_escala = medir_geometria(obj)
-    if geom_pos_escala["nao_manifold"] > 0 or geom_pos_escala["degeneradas"] > 0:
+    if (
+        geom_pos_escala["nao_manifold"] > 0
+        or geom_pos_escala["degeneradas"] > 0
+        or escala < 0.999
+    ):
         info_gerada["reparo_pos_escala"] = reparar_malha(obj)
 
     if rig_obj is not None and grupos:

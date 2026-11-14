@@ -1169,28 +1169,10 @@ def aplicar_hints_orm_em_material(
 def _redimensionar_png_no_material(obj, caminho: str, px_novo: int, colorspace: str) -> int:
     """Redimensiona um mapa PNG ligado ao material de ``obj`` preservando compressao maxima."""
     cena = bpy.context.scene
-    anterior = {
-        "view_transform": cena.view_settings.view_transform,
-        "look": cena.view_settings.look,
-        "exposure": cena.view_settings.exposure,
-        "gamma": cena.view_settings.gamma,
-        "display_device": cena.display_settings.display_device,
-        "file_format": cena.render.image_settings.file_format,
-        "color_mode": cena.render.image_settings.color_mode,
-        "color_depth": cena.render.image_settings.color_depth,
-        "compression": cena.render.image_settings.compression,
-    }
+    anterior = _capturar_estado_cena(cena)
     alvo_nome = os.path.basename(caminho)
     try:
-        cena.view_settings.view_transform = "Standard"
-        cena.view_settings.look = "None"
-        cena.view_settings.exposure = 0.0
-        cena.view_settings.gamma = 1.0
-        cena.display_settings.display_device = "sRGB"
-        cena.render.image_settings.file_format = "PNG"
-        cena.render.image_settings.color_mode = "RGB"
-        cena.render.image_settings.color_depth = "8"
-        cena.render.image_settings.compression = 100
+        _configurar_render_png_linear(cena)
 
         for mat in obj.data.materials:
             if not mat or not mat.use_nodes:
@@ -1210,15 +1192,7 @@ def _redimensionar_png_no_material(obj, caminho: str, px_novo: int, colorspace: 
                     bpy.data.images.remove(img)
                 return os.path.getsize(caminho)
     finally:
-        cena.view_settings.view_transform = anterior["view_transform"]
-        cena.view_settings.look = anterior["look"]
-        cena.view_settings.exposure = anterior["exposure"]
-        cena.view_settings.gamma = anterior["gamma"]
-        cena.display_settings.display_device = anterior["display_device"]
-        cena.render.image_settings.file_format = anterior["file_format"]
-        cena.render.image_settings.color_mode = anterior["color_mode"]
-        cena.render.image_settings.color_depth = anterior["color_depth"]
-        cena.render.image_settings.compression = anterior["compression"]
+        _restaurar_estado_cena(cena, anterior)
     return os.path.getsize(caminho)
 
 

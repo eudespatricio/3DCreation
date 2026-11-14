@@ -203,6 +203,9 @@ def test_clean_dest_expurga_orfaos(base_spec_doc: dict, tmp_path: Path):
     # Arquivo estranho qualquer (nao registrado em nenhum manifesto) NAO deve ser deletado
     estranho = destino / "README.txt"
     estranho.write_text("arquivo pessoal do usuario", encoding="utf-8")
+    # Mas artefato de asset solto (sem manifesto, ex. PNG antigo) deve ser purgado para o verify passar
+    orfao_png = destino / "orfao_antigo.png"
+    orfao_png.write_bytes(b"pngorfao")
 
     import yaml
 
@@ -222,6 +225,8 @@ def test_clean_dest_expurga_orfaos(base_spec_doc: dict, tmp_path: Path):
     assert not legado_manifest.exists()
     assert not legado_glb.exists()
     assert not legado_png.exists()
+    assert not orfao_png.exists()
+    assert "orfao_antigo.png" in rel["expurgados"]
 
     # O arquivo estranho que nao pertencia a nenhum manifesto foi preservado
     assert estranho.is_file()

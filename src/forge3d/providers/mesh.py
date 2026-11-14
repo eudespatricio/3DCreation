@@ -1545,7 +1545,9 @@ class MeshProvider:
             determinism=self.determinism,
             arquivos=[arq_modelo, glb, resultado_path, input_png, *arquivos_extras],
             meta={
-                "modelo": MODELO_HF,
+                # chave da allowlist (pipeline.licenca_de); o repo HF fica so como proveniencia
+                "modelo": modelo_escolhido(),
+                "modelo_hf": MODELO_HF,
                 "torch": resultado.get("torch"),
                 "mc_resolution": resultado.get("mc_resolution"),
                 "tempos_s": resultado.get("tempos_s"),

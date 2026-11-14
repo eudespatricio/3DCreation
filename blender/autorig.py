@@ -534,13 +534,34 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
 
 
 def _alinhar_roll_ossos(rig_obj) -> None:
-    """Alinha o eixo local dos membros sem singularidade colinear no pe (+Y)."""
+    """Alinha o eixo local dos membros pelo plano de flexao (cotovelo) ou frente (+Y)."""
     _selecionar_unico(rig_obj)
     bpy.ops.object.mode_set(mode="EDIT")
     frente = Vector((0.0, 1.0, 0.0))
     cima = Vector((0.0, 0.0, 1.0))
-    for eb in rig_obj.data.edit_bones:
-        if eb.name in _OSSOS_BRACO or eb.name in _OSSOS_PERNA:
+    edit_bones = rig_obj.data.edit_bones
+    alvos_braco: dict[str, Vector] = {}
+    for par in (
+        ("UpperArm.L", "LowerArm.L"),
+        ("UpperArm.R", "LowerArm.R"),
+        ("LeftUpperArm", "LeftLowerArm"),
+        ("RightUpperArm", "RightLowerArm"),
+    ):
+        sup, inf = edit_bones.get(par[0]), edit_bones.get(par[1])
+        if sup is None or inf is None:
+            continue
+        plano_n = sup.y_axis.cross(inf.y_axis)
+        if plano_n.length > 0.08:
+            n = plano_n.normalized()
+            if n.x > 0.5:
+                for eb_arm in (sup, inf):
+                    alvo = n.cross(eb_arm.y_axis)
+                    if alvo.length > 1e-4:
+                        alvos_braco[eb_arm.name] = alvo.normalized()
+    for eb in edit_bones:
+        if eb.name in alvos_braco:
+            eb.align_roll(alvos_braco[eb.name])
+        elif eb.name in _OSSOS_BRACO or eb.name in _OSSOS_PERNA:
             alvo = cima if abs(eb.y_axis.y) > 0.92 else frente
             eb.align_roll(alvo)
     bpy.ops.object.mode_set(mode="OBJECT")

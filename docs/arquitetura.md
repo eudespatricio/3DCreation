@@ -61,7 +61,7 @@ Duas exigências dominam o desenho:
         └─────────────────┬──────────────────┘
                           │  Candidato (.glb + texturas)
         ┌─────────────────▼──────────────────┐
-        │ 5. VERIFICAR     QC G1..G9         │  mede o arquivo exportado
+        │ 5. VERIFICAR     QC G1..G10        │  mede o arquivo exportado
         │                                    │  reprovou → exit 3, nada publica
         └─────────────────┬──────────────────┘
                           │  Candidato aprovado + manifesto
@@ -97,7 +97,7 @@ e isso é detectado e registrado no relatório, não ignorado.
 | Camada | Módulo (P1) | Responsabilidade | Pode importar | **Não pode** |
 |---|---|---|---|---|
 | Interface | `cli/` | parse de argumentos, exit codes, stdout JSON | tudo, só como orquestração | conter regra de negócio |
-| Contrato | `spec/` | schema, normalização, aliases, validação | stdlib, pydantic | tocar em provider ou disco de asset |
+| Contrato | `spec/` | schema, normalização, aliases, validação | stdlib, jsonschema, PyYAML | tocar em provider ou disco de asset |
 | Planejamento | `plan/` | expandir, hash, cache lookup, estimativa | `spec/`, `profiles/` | executar provider, escrever em destino |
 | Geração | `providers/` | produzir bruto; declarar determinismo e custo | sdk do modelo, `resources/` | exportar, publicar, medir QC |
 | Pós-processo | `post/` | orquestrar `blender/*.py`; perfil | `subprocess`, `spec/` | decidir aprovação |
@@ -200,27 +200,29 @@ mais é stdlib-leve. Isso mantém `forge3d plan` rodando em CI sem instalar meio
 3DCreation/
 ├── AGENTS.md  README.md  CONSELHOS.md  MAPA.md  DECISOES.md  INVARIANTES.md  CONTINUAR.md
 ├── docs/            # arquitetura, contratos, rotas, perfis, QC, dependências, riscos, roadmap, gaps
-├── schemas/         # spec.v1/v2.schema.json · manifest.v1/v2.schema.json  (fonte de verdade)
+├── schemas/         # spec.v1..v4.schema.json · manifest.v1..v4.schema.json  (fonte de verdade)
 ├── profiles/        # godot4.yaml · roblox-r15.yaml
 ├── examples/        # lote_01.yaml (fixture canônica)
 ├── skills/context-recovery/
 │
 ├── pyproject.toml
 ├── src/forge3d/
-│   ├── cli/            comandos.py (14 subcomandos: inclui migrate, gc, export-r15, upload-*) · main.py
+│   ├── cli/            comandos.py (17 subcomandos: inclui migrate, gc, sync, mcp, export-*, upload-*) · main.py
 │   ├── paths.py        três raízes: dados, config, estado (D24)
 │   ├── config.py       allowlist de destino + guarda de caminho (D23)
-│   ├── spec.py         normalização, schema, regras B1–B10
+│   ├── spec.py         normalização, schema, regras B1–B25
 │   ├── profiles.py     carregar perfil + consultas de default
 │   ├── plan.py         tarefas, chave de cache, resumo
 │   ├── post.py         subprocesso do Blender (canal JSON)
 │   ├── qc.py           parser GLB + gates G1–G10
-│   ├── publish.py      manifesto, índice, ledger, verify
+│   ├── publish.py      manifesto, rename atômico (reexporta cache/index/verify)
+│   ├── verify.py       portão de CI pós-publicação (G1–G10 + hash + órfãos)
+│   ├── sync.py         sincronização ext4 → destino + Forge3DAssets.gd / Assets.lua
 │   ├── pipeline.py     orquestração do lote
 │   ├── doctor.py       preflight
 │   ├── locks.py        lock de GPU
 │   ├── canonical.py    JSON canônico, sha256, chave de cache
-│   └── providers/      base.py · blocky.py · importer.py
+│   └── providers/      base.py · blocky.py · importer.py · mesh.py · modular.py
 ├── blender/
 │   └── postprocess.py  construir, rig, normalizar, LOD, colisor, exportar, medir
 ├── tests/

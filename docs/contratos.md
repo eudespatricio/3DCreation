@@ -62,7 +62,7 @@ nunca aparece em manifesto publicado (I14).
 | `seed` | integer | cond. | **obrigatório** em `rota: mesh`; opcional nas demais |
 | `auto_rig` | boolean | não | default `false`; exige `tipo` humanoide/criatura |
 | `esqueleto` | string | não | `godot-humanoid@1` \| `r15@1`; default do perfil |
-| `animacoes_base` | string[] | não | **reservado** (D14). Preenchido ⇒ aviso `FORGE-W-ANIM`, nunca erro |
+| `animacoes_base` | string[] | não | clipes procedurais embutidos no `.glb` (`idle`, `walk`, `run`, `jump`, `attack`, `block`, `hit`, `death`; D66/G10); exige `auto_rig: true` |
 | `origem` | string | cond. | obrigatório em `rota: import`; na `mesh` é a imagem de concept (PNG/JPEG/WebP) |
 | `parte` | string | não | `corpo` \| `capa` \| `arma` \| `cabelo` \| `elmo` \| `ombreiras` \| `peitoral` \| `luvas` \| `calcas` \| `botas` \| `escudo` (`blocky` ou `mesh`, B11–B13) |
 | `tags` | string[] | não | `^[a-z0-9][a-z0-9_-]*$`, ≤ 8, sem nome de franquia (I14) |

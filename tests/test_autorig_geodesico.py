@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -21,6 +22,13 @@ def _blender_bin() -> str:
     except Exception:
         pass
     pytest.skip("Blender 4.2 nao disponivel neste ambiente")
+
+
+def _tem_mpfb2() -> bool:
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    cfg_root = Path(xdg) if xdg else (Path.home() / ".config")
+    base = cfg_root / "blender" / "4.2" / "extensions"
+    return base.is_dir() and any(base.glob("**/mpfb/__init__.py"))
 
 
 _SCRIPT_BLENDER = """
@@ -273,7 +281,7 @@ if cfg["modo"] == "mpfb2":
         bpy.data.objects.remove(o, do_unlink=True)
     try:
         template_body.criar_humano(dict(template_body.MACRO_PADRAO), {})
-    except Exception as exc:
+    except BaseException as exc:
         open(cfg["out_json"], "w", encoding="utf-8").write(json.dumps({"skip": str(exc)}))
         sys.exit(0)
     obj = [o for o in bpy.data.objects if o.type == "MESH"][0]
@@ -489,6 +497,8 @@ def test_autorig_isolamento_dorso_cabeca_e_poses(tmp_path: Path, esqueleto: str)
 
 @pytest.mark.blender
 def test_autorig_mpfb2_dorso_ombro_e_poses(tmp_path: Path):
+    if not _tem_mpfb2():
+        pytest.skip("extensao MPFB2 nao instalada/visivel no Blender deste ambiente")
     rel = _executar_isolamento(tmp_path, "godot-humanoid@1", "mpfb2")
     if "skip" in rel:
         pytest.skip(f"MPFB2 indisponivel: {rel['skip']}")

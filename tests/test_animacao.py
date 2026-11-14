@@ -376,3 +376,23 @@ def test_manifesto_v3_com_animacao_vazia_e_valido():
     man = _manifesto([])
     assert man["animacoes"] == []
     jsonschema.validate(man, _schema("4"))
+
+
+def test_jump_e_block_levantam_ombros_com_espelho_lr():
+    from forge3d import animacao
+
+    clips = {c["nome"]: c for c in animacao.clipes(GODOT, "godot-humanoid@1", ["jump", "block", "hit"])}
+    # Pico do jump (indice 4): ambos os bracos sobem (+120 deg), logo Shoulder.L < 0 e Shoulder.R > 0
+    jump_pico = {p["osso"]: p["graus"] for p in clips["jump"]["chaves"][4]["poses"]}
+    assert jump_pico["Shoulder.L"] < -5.0, jump_pico["Shoulder.L"]
+    assert jump_pico["Shoulder.R"] > 5.0, jump_pico["Shoulder.R"]
+    assert jump_pico["Shoulder.L"] == pytest.approx(-jump_pico["Shoulder.R"])
+
+    # Block (indice 4): braco esquerdo ergue escudo (+82 deg) -> Shoulder.L sobe (< 0) e Shoulder.R acompanha (> 0)
+    block_pico = {p["osso"]: p["graus"] for p in clips["block"]["chaves"][4]["poses"]}
+    assert block_pico["Shoulder.L"] < -5.0, block_pico["Shoulder.L"]
+    assert block_pico["Shoulder.R"] > 0.0, block_pico["Shoulder.R"]
+
+    # Hit mantem o mesmo sinal de elevacao dos ombros
+    hit_pico = {p["osso"]: p["graus"] for p in clips["hit"]["chaves"][2]["poses"]}
+    assert hit_pico["Shoulder.L"] < -5.0 and hit_pico["Shoulder.R"] > 5.0

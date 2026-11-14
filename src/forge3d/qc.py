@@ -28,7 +28,10 @@ __all__ = [
     "verificar",
     "GATES",
     "PAPEIS_TEXTURA",
+    "LIMIAR_SCORE_FRENTE",
 ]
+
+LIMIAR_SCORE_FRENTE = 0.035
 
 GATES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10")
 PAPEIS_TEXTURA = (
@@ -218,6 +221,8 @@ def analisar(gltf: dict, binario: bytes | None = None) -> dict:
     vertices = 0
     primitivas = 0
     sem_uv = 0
+    com_tangent = 0
+    com_uv1 = 0
     com_color_0 = 0
     sem_tangent_normal = 0
     materiais_com_color_0: set[int] = set()
@@ -232,6 +237,10 @@ def analisar(gltf: dict, binario: bytes | None = None) -> dict:
             atributos = prim.get("attributes", {})
             if "TEXCOORD_0" not in atributos:
                 sem_uv += 1
+            if "TANGENT" in atributos:
+                com_tangent += 1
+            if "TEXCOORD_1" in atributos:
+                com_uv1 += 1
             mat_idx = prim.get("material")
             mat_obj: dict | None = None
             if mat_idx is not None and 0 <= int(mat_idx) < len(materials):
@@ -327,6 +336,8 @@ def analisar(gltf: dict, binario: bytes | None = None) -> dict:
         "nomes_ossos": nomes_ossos,
         "nos": nomes_nos,
         "colisores": [n for n in nomes_nos if n.startswith("UCX_")],
+        "tangentes": primitivas > 0 and com_tangent == primitivas,
+        "uv_lightmap": primitivas > 0 and com_uv1 == primitivas,
     }
 
 
@@ -759,34 +770,7 @@ def _uv_status(gltf: dict, binario: bytes, *, permitir_tiling: bool = False) -> 
     materiais = gltf.get("materials", [])
     for malha_gltf in gltf.get("meshes", []):
         for prim in malha_gltf.get("primitives", []):
-            ti = (prim.get("attributes") or {}).get("TEXCOORD_0")
-            if ti is None or int(ti) >= len(acessores):
-                continue
-            acc = acessores[int(ti)]
-            if "bufferView" not in acc:
-                continue
-            comp = int(acc.get("componentType", 5126))
-            norm = bool(acc.get("normalized", False))
-            escala_uv = 1.0
-            if norm and comp == 5121:
-                escala_uv = 1.0 / 255.0
-            elif norm and comp == 5123:
-                escala_uv = 1.0 / 65535.0
-            coords_uv: list[tuple[float, float]] = []
-            for u_raw, v_raw in _accessor(gltf, binario, int(ti)):
-                u = float(u_raw) * escala_uv
-                v = float(v_raw) * escala_uv
-                coords_uv.append((u, v))
-                total += 1
-                if (
-                    not math.isfinite(u)
-                    or not math.isfinite(v)
-                    or u < uv_min
-                    or u > uv_max
-                    or v < uv_min
-                    or v > uv_max
-                ):
-                    fora += 1
+            atributos_prim = prim.get("attributes") or {}
             mat_idx = prim.get("material")
             mat_obj: dict | None = None
             if mat_idx is not None and 0 <= int(mat_idx) < len(materiais):
@@ -794,23 +778,57 @@ def _uv_status(gltf: dict, binario: bytes, *, permitir_tiling: bool = False) -> 
             elif len(materiais) == 1:
                 mat_obj = materiais[0]
             base_tex = ((mat_obj or {}).get("pbrMetallicRoughness") or {}).get("baseColorTexture")
-            if int(prim.get("mode", 4)) == 4 and isinstance(base_tex, dict) and coords_uv:
-                idx_acc = prim.get("indices")
-                if idx_acc is not None and int(idx_acc) < len(acessores):
-                    ids = [int(v[0]) for v in _accessor(gltf, binario, int(idx_acc))]
-                else:
-                    ids = list(range(len(coords_uv)))
-                if len(ids) >= 3:
-                    area_uv = 0.0
-                    for k in range(0, len(ids) - 2, 3):
-                        i0, i1, i2 = ids[k], ids[k + 1], ids[k + 2]
-                        if i0 < len(coords_uv) and i1 < len(coords_uv) and i2 < len(coords_uv):
-                            u0, v0 = coords_uv[i0]
-                            u1, v1 = coords_uv[i1]
-                            u2, v2 = coords_uv[i2]
-                            area_uv += 0.5 * abs((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0))
-                    if area_uv < 1e-8:
-                        uv_colapsada += 1
+            for canal_uv in ("TEXCOORD_0", "TEXCOORD_1"):
+                ti = atributos_prim.get(canal_uv)
+                if ti is None or int(ti) >= len(acessores):
+                    continue
+                acc = acessores[int(ti)]
+                if "bufferView" not in acc:
+                    continue
+                comp = int(acc.get("componentType", 5126))
+                norm = bool(acc.get("normalized", False))
+                escala_uv = 1.0
+                if norm and comp == 5121:
+                    escala_uv = 1.0 / 255.0
+                elif norm and comp == 5123:
+                    escala_uv = 1.0 / 65535.0
+                c_min = uv_min if canal_uv == "TEXCOORD_0" else -1e-4
+                c_max = uv_max if canal_uv == "TEXCOORD_0" else 1.0 + 1e-4
+                coords_uv: list[tuple[float, float]] = []
+                for u_raw, v_raw in _accessor(gltf, binario, int(ti)):
+                    u = float(u_raw) * escala_uv
+                    v = float(v_raw) * escala_uv
+                    coords_uv.append((u, v))
+                    total += 1
+                    if (
+                        not math.isfinite(u)
+                        or not math.isfinite(v)
+                        or u < c_min
+                        or u > c_max
+                        or v < c_min
+                        or v > c_max
+                    ):
+                        fora += 1
+                checar_area = int(prim.get("mode", 4)) == 4 and coords_uv and (
+                    isinstance(base_tex, dict) or canal_uv == "TEXCOORD_1"
+                )
+                if checar_area:
+                    idx_acc = prim.get("indices")
+                    if idx_acc is not None and int(idx_acc) < len(acessores):
+                        ids = [int(v[0]) for v in _accessor(gltf, binario, int(idx_acc))]
+                    else:
+                        ids = list(range(len(coords_uv)))
+                    if len(ids) >= 3:
+                        area_uv = 0.0
+                        for k in range(0, len(ids) - 2, 3):
+                            i0, i1, i2 = ids[k], ids[k + 1], ids[k + 2]
+                            if i0 < len(coords_uv) and i1 < len(coords_uv) and i2 < len(coords_uv):
+                                u0, v0 = coords_uv[i0]
+                                u1, v1 = coords_uv[i1]
+                                u2, v2 = coords_uv[i2]
+                                area_uv += 0.5 * abs((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0))
+                        if area_uv < 1e-8:
+                            uv_colapsada += 1
     return {"total_uv": total, "fora_intervalo": fora, "uv_colapsada": uv_colapsada}
 
 
@@ -1040,6 +1058,195 @@ def escala_do_perfil(perfil: dict) -> float:
     return valor
 
 
+def _vec3_norm(v: tuple[float, float, float]) -> tuple[float, float, float]:
+    n = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+    return (v[0] / n, v[1] / n, v[2] / n) if n > 1e-12 else (0.0, 0.0, 0.0)
+
+
+def _vec3_cross(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def _vec3_dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _g2_orientacao(
+    gltf: dict, binario: bytes, item: dict, perfil: dict, info: dict
+) -> tuple[bool, dict]:
+    """Valida determinante, transformacao residual, frente -Z, roll de ossos e equipaveis em G2."""
+    motivos: list[str] = []
+    avisos: list[str] = []
+
+    def _marcar(motivo: str) -> None:
+        if motivo not in motivos:
+            motivos.append(motivo)
+
+    def _avisar(aviso: str) -> None:
+        if aviso not in avisos:
+            avisos.append(aviso)
+
+    nodes = gltf.get("nodes", [])
+    skins = gltf.get("skins", [])
+    mundos = _matrizes_mundo_nos(gltf)
+    joints = {
+        j
+        for s in skins
+        for j in (s.get("joints") or [])
+        if isinstance(j, int) and 0 <= j < len(nodes)
+    }
+
+    if any(_mat4_det3(m) <= 1e-12 for m in mundos.values()):
+        _marcar("det_negativo")
+
+    for s in skins:
+        ibm_idx = s.get("inverseBindMatrices")
+        if not isinstance(ibm_idx, int):
+            continue
+        for mat in _accessor(gltf, binario, ibm_idx):
+            if len(mat) != 16:
+                continue
+            rm = [
+                float(mat[0]), float(mat[4]), float(mat[8]), 0.0,
+                float(mat[1]), float(mat[5]), float(mat[9]), 0.0,
+                float(mat[2]), float(mat[6]), float(mat[10]), 0.0,
+                0.0, 0.0, 0.0, 1.0,
+            ]
+            if _mat4_det3(rm) <= 1e-12:
+                _marcar("ibm_det_negativo")
+                break
+
+    if perfil.get("aplicar_transforms", True):
+        for idx, no in enumerate(nodes):
+            if idx in joints:
+                continue
+            rot = no.get("rotation")
+            if isinstance(rot, list) and len(rot) == 4:
+                qx, qy, qz, qw = (float(x) for x in rot)
+                qn = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+                if qn > 1e-12 and abs(qw / qn) < 0.999:
+                    _marcar("rotacao_residual_no")
+                    break
+            mat = no.get("matrix")
+            if isinstance(mat, list) and len(mat) == 16:
+                m = _mat4_de_no(no)
+                cols = (
+                    _vec3_norm((m[0], m[4], m[8])),
+                    _vec3_norm((m[1], m[5], m[9])),
+                    _vec3_norm((m[2], m[6], m[10])),
+                )
+                if any(cols[i][i] < 0.999 for i in range(3)):
+                    _marcar("rotacao_residual_no")
+                    break
+
+    frente_perfil = (perfil.get("eixos") or {}).get("frente", "-Z")
+    tem_esq_pos = bool(joints) and any(
+        "translation" in nodes[j] or "rotation" in nodes[j] or "matrix" in nodes[j]
+        for j in joints
+    )
+    ossos_desalinhados: list[str] = []
+    if frente_perfil == "-Z" and tem_esq_pos:
+        por_nome = {
+            nodes[j]["name"]: mundos[j]
+            for j in joints
+            if isinstance(nodes[j].get("name"), str) and j in mundos
+        }
+        for foot_n, toe_n in (("Foot.L", "Toe.L"), ("Foot.R", "Toe.R")):
+            if foot_n in por_nome and toe_n in por_nome:
+                if por_nome[toe_n][11] > por_nome[foot_n][11] + 0.01:
+                    _marcar("rig_de_costas")
+
+        eh_humanoid_godot = (
+            (perfil.get("rig") or {}).get("padrao") == "godot-humanoid@1"
+            or item.get("esqueleto") == "godot-humanoid@1"
+        )
+        if eh_humanoid_godot:
+            cos5 = math.cos(math.radians(5.0))
+            alvos_braco: dict[str, tuple[float, float, float]] = {}
+            for sup_n, inf_n in (("UpperArm.L", "LowerArm.L"), ("UpperArm.R", "LowerArm.R")):
+                if sup_n not in por_nome or inf_n not in por_nome:
+                    continue
+                ms, mi = por_nome[sup_n], por_nome[inf_n]
+                c1_s = _vec3_norm((ms[1], ms[5], ms[9]))
+                c1_i = _vec3_norm((mi[1], mi[5], mi[9]))
+                cruz = _vec3_cross(c1_s, c1_i)
+                if math.sqrt(_vec3_dot(cruz, cruz)) > 0.08:
+                    n_ref = _vec3_norm(cruz)
+                    if n_ref[0] > 0.5:
+                        alvos_braco[sup_n] = n_ref
+                        alvos_braco[inf_n] = n_ref
+
+            ossos_check = (
+                "Shoulder.L", "Shoulder.R",
+                "UpperArm.L", "LowerArm.L", "UpperArm.R", "LowerArm.R",
+                "UpperLeg.L", "LowerLeg.L", "UpperLeg.R", "LowerLeg.R",
+                "Foot.L", "Foot.R",
+            )
+            for bnome in ossos_check:
+                if bnome not in por_nome:
+                    continue
+                mb = por_nome[bnome]
+                c0 = _vec3_norm((mb[0], mb[4], mb[8]))
+                c1 = _vec3_norm((mb[1], mb[5], mb[9]))
+                if bnome in alvos_braco:
+                    c0_ref = alvos_braco[bnome]
+                else:
+                    alvo_z = (0.0, 1.0, 0.0) if abs(c1[2]) > 0.92 else (0.0, 0.0, -1.0)
+                    cruz_cz = _vec3_cross(c1, alvo_z)
+                    if math.sqrt(_vec3_dot(cruz_cz, cruz_cz)) <= 1e-4:
+                        continue
+                    c0_ref = _vec3_norm(cruz_cz)
+                if _vec3_dot(c0, c0_ref) < cos5:
+                    _marcar("roll_osso_desalinhado")
+                    ossos_desalinhados.append(bnome)
+
+    if (
+        frente_perfil == "-Z"
+        and item.get("tipo") == "personagem_humanoide"
+        and not skins
+        and gltf.get("meshes")
+    ):
+        verts, _ = malha(gltf, binario)
+        y_min = info["min"][1]
+        alt = info["bbox_m"][1]
+        if verts and alt > 1e-6:
+            pes_zs = [v[2] for v in verts if v[1] <= y_min + 0.06 * alt]
+            can_zs = [v[2] for v in verts if y_min + 0.12 * alt <= v[1] <= y_min + 0.30 * alt]
+            if pes_zs and can_zs:
+                pes_mean = sum(pes_zs) / len(pes_zs)
+                pes_mid = 0.5 * (min(pes_zs) + max(pes_zs))
+                can_mean = sum(can_zs) / len(can_zs)
+                can_mid = 0.5 * (min(can_zs) + max(can_zs))
+                score_z = 0.5 * ((pes_mean - can_mean) + (pes_mid - can_mid)) / alt
+                if score_z > LIMIAR_SCORE_FRENTE:
+                    _marcar("malha_de_costas")
+                elif abs(score_z) < LIMIAR_SCORE_FRENTE:
+                    _avisar("orientacao_frente_ambigua")
+
+    if gltf.get("meshes"):
+        if item.get("parte") == "arma" and item.get("pivot") == "empunhadura":
+            if abs(info["min"][1]) > info["max"][1] + 0.02:
+                _marcar("equipavel_invertido")
+        elif item.get("parte") == "escudo":
+            bm = info["bbox_m"]
+            if max(bm) > 1e-6 and bm[1] < 0.4 * max(bm):
+                _marcar("equipavel_invertido")
+
+    ok = len(motivos) == 0
+    detalhes: dict = {"ok": ok, "motivos": motivos}
+    if avisos:
+        detalhes["avisos"] = avisos
+    if ossos_desalinhados:
+        detalhes["ossos_desalinhados"] = ossos_desalinhados
+    return ok, detalhes
+
+
 def verificar(
     item: dict,
     perfil: dict,
@@ -1048,6 +1255,7 @@ def verificar(
     *,
     escala_saida: float | None = None,
     exigir_tangent_normal: bool = True,
+    exigir_orientacao: bool = True,
 ) -> dict:
     """Roda G1-G10 sobre o artefato. Devolve relatorio; nao levanta (quem decide e o chamador).
 
@@ -1141,6 +1349,12 @@ def verificar(
     else:
         escala_ok = delta_pct <= float(v["escala_delta_pct"])
         pivo_ok = desvio_pivo is None or desvio_pivo <= tolerancia_m
+    orient_ok, orient_detalhes = _g2_orientacao(gltf, binario, item, perfil, info)
+    orient_falhou = (not orient_ok) and exigir_orientacao
+    orient_warn = bool(orient_detalhes.get("avisos")) or ((not orient_ok) and not exigir_orientacao)
+    g2_ok = escala_ok and pivo_ok and not orient_falhou
+    g2_status = "falhou" if not g2_ok else ("warn" if orient_warn else "ok")
+    g2_codigo = None if g2_status == "ok" else ("FORGE-E-QC" if g2_status == "falhou" else "FORGE-W-ORIENTACAO")
     medido_g2: dict = {
         "altura_m": round(altura, 6),
         "altura_export": round(altura_export, 6),
@@ -1149,6 +1363,7 @@ def verificar(
         "desvio_pivo_m": None if desvio_pivo is None else round(desvio_pivo, 6),
         "pivo_regra": regra,
         "escala_saida": escala,
+        "orientacao": orient_detalhes,
     }
     if escala_preservada:
         medido_g2["escala_preservada"] = True
@@ -1157,10 +1372,10 @@ def verificar(
     gates.append(
         {
             "id": "G2",
-            "status": "ok" if escala_ok and pivo_ok else "falhou",
+            "status": g2_status,
             "medido": medido_g2,
             "limite": {"escala_delta_pct": v["escala_delta_pct"], "pivo_delta_mm": v["pivo_delta_mm"]},
-            "codigo": None if (escala_ok and pivo_ok) else "FORGE-E-QC",
+            "codigo": g2_codigo,
         }
     )
 
@@ -1214,7 +1429,19 @@ def verificar(
         largura, altura_px = dims
         pot = _pot(largura) and _pot(altura_px)
         dentro = max(largura, altura_px) <= textura_max
-        valida_tex = pot and dentro
+        normal_z_ok = True
+        if arq.get("papel") == "normal" and caminho_tex.is_file():
+            try:
+                from PIL import Image as _PilImage
+
+                with _PilImage.open(caminho_tex) as _im:
+                    _rgb = _im.convert("RGB")
+                    _b_vals = list(_rgb.getchannel(2).getdata())
+                    if _b_vals:
+                        normal_z_ok = (sum(_b_vals) / len(_b_vals)) >= 128.0
+            except Exception:
+                normal_z_ok = False
+        valida_tex = pot and dentro and normal_z_ok
         tex_ok = tex_ok and valida_tex
         detalhes_tex.append(
             {"arquivo": arq["caminho"], "papel": arq["papel"], "px": [largura, altura_px], "pot": pot, "valida": valida_tex}
@@ -1307,6 +1534,7 @@ def verificar(
         nomes = []
         convexo = {"medida": False, "partes": 0, "concavas": 0, "degeneradas": 0, "convexo": False}
         dentro_da_aabb = True
+        cobertura_aabb = 1.0
         if arquivo_col is not None and (pasta / arquivo_col["caminho"]).is_file():
             try:
                 gltf_col, binario_col = ler_glb_bin(pasta / arquivo_col["caminho"])
@@ -1320,6 +1548,10 @@ def verificar(
                         and info_col["max"][d] <= info["max"][d] + margem_aabb
                         for d in range(3)
                     )
+                    vol_malha = info["bbox_m"][0] * info["bbox_m"][1] * info["bbox_m"][2]
+                    vol_col = info_col["bbox_m"][0] * info_col["bbox_m"][1] * info_col["bbox_m"][2]
+                    if vol_malha > 1e-9:
+                        cobertura_aabb = round(vol_col / vol_malha, 6)
             except ForgeError:
                 nomes = []
         partes = int(convexo["partes"]) if convexo.get("medida") and int(convexo["partes"]) > 0 else partes_decl
@@ -1333,8 +1565,10 @@ def verificar(
         # perfil que declara prefixo continua exigindo que todos os nos de malha o usem
         prefixo = perfil["colisao"].get("prefixo")
         prefixo_ok = bool(nomes) and all(n.startswith(prefixo) for n in nomes) if prefixo else True
-        # C8: colisor concavo, degenerado ou fora da AABB reprova aqui
-        convexo_ok = bool(convexo["convexo"]) and dentro_da_aabb
+        exigir_dentro_aabb = bool(perfil["colisao"].get("dentro_da_aabb", True))
+        cobertura_ok = cobertura_aabb >= 0.01
+        # C8: colisor concavo, degenerado, minusculo ou fora da AABB reprova aqui
+        convexo_ok = bool(convexo["convexo"]) and (dentro_da_aabb or not exigir_dentro_aabb) and cobertura_ok
         gates.append(
             {
                 "id": "G7",
@@ -1344,6 +1578,7 @@ def verificar(
                     "nos": nomes,
                     "convexidade": convexo,
                     "dentro_da_aabb": dentro_da_aabb,
+                    "cobertura_aabb": cobertura_aabb,
                 },
                 "limite": {
                     "max_partes": perfil["colisao"]["max_partes"],
@@ -1413,20 +1648,23 @@ def verificar(
                 continue
             topo_lod_ok = (
                 int(topo_lod["nao_manifold"]) <= int(v["nao_manifold_max"])
+                and int(topo_lod.get("degeneradas", 0)) <= int(v["faces_degeneradas_max"])
                 and int(topo_lod.get("invertidas", 0)) == 0
             )
+            reducao_ok = len(tris_lod) < len(tris0) if len(tris0) > 12 else len(tris_lod) <= len(tris0)
             iou_min: float | None = None
             silhueta_ok = True
             if len(tris0) >= 12 and len(tris_lod) >= 4:
                 iou_min = _silhueta_iou_lod(pos0, tris0, pos_lod, tris_lod)
                 limiar_iou = 0.78 if len(tris_lod) < 200 else 0.85
                 silhueta_ok = iou_min >= limiar_iou
-            lod_ok = topo_lod_ok and silhueta_ok
+            lod_ok = topo_lod_ok and silhueta_ok and reducao_ok
             lods_ok = lods_ok and lod_ok
             detalhes_lods.append(
                 {
                     "arquivo": arq_lod["caminho"],
                     "nao_manifold": topo_lod["nao_manifold"],
+                    "degeneradas": topo_lod.get("degeneradas", 0),
                     "invertidas": topo_lod.get("invertidas", 0),
                     "iou_min": None if iou_min is None else round(iou_min, 4),
                     "ok": lod_ok,
@@ -1501,5 +1739,7 @@ def verificar(
             "ossos": info["ossos"],
             "animacoes": clipes,
             "partes_colisao": int(medidas.get("partes_colisao", 0)),
+            "tangentes": bool(info.get("tangentes", False)),
+            "uv_lightmap": bool(info.get("uv_lightmap", False)),
         },
     }

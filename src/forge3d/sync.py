@@ -340,9 +340,11 @@ def _extrair_entrada_gd(rec: dict, res_prefix: str, manifest_rel: str | None = N
         if isinstance(lod_item, dict) and lod_item.get("arquivo"):
             arq_lod = str(lod_item["arquivo"]).strip()
             if arq_lod:
-                if not mesh_rel and int(lod_item.get("nivel", 0)) == 0:
+                nivel_lod = int(lod_item.get("nivel", 0))
+                if not mesh_rel and nivel_lod == 0:
                     mesh_rel = arq_lod
-                lods.append(_prefixar_caminho_gd(arq_lod, res_prefix))
+                elif nivel_lod >= 1:
+                    lods.append(_prefixar_caminho_gd(arq_lod, res_prefix))
     if not mesh_rel:
         mesh_rel = f"{asset_id}.glb"
 
@@ -570,6 +572,13 @@ def executar(
                 origem=str(origem),
                 destino=str(destino_lua_res),
             )
+    raiz_godot: Path | None = None
+    alvo_abs = alvo.resolve(strict=False)
+    for cand in (alvo_abs, *alvo_abs.parents):
+        if (cand / "project.godot").is_file():
+            raiz_godot = cand
+            break
+
     destino_gd_res: Path | None = None
     if godot_gd is not None:
         destino_gd_res = _checar_destino_externo(godot_gd, campo="godot_gd")
@@ -579,8 +588,12 @@ def executar(
                 origem=str(origem),
                 destino=str(destino_gd_res),
             )
-    elif (alvo / "project.godot").is_file():
+    elif raiz_godot is not None:
         destino_gd_res = _checar_destino_externo(alvo / "forge3d_assets.gd", campo="godot_gd")
+
+    if not res_prefix and raiz_godot is not None:
+        rel_sub = alvo_abs.relative_to(raiz_godot).as_posix()
+        res_prefix = "res://" if rel_sub in ("", ".") else f"res://{rel_sub}"
 
     manifestos = sorted(origem.glob("*.manifest.json"))
     pares_arquivos: list[tuple[Path, Path, str]] = []
@@ -607,7 +620,7 @@ def executar(
     copiados: list[str] = []
     total_bytes = 0
 
-    is_godot = (alvo / "project.godot").is_file() or destino_gd_res is not None
+    is_godot = raiz_godot is not None or destino_gd_res is not None
     sidecars_godot: list[Path] = []
     for src, dst, rel in pares_arquivos:
         total_bytes += _copiar_atomico(src, dst, tag)

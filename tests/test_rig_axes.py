@@ -245,8 +245,12 @@ def test_rig_eixos_direcoes_simetria_e_cadeia_de_pais(
             assert dy > 0.80, f"pe {nome} deve apontar +Y: dir={info['dir']}"
         elif nome == "Shoulder.L":
             assert dx > 0.99, f"Shoulder.L deve apontar +X: dir={info['dir']}"
+            assert lz[1] > 0.99, f"Shoulder.L local_z deve apontar +Y: lz={lz}"
+            assert lx[2] > 0.99, f"Shoulder.L local_x deve apontar +Z: lx={lx}"
         elif nome == "Shoulder.R":
             assert dx < -0.99, f"Shoulder.R deve apontar -X: dir={info['dir']}"
+            assert lz[1] > 0.99, f"Shoulder.R local_z deve apontar +Y: lz={lz}"
+            assert lx[2] < -0.99, f"Shoulder.R local_x deve apontar -Z: lx={lx}"
 
         # 4. Eixos locais de flexao (local_z frente +Y > 0.90, local_x lateral +X > 0.75)
         if nome in _MEMBROS_FLEXAO:
@@ -309,3 +313,103 @@ def test_r15_perfil_hierarquia_e_simetria_anexos_padrao(tmp_path, monkeypatch):
     lg = atts["LeftHand"]["LeftGripAttachment"]
     rg = atts["RightHand"]["RightGripAttachment"]
     assert lg == pytest.approx(rg, abs=1e-5) and lg[1] < 0.0
+
+
+@pytest.mark.blender
+def test_autorig_apose_cotovelo_dobrado_alinha_roll_no_plano_do_braco(tmp_path: Path):
+    """EIXO-03: em A-pose com cotovelo dobrado, local_X de LowerArm.L/R fica perpendicular ao plano do braco (<=5 deg)."""
+    import math
+
+    blender = _blender_bin()
+    out_json = tmp_path / "axes_apose.json"
+    expr = """
+import json, sys
+import bpy, bmesh
+from mathutils import Vector
+
+argv = sys.argv[sys.argv.index("--") + 1 :]
+blender_dir, out_json = argv[0], argv[1]
+sys.path.insert(0, blender_dir)
+import autorig, postprocess
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bm = bmesh.new()
+
+def add_seg(p0, p1, r=0.05):
+    v0, v1 = Vector(p0), Vector(p1)
+    centro = (v0 + v1) * 0.5
+    d = v1 - v0
+    ret = bmesh.ops.create_cube(bm, size=1.0)
+    rot = d.normalized().to_track_quat("Z", "Y").to_matrix()
+    for v in ret["verts"]:
+        local = Vector((v.co.x * r * 2.0, v.co.y * r * 2.0, v.co.z * d.length))
+        v.co = centro + (rot @ local)
+
+# Tronco, pescoco, cabeca e pernas
+add_seg((0.0, 0.0, 0.85), (0.0, 0.0, 1.45), r=0.14)
+add_seg((0.0, 0.0, 1.45), (0.0, 0.0, 1.80), r=0.10)
+add_seg((0.11, 0.0, 0.02), (0.11, 0.0, 0.88), r=0.065)
+add_seg((-0.11, 0.0, 0.02), (-0.11, 0.0, 0.88), r=0.065)
+add_seg((0.11, -0.02, 0.04), (0.11, 0.16, 0.04), r=0.045)
+add_seg((-0.11, -0.02, 0.04), (-0.11, 0.16, 0.04), r=0.045)
+
+# Bracos em A-pose com cotovelo dobrado para frente (+Y) e para fora (+-X)
+for s in (1.0, -1.0):
+    sh = (s * 0.17, 0.0, 1.38)
+    el = (s * 0.31, -0.02, 1.15)
+    wr = (s * 0.39, 0.22, 0.94)
+    tp = (s * 0.43, 0.31, 0.86)
+    add_seg(sh, el, r=0.048)
+    add_seg(el, wr, r=0.042)
+    add_seg(wr, tp, r=0.036)
+
+bmesh.ops.subdivide_edges(bm, edges=list(bm.edges), cuts=2, use_grid_fill=True)
+me = bpy.data.meshes.new("apose")
+bm.to_mesh(me)
+bm.free()
+obj = bpy.data.objects.new("apose", me)
+bpy.context.collection.objects.link(obj)
+
+rig_obj, _ = autorig.auto_rigar_humanoide(obj, "godot-humanoid@1", postprocess.criar_armadura)
+dados = {}
+for b in rig_obj.data.bones:
+    mat = b.matrix_local.to_3x3()
+    dados[b.name] = {
+        "dir": [float(v) for v in (b.tail_local - b.head_local).normalized()],
+        "local_x": [float(v) for v in mat.col[0]],
+        "local_z": [float(v) for v in mat.col[2]],
+    }
+with open(out_json, "w", encoding="utf-8") as fh:
+    json.dump(dados, fh)
+"""
+    proc = subprocess.run(
+        [blender, "-b", "--factory-startup", "--python-expr", expr, "--", str(RAIZ / "blender"), str(out_json)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    ossos = json.loads(out_json.read_text(encoding="utf-8"))
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+    def norm(v):
+        mag = math.sqrt(sum(c * c for c in v))
+        return tuple(c / mag for c in v)
+
+    def dot(a, b):
+        return sum(x * y for x, y in zip(a, b, strict=True))
+
+    cos5 = math.cos(math.radians(5.0))
+    n_L = norm(cross(ossos["UpperArm.L"]["dir"], ossos["LowerArm.L"]["dir"]))
+    n_R = norm(cross(ossos["UpperArm.R"]["dir"], ossos["LowerArm.R"]["dir"]))
+    assert dot(ossos["LowerArm.L"]["local_x"], n_L) > cos5, (ossos["LowerArm.L"]["local_x"], n_L)
+    assert dot(ossos["LowerArm.R"]["local_x"], n_R) > cos5, (ossos["LowerArm.R"]["local_x"], n_R)
+    assert dot(ossos["UpperArm.L"]["local_x"], ossos["LowerArm.L"]["local_x"]) > cos5
+    assert dot(ossos["UpperArm.R"]["local_x"], ossos["LowerArm.R"]["local_x"]) > cos5
+    lx_l = ossos["LowerArm.L"]["local_x"]
+    lx_r = ossos["LowerArm.R"]["local_x"]
+    assert abs(lx_l[0] - lx_r[0]) < 0.05
+    assert abs(lx_l[1] + lx_r[1]) < 0.05
+    assert abs(lx_l[2] + lx_r[2]) < 0.05

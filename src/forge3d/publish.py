@@ -197,6 +197,10 @@ def montar_manifesto(
         rig = {"esqueleto": esqueleto_alvo, "ossos": int(medidas["ossos"])}
     elif (item.get("skinned") or (anexo and anexo.get("skinned"))) and medidas.get("ossos"):
         rig = {"esqueleto": esqueleto_alvo, "ossos": int(medidas["ossos"])}
+    if rig is not None:
+        modo_rig = item.get("modo_rig_roblox") or medidas.get("modo_rig_roblox")
+        if modo_rig in ("motor6d", "bone"):
+            rig["modo_rig_roblox"] = str(modo_rig)
 
     return {
         "schema": "forge3d/manifest@4",
@@ -214,6 +218,8 @@ def montar_manifesto(
             "vertices": int(medidas["vertices"]),
             "bbox_m": [max(0.0001, float(v)) for v in medidas["bbox_m"]],
             "materiais": max(1, int(medidas["materiais"])),
+            **({"tangentes": bool(medidas["tangentes"])} if "tangentes" in medidas else {}),
+            **({"uv_lightmap": bool(medidas["uv_lightmap"])} if "uv_lightmap" in medidas else {}),
         },
         # D62: o glb do roblox-r15 sai em studs; quem consome le a unidade aqui, nunca supoe metro
         "unidades_export": unidades_export,
@@ -390,6 +396,17 @@ def expurgar_orfaos_destino(
             old_id = antigo.get("asset_id") or man_path.stem.removesuffix(".manifest")
             if old_id:
                 _indice_remover(old_id, destino)
+
+        ext_ativo = {".glb", ".gltf", ".bin", ".png", ".jpg", ".jpeg", ".webp"}
+        mantidos_res = {p.resolve(strict=False) for p in mantidos}
+        for item_arq in sorted(destino.iterdir()):
+            if not item_arq.is_file() or item_arq.name.startswith("."):
+                continue
+            if item_arq.suffix.lower() not in ext_ativo:
+                continue
+            if item_arq.resolve(strict=False) not in mantidos_res:
+                item_arq.unlink(missing_ok=True)
+                removidos.append(item_arq.name)
 
         _fsync_dir(destino)
     return removidos

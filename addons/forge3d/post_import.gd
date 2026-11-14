@@ -168,11 +168,21 @@ static func _criar_static_body(nome: String, xform: Transform3D, mesh: Mesh, par
 	body.transform = xform
 	var shape_node := CollisionShape3D.new()
 	shape_node.name = "CollisionShape3D"
-	shape_node.shape = mesh.create_convex_shape(true, true)
+	shape_node.shape = mesh.create_convex_shape(true, false)
 	parent.add_child(body)
 	body.add_child(shape_node)
 	body.owner = root
 	shape_node.owner = root
+
+
+static func _transform_relativo(nodo: Node, ancestral: Node) -> Transform3D:
+	var acum := Transform3D.IDENTITY
+	var cur: Node = nodo
+	while cur != null and cur != ancestral:
+		if cur is Node3D:
+			acum = (cur as Node3D).transform * acum
+		cur = cur.get_parent()
+	return acum
 
 
 static func _converter_ucx(nodo: Node, root: Node) -> int:
@@ -181,7 +191,8 @@ static func _converter_ucx(nodo: Node, root: Node) -> int:
 		if filho is MeshInstance3D and String(filho.name).begins_with("UCX_"):
 			var mi := filho as MeshInstance3D
 			if mi.mesh != null:
-				_criar_static_body(String(mi.name), mi.transform, mi.mesh, nodo, root)
+				var xform_rel := _transform_relativo(mi, root)
+				_criar_static_body(String(mi.name), xform_rel, mi.mesh, root, root)
 				total += 1
 			nodo.remove_child(mi)
 			mi.free()
@@ -322,12 +333,15 @@ static func _instanciar_lod_mesh(
 	destino: Node,
 	scene: Node,
 	vis_begin: float,
-	vis_end: float
+	vis_end: float,
+	src_root: Node = null
 ) -> void:
 	var lod_mi := MeshInstance3D.new()
 	lod_mi.name = nome_lod
 	lod_mi.mesh = src_mi.mesh
-	lod_mi.transform = src_mi.transform
+	var src_xform := _transform_relativo(src_mi, src_root) if src_root != null else src_mi.transform
+	var dst_xform := _transform_relativo(destino, scene)
+	lod_mi.transform = dst_xform.affine_inverse() * src_xform
 	lod_mi.skin = src_mi.skin
 	lod_mi.material_override = src_mi.material_override
 	for idx in range(src_mi.get_surface_override_material_count()):
@@ -434,7 +448,7 @@ static func _anexar_lods(scene: Node, source_file: String, manifesto: Dictionary
 				usados[escolhido] = true
 				pareados[i] = true
 				var destino: Node = orig.get_parent() if orig.get_parent() != null else scene
-				_instanciar_lod_mesh(lod_meshes[escolhido], pref + orig_nome, destino, scene, vis_begin, vis_end)
+				_instanciar_lod_mesh(lod_meshes[escolhido], pref + orig_nome, destino, scene, vis_begin, vis_end, lod_cena)
 
 		for i in range(lod0_meshes.size()):
 			if pareados[i]:
@@ -451,12 +465,12 @@ static func _anexar_lods(scene: Node, source_file: String, manifesto: Dictionary
 				usados[escolhido] = true
 				var orig := lod0_meshes[i]
 				var destino: Node = orig.get_parent() if orig.get_parent() != null else scene
-				_instanciar_lod_mesh(lod_meshes[escolhido], pref + String(orig.name), destino, scene, vis_begin, vis_end)
+				_instanciar_lod_mesh(lod_meshes[escolhido], pref + String(orig.name), destino, scene, vis_begin, vis_end, lod_cena)
 
 		for j in range(lod_meshes.size()):
 			if not usados[j]:
 				var src_extra: MeshInstance3D = lod_meshes[j]
-				_instanciar_lod_mesh(src_extra, pref + _nome_base_lod(String(src_extra.name)), scene, scene, vis_begin, vis_end)
+				_instanciar_lod_mesh(src_extra, pref + _nome_base_lod(String(src_extra.name)), scene, scene, vis_begin, vis_end, lod_cena)
 
 		lod_cena.free()
 
@@ -492,6 +506,8 @@ static func _carregar_textura(caminho: String) -> Texture2D:
 	var img := Image.load_from_file(caminho)
 	if img == null or img.is_empty():
 		return null
+	if not img.has_mipmaps():
+		img.generate_mipmaps()
 	return ImageTexture.create_from_image(img)
 
 
@@ -566,7 +582,9 @@ static func _processar_material(
 
 	if resultado is BaseMaterial3D:
 		var bm := resultado as BaseMaterial3D
-		if normal_tex != null:
+		if bm.normal_texture != null:
+			bm.normal_enabled = true
+		elif normal_tex != null:
 			bm.normal_enabled = true
 			bm.normal_texture = normal_tex
 		if base_color_tex != null and bm.albedo_texture == null:
@@ -654,8 +672,8 @@ static func criar_bone_map_humanoid() -> BoneMap:
 	var pares := {
 		"Hips": "Hips",
 		"Spine": "Spine",
-		"Chest": "Chest",
-		"UpperChest": "UpperChest",
+		"Chest": "Spine1",
+		"UpperChest": "Chest",
 		"Neck": "Neck",
 		"Head": "Head",
 		"LeftShoulder": "Shoulder.L",
@@ -669,11 +687,11 @@ static func criar_bone_map_humanoid() -> BoneMap:
 		"LeftUpperLeg": "UpperLeg.L",
 		"LeftLowerLeg": "LowerLeg.L",
 		"LeftFoot": "Foot.L",
-		"LeftToes": "Toes.L",
+		"LeftToes": "Toe.L",
 		"RightUpperLeg": "UpperLeg.R",
 		"RightLowerLeg": "LowerLeg.R",
 		"RightFoot": "Foot.R",
-		"RightToes": "Toes.R",
+		"RightToes": "Toe.R",
 	}
 	for prof_name in pares.keys():
 		bone_map.set_skeleton_bone_name(prof_name, pares[prof_name])
@@ -802,14 +820,57 @@ static func montar_character_body(
 				attachment.bone_name = bone_name
 				skel.add_child(attachment)
 				attachment.owner = char_body
-				if (bone_name == "Hand.R" or bone_name == "Hand.L") and anexo_node is Node3D:
-					var an_man: Variant = anexo_node.get_meta("forge3d_manifest", {})
-					if typeof(an_man) == TYPE_DICTIONARY:
-						var an_info: Variant = (an_man as Dictionary).get("anexo", null)
-						if typeof(an_info) == TYPE_DICTIONARY and str((an_info as Dictionary).get("parte", "")) == "arma":
-							(anexo_node as Node3D).rotate_x(-PI / 2.0)
+				if anexo_node is Node3D:
+					_orientar_anexo_socket(anexo_node as Node3D, skel, bone_name)
 				attachment.add_child(anexo_node)
 				if anexo_node.owner == null:
 					anexo_node.owner = char_body
 
 	return char_body
+
+
+static func _orientar_anexo_socket(n3d: Node3D, skel: Skeleton3D, bone_name: String) -> void:
+	var bone_idx := skel.find_bone(bone_name)
+	if bone_idx < 0:
+		return
+	var an_man: Variant = n3d.get_meta("forge3d_manifest", null)
+	if typeof(an_man) != TYPE_DICTIONARY:
+		return
+	var an_info: Variant = (an_man as Dictionary).get("anexo", null)
+	if typeof(an_info) != TYPE_DICTIONARY:
+		return
+	var an_dict := an_info as Dictionary
+	var parte := str(an_dict.get("parte", "")).to_lower()
+	if parte == "":
+		return
+	if an_dict.has("offset_rot"):
+		var off: Variant = an_dict["offset_rot"]
+		if typeof(off) == TYPE_ARRAY:
+			var arr := off as Array
+			if arr.size() == 3:
+				n3d.basis = Basis.from_euler(Vector3(float(arr[0]), float(arr[1]), float(arr[2]))).scaled(n3d.scale)
+				return
+			if arr.size() == 4:
+				n3d.basis = Basis(Quaternion(float(arr[0]), float(arr[1]), float(arr[2]), float(arr[3]))).scaled(n3d.scale)
+				return
+
+	var bone_rest_basis := skel.get_bone_global_rest(bone_idx).basis.orthonormalized()
+	var target_basis_skel := Basis.IDENTITY
+	var tratado := false
+	if parte == "arma":
+		# Arma em glTF tem ponta em +Y e fio em +X: aponta para frente (-Z) com fio vertical (+Y).
+		target_basis_skel = Basis(Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(-1.0, 0.0, 0.0))
+		tratado = true
+	elif parte == "escudo":
+		# Escudo em glTF tem topo em +Y e face convexa em -Z: mantem topo +Y e face externa para fora.
+		var lado_r := bone_name.ends_with(".R") or bone_name.begins_with("Right")
+		if lado_r:
+			target_basis_skel = Basis(Vector3(0.0, 0.0, -1.0), Vector3(0.0, 1.0, 0.0), Vector3(1.0, 0.0, 0.0))
+		else:
+			target_basis_skel = Basis(Vector3(0.0, 0.0, 1.0), Vector3(0.0, 1.0, 0.0), Vector3(-1.0, 0.0, 0.0))
+		tratado = true
+	elif parte in ["elmo", "cabelo", "capa", "ombreiras", "peitoral", "luvas", "calcas", "calças", "botas"]:
+		target_basis_skel = Basis.IDENTITY
+		tratado = true
+	if tratado:
+		n3d.basis = (bone_rest_basis.inverse() * target_basis_skel).scaled(n3d.scale)

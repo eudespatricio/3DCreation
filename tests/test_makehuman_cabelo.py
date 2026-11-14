@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -294,7 +295,9 @@ def test_blender_template_body_cabelo_mhclo_cc0_passa_g1(tmp_path):
     except ForgeError:
         pytest.skip("Blender 4.2 ausente")
 
-    mh_root = Path.home() / ".config" / "blender" / "4.2" / "extensions" / ".user" / "user_default" / "mpfb" / "data" / "hair"
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    cfg_root = Path(xdg) if xdg else (Path.home() / ".config")
+    mh_root = cfg_root / "blender" / "4.2" / "extensions" / ".user" / "user_default" / "mpfb" / "data" / "hair"
     if not (mh_root / "long01" / "long01.mhclo").is_file():
         pytest.skip("pacote MPFB2 hair/long01 nao instalado neste ambiente")
 

@@ -10,6 +10,8 @@ cd "$(dirname "$0")/.."
 FORGE3D="${FORGE3D:-.venv/bin/forge3d}"
 RAIZ="$(mktemp -d)"
 trap 'rm -rf "$RAIZ"' EXIT
+ORIG_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}"
+ORIG_XDG_STATE_HOME="${XDG_STATE_HOME:-}"
 export XDG_CONFIG_HOME="$RAIZ/config"
 export XDG_STATE_HOME="$RAIZ/state"
 unset FORGE3D_ROOT 2>/dev/null || true
@@ -53,6 +55,7 @@ grep -q "0 problema" "$RAIZ/verify_ok.txt"
 echo "== verify tem que morder: um byte trocado no glb =="
 GLB="$(find "$DESTINO" -name '*.glb' ! -name '*_colisao.glb' -print -quit)"
 [ -n "$GLB" ] || { echo "FALHA: nenhum .glb de malha no destino" >&2; exit 1; }
+cp "$GLB" "$GLB.bak"
 printf 'x' >> "$GLB"
 set +e
 run verify "$DESTINO" > "$RAIZ/verify_ruim.txt" 2>&1
@@ -68,10 +71,15 @@ grep -q "hash divergente" "$RAIZ/verify_ruim.txt" || {
     cat "$RAIZ/verify_ruim.txt" >&2
     exit 1
 }
+mv "$GLB.bak" "$GLB"
 
-echo "== regressao de orientacao (GAP-048) =="
+echo "== suite Blender sem GPU (inclui regressao de orientacao GAP-048) =="
 PY="${PYTHON:-.venv/bin/python}"
-"$PY" -m pytest tests/test_orientacao.py -q
+(
+    if [ -n "$ORIG_XDG_CONFIG_HOME" ]; then export XDG_CONFIG_HOME="$ORIG_XDG_CONFIG_HOME"; else unset XDG_CONFIG_HOME; fi
+    if [ -n "$ORIG_XDG_STATE_HOME" ]; then export XDG_STATE_HOME="$ORIG_XDG_STATE_HOME"; else unset XDG_STATE_HOME; fi
+    "$PY" -m pytest -m "blender and not gpu" -q
+)
 
 echo "== contratos GLB Godot game-ready (Pacote 3) =="
 "$PY" - "$GLB" <<'PY'
@@ -94,6 +102,9 @@ print("GLB_PACOTE3_OK", nos_malha)
 PY
 
 GODOT_BIN="${FORGE3D_GODOT:-$(command -v godot || true)}"
+if [ -z "$GODOT_BIN" ] && [ -x "$HOME/.gemini/antigravity/bin/godot" ]; then
+    GODOT_BIN="$HOME/.gemini/antigravity/bin/godot"
+fi
 if [ -z "$GODOT_BIN" ] && [ -x "$HOME/tools/godot/Godot_v4.3-stable_linux.x86_64" ]; then
     GODOT_BIN="$HOME/tools/godot/Godot_v4.3-stable_linux.x86_64"
 fi
@@ -102,6 +113,9 @@ if [ -n "$GODOT_BIN" ]; then
     "$GODOT_BIN" --headless --path tools/godot_project --check-only --quit --script "$(pwd)/addons/forge3d/post_import.gd"
     "$GODOT_BIN" --headless --path tools/godot_project --check-only --quit --script "$(pwd)/addons/forge3d/plugin.gd"
     "$GODOT_BIN" --headless --path tools/godot_project --script "$(pwd)/tools/godot_post_import_check.gd" -- "$GLB"
+    if [ -f "tools/godot_axes_check.gd" ]; then
+        "$GODOT_BIN" --headless --path tools/godot_project --script "$(pwd)/tools/godot_axes_check.gd"
+    fi
 fi
 
 echo "CI_VERIFY_OK"

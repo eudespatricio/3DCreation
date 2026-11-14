@@ -75,7 +75,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | Instalação | wheel de **0.6.0** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
 | `forge3d migrate` | `@1..@3`→`@4` textual com comentários intactos; `--saida`/`--em-lugar` |
 | Heróis do teste (11/11/2026) | `mesh` elfo: **27,7 s**, VRAM **2.378 MB**, 7.958 tris, G1–G10 ok; cabeça-para-baixo corrigida em **0.3.8** (`invertido: false`). R15 blocky: **300 tris**, **16 ossos**, `idle` **2,042 s**, `.rbxlx` 16 partes/15 motores; `verify` 0 nos dois |
-| Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **7 destinos, 16 manifestos** em `manifest@3` 0.2.7, `verify` **0 problemas** |
+| Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **23 destinos** em `manifest@4` `0.6.0`, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
 | Clipe no rig Roblox (MCP) | Head anda **0,1091 studs** entre t=0 e t=0,5; maior delta de parte 0,1253 |
@@ -188,8 +188,8 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 
 ## Como retomar
 
-> Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P5 fechadas: 7
-> destinos/16 manifestos em `manifest@3` 0.2.7, `verify` 0 problemas, CI verde em
+> Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P6 fechadas: 23
+> destinos em `manifest@4` `0.6.0`, `verify` 0 problemas, CI verde em
 > `github.com/eudespatricio/3DCreation`; key do Roblox em `~/.config/forge3d/roblox.key`, fora do repo.
 > P0–P6 + Ondas A–D fechadas: `v0.6.0` (`spec@4`/`manifest@4`, `@1`–`@3` compatíveis), 3 jobs de CI e wheel
 > instalável (D81/D89–D92). Próximo: operar num projeto de jogo e medir custo por asset. Não reabra D3–D92 sem fato novo.

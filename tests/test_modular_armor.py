@@ -400,8 +400,10 @@ def test_blender_modular_armor_gera_peitoral_skinned_e_elmo_socket(tmp_path):
 
 
 def _tem_mpfb2_clothes() -> bool:
-    base = Path.home() / ".config" / "blender" / "4.2" / "extensions"
-    return any(base.glob("**/mpfb/data/clothes/shoes01/shoes01.mhclo"))
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    cfg_root = Path(xdg) if xdg else (Path.home() / ".config")
+    base = cfg_root / "blender" / "4.2" / "extensions"
+    return base.is_dir() and any(base.glob("**/mpfb/data/clothes/shoes01/shoes01.mhclo"))
 
 
 def test_custo_preflight_e_licenca_rotas_cpu():

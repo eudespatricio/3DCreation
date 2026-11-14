@@ -811,6 +811,8 @@ def _gerar_rbxmx_animacoes(
         destino = Path(saida).expanduser()
         if str(destino).startswith("/mnt/") or str(destino).startswith("//"):
             raise erro_spec("export-anim: nao escreve em /mnt ou UNC")
+        destino = config.normalizar(destino)
+        config.validar_destino(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text(xml, encoding="utf-8")
     return destino, clipes

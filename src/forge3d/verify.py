@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from . import paths
@@ -37,6 +38,19 @@ def _schema_manifesto(versao: str = "1") -> dict:
         arq = paths.raiz_dados() / "schemas" / f"manifest.v{versao}.schema.json"
         MANIFEST_SCHEMA_CACHE[versao] = json.loads(arq.read_text(encoding="utf-8"))
     return MANIFEST_SCHEMA_CACHE[versao]
+
+
+def _versao_maior_igual(atual: str | None, minima: str) -> bool:
+    """Compara versao semantica prefixada (ex.: '0.6.1' >= '0.6.1'); ausente/invalida -> False."""
+    if not atual:
+        return False
+    m_at = re.match(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?", str(atual).strip())
+    m_min = re.match(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?", str(minima).strip())
+    if not m_at or not m_min:
+        return False
+    tup_at = tuple(int(x or 0) for x in m_at.groups())
+    tup_min = tuple(int(x or 0) for x in m_min.groups())
+    return tup_at >= tup_min
 
 
 def _pedidos_verificar(only: str | None) -> set[str] | None:
@@ -95,6 +109,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
     faltando: list[dict] = []
     deltas_escala: list[float] = []
     deltas_pivo: list[float] = []
+    referenciados: set[Path] = {m.resolve(strict=False) for m in manifestos}
     for caminho in manifestos:
         try:
             man = json.loads(caminho.read_text(encoding="utf-8"))
@@ -122,6 +137,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
         for arq in man["files"] if checar_hash else []:
             try:
                 alvo = _caminho_seguro(destino, arq["caminho"])
+                referenciados.add(alvo.resolve(strict=False))
             except ForgeError as exc:
                 erros.append({"manifesto": caminho.name, "erro": str(exc)})
                 continue
@@ -286,6 +302,9 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             "determinism": man.get("determinism"),
         }
         try:
+            exigir_orientacao = versao == "4" and _versao_maior_igual(
+                man.get("pipeline_version"), "0.6.1"
+            )
             revalidado = qc.verificar(
                 item,
                 perfil,
@@ -293,6 +312,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                 resultado,
                 escala_saida=escala,
                 exigir_tangent_normal=(versao == "4"),
+                exigir_orientacao=exigir_orientacao,
             )
         except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto
             erros.append({"manifesto": caminho.name, "erro": f"QC reexecutado falhou: {exc}"})
@@ -334,6 +354,21 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                 "qc_reexecutado": revalidado["aprovado"],
             }
         )
+
+    if pedidos is None:
+        ext_ativo = {".glb", ".gltf", ".bin", ".png", ".jpg", ".jpeg", ".webp"}
+        for item_arq in sorted(destino.iterdir()):
+            if not item_arq.is_file() or item_arq.name.startswith("."):
+                continue
+            if item_arq.suffix.lower() not in ext_ativo:
+                continue
+            if item_arq.resolve(strict=False) not in referenciados:
+                erros.append(
+                    {
+                        "manifesto": item_arq.name,
+                        "erro": f"arquivo orfao fora dos manifestos: {item_arq.name}",
+                    }
+                )
 
     relatorio: dict = {
         "ok": not erros,

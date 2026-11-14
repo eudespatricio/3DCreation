@@ -619,3 +619,166 @@ def test_qc_v2_g5_tangent_g6_pesos_g7_coplanar_e_g9_lod(tmp_path):
         escala_saida=1.0,
     )
     assert _gate(rel_g9, "G9")["status"] == "falhou"
+
+
+def _editar_gltf_glb(glb_base: bytes, mutator) -> bytes:
+    magic, ver, _ = struct.unpack_from("<III", glb_base, 0)
+    jlen, jtype = struct.unpack_from("<II", glb_base, 12)
+    gltf = json.loads(glb_base[20 : 20 + jlen].decode("utf-8"))
+    bin_hdr = 20 + jlen
+    blen, btype = struct.unpack_from("<II", glb_base, bin_hdr)
+    bin_data = bytearray(glb_base[bin_hdr + 8 : bin_hdr + 8 + blen])
+    mutator(gltf, bin_data)
+    jb = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    while len(jb) % 4:
+        jb += b" "
+    while len(bin_data) % 4:
+        bin_data.append(0)
+    return (
+        struct.pack("<III", magic, ver, 12 + 8 + len(jb) + 8 + len(bin_data))
+        + struct.pack("<II", len(jb), jtype)
+        + jb
+        + struct.pack("<II", len(bin_data), btype)
+        + bytes(bin_data)
+    )
+
+
+def _quat_mul(q1, q2):
+    x1, y1, z1, w1 = q1
+    x2, y2, z2, w2 = q2
+    return [
+        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+    ]
+
+
+def test_qc_g2_orientacao_reprova_desvios_e_aprova_rig_valido(tmp_path):
+    import math
+
+    # 1) det < 0 via escala negativa em no
+    d_det = tmp_path / "det_neg"
+    d_det.mkdir()
+    glb_det = _editar_gltf_glb(_glb_bytes(), lambda g, _b: g["nodes"][0].update({"scale": [-1.0, 1.0, 1.0]}))
+    g2_det = _gate(_rodar_qc(d_det, glb_det), "G2")
+    assert g2_det["status"] == "falhou"
+    assert "det_negativo" in g2_det["medido"]["orientacao"]["motivos"]
+
+    # 2) rotacao residual em no nao-joint (mesh/root)
+    d_rot = tmp_path / "rot_res"
+    d_rot.mkdir()
+    glb_rot = _editar_gltf_glb(_glb_bytes(), lambda g, _b: g["nodes"][0].update({"rotation": [0.0, 1.0, 0.0, 0.0]}))
+    g2_rot = _gate(_rodar_qc(d_rot, glb_rot), "G2")
+    assert g2_rot["status"] == "falhou"
+    assert "rotacao_residual_no" in g2_rot["medido"]["orientacao"]["motivos"]
+
+    # 3) rig humanoid valido vs Toe atras de Foot (+Z glTF) vs roll > 5 deg
+    def _rig_valido_mutator(g, _b, toe_z=-0.16, roll_deg=0.0):
+        # Zera transformacoes de todos os joints e define cadeia valida com Hips raiz
+        nidx = {n["name"]: i for i, n in enumerate(g["nodes"])}
+        # Rotacao de UpperLeg.L/R: aponta -Y global em glTF -> 180 deg em X -> q=(1,0,0,0)
+        q_leg = [1.0, 0.0, 0.0, 0.0]
+        if roll_deg != 0.0:
+            a = math.radians(roll_deg) * 0.5
+            q_leg = _quat_mul(q_leg, [0.0, math.sin(a), 0.0, math.cos(a)])
+        # Shoulder.L: dir +X, local_z -Z, local_x +Y -> q_sh_l: col1=(1,0,0), col0=(0,1,0), col2=(0,0,-1)
+        # Rotacao -90 deg em Z: c0=(0,-1,0)? Wait: col0=(0,1,0), col1=(-1,0,0) -> +90 em Z da col0=(0,1,0), col1=(-1,0,0);
+        # -90 em Z + 180 em X? Check: Ry(pi)*Rz(+pi/2) -> col0=(0,1,0), col1=(1,0,0), col2=(0,0,-1)
+        s45 = math.sin(math.pi / 4.0)
+        q_sh_l = _quat_mul([0.0, 1.0, 0.0, 0.0], [0.0, 0.0, s45, s45])
+        q_sh_r = _quat_mul([0.0, 1.0, 0.0, 0.0], [0.0, 0.0, -s45, s45])
+        g["nodes"][nidx["Hips"]].update({"translation": [0.0, 0.9, 0.0], "children": [nidx["UpperLeg.L"], nidx["UpperLeg.R"], nidx["Spine"]]})
+        g["nodes"][nidx["Spine"]].update({"translation": [0.0, 0.15, 0.0], "children": [nidx["Shoulder.L"], nidx["Shoulder.R"]]})
+        g["nodes"][nidx["Shoulder.L"]].update({"translation": [0.05, 0.3, 0.0], "rotation": q_sh_l, "children": [nidx["UpperArm.L"]]})
+        g["nodes"][nidx["UpperArm.L"]].update({"translation": [0.0, 0.12, 0.0], "rotation": [0.0, 0.0, s45, s45], "children": [nidx["LowerArm.L"]]})
+        g["nodes"][nidx["LowerArm.L"]].update({"translation": [0.0, 0.25, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0]})
+        g["nodes"][nidx["Shoulder.R"]].update({"translation": [-0.05, 0.3, 0.0], "rotation": q_sh_r, "children": [nidx["UpperArm.R"]]})
+        g["nodes"][nidx["UpperArm.R"]].update({"translation": [0.0, 0.12, 0.0], "rotation": [0.0, 0.0, -s45, s45], "children": [nidx["LowerArm.R"]]})
+        g["nodes"][nidx["LowerArm.R"]].update({"translation": [0.0, 0.25, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0]})
+        g["nodes"][nidx["UpperLeg.L"]].update({"translation": [0.1, 0.0, 0.0], "rotation": q_leg, "children": [nidx["LowerLeg.L"]]})
+        g["nodes"][nidx["LowerLeg.L"]].update({"translation": [0.0, 0.4, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "children": [nidx["Foot.L"]]})
+        g["nodes"][nidx["Foot.L"]].update({"translation": [0.0, 0.4, 0.0], "rotation": [s45, 0.0, 0.0, s45], "children": [nidx["Toe.L"]]})
+        g["nodes"][nidx["Toe.L"]].update({"translation": [0.0, -toe_z, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0]})
+        g["nodes"][nidx["UpperLeg.R"]].update({"translation": [-0.1, 0.0, 0.0], "rotation": [1.0, 0.0, 0.0, 0.0], "children": [nidx["LowerLeg.R"]]})
+        g["nodes"][nidx["LowerLeg.R"]].update({"translation": [0.0, 0.4, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "children": [nidx["Foot.R"]]})
+        g["nodes"][nidx["Foot.R"]].update({"translation": [0.0, 0.4, 0.0], "rotation": [s45, 0.0, 0.0, s45], "children": [nidx["Toe.R"]]})
+        g["nodes"][nidx["Toe.R"]].update({"translation": [0.0, -toe_z, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0]})
+
+    ossos_godot = profiles.carregar("godot4")["rig"]["mapas"]["godot-humanoid@1"]
+    d_rig_ok = tmp_path / "rig_ok"
+    d_rig_ok.mkdir()
+    glb_rig_ok = _editar_gltf_glb(_glb_bytes(ossos=ossos_godot), lambda g, b: _rig_valido_mutator(g, b, toe_z=-0.16, roll_deg=0.0))
+    g2_ok = _gate(_rodar_qc(d_rig_ok, glb_rig_ok, item_extra={"tipo": "personagem_humanoide", "auto_rig": True, "esqueleto": "godot-humanoid@1"}), "G2")
+    assert g2_ok["status"] == "ok", g2_ok
+    assert g2_ok["medido"]["orientacao"]["ok"] is True
+
+    d_rig_back = tmp_path / "rig_back"
+    d_rig_back.mkdir()
+    glb_rig_back = _editar_gltf_glb(_glb_bytes(ossos=ossos_godot), lambda g, b: _rig_valido_mutator(g, b, toe_z=+0.16, roll_deg=0.0))
+    g2_back = _gate(_rodar_qc(d_rig_back, glb_rig_back, item_extra={"tipo": "personagem_humanoide", "auto_rig": True, "esqueleto": "godot-humanoid@1"}), "G2")
+    assert g2_back["status"] == "falhou"
+    assert "rig_de_costas" in g2_back["medido"]["orientacao"]["motivos"]
+
+    d_roll = tmp_path / "rig_roll"
+    d_roll.mkdir()
+    glb_roll = _editar_gltf_glb(_glb_bytes(ossos=ossos_godot), lambda g, b: _rig_valido_mutator(g, b, toe_z=-0.16, roll_deg=12.0))
+    g2_roll = _gate(_rodar_qc(d_roll, glb_roll, item_extra={"tipo": "personagem_humanoide", "auto_rig": True, "esqueleto": "godot-humanoid@1"}), "G2")
+    assert g2_roll["status"] == "falhou"
+    assert "roll_osso_desalinhado" in g2_roll["medido"]["orientacao"]["motivos"]
+
+    # 4) malha humanoide sem rig de costas (+Z em glTF nos pes)
+    d_mesh_back = tmp_path / "mesh_back"
+    d_mesh_back.mkdir()
+    verts_back = [
+        # base pes (y in [0, 0.05]) deslocados para +Z (costas)
+        (-0.2, 0.0, 0.02), (0.2, 0.0, 0.02), (0.2, 0.05, 0.02), (-0.2, 0.05, 0.02),
+        (-0.2, 0.0, 0.25), (0.2, 0.0, 0.25), (0.2, 0.05, 0.25), (-0.2, 0.05, 0.25),
+        # canelas e corpo (y in [0.15, 1.0]) centrados em Z=0
+        (-0.2, 0.15, -0.05), (0.2, 0.15, -0.05), (0.2, 1.0, -0.05), (-0.2, 1.0, -0.05),
+        (-0.2, 0.15, 0.05), (0.2, 0.15, 0.05), (0.2, 1.0, 0.05), (-0.2, 1.0, 0.05),
+    ]
+    tris_2 = [
+        (0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7),
+        (0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
+        (0, 4, 7), (0, 7, 3), (1, 2, 6), (1, 6, 5),
+        (8, 10, 9), (8, 11, 10), (12, 13, 14), (12, 14, 15),
+        (8, 9, 13), (8, 13, 12), (10, 11, 15), (10, 15, 14),
+        (8, 12, 15), (8, 15, 11), (9, 10, 14), (9, 14, 13),
+    ]
+    g2_mback = _gate(
+        _rodar_qc(d_mesh_back, _glb_bytes(verts=verts_back, tris=tris_2), item_extra={"tipo": "personagem_humanoide"}),
+        "G2",
+    )
+    assert g2_mback["status"] == "falhou"
+    assert "malha_de_costas" in g2_mback["medido"]["orientacao"]["motivos"]
+
+    # 4b) malha humanoide com score ambiguo (ex.: heavy.04 com |score_z| <= limiar) -> warn, aprovado
+    d_mesh_amb = tmp_path / "mesh_amb"
+    d_mesh_amb.mkdir()
+    verts_amb = [
+        # pes (y in [0, 0.05]) com centro +0.0125m; canelas/corpo com centro -0.0125m -> score_z=+0.025, bbox Z simetrica [-0.07, +0.07] (pivo xz=0)
+        (-0.2, 0.0, -0.045), (0.2, 0.0, -0.045), (0.2, 0.05, -0.045), (-0.2, 0.05, -0.045),
+        (-0.2, 0.0, 0.07), (0.2, 0.0, 0.07), (0.2, 0.05, 0.07), (-0.2, 0.05, 0.07),
+        (-0.2, 0.15, -0.07), (0.2, 0.15, -0.07), (0.2, 1.0, -0.07), (-0.2, 1.0, -0.07),
+        (-0.2, 0.15, 0.045), (0.2, 0.15, 0.045), (0.2, 1.0, 0.045), (-0.2, 1.0, 0.045),
+    ]
+    rel_amb = _rodar_qc(d_mesh_amb, _glb_bytes(verts=verts_amb, tris=tris_2), item_extra={"tipo": "personagem_humanoide"})
+    g2_amb = _gate(rel_amb, "G2")
+    assert rel_amb["aprovado"] is True, rel_amb
+    assert g2_amb["status"] == "warn", g2_amb
+    assert "orientacao_frente_ambigua" in (g2_amb["medido"]["orientacao"].get("avisos") or [])
+
+    # 5) arma com empunhadura apontando para baixo (-Y)
+    d_arma = tmp_path / "arma_inv"
+    d_arma.mkdir()
+    verts_arma = [
+        (-0.05, -0.9, -0.05), (0.05, -0.9, -0.05), (0.05, 0.1, -0.05), (-0.05, 0.1, -0.05),
+        (-0.05, -0.9, 0.05), (0.05, -0.9, 0.05), (0.05, 0.1, 0.05), (-0.05, 0.1, 0.05),
+    ]
+    g2_arma = _gate(
+        _rodar_qc(d_arma, _glb_bytes(verts=verts_arma), item_extra={"tipo": "prop_equipavel", "parte": "arma", "pivot": "empunhadura"}),
+        "G2",
+    )
+    assert g2_arma["status"] == "falhou"
+    assert "equipavel_invertido" in g2_arma["medido"]["orientacao"]["motivos"]

@@ -33,7 +33,7 @@ para acontecer com a segunda engine.
 | `pivot` | `base` para `prop_estatico`/`modulo_cenario`; `empunhadura` para `prop_equipavel`; `base` para humanoides | origem no centro da base da AABB, não no centro de massa |
 | `colisao` | `convex_hull` por peça, nome `UCX_<Mesh>_<nn>` | Godot gera `-col` do sufixo `-colonly`/`-col`; `UCX_` é convenção de pipeline para achar depois |
 | `lod` | sufixos `_LOD0.._LOD2` | importar como `MeshInstance3D` separado; LOD automático é P5 |
-| `rig.esqueleto` | `godot-humanoid@1` | 22 ossos, sufixo `.L`/`.R` (convenção Blender) |
+| `rig.esqueleto` | `godot-humanoid@1` | 23 ossos, sufixo `.L`/`.R` (convenção Blender) |
 | `rig.max_ossos` | `64` | acima disso, multiplica custo de skinning |
 | `material.modelo` | `metallic-roughness` | PBR padrão glTF |
 | `material.textura_max` | `1024` | pixel art fica em 64–256, por decisão de arte |
@@ -97,7 +97,7 @@ escala/stud e U1–U4 continuam pendentes (GAP-006). `colisao.prefixo` ausente n
 ### Esqueleto `godot-humanoid@1`
 
 `Root` · `Hips` · `Spine` · `Spine1` · `Chest` · `Neck` · `Head` · `Shoulder.L/R` · `UpperArm.L/R` ·
-`LowerArm.L/R` · `Hand.L/R` · `UpperLeg.L/R` · `LowerLeg.L/R` · `Foot.L/R` · `Toe.L/R` — 22 ossos.
+`LowerArm.L/R` · `Hand.L/R` · `UpperLeg.L/R` · `LowerLeg.L/R` · `Foot.L/R` · `Toe.L/R` — 23 ossos.
 
 **Estes dois esqueletos são convenção deste projeto**, não padrão de indústria. Mixamo usa
 `mixamorig:LeftArm`; Rigify usa `DEF-upper_arm.L`. Por isso o mapa de retarget é **tabela no perfil**,

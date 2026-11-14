@@ -289,3 +289,95 @@ def test_verify_preserva_budget_hero_g9(tmp_path):
 
     rel_verify = publish.verificar(destino)
     assert rel_verify["ok"] is True, rel_verify["erros"]
+
+
+def test_verify_orientacao_legado_emite_warn_e_061_falha(tmp_path):
+    """Compatibilidade legada: orientacao reprova apenas em manifest@4 com pipeline_version >= 0.6.1."""
+    from forge3d import profiles, qc
+    from forge3d.canonical import sha256_arquivo
+    from tests.test_seguranca_e_qc import _editar_gltf_glb, _glb_bytes
+
+    glb_rot = _editar_gltf_glb(_glb_bytes(), lambda g, _b: g["nodes"][0].update({"rotation": [0.0, 1.0, 0.0, 0.0]}))
+    perfil = profiles.carregar("godot4")
+    item = {
+        "id": "legado.ori.01",
+        "tipo": "prop_estatico",
+        "rota": "mesh",
+        "altura_metros": 1.0,
+        "pivot": "base",
+        "limite_triangulos": 1000,
+        "auto_rig": False,
+        "colisao": "none",
+        "seed": 1,
+    }
+
+    def _montar_dest(nome: str, schema: str, pipeline_version: str) -> tuple[Path, dict]:
+        dest = tmp_path / nome
+        dest.mkdir()
+        arq = dest / "ori.glb"
+        arq.write_bytes(glb_rot)
+        res = {
+            "medidas": {"nao_manifold": 0, "degeneradas": 0, "partes_colisao": 0},
+            "arquivos": [
+                {
+                    "caminho": "ori.glb",
+                    "papel": "mesh",
+                    "nivel": 0,
+                    "triangulos": 12,
+                    "sha256": sha256_arquivo(arq),
+                    "bytes": arq.stat().st_size,
+                }
+            ],
+            "licenca": {"modelo": "MIT", "uso_comercial": True, "notice": "ok"},
+            "determinism": "D2",
+        }
+        qc_warn = qc.verificar(item, perfil, dest, res, escala_saida=1.0, exigir_orientacao=False)
+        man = publish.montar_manifesto(
+            item=item,
+            spec_doc={"projeto": "demo", "perfil": "godot4", "_arquivo": "lote.yaml"},
+            spec_hash="sha256:" + "0" * 64,
+            perfil_nome="godot4",
+            perfil=perfil,
+            provider={"nome": "mesh", "versao": "0.1.8", "determinism": "D2"},
+            resultado=res,
+            relatorio_qc=qc_warn,
+            licenca={"modelo": "MIT", "uso_comercial": True, "notice": "ok"},
+            run_id=f"run-{nome}",
+        )
+        man["schema"] = schema
+        man["pipeline_version"] = pipeline_version
+        if schema == "forge3d/manifest@3":
+            # Reusa EXEMPLO v3 minimo valido e troca mesh/asset
+            man3 = json.loads(json.dumps(EXEMPLO))
+            man3["asset_id"] = "legado.ori.01"
+            man3["pipeline_version"] = pipeline_version
+            man3["colisao"] = {"tipo": "none", "partes": 0}
+            man3["files"] = [
+                {
+                    "caminho": "ori.glb",
+                    "papel": "mesh",
+                    "sha256": sha256_arquivo(arq),
+                    "bytes": arq.stat().st_size,
+                }
+            ]
+            man3["geometry"]["triangulos"] = 12
+            man3["geometry"]["vertices"] = 8
+            man3["qc"] = {"aprovado": qc_warn["aprovado"], "gates": qc_warn["gates"]}
+            man = man3
+        (dest / "legado.ori.01.manifest.json").write_text(json.dumps(man), encoding="utf-8")
+        return dest, qc_warn
+
+    dest_v3, qc_v3 = _montar_dest("v3_051", "forge3d/manifest@3", "0.5.1")
+    g2_v3 = next(g for g in qc_v3["gates"] if g["id"] == "G2")
+    assert g2_v3["status"] == "warn", g2_v3
+    rel_v3 = publish.verificar(dest_v3)
+    assert rel_v3["ok"] is True, rel_v3["erros"]
+
+    dest_v4_060, _ = _montar_dest("v4_060", "forge3d/manifest@4", "0.6.0")
+    rel_v4_060 = publish.verificar(dest_v4_060)
+    assert rel_v4_060["ok"] is True, rel_v4_060["erros"]
+
+    dest_v4_061, _ = _montar_dest("v4_061", "forge3d/manifest@4", "0.6.1")
+    rel_v4_061 = publish.verificar(dest_v4_061)
+    assert rel_v4_061["ok"] is False
+    assert any("G2" in str(e) for e in rel_v4_061["erros"])

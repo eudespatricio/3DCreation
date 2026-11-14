@@ -955,6 +955,13 @@ def exportar(obj, rig, saida: str, manter_rig: bool, nome_glb: str = "template_b
     if manter_rig and rig is not None:
         rig.rotation_euler.z = math.pi
         rig.select_set(True)
+        obj.select_set(True)
+        for filho in rig.children:
+            filho.select_set(True)
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        bpy.ops.object.select_all(action="DESELECT")
+        rig.select_set(True)
     else:
         for mod in list(obj.modifiers):
             if mod.type == "ARMATURE":

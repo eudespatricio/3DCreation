@@ -53,13 +53,13 @@ forge3d allowlist add "$PWD/assets/forge3d"
 
 > `plan` também resolve o destino: sem allowlist ele sai `2` (`FORGE-E-DESTINO`), não só o `run`.
 
-## 4. Escrever o lote (`spec@3`)
+## 4. Escrever o lote (`spec@4`)
 
 Topo obrigatório: `schema`, `projeto`, `perfil`, `destino_exportacao`, `lote`. Item obrigatório:
 `id`, `tipo`. Exemplo mínimo que passa em `validate`:
 
 ```yaml
-schema: forge3d/spec@3
+schema: forge3d/spec@4
 projeto: meu-jogo
 perfil: godot4                 # ou roblox-r15
 destino_exportacao: /caminho/do/jogo/assets/forge3d
@@ -81,7 +81,7 @@ lote:
     tags: [props, madeira]
 ```
 
-Condicionais que o contrato aplica (schema + B1–B17 em `src/forge3d/spec.py`):
+Condicionais que o contrato aplica (schema + B1–B25 em `src/forge3d/spec.py`):
 
 | Situação | Exige |
 |---|---|
@@ -91,13 +91,13 @@ Condicionais que o contrato aplica (schema + B1–B17 em `src/forge3d/spec.py`):
 | `tipo` ≠ `textura`/`mapa_setor` | `altura_metros` |
 | `auto_rig: true` | `tipo` humanoide/criatura e `esqueleto` do perfil |
 | `animacoes_base` | `auto_rig: true` |
-| `parte` | só rota `blocky` |
+| `parte` | rotas `blocky` ou `mesh` (B11–B13) |
 | `id` | único e no padrão `a.b.c` |
 
-Lote antigo (`spec@1`/`@2`) sobe sem reescrever à mão:
+Lote antigo (`spec@1`..`@3`) sobe sem reescrever à mão:
 
 ```bash
-forge3d migrate lote.yaml --saida lote.v3.yaml   # dry-run sem --saida/--em-lugar
+forge3d migrate lote.yaml --saida lote.v4.yaml   # dry-run sem --saida/--em-lugar
 ```
 
 ## 5. O ciclo no pipe
@@ -142,16 +142,16 @@ Quando nada publicou, vale a causa mais grave (`4 > 2 > 6 > 5 > 3`). `0` só qua
 
 ## 7. O que o jogo lê: o manifesto
 
-`<asset_id>.manifest.json` (`manifest@1`/`@2`/`@3`; o corrente é `@3`). Campos que o consumidor usa:
+`<asset_id>.manifest.json` (`manifest@1`..`@4`; o corrente é `@4`). Campos que o consumidor usa:
 
 ```json
 {
   "asset_id": "weapon.caixa.demo.01",
-  "schema": "forge3d/manifest@3",
+  "schema": "forge3d/manifest@4",
   "perfil": "godot4",
   "determinism": "D1",
   "unidades_export": { "metros_por_unidade": 1.0, "escala_saida": 1.0 },
-  "geometry": { "triangulos": 300, "bbox_m": [0.35, 0.45, 0.35], "materiais": 1 },
+  "geometry": { "triangulos": 300, "bbox_m": [0.35, 0.45, 0.35], "materiais": 1, "tangentes": false, "uv_lightmap": true },
   "files": [
     { "caminho": "weapon.caixa.demo.01.glb", "papel": "mesh", "sha256": "sha256:…", "bytes": 48120 },
     { "caminho": "weapon.caixa.demo.01_baseColor.png", "papel": "textura", "sha256": "sha256:…", "bytes": 1024 }
@@ -176,10 +176,10 @@ Quando nada publicou, vale a causa mais grave (`4 > 2 > 6 > 5 > 3`). `0` só qua
 `addons/forge3d/` (`post_import.gd`) para configurar loop linear em `idle`/`walk`/`run`,
 `visibility_range` automático do `*_LOD1.glb` e `PostImport.montar_character_body()` com `BoneAttachment3D`.
 
-Para copiar um destino já verificado do ext4 para outra pasta (ex.: projeto aberto no Windows):
+Para copiar um destino já verificado do ext4 para outra pasta (ex.: projeto aberto no Windows) e gerar o catálogo tipado `Forge3DAssets.gd`:
 
 ```bash
-forge3d sync ~/.local/state/forge3d/saida/lote_01 --para <pasta_destino> --limpar
+forge3d sync ~/.local/state/forge3d/saida/lote_01 --para <pasta_destino> --limpar --godot-gd <pasta_destino>/Forge3DAssets.gd
 ```
 
 Para projetos Roblox gerenciados via **Rojo**, passe `--rojo-lua <caminho/Assets.lua>` junto com `sync`:
@@ -231,8 +231,8 @@ ele acusa em vez de confiar no manifesto antigo.
 
 ## 11. Onde está o contrato
 
-- `schemas/spec.v3.schema.json` (entrada) e `schemas/manifest.v3.schema.json` (saída)
-- `docs/contratos.md` — regras, B1–B17, saída JSON, exit codes, códigos de erro
+- `schemas/spec.v4.schema.json` (entrada) e `schemas/manifest.v4.schema.json` (saída)
+- `docs/contratos.md` — regras, B1–B25, saída JSON, exit codes, códigos de erro
 - `profiles/godot4.yaml` · `profiles/roblox-r15.yaml` — unidade, eixos, pivô, colisão, tolerâncias
 - `docs/perfis-export.md` — o que cada plataforma espera do arquivo
 

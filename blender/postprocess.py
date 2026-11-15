@@ -1302,19 +1302,26 @@ def _volume_componente(bm, indices: list[int]) -> float:
     return (max(xs) - min(xs)) * (max(ys) - min(ys)) * (max(zs) - min(zs))
 
 
-def aplicar_lod(obj, pct: float) -> dict:
-    """LOD: blocky (muitas caixas) perde caixa inteira; malha de uma peca vai de decimate.
+def aplicar_lod(obj, pct: float, *, blocky: bool | None = None) -> dict:
+    """LOD: blocky (muitas caixas) perde caixa inteira; malha orgânica/importada vai de decimate.
 
     Medido em 11/11/2026 (GAP-013): o decimate cego num blocky de 300 tris virou espinhos
     (IoU de silhueta 0,76 no LOD1 e 0,55 no LOD2). Caixa e a unidade de detalhe do blocky —
-    tirar a caixa inteira preserva o que sobrou e nao inventa geometria.
+    tirar a caixa inteira preserva o que sobrou e nao inventa geometria. Ja malhas multi-camadas
+    nao-blocky (humanoide CC0 vestido com tunica, botas, bracadeiras, cabelo, olhos) nao podem
+    descartar ilhas inteiras sob pena de amputar roupa/membros e derrubar IoU de silhueta (G9).
     """
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bm.verts.ensure_lookup_table()
     grupos = _componentes_indices(bm)
     total_tris = len(bm.faces)
-    if len(grupos) < 8:
+    usar_decimate = (
+        len(grupos) < 8
+        or blocky is False
+        or (blocky is None and total_tris > 1500)
+    )
+    if usar_decimate:
         bm.free()
         aplicar_decimate(obj, pct / 100.0)
         return {"modo": "decimate", "ilhas": len(grupos)}
@@ -2001,7 +2008,11 @@ def processar(job: dict) -> dict:
                 alvo_obj.parent = rig_obj
                 mod_lod = alvo_obj.modifiers.new("armature", "ARMATURE")
                 mod_lod.object = rig_obj
-            info_lod = aplicar_lod(alvo_obj, pct)
+            info_lod = aplicar_lod(
+                alvo_obj,
+                pct,
+                blocky=(bruto["schema"] == "forge3d/bruto-blocky@1"),
+            )
             reparar_malha(alvo_obj)
             if smooth_normals_aplicado:
                 suavizar_por_angulo(alvo_obj, angulo_graus=angulo_smooth_final)

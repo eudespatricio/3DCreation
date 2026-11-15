@@ -779,53 +779,193 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
 
 
 def _criar_escudo_procedural(nome: str = "EscudoModular") -> "bpy.types.Object":
-    """Cria malha estanque manifold de escudo medieval com UVs quando sem .mhclo."""
+    """Cria escudo heater curvado multi-zona 2-manifold (aco forjado, borda/umbo de bronze e alcas de couro)."""
+    mat_aco = _criar_material_pbr_zona(
+        "Shield_ForgedSteel",
+        (0.46, 0.49, 0.54, 1.0),
+        metallic=0.86,
+        roughness=0.30,
+        textura_arquivo="steel_forged_albedo.png",
+        accent_color=(0.30, 0.33, 0.38, 1.0),
+        bump_strength=0.14,
+        noise_scale=52.0,
+        zona_tag="steel",
+    )
+    mat_bronze = _criar_material_pbr_zona(
+        "Shield_BronzeTrim",
+        (0.76, 0.56, 0.24, 1.0),
+        metallic=0.90,
+        roughness=0.25,
+        textura_arquivo="bronze_filigree_albedo.png",
+        accent_color=(0.52, 0.36, 0.14, 1.0),
+        bump_strength=0.16,
+        noise_scale=64.0,
+        zona_tag="bronze",
+    )
+    mat_couro = _criar_material_pbr_zona(
+        "Shield_LeatherGrip",
+        (0.24, 0.13, 0.07, 1.0),
+        metallic=0.02,
+        roughness=0.70,
+        textura_arquivo="leather_saddle_albedo.png",
+        accent_color=(0.14, 0.07, 0.04, 1.0),
+        bump_strength=0.18,
+        noise_scale=44.0,
+        zona_tag="leather",
+    )
+
     bm = bmesh.new()
-    # Perfil de escudo heater estanque com espessura ao longo de Y
-    largura = 0.28
-    altura = 0.68
-    espessura = 0.045
-    contorno = [
-        (-largura * 0.92, altura * 0.50),
-        (largura * 0.92, altura * 0.50),
-        (largura * 0.96, altura * 0.14),
-        (largura * 0.65, -altura * 0.22),
-        (0.0, -altura * 0.50),
-        (-largura * 0.65, -altura * 0.22),
-        (-largura * 0.96, altura * 0.14),
-    ]
-    y_frente = espessura * 0.5
-    y_tras = -espessura * 0.5
-    curvatura = 0.035
+    meia_larg = 0.28
+    z_topo = 0.36
+    z_base = -0.40
+    esp = 0.026
 
-    frente_v = []
-    tras_v = []
-    for x, z in contorno:
-        curv = curvatura * (1.0 - (x / largura) ** 2)
-        frente_v.append(bm.verts.new((x, y_frente + curv, z)))
-        tras_v.append(bm.verts.new((x, y_tras + curv, z)))
+    def _curv_y(x_val: float, z_val: float) -> float:
+        nx = min(1.15, abs(x_val) / meia_larg)
+        nz = (z_val - 0.02) / 0.40
+        return 0.062 * (1.0 - 0.82 * nx * nx) - 0.010 * nz * nz
 
-    centro_f = bm.verts.new((0.0, y_frente + curvatura + 0.015, 0.04))
-    centro_t = bm.verts.new((0.0, y_tras + curvatura - 0.005, 0.04))
+    # Contorno heater suavizado (24 pontos bem espacados, sentido horario visto de +Y)
+    contorno_xz: list[tuple[float, float]] = []
+    # Borda superior levemente arqueada (-X -> +X)
+    for k in range(6):
+        u = -0.86 + (1.72 * k) / 5.0
+        contorno_xz.append((meia_larg * u, z_topo + 0.018 * (1.0 - u * u)))
+    # Flanco direito ogival (+X -> ponta inferior)
+    for k in range(1, 9):
+        s = k / 9.0
+        larg_f = math.pow(max(0.0, math.cos(s * math.pi * 0.48)), 0.72)
+        z_v = z_topo * 0.92 - (z_topo * 0.92 - z_base) * s
+        contorno_xz.append((meia_larg * larg_f, z_v))
+    # Ponta inferior arredondada
+    contorno_xz.append((0.0, z_base))
+    # Flanco esquerdo simetrico (ponta inferior -> -X)
+    for k in range(8, 0, -1):
+        s = k / 9.0
+        larg_f = math.pow(max(0.0, math.cos(s * math.pi * 0.48)), 0.72)
+        z_v = z_topo * 0.92 - (z_topo * 0.92 - z_base) * s
+        contorno_xz.append((-meia_larg * larg_f, z_v))
 
-    n = len(contorno)
-    for i in range(n):
-        j = (i + 1) % n
-        bm.faces.new((centro_f, frente_v[j], frente_v[i]))
-        bm.faces.new((centro_t, tras_v[i], tras_v[j]))
-        bm.faces.new((frente_v[i], frente_v[j], tras_v[j], tras_v[i]))
+    z_centro = 0.02
+    aneis_corpo: list[list[tuple[float, float, float]]] = []
+    # Casca traseira (-Y) -> borda -> face frontal convexa (+Y)
+    for escala_r, offset_y in (
+        (0.42, -esp * 0.50),
+        (0.84, -esp * 0.50),
+        (0.99, -esp * 0.32),
+        (1.00, esp * 0.32),
+        (0.86, esp * 0.50),
+        (0.42, esp * 0.54),
+    ):
+        anel_c: list[tuple[float, float, float]] = []
+        for cx, cz in contorno_xz:
+            px = cx * escala_r
+            pz = z_centro + (cz - z_centro) * escala_r
+            py = _curv_y(px, pz) + offset_y
+            anel_c.append((px, py, pz))
+        aneis_corpo.append(anel_c)
 
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
+    _adicionar_loft_fechado_bm(
+        bm,
+        aneis_corpo,
+        mat_idx=0,
+        ponto_base=(0.0, _curv_y(0.0, z_centro) - esp * 0.50, z_centro),
+        ponto_topo=(0.0, _curv_y(0.0, z_centro) + esp * 0.58, z_centro),
+    )
 
-    me = bpy.data.meshes.new(nome)
-    bm.to_mesh(me)
-    bm.free()
+    # Moldura perimetral fechada em bronze (toro deformado 2-manifold ao redor da borda)
+    pts_borda = [Vector((cx, _curv_y(cx, cz), cz)) for cx, cz in contorno_xz]
+    n_borda = len(pts_borda)
+    segs_rim = 6
+    r_rim_rad = 0.016
+    r_rim_esp = 0.019
+    aneis_rim: list[list[bmesh.types.BMVert]] = []
+    for i in range(n_borda):
+        p_prev = pts_borda[(i - 1) % n_borda]
+        p_curr = pts_borda[i]
+        p_next = pts_borda[(i + 1) % n_borda]
+        tang = (p_next - p_prev).normalized()
+        n_frente = Vector((0.0, 1.0, 0.0))
+        rad_out = tang.cross(n_frente)
+        if rad_out.length < 1e-6:
+            rad_out = Vector((1.0, 0.0, 0.0))
+        else:
+            rad_out.normalize()
+        # Garante que rad_out aponte para fora do centro do escudo no plano XZ
+        dir_centro = Vector((p_curr.x, 0.0, p_curr.z - z_centro))
+        if rad_out.dot(dir_centro) < 0.0:
+            rad_out = -rad_out
+        eixo_esp = rad_out.cross(tang).normalized()
+        anel_v: list[bmesh.types.BMVert] = []
+        for k in range(segs_rim):
+            ang = (2.0 * math.pi * k) / float(segs_rim)
+            pt = p_curr + rad_out * (r_rim_rad * math.cos(ang)) + eixo_esp * (r_rim_esp * math.sin(ang))
+            anel_v.append(bm.verts.new((pt.x, pt.y, pt.z)))
+        aneis_rim.append(anel_v)
 
-    obj = bpy.data.objects.new(nome, me)
-    bpy.context.collection.objects.link(obj)
-    _garantir_uv(obj)
-    return obj
+    for i in range(n_borda):
+        a0 = aneis_rim[i]
+        a1 = aneis_rim[(i + 1) % n_borda]
+        for k in range(segs_rim):
+            k2 = (k + 1) % segs_rim
+            f_rim = bm.faces.new((a0[k], a1[k], a1[k2], a0[k2]))
+            f_rim.material_index = 1
+
+    # Umbo central (boss de bronze abaulado) + nervura heráldica vertical na face frontal (+Y)
+    z_boss = 0.055
+    y_boss_base = _curv_y(0.0, z_boss) + esp * 0.44
+    aneis_boss: list[list[tuple[float, float, float]]] = []
+    for r_b, dy_b in ((0.082, -0.004), (0.086, 0.008), (0.058, 0.022), (0.032, 0.040)):
+        anel_b: list[tuple[float, float, float]] = []
+        for k in range(16):
+            ang = (2.0 * math.pi * k) / 16.0
+            anel_b.append((r_b * math.cos(ang), y_boss_base + dy_b, z_boss + r_b * math.sin(ang)))
+        aneis_boss.append(anel_b)
+    _adicionar_loft_fechado_bm(
+        bm,
+        aneis_boss,
+        mat_idx=1,
+        ponto_base=(0.0, y_boss_base - 0.006, z_boss),
+        ponto_topo=(0.0, y_boss_base + 0.048, z_boss),
+    )
+
+    # Nervura vertical de filigrana de bronze
+    _adicionar_gema_octaedrica_bm(
+        bm,
+        (0.0, _curv_y(0.0, 0.02) + esp * 0.54, 0.01),
+        (0.020, 0.010, 0.24),
+        mat_idx=1,
+    )
+
+    # Alcas traseiras de couro (enarmes) e almofada de antebraco em -Y
+    faces_pre_pad = set(bm.faces)
+    verts_pad = _adicionar_caixa_chanfrada(
+        bm,
+        (0.0, _curv_y(0.0, 0.04) - esp * 0.58, 0.04),
+        (0.17, 0.016, 0.18),
+        subdiv=1,
+    )
+    for vp in verts_pad:
+        vp.co.y += _curv_y(vp.co.x, vp.co.z) - _curv_y(0.0, 0.04)
+    _atribuir_mat_novas_faces(bm, faces_pre_pad, 2)
+
+    for sx_alca in (-0.068, 0.068):
+        y_anc = _curv_y(sx_alca, 0.04) - esp * 0.48
+        pts_alca: list[tuple[float, float, float]] = []
+        for k in range(7):
+            t_a = k / 6.0
+            ang_a = math.pi * t_a
+            z_a = 0.04 + 0.075 * math.cos(ang_a)
+            y_a = y_anc - 0.052 * math.sin(ang_a)
+            pts_alca.append((sx_alca, y_a, z_a))
+        _adicionar_tubo_curva_bm(bm, pts_alca, 0.013, 0.005, segs=6, mat_idx=2)
+
+    return _bmesh_criar_objeto_multimat(
+        nome,
+        bm,
+        [mat_aco, mat_bronze, mat_couro],
+        angulo_suave=44.0,
+    )
 
 
 def _adicionar_caixa_chanfrada(
@@ -1375,6 +1515,19 @@ def _criar_capa_procedural(nome: str = "CapaSimuladaModular") -> "bpy.types.Obje
 
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bmesh.ops.triangulate(bm, faces=bm.faces)
+    uv_layer = bm.loops.layers.uv.verify()
+    for f in bm.faces:
+        if f.material_index == 1:
+            n_f = f.normal
+            eixo_ref = Vector((0.0, 0.0, 1.0)) if abs(n_f.z) < 0.85 else Vector((1.0, 0.0, 0.0))
+            t1 = n_f.cross(eixo_ref).normalized()
+            t2 = n_f.cross(t1).normalized()
+            c_f = f.calc_center_median()
+            for lp in f.loops:
+                dv = lp.vert.co - c_f
+                u_val = max(0.05, min(0.95, 0.5 + dv.dot(t1) * 18.0))
+                v_val = max(0.05, min(0.95, 0.5 + dv.dot(t2) * 18.0))
+                lp[uv_layer].uv = (u_val, v_val)
     bm.to_mesh(capa.data)
     bm.free()
     _garantir_uv(capa)
@@ -1634,30 +1787,96 @@ def _criar_espada_arcana_procedural(nome: str = "EspadaArcanaModular") -> "bpy.t
 
 
 def _criar_sela_montaria_procedural(nome: str = "SelaMontariaModular") -> "bpy.types.Object":
-    """Cria sela anatomica de montaria com pomo frontal (+Y), encosto traseiro (-Y) e abas laterais."""
-    bm = bmesh.new()
-    # Assento principal curvado sobre o dorso
-    verts_base = _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.06), (0.42, 0.48, 0.09), subdiv=2)
-    for v in verts_base:
-        v.co.z -= 0.18 * (v.co.x ** 2) + 0.08 * (v.co.y ** 2)
-    # Pomo frontal (+Y_bl) e cantle traseiro (-Y_bl)
-    _adicionar_caixa_chanfrada(bm, (0.0, 0.20, 0.14), (0.18, 0.09, 0.12), subdiv=1)
-    _adicionar_caixa_chanfrada(bm, (0.0, -0.20, 0.15), (0.30, 0.10, 0.13), subdiv=1)
-    # Abas laterais de couro e estribos (±X_bl)
-    _adicionar_caixa_chanfrada(bm, (-0.21, 0.0, -0.05), (0.05, 0.34, 0.22), subdiv=1)
-    _adicionar_caixa_chanfrada(bm, (0.21, 0.0, -0.05), (0.05, 0.34, 0.22), subdiv=1)
+    """Cria sela anatomica multi-zona em couro trabalhado, assento acolchoado e estribos de bronze."""
+    mat_couro = _criar_material_pbr_zona(
+        "Saddle_TooledLeather",
+        (0.26, 0.14, 0.07, 1.0),
+        metallic=0.02,
+        roughness=0.66,
+        textura_arquivo="leather_saddle_albedo.png",
+        accent_color=(0.15, 0.08, 0.04, 1.0),
+        bump_strength=0.18,
+        noise_scale=44.0,
+        zona_tag="leather",
+    )
+    mat_assento = _criar_material_pbr_zona(
+        "Saddle_PaddedSeat",
+        (0.36, 0.22, 0.13, 1.0),
+        metallic=0.0,
+        roughness=0.80,
+        textura_arquivo="linen_tunic_albedo.png",
+        accent_color=(0.24, 0.14, 0.08, 1.0),
+        bump_strength=0.14,
+        noise_scale=52.0,
+        zona_tag="linen",
+    )
+    mat_bronze = _criar_material_pbr_zona(
+        "Saddle_BrassTrim",
+        (0.76, 0.56, 0.24, 1.0),
+        metallic=0.90,
+        roughness=0.26,
+        textura_arquivo="bronze_filigree_albedo.png",
+        accent_color=(0.50, 0.36, 0.14, 1.0),
+        bump_strength=0.14,
+        noise_scale=60.0,
+        zona_tag="bronze",
+    )
 
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
-    me = bpy.data.meshes.new(nome)
-    bm.to_mesh(me)
-    bm.free()
-    for p in me.polygons:
-        p.use_smooth = True
-    obj = bpy.data.objects.new(nome, me)
-    bpy.context.collection.objects.link(obj)
-    _garantir_uv(obj)
-    return obj
+    bm = bmesh.new()
+    # Arvore principal da sela em arco invertido U abracando o dorso cilindrico da montaria
+    f_pre = set(bm.faces)
+    verts_base = _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.06), (0.44, 0.48, 0.055), subdiv=3)
+    for v in verts_base:
+        v.co.z -= 1.05 * (v.co.x ** 2) - 0.22 * (v.co.y ** 2)
+    _atribuir_mat_novas_faces(bm, f_pre, 0)
+
+    # Almofada central acolchoada do assento
+    f_pre = set(bm.faces)
+    verts_pad = _adicionar_caixa_chanfrada(bm, (0.0, -0.01, 0.088), (0.30, 0.30, 0.036), subdiv=2)
+    for v in verts_pad:
+        v.co.z -= 0.65 * (v.co.x ** 2) - 0.28 * (v.co.y ** 2)
+    _atribuir_mat_novas_faces(bm, f_pre, 1)
+
+    # Pomo frontal arqueado (+Y_bl) e cantle traseiro curvo (-Y_bl) + frisos de bronze
+    f_pre = set(bm.faces)
+    v_pom = _adicionar_caixa_chanfrada(bm, (0.0, 0.19, 0.125), (0.18, 0.075, 0.095), subdiv=2)
+    for v in v_pom:
+        v.co.z -= 1.2 * (v.co.x ** 2)
+    v_can = _adicionar_caixa_chanfrada(bm, (0.0, -0.19, 0.135), (0.28, 0.085, 0.105), subdiv=2)
+    for v in v_can:
+        v.co.z -= 0.85 * (v.co.x ** 2)
+        v.co.y -= 0.20 * (v.co.x ** 2)
+    _atribuir_mat_novas_faces(bm, f_pre, 0)
+
+    _adicionar_gema_octaedrica_bm(bm, (0.0, 0.225, 0.145), (0.042, 0.016, 0.032), mat_idx=2)
+    _adicionar_gema_octaedrica_bm(bm, (0.0, -0.232, 0.162), (0.085, 0.016, 0.026), mat_idx=2)
+
+    # Abas laterais curvas (flaps) + loros e estribos de bronze (±X_bl)
+    for sx in (-1.0, 1.0):
+        f_pre = set(bm.faces)
+        v_flap = _adicionar_caixa_chanfrada(bm, (sx * 0.215, 0.0, -0.055), (0.028, 0.32, 0.19), subdiv=2)
+        for v in v_flap:
+            dz = v.co.z - 0.04
+            v.co.x += sx * (-0.08 * dz)
+        _atribuir_mat_novas_faces(bm, f_pre, 0)
+
+        pts_loro = [
+            (sx * 0.195, 0.03, 0.02),
+            (sx * 0.228, 0.03, -0.07),
+            (sx * 0.242, 0.03, -0.16),
+        ]
+        _adicionar_tubo_curva_bm(bm, pts_loro, 0.012, 0.004, segs=6, mat_idx=0)
+        tm_estribo = Matrix.Translation((sx * 0.244, 0.03, -0.185)) @ Matrix.Rotation(math.pi * 0.5, 4, "Y")
+        _adicionar_toro_bm(
+            bm, 0.034, 0.006, segs_major=14, segs_minor=6, rx=0.85, ry=1.05, mat_idx=2, transform=tm_estribo
+        )
+
+    return _bmesh_criar_objeto_multimat(
+        nome,
+        bm,
+        [mat_couro, mat_assento, mat_bronze],
+        angulo_suave=46.0,
+    )
 
 
 def _limpar_malha_manifold(obj) -> None:

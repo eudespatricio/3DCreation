@@ -1469,6 +1469,7 @@ def _construir_sobreposicoes_medievais_3d(
     mat_idx_tunic: int,
     mat_idx_leather: int,
     mat_idx_metal: int,
+    rig=None,
 ):
     """Cria camadas 3D contornadas (tunica/jerkin, cinto com fivela de latao, braceletes e botas)."""
     pts = [v.co.copy() for v in body_obj.data.vertices]
@@ -1485,21 +1486,21 @@ def _construir_sobreposicoes_medievais_3d(
             return 0.0, 0.0, padrao_rx, padrao_ry
         cx = 0.0
         cy = 0.5 * (min(p.y for p in fatia) + max(p.y for p in fatia))
-        rx = max(padrao_rx * 0.75, max(abs(p.x - cx) for p in fatia))
-        ry = max(padrao_ry * 0.75, max(abs(p.y - cy) for p in fatia))
+        rx = min(padrao_rx * 1.12, max(padrao_rx * 0.75, max(abs(p.x - cx) for p in fatia)))
+        ry = min(padrao_ry * 1.18, max(padrao_ry * 0.75, max(abs(p.y - cy) for p in fatia)))
         return cx, cy, rx, ry
 
-    # 1. Tunica / Jerkin medieval contornado sobre o tronco (espessura 5.5 mm, separacao >= 7 mm)
-    z_fracs_tunica = (0.47, 0.52, 0.58, 0.65, 0.72)
+    # 1. Tunica / Jerkin medieval contornado abaixo da axila (evita capturar bracos em A-pose)
+    z_fracs_tunica = (0.46, 0.51, 0.56, 0.62, 0.67)
     n_seg_t = 16
     tun_in: list[list[Vector]] = []
     tun_out: list[list[Vector]] = []
     for zf in z_fracs_tunica:
         zc = z_min + zf * h
         cx, cy, rx, ry = _raios_elipticos_fatia(
-            zc - 0.025 * h, zc + 0.025 * h, 0.145 * h, 0.105 * h, 0.075 * h
+            zc - 0.022 * h, zc + 0.022 * h, 0.098 * h, 0.096 * h, 0.072 * h
         )
-        flare = 0.010 if zf <= 0.50 else 0.007
+        flare = 0.010 if zf <= 0.50 else 0.0065
         thick = 0.0055
         ring_i = []
         ring_o = []
@@ -1518,7 +1519,7 @@ def _construir_sobreposicoes_medievais_3d(
     z_belt_lo = z_min + 0.525 * h
     z_belt_hi = z_min + 0.562 * h
     cx_b, cy_b, rx_b, ry_b = _raios_elipticos_fatia(
-        z_belt_lo, z_belt_hi, 0.145 * h, 0.105 * h, 0.075 * h
+        z_belt_lo, z_belt_hi, 0.098 * h, 0.096 * h, 0.072 * h
     )
     belt_in: list[list[Vector]] = []
     belt_out: list[list[Vector]] = []
@@ -1556,21 +1557,33 @@ def _construir_sobreposicoes_medievais_3d(
         ])
     _adicionar_tubo_contornado_manifold(bm, uv_layer, f_in, f_out, mat_idx_metal)
 
-    # 4. Braceletes de couro nos antebracos (esquerdo e direito)
+    # 4. Braceletes de couro nos antebracos (ancorados exatamente em lowerarm_l/lowerarm_r quando rig presente)
     n_seg_b = 10
-    for sinal_x in (-1.0, 1.0):
-        faixa_arm = [
-            p
-            for p in pts
-            if p.x * sinal_x >= 0.17 * h and z_min + 0.55 * h <= p.z <= z_min + 0.72 * h
-        ]
-        if len(faixa_arm) >= 12:
-            faixa_arm.sort(key=lambda p: p.x * sinal_x)
-            p_elb = faixa_arm[int(0.28 * len(faixa_arm))]
-            p_wri = faixa_arm[int(0.78 * len(faixa_arm))]
+    for lado_b, sinal_x in (("r", -1.0), ("l", 1.0)):
+        p_elb = None
+        p_wri = None
+        if rig is not None:
+            for cand_b in (f"lowerarm_{lado_b}", f"LowerArm.{lado_b.upper()}"):
+                if cand_b in rig.pose.bones:
+                    pb_la = rig.pose.bones[cand_b]
+                    p_elb = rig.matrix_world @ pb_la.head
+                    p_wri = rig.matrix_world @ pb_la.tail
+                    break
+        if p_elb is None or p_wri is None:
+            faixa_fb = [
+                p
+                for p in pts
+                if 0.16 * h <= p.x * sinal_x <= 0.27 * h and z_min + 0.60 * h <= p.z <= z_min + 0.74 * h
+            ]
+            if len(faixa_fb) >= 10:
+                faixa_fb.sort(key=lambda p: p.x * sinal_x)
+                p_elb = faixa_fb[int(0.20 * len(faixa_fb))]
+                p_wri = faixa_fb[int(0.82 * len(faixa_fb))]
+        if p_elb is not None and p_wri is not None:
             eixo_a = p_wri - p_elb
-            if eixo_a.length > 0.04:
-                u_dir = eixo_a.normalized()
+            len_a = eixo_a.length
+            if len_a > 0.04:
+                u_dir = eixo_a / len_a
                 v_dir = u_dir.cross(Vector((0.0, 1.0, 0.0)))
                 if v_dir.length < 1e-4:
                     v_dir = u_dir.cross(Vector((0.0, 0.0, 1.0)))
@@ -1578,21 +1591,29 @@ def _construir_sobreposicoes_medievais_3d(
                 w_dir = u_dir.cross(v_dir).normalized()
                 br_in: list[list[Vector]] = []
                 br_out: list[list[Vector]] = []
-                for t_frac, r_base in ((0.22, 0.043), (0.55, 0.039), (0.88, 0.036)):
+                for t_frac, r_base in ((0.30, 0.040), (0.54, 0.036), (0.76, 0.033)):
                     centro_a = p_elb.lerp(p_wri, t_frac)
-                    perto = [p for p in faixa_arm if (p - centro_a).length <= 0.065]
-                    if perto:
+                    perto = [
+                        p
+                        for p in pts
+                        if abs((p - centro_a).dot(u_dir)) <= 0.022
+                        and math.hypot((p - centro_a).dot(v_dir), (p - centro_a).dot(w_dir)) <= 0.056
+                    ]
+                    if len(perto) >= 4:
                         centro_a = sum(perto, Vector((0.0, 0.0, 0.0))) / float(len(perto))
-                        r_med = max(
-                            0.028,
+                        r_med = min(
+                            0.046,
                             max(
-                                math.hypot((p - centro_a).dot(v_dir), (p - centro_a).dot(w_dir))
-                                for p in perto
+                                0.026,
+                                max(
+                                    math.hypot((p - centro_a).dot(v_dir), (p - centro_a).dot(w_dir))
+                                    for p in perto
+                                ),
                             ),
                         )
                     else:
                         r_med = r_base
-                    r_i = r_med + 0.0045
+                    r_i = r_med + 0.0040
                     r_o = r_i + 0.0045
                     ri_ring = []
                     ro_ring = []
@@ -2072,7 +2093,7 @@ def vestir_e_texturizar_camadas_cc0(
             tris_extras += topo_sh["triangulos"]
             nomes_camadas.append("clothes/shoes")
 
-        ov_obj = _construir_sobreposicoes_medievais_3d(obj, 0, 1, 2)
+        ov_obj = _construir_sobreposicoes_medievais_3d(obj, 0, 1, 2, rig=rig)
         mats_poly = [int(p.material_index) for p in ov_obj.data.polygons]
         ov_obj.data.materials.clear()
         ov_obj.data.materials.append(mat_tunic)

@@ -204,6 +204,48 @@ def test_capa_cloth_simulacao_dobras_manifold_e_fechos(tmp_path: Path) -> None:
 
     mats = gltf.get("materials", [])
     assert len(mats) >= 2
+    raw_b = glb.read_bytes()
+    jlen_b = struct.unpack_from("<I", raw_b, 12)[0]
+    blen_b = struct.unpack_from("<I", raw_b, 20 + jlen_b)[0]
+    res_uv = qc._uv_status(gltf, raw_b[28 + jlen_b : 28 + jlen_b + blen_b])
+    assert res_uv["uv_colapsada"] == 0
+
+
+@pytest.mark.blender
+def test_escudo_heater_curvado_manifold_multimaterial_e_lod_multicamada(tmp_path: Path) -> None:
+    rel = _gerar_prop_headless("escudo", tmp_path / "escudo")
+    glb = tmp_path / "escudo" / "template_armor.glb"
+    gltf, topo, _ = _ler_glb_topo_e_verts(glb)
+
+    assert topo["nao_manifold"] == 0
+    assert topo["degeneradas"] == 0
+    assert topo["invertidas"] == 0
+    assert 600 <= rel["triangulos"] <= 1600
+    assert len(gltf.get("materials", [])) == 3
+
+    codigo_lod = f"""
+import sys
+sys.path.insert(0, {str(BLENDER_DIR)!r})
+import bpy, bmesh, postprocess
+
+postprocess.limpar_cena()
+bm = bmesh.new()
+for i in range(10):
+    ret = bmesh.ops.create_icosphere(bm, subdivisions=1, radius=0.05)
+    for v in ret["verts"]:
+        v.co.x += i * 0.15
+me = bpy.data.meshes.new("MultiIslandOrganic")
+bm.to_mesh(me)
+bm.free()
+obj = bpy.data.objects.new("MultiIslandOrganic", me)
+bpy.context.collection.objects.link(obj)
+info = postprocess.aplicar_lod(obj, 50.0, blocky=False)
+assert info["modo"] == "decimate"
+assert info["ilhas"] == 10
+print("LOD_MULTICAMADA_OK")
+"""
+    proc = _rodar_blender_py(codigo_lod)
+    assert proc.returncode == 0 and "LOD_MULTICAMADA_OK" in proc.stdout, proc.stdout + proc.stderr
 
 
 @pytest.mark.blender

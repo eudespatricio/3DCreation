@@ -17,12 +17,41 @@ from mathutils import Matrix, Quaternion, Vector
 
 __all__ = [
     "auto_rigar_humanoide",
+    "auto_rigar_por_tipo",
+    "extrair_sockets",
     "aplicar_animacoes_multi",
     "estimar_marcos",
 ]
 
-ESQUELETOS_SUPORTADOS = ("godot-humanoid@1", "r15@1")
+ESQUELETOS_SUPORTADOS = ("godot-humanoid@1", "r15@1", "quadruped@1", "winged_mount@1")
+_ESQUELETOS_HUMANOS = ("godot-humanoid@1", "r15@1")
+_ESQUELETOS_CRIATURA = ("quadruped@1", "winged_mount@1")
 _RAIZES = {"Root", "HumanoidRootPart"}
+_OSSOS_ASA = {
+    "WingShoulder.L",
+    "WingArm.L",
+    "WingForearm.L",
+    "WingTip.L",
+    "WingShoulder.R",
+    "WingArm.R",
+    "WingForearm.R",
+    "WingTip.R",
+}
+_OSSOS_PATA = {
+    "FrontUpperLeg.L",
+    "FrontLowerLeg.L",
+    "FrontFoot.L",
+    "FrontUpperLeg.R",
+    "FrontLowerLeg.R",
+    "FrontFoot.R",
+    "BackUpperLeg.L",
+    "BackLowerLeg.L",
+    "BackFoot.L",
+    "BackUpperLeg.R",
+    "BackLowerLeg.R",
+    "BackFoot.R",
+}
+_OSSOS_CAUDA = {"Tail1", "Tail2", "Tail3"}
 _OSSOS_PERNA = {
     "UpperLeg.L",
     "LowerLeg.L",
@@ -98,6 +127,7 @@ def _garantir_modificador_armature(obj, rig_obj) -> None:
     mod = obj.modifiers.new("armature", "ARMATURE")
     mod.object = rig_obj
     mod.use_vertex_groups = True
+    mod.use_deform_preserve_volume = True
 
 
 def _clamped(valor: float, minimo: float, maximo: float) -> float:
@@ -534,35 +564,61 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
 
 
 def _alinhar_roll_ossos(rig_obj) -> None:
-    """Alinha o eixo local dos membros pelo plano de flexao (cotovelo) ou frente (+Y)."""
+    """Alinha o eixo local dos membros pelo plano de flexao (cotovelo/asa) com simetria L/R."""
     _selecionar_unico(rig_obj)
     bpy.ops.object.mode_set(mode="EDIT")
     frente = Vector((0.0, 1.0, 0.0))
     cima = Vector((0.0, 0.0, 1.0))
     edit_bones = rig_obj.data.edit_bones
     alvos_braco: dict[str, Vector] = {}
-    for par in (
-        ("UpperArm.L", "LowerArm.L"),
-        ("UpperArm.R", "LowerArm.R"),
-        ("LeftUpperArm", "LeftLowerArm"),
-        ("RightUpperArm", "RightLowerArm"),
-    ):
-        sup, inf = edit_bones.get(par[0]), edit_bones.get(par[1])
-        if sup is None or inf is None:
-            continue
-        plano_n = sup.y_axis.cross(inf.y_axis)
-        if plano_n.length > 0.08:
-            n = plano_n.normalized()
-            if n.x > 0.5:
-                for eb_arm in (sup, inf):
-                    alvo = n.cross(eb_arm.y_axis)
+    planos_lado: dict[str, Vector] = {}
+    pares_flexao = (
+        ("UpperArm.L", "LowerArm.L", "UpperArm.R", "LowerArm.R"),
+        ("LeftUpperArm", "LeftLowerArm", "RightUpperArm", "RightLowerArm"),
+        ("WingArm.L", "WingForearm.L", "WingArm.R", "WingForearm.R"),
+    )
+    for par_l0, par_l1, par_r0, par_r1 in pares_flexao:
+        for sup_n, inf_n in ((par_l0, par_l1), (par_r0, par_r1)):
+            sup, inf = edit_bones.get(sup_n), edit_bones.get(inf_n)
+            if sup is None or inf is None:
+                continue
+            plano_n = sup.y_axis.cross(inf.y_axis)
+            if plano_n.length > 0.08:
+                n = plano_n.normalized()
+                if abs(n.x) > 0.5:
+                    # Canoniza sinal lateral (+X) para simetria L/R e sem torcao de 180 deg
+                    n_canon = n if n.x > 0.0 else -n
+                    planos_lado[sup_n] = n_canon
+                    for eb_arm in (sup, inf):
+                        alvo = n_canon.cross(eb_arm.y_axis)
+                        if alvo.length > 1e-4:
+                            alvos_braco[eb_arm.name] = alvo.normalized()
+        # Espelha plano do lado dobrado se o lado oposto estiver quase reto
+        for sup_n, inf_n, op_sup_n in (
+            (par_l0, par_l1, par_r0),
+            (par_r0, par_r1, par_l0),
+        ):
+            if sup_n not in planos_lado and op_sup_n in planos_lado:
+                n_ref = planos_lado[op_sup_n]
+                n_esp = Vector((n_ref.x, -n_ref.y, -n_ref.z))
+                sup_op, inf_op = edit_bones.get(sup_n), edit_bones.get(inf_n)
+                for eb_arm in (sup_op, inf_op):
+                    if eb_arm is None:
+                        continue
+                    alvo = n_esp.cross(eb_arm.y_axis)
                     if alvo.length > 1e-4:
                         alvos_braco[eb_arm.name] = alvo.normalized()
+
+    ossos_eixo_criatura = _OSSOS_ASA | _OSSOS_PATA | _OSSOS_CAUDA
+    e_rig_criatura = any(eb.name in ossos_eixo_criatura or eb.name == "MountSeat" for eb in edit_bones)
     for eb in edit_bones:
         if eb.name in alvos_braco:
             eb.align_roll(alvos_braco[eb.name])
-        elif eb.name in _OSSOS_BRACO or eb.name in _OSSOS_PERNA:
-            alvo = cima if abs(eb.y_axis.y) > 0.92 else frente
+        elif eb.name in _OSSOS_BRACO or eb.name in _OSSOS_PERNA or eb.name in ossos_eixo_criatura:
+            alvo = cima if abs(eb.y_axis.y) > 0.85 else frente
+            eb.align_roll(alvo)
+        elif e_rig_criatura and eb.name in ("Spine", "Chest", "Neck", "Head", "Jaw"):
+            alvo = cima if abs(eb.y_axis.y) > 0.65 else Vector((0.0, -1.0, 0.0))
             eb.align_roll(alvo)
     bpy.ops.object.mode_set(mode="OBJECT")
     rig_obj.select_set(False)
@@ -1492,6 +1548,23 @@ def _atribuir_pesos_inverso(
                 if filtrados:
                     pesos_por_vertice[vi] = _normalizar_top4([(w, n) for n, w in filtrados])
 
+    def _perm_humano(nome_osso: str, vi_idx: int) -> bool:
+        return _osso_permitido(nome_osso, coords[vi_idx], m, bracos_baixos, tem_neck=tem_neck, lim=lim_anat)
+
+    _suavizar_aneis_juntas(
+        adj,
+        pesos_por_vertice,
+        ossos,
+        permitido_fn=_perm_humano,
+        passos=2,
+        alpha=0.32,
+        pares_bloqueados={
+            frozenset(("Chest", "Head")),
+            frozenset(("UpperTorso", "Head")),
+            frozenset(("Chest", "Neck")),
+        },
+    )
+
     cabelo_slots = {
         idx
         for idx, mat in enumerate(obj.data.materials)
@@ -1553,9 +1626,533 @@ def _normalizar_grupos_e_mapear(obj) -> dict[str, list[int]]:
     return {k: sorted(v) for k, v in mapa.items() if v}
 
 
+def _suavizar_aneis_juntas(
+    adj: list[list[tuple[int, float]]],
+    pesos_por_vertice: dict[int, list[tuple[str, float]]],
+    ossos: list[dict],
+    permitido_fn=None,
+    passos: int = 2,
+    alpha: float = 0.32,
+    pares_bloqueados: set[frozenset[str]] | None = None,
+) -> None:
+    """Suaviza pesos apenas nos aneis de fronteira entre ossos pai-filho adjacentes."""
+    if not pesos_por_vertice:
+        return
+    pai_map = {o["nome"]: o["pai"] for o in ossos if o.get("pai")}
+    bloqueados = pares_bloqueados or set()
+
+    def _junta_valida(a: str, b: str) -> bool:
+        if a == b:
+            return True
+        if frozenset((a, b)) in bloqueados:
+            return False
+        return pai_map.get(a) == b or pai_map.get(b) == a
+
+    dom = {vi: ws[0][0] for vi, ws in pesos_por_vertice.items() if ws}
+    fronteira: set[int] = set()
+    for vi, d_i in dom.items():
+        for vj, _c in adj[vi]:
+            d_j = dom.get(vj)
+            if d_j and d_j != d_i and _junta_valida(d_i, d_j):
+                fronteira.add(vi)
+                break
+    if not fronteira:
+        return
+
+    anel: set[int] = set(fronteira)
+    for vi in fronteira:
+        d_i = dom.get(vi)
+        if not d_i:
+            continue
+        for vj, _c in adj[vi]:
+            d_j = dom.get(vj)
+            if d_j and _junta_valida(d_i, d_j):
+                anel.add(vj)
+
+    for _ in range(passos):
+        novos: dict[int, list[tuple[str, float]]] = {}
+        for vi in anel:
+            ws_i = pesos_por_vertice.get(vi)
+            if not ws_i:
+                continue
+            d_i = ws_i[0][0]
+            viz_list = adj[vi]
+            if not viz_list:
+                continue
+            acum: dict[str, float] = {n: w * (1.0 - alpha) for n, w in ws_i}
+            fator = alpha / float(len(viz_list))
+            for vj, _c in viz_list:
+                for n, w in pesos_por_vertice.get(vj, ()):
+                    if not _junta_valida(d_i, n):
+                        continue
+                    if permitido_fn is not None and not permitido_fn(n, vi):
+                        continue
+                    acum[n] = acum.get(n, 0.0) + w * fator
+            novos[vi] = _normalizar_top4([(w, n) for n, w in acum.items() if w > 1e-6])
+        for vi, ws_novo in novos.items():
+            if ws_novo:
+                pesos_por_vertice[vi] = ws_novo
+
+
+_MAT_BL_PARA_GLTF_LINHAS = ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, -1.0, 0.0))
+
+_SOCKETS_MAPA: dict[str, tuple[str, ...]] = {
+    "Hand.R": ("Hand.R", "RightHand"),
+    "Hand.L": ("Hand.L", "LeftHand"),
+    "Back": ("Chest", "UpperTorso"),
+    "Head": ("Head",),
+    "Shoulder.L": ("Shoulder.L", "LeftUpperArm"),
+    "Shoulder.R": ("Shoulder.R", "RightUpperArm"),
+    "MountSeat": ("MountSeat",),
+}
+
+_SOCKETS_ALIASES_PARTE: dict[str, str] = {
+    "arma": "Hand.R",
+    "orbe": "Hand.L",
+    "escudo": "Hand.L",
+    "capa": "Back",
+    "mochila": "Back",
+    "asas": "Back",
+    "elmo": "Head",
+    "ombreiras": "Shoulder.L",
+    "sela": "MountSeat",
+}
+
+
+def extrair_sockets(
+    rig_obj,
+    mesh_obj=None,
+    solicitados: list[str] | tuple[str, ...] | None = None,
+) -> list[dict]:
+    """Extrai sockets locais em coordenadas glTF (+Y Up, -Z Frente, det=+1) para manifest@5."""
+    if rig_obj is None or getattr(rig_obj, "type", None) != "ARMATURE":
+        return []
+    ossos = rig_obj.data.bones
+    e_criatura = any(
+        b.name in _OSSOS_ASA or b.name in _OSSOS_PATA or b.name == "MountSeat" for b in ossos
+    )
+
+    if solicitados:
+        ordem: list[str] = []
+        for s in solicitados:
+            chave = _SOCKETS_ALIASES_PARTE.get(str(s), str(s))
+            if chave in _SOCKETS_MAPA and chave not in ordem:
+                ordem.append(chave)
+    else:
+        ordem = ["Hand.R", "Hand.L", "Back", "Head", "Shoulder.L", "Shoulder.R"]
+        if e_criatura or "MountSeat" in ossos:
+            ordem.append("MountSeat")
+
+    verts_mesh: list[Vector] = []
+    if mesh_obj is not None and getattr(mesh_obj, "type", None) == "MESH":
+        verts_mesh = [v.co.copy() for v in mesh_obj.data.vertices]
+
+    mat_bl_gltf = Matrix(_MAT_BL_PARA_GLTF_LINHAS)
+    saida: list[dict] = []
+    for nome_socket in ordem:
+        candidatos = _SOCKETS_MAPA.get(nome_socket, (nome_socket,))
+        osso = next((ossos[c] for c in candidatos if c in ossos), None)
+        if osso is None:
+            continue
+
+        m_bone_3x3 = osso.matrix_local.to_3x3().normalized()
+        r_gltf = (mat_bl_gltf @ m_bone_3x3).to_quaternion().normalized().to_matrix()
+        r_socket = r_gltf.inverted()
+        quat = r_socket.to_quaternion().normalized()
+        if quat.w < 0.0:
+            quat = -quat
+
+        delta_bl = Vector((0.0, 0.0, 0.0))
+        if nome_socket in ("Hand.R", "Hand.L"):
+            delta_bl = (osso.tail_local - osso.head_local) * 0.35
+        elif nome_socket == "Back":
+            meio_osso = (osso.head_local + osso.tail_local) * 0.5
+            dorsal_y = -0.14
+            if verts_mesh:
+                faixa_z = [
+                    v for v in verts_mesh
+                    if abs(v.z - meio_osso.z) <= max(0.14, osso.length * 0.9) and abs(v.x) <= 0.18
+                ]
+                if faixa_z:
+                    min_y = min(v.y for v in faixa_z)
+                    if e_criatura:
+                        max_z_dorso = max(v.z for v in faixa_z)
+                        delta_bl = Vector((0.0, 0.0, max(0.06, max_z_dorso - meio_osso.z + 0.02)))
+                    else:
+                        dorsal_y = min(-0.08, min_y - meio_osso.y - 0.02)
+                        delta_bl = (osso.tail_local - osso.head_local) * 0.5 + Vector((0.0, dorsal_y, 0.0))
+                else:
+                    delta_bl = (osso.tail_local - osso.head_local) * 0.5 + Vector((0.0, dorsal_y, 0.0))
+            else:
+                delta_bl = (osso.tail_local - osso.head_local) * 0.5 + Vector((0.0, dorsal_y, 0.0))
+
+        pos_local_bl = m_bone_3x3.inverted() @ delta_bl
+        saida.append(
+            {
+                "nome": nome_socket,
+                "osso": osso.name,
+                "posicao_local": [round(float(pos_local_bl.x), 5), round(float(pos_local_bl.y), 5), round(float(pos_local_bl.z), 5)],
+                "rotacao_quat_wxyz": [round(float(quat.w), 6), round(float(quat.x), 6), round(float(quat.y), 6), round(float(quat.z), 6)],
+                "frente_local": [0.0, 0.0, -1.0],
+            }
+        )
+    return saida
+
+
+def _alinhar_orientacao_criatura(obj, com_asas: bool = False) -> None:
+    """Orienta criatura/montaria via PCA XY e assimetria cranio-caudal com focinho em +Y_bl."""
+    _aplicar_identidade(obj)
+    verts = obj.data.vertices
+    if not verts:
+        return
+    pts = [v.co.copy() for v in verts]
+    n = float(len(pts))
+    mx = sum(p.x for p in pts) / n
+    my = sum(p.y for p in pts) / n
+    sxx = sum((p.x - mx) ** 2 for p in pts)
+    syy = sum((p.y - my) ** 2 for p in pts)
+    sxy = sum((p.x - mx) * (p.y - my) for p in pts)
+    theta = 0.5 * math.atan2(2.0 * sxy, sxx - syy)
+    u1 = Vector((math.cos(theta), math.sin(theta)))
+    u2 = Vector((-u1.y, u1.x))
+
+    # Escolhe eixo sagital com maior simetria bilateral no plano XY (crucial em dragoes com asas largas)
+    def _score_sagital(eixo_fwd: Vector, eixo_lat: Vector) -> float:
+        zs_p: list[float] = []
+        zs_n: list[float] = []
+        proj_fwd: list[float] = []
+        for p in pts:
+            dx = p.x - mx
+            dy = p.y - my
+            pf = dx * eixo_fwd.x + dy * eixo_fwd.y
+            pl = dx * eixo_lat.x + dy * eixo_lat.y
+            proj_fwd.append(abs(pf))
+            if pl >= 0.0:
+                zs_p.append(p.z)
+            else:
+                zs_n.append(p.z)
+        if not zs_p or not zs_n:
+            return -1e9
+        bal_cnt = 1.0 - abs(len(zs_p) - len(zs_n)) / n
+        mz_p = sum(zs_p) / len(zs_p)
+        mz_n = sum(zs_n) / len(zs_n)
+        bal_z = 1.0 / (1.0 + abs(mz_p - mz_n) * 4.0)
+        ext_core = sorted(proj_fwd)[int(0.95 * len(proj_fwd))]
+        return bal_cnt * 2.0 + bal_z * 3.0 + (0.15 * ext_core if not com_asas else 0.0)
+
+    eixo_fwd = u1 if _score_sagital(u1, u2) >= _score_sagital(u2, u1) else u2
+    # Decide sentido do focinho (+Y_bl) vs cauda (-Y_bl): cabeca/pescoco alcancam Z maior na extremidade anterior
+    projs = [((p.x - mx) * eixo_fwd.x + (p.y - my) * eixo_fwd.y, p.z) for p in pts]
+    p_vals = sorted(pr[0] for pr in projs)
+    p_lo, p_hi = p_vals[int(0.02 * len(p_vals))], p_vals[int(0.98 * len(p_vals))]
+    meio = 0.5 * (p_lo + p_hi)
+    meia = max(0.5 * (p_hi - p_lo), 1e-4)
+    ant_zs = [z for p, z in projs if (p - meio) > 0.35 * meia]
+    post_zs = [z for p, z in projs if (p - meio) < -0.35 * meia]
+    if ant_zs and post_zs:
+        ant_zs.sort()
+        post_zs.sort()
+        top_a = sum(ant_zs[max(0, int(0.8 * len(ant_zs))):]) / max(1, len(ant_zs) - int(0.8 * len(ant_zs)))
+        top_p = sum(post_zs[max(0, int(0.8 * len(post_zs))):]) / max(1, len(post_zs) - int(0.8 * len(post_zs)))
+        mean_a = sum(ant_zs) / len(ant_zs)
+        mean_p = sum(post_zs) / len(post_zs)
+        if (top_p + 0.35 * mean_p) > (top_a + 0.35 * mean_a) + 1e-3:
+            eixo_fwd = -eixo_fwd
+
+    ang_atual = math.atan2(eixo_fwd.y, eixo_fwd.x)
+    rot_z = (math.pi * 0.5) - ang_atual
+    # Normaliza angulo para [-pi, pi] e evita rotacao desnecessaria se ja alinhado (< 2 deg)
+    rot_z = (rot_z + math.pi) % (2.0 * math.pi) - math.pi
+    if abs(rot_z) > math.radians(2.0):
+        obj.rotation_euler.z += rot_z
+        _aplicar_identidade(obj)
+
+    xs = [v.co.x for v in obj.data.vertices]
+    ys = [v.co.y for v in obj.data.vertices]
+    zs = [v.co.z for v in obj.data.vertices]
+    shift = Vector((-0.5 * (min(xs) + max(xs)), -0.5 * (min(ys) + max(ys)), -min(zs)))
+    if shift.length > 1e-5:
+        for v in obj.data.vertices:
+            v.co += shift
+        obj.data.update()
+
+
+def _estimar_marcos_criatura(obj, com_asas: bool = False) -> dict:
+    """Estima marcos anatomicos de quadrupedes e montarias aladas no espaco canonico (+Y frente)."""
+    pts = [v.co.copy() for v in obj.data.vertices]
+    xs = [p.x for p in pts]
+    ys = [p.y for p in pts]
+    zs = [p.z for p in pts]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    z_min, z_max = min(zs), max(zs)
+    h = max(z_max - z_min, 1e-3)
+    len_y = max(y_max - y_min, 1e-3)
+    span_x = max(x_max - x_min, 1e-3)
+
+    core_thresh = 0.24 * len_y if com_asas else 0.48 * span_x
+    core = [p for p in pts if abs(p.x) <= max(core_thresh, 0.08 * h)] or pts
+    cy_vals = [p.y for p in core]
+    y_core_min, y_core_max = min(cy_vals), max(cy_vals)
+    core_len = max(y_core_max - y_core_min, 1e-3)
+    cy = 0.5 * (y_core_min + y_core_max)
+
+    # Detecta colunas das patas (frente +Y / tras -Y, esquerda +X / direita -X)
+    low_pts = [p for p in pts if p.z <= z_min + 0.32 * h and abs(p.x) <= max(0.35 * len_y, 0.25 * span_x)]
+    f_l = [p for p in low_pts if p.y > cy and p.x > 0.01 * h]
+    f_r = [p for p in low_pts if p.y > cy and p.x < -0.01 * h]
+    b_l = [p for p in low_pts if p.y < cy and p.x > 0.01 * h]
+    b_r = [p for p in low_pts if p.y < cy and p.x < -0.01 * h]
+
+    x_front = 0.5 * (
+        (_mediana([p.x for p in f_l], 0.14 * h) if f_l else 0.14 * h)
+        + (_mediana([-p.x for p in f_r], 0.14 * h) if f_r else 0.14 * h)
+    )
+    x_back = 0.5 * (
+        (_mediana([p.x for p in b_l], 0.15 * h) if b_l else 0.15 * h)
+        + (_mediana([-p.x for p in b_r], 0.15 * h) if b_r else 0.15 * h)
+    )
+    x_front = _clamped(x_front, 0.06 * h, 0.35 * len_y)
+    x_back = _clamped(x_back, 0.06 * h, 0.35 * len_y)
+
+    y_front_leg = _mediana([p.y for p in (f_l + f_r)], y_core_min + 0.68 * core_len)
+    y_back_leg = _mediana([p.y for p in (b_l + b_r)], y_core_min + 0.30 * core_len)
+    if y_front_leg <= y_back_leg + 0.12 * core_len:
+        y_back_leg = y_core_min + 0.30 * core_len
+        y_front_leg = y_core_min + 0.68 * core_len
+
+    # Altura dorsal na regiao da sela
+    faixa_sela = [p for p in core if (y_back_leg - 0.05 * core_len) <= p.y <= (y_front_leg + 0.05 * core_len)]
+    z_torso_top = max((p.z for p in faixa_sela), default=z_min + 0.62 * h)
+    z_torso_mid = _mediana([p.z for p in faixa_sela], z_min + 0.45 * h)
+    z_belly = min((p.z for p in faixa_sela if p.z > z_min + 0.15 * h), default=z_min + 0.32 * h)
+
+    # Cabeca e focinho (+Y)
+    head_pts = [p for p in core if p.y >= y_front_leg + 0.08 * core_len]
+    if not head_pts:
+        head_pts = [p for p in core if p.y >= cy + 0.25 * core_len] or core
+    y_neck_base = y_front_leg + 0.06 * core_len
+    z_neck_base = _clamped(z_torso_mid + 0.08 * h, z_min + 0.35 * h, z_max - 0.15 * h)
+    y_snout = max(p.y for p in head_pts)
+    y_head_back = max(y_neck_base + 0.06 * core_len, y_snout - 0.20 * core_len)
+    z_head = _mediana([p.z for p in head_pts], z_min + 0.72 * h)
+
+    # Cauda (-Y)
+    y_tail_base = y_back_leg - 0.04 * core_len
+    y_tail_tip = min(y_core_min + 0.02 * core_len, y_tail_base - 0.14 * core_len)
+    tail_pts = [p for p in core if p.y <= y_tail_base]
+    z_tail_tip = _mediana([p.z for p in tail_pts if p.y <= y_tail_tip + 0.12 * core_len], z_torso_mid - 0.05 * h)
+
+    # Asas laterais
+    wing_span = max(abs(x_min), abs(x_max))
+    if wing_span < 0.35 * core_len:
+        wing_span = 0.75 * core_len
+    wing_pts = [p for p in pts if abs(p.x) > max(core_thresh, 0.20 * core_len)]
+    z_wing_tip = _mediana([p.z for p in wing_pts if abs(p.x) > 0.70 * wing_span], z_torso_top + 0.18 * h) if wing_pts else z_torso_top + 0.18 * h
+    y_wing_tip = _mediana([p.y for p in wing_pts if abs(p.x) > 0.70 * wing_span], y_front_leg - 0.18 * core_len) if wing_pts else y_front_leg - 0.18 * core_len
+
+    return {
+        "z_min": z_min,
+        "z_max": z_max,
+        "altura": h,
+        "len_y": len_y,
+        "span_x": span_x,
+        "cy": cy,
+        "y_back_leg": y_back_leg,
+        "y_front_leg": y_front_leg,
+        "x_front": x_front,
+        "x_back": x_back,
+        "z_belly": z_belly,
+        "z_torso_mid": z_torso_mid,
+        "z_torso_top": z_torso_top,
+        "y_neck_base": y_neck_base,
+        "z_neck_base": z_neck_base,
+        "y_head_back": y_head_back,
+        "y_snout": y_snout,
+        "z_head": z_head,
+        "y_tail_base": y_tail_base,
+        "y_tail_tip": y_tail_tip,
+        "z_tail_tip": z_tail_tip,
+        "wing_span": wing_span,
+        "y_wing_tip": y_wing_tip,
+        "z_wing_tip": z_wing_tip,
+    }
+
+
+def _construir_ossos_criatura(esqueleto: str, m: dict) -> list[dict]:
+    """Constroi esqueleto quadruped@1 ou winged_mount@1 no espaco canonico (+Y frente, +Z cima)."""
+    z0 = m["z_min"]
+    h = m["altura"]
+    ml = max(0.01 * h, 1e-3)
+    yb = m["y_back_leg"]
+    yf = m["y_front_leg"]
+    y_spine = 0.55 * yb + 0.45 * yf
+    zm = m["z_torso_mid"]
+    zt = m["z_torso_top"]
+    xf = m["x_front"]
+    xb = m["x_back"]
+    z_leg_top = _clamped(zm - 0.02 * h, z0 + 0.24 * h, zt - 0.04 * h)
+    z_knee_f = z0 + 0.45 * (z_leg_top - z0)
+    z_ank_f = z0 + 0.10 * h
+    z_knee_b = z0 + 0.52 * (z_leg_top - z0)
+    z_ank_b = z0 + 0.14 * h
+    foot_fwd = 0.07 * m["len_y"]
+
+    yt0 = m["y_tail_base"]
+    yt3 = m["y_tail_tip"]
+    yt1 = yt0 + (yt3 - yt0) * 0.33
+    yt2 = yt0 + (yt3 - yt0) * 0.67
+    zt3 = m["z_tail_tip"]
+    zt1 = zm + (zt3 - zm) * 0.33
+    zt2 = zm + (zt3 - zm) * 0.67
+
+    ossos = [
+        _osso("Root", None, (0.0, 0.0, z0), (0.0, 0.0, z0 + 0.06 * h), ml),
+        _osso("Hips", "Root", (0.0, yb, zm), (0.0, y_spine, zm), ml),
+        _osso("Spine", "Hips", (0.0, y_spine, zm), (0.0, 0.5 * (y_spine + yf), zm + 0.02 * h), ml),
+        _osso("Chest", "Spine", (0.0, 0.5 * (y_spine + yf), zm + 0.02 * h), (0.0, m["y_neck_base"], m["z_neck_base"]), ml),
+        _osso("Neck", "Chest", (0.0, m["y_neck_base"], m["z_neck_base"]), (0.0, m["y_head_back"], m["z_head"]), ml),
+        _osso("Head", "Neck", (0.0, m["y_head_back"], m["z_head"]), (0.0, m["y_snout"], m["z_head"]), ml),
+        _osso("Jaw", "Head", (0.0, m["y_head_back"] + 0.01 * m["len_y"], m["z_head"] - 0.06 * h), (0.0, m["y_snout"] - 0.01 * m["len_y"], m["z_head"] - 0.08 * h), ml),
+        _osso("Tail1", "Hips", (0.0, yt0, zm), (0.0, yt1, zt1), ml),
+        _osso("Tail2", "Tail1", (0.0, yt1, zt1), (0.0, yt2, zt2), ml),
+        _osso("Tail3", "Tail2", (0.0, yt2, zt2), (0.0, yt3, zt3), ml),
+        _osso("FrontUpperLeg.L", "Chest", (xf, yf, z_leg_top), (xf, yf - 0.02 * m["len_y"], z_knee_f), ml),
+        _osso("FrontLowerLeg.L", "FrontUpperLeg.L", (xf, yf - 0.02 * m["len_y"], z_knee_f), (xf, yf, z_ank_f), ml),
+        _osso("FrontFoot.L", "FrontLowerLeg.L", (xf, yf, z_ank_f), (xf, yf + foot_fwd, z0 + 0.02 * h), ml),
+        _osso("FrontUpperLeg.R", "Chest", (-xf, yf, z_leg_top), (-xf, yf - 0.02 * m["len_y"], z_knee_f), ml),
+        _osso("FrontLowerLeg.R", "FrontUpperLeg.R", (-xf, yf - 0.02 * m["len_y"], z_knee_f), (-xf, yf, z_ank_f), ml),
+        _osso("FrontFoot.R", "FrontLowerLeg.R", (-xf, yf, z_ank_f), (-xf, yf + foot_fwd, z0 + 0.02 * h), ml),
+        _osso("BackUpperLeg.L", "Hips", (xb, yb, z_leg_top), (xb, yb + 0.03 * m["len_y"], z_knee_b), ml),
+        _osso("BackLowerLeg.L", "BackUpperLeg.L", (xb, yb + 0.03 * m["len_y"], z_knee_b), (xb, yb - 0.02 * m["len_y"], z_ank_b), ml),
+        _osso("BackFoot.L", "BackLowerLeg.L", (xb, yb - 0.02 * m["len_y"], z_ank_b), (xb, yb + foot_fwd, z0 + 0.02 * h), ml),
+        _osso("BackUpperLeg.R", "Hips", (-xb, yb, z_leg_top), (-xb, yb + 0.03 * m["len_y"], z_knee_b), ml),
+        _osso("BackLowerLeg.R", "BackUpperLeg.R", (-xb, yb + 0.03 * m["len_y"], z_knee_b), (-xb, yb - 0.02 * m["len_y"], z_ank_b), ml),
+        _osso("BackFoot.R", "BackLowerLeg.R", (-xb, yb - 0.02 * m["len_y"], z_ank_b), (-xb, yb + foot_fwd, z0 + 0.02 * h), ml),
+        _osso("MountSeat", "Spine", (0.0, y_spine, zt + 0.01 * h), (0.0, y_spine, zt + 0.09 * h), ml),
+    ]
+
+    if esqueleto == "winged_mount@1":
+        ws = m["wing_span"]
+        y_w0 = 0.5 * (y_spine + yf)
+        z_w0 = zt - 0.02 * h
+        y_wt = m["y_wing_tip"]
+        z_wt = m["z_wing_tip"]
+        x_r = max(0.08 * ws, xf * 0.7)
+        for lado, sx in ((".L", 1.0), (".R", -1.0)):
+            p0 = (sx * x_r, y_w0, z_w0)
+            p1 = (sx * 0.25 * ws, y_w0 + 0.03 * m["len_y"], z_w0 + 0.30 * (z_wt - z_w0))
+            p2 = (sx * 0.52 * ws, 0.5 * (y_w0 + y_wt) + 0.05 * m["len_y"], z_w0 + 0.70 * (z_wt - z_w0))
+            p3 = (sx * 0.78 * ws, 0.25 * y_w0 + 0.75 * y_wt, z_w0 + 0.90 * (z_wt - z_w0))
+            p4 = (sx * 0.98 * ws, y_wt, z_wt)
+            ossos.extend(
+                [
+                    _osso(f"WingShoulder{lado}", "Chest", p0, p1, ml),
+                    _osso(f"WingArm{lado}", f"WingShoulder{lado}", p1, p2, ml),
+                    _osso(f"WingForearm{lado}", f"WingArm{lado}", p2, p3, ml),
+                    _osso(f"WingTip{lado}", f"WingForearm{lado}", p3, p4, ml),
+                ]
+            )
+    return ossos
+
+
+def _atribuir_pesos_criatura(obj, ossos: list[dict], m: dict) -> None:
+    """Skinning geodesico topologico para quadrupedes e montarias aladas."""
+    nao_deform = _RAIZES | {"MountSeat"}
+    deformaveis = [o for o in ossos if o["nome"] not in nao_deform]
+    grupos_obj = {
+        o["nome"]: (obj.vertex_groups.get(o["nome"]) or obj.vertex_groups.new(name=o["nome"]))
+        for o in deformaveis
+    }
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bm.verts.index_update()
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        coords = [v.co.copy() for v in bm.verts]
+        ilhas = _ilhas_vertices(bm)
+        adj = _grafo_superficie(bm)
+    finally:
+        bm.free()
+
+    n_total = len(coords)
+    if n_total == 0:
+        return
+    span_x = max(m["span_x"], 1e-3)
+    h = max(m["altura"], 1e-3)
+    inf = float("inf")
+    eps = 0.015 * h
+    tol_lado = 0.025 * span_x
+
+    def _lado_ok(nome_osso: str, x: float) -> bool:
+        lado = _lado_osso(nome_osso)
+        if lado == "L":
+            return x >= -tol_lado
+        if lado == "R":
+            return x <= tol_lado
+        return abs(x) <= max(0.32 * m["len_y"], 0.25 * span_x)
+
+    pesos_por_vertice: dict[int, list[tuple[str, float]]] = {}
+    for ilha in ilhas:
+        dist_mapas: list[tuple[str, list[float]]] = []
+        for o in deformaveis:
+            nome = o["nome"]
+            a, b_pt = Vector(o["cabeca"]), Vector(o["cauda"])
+            cand = [
+                (_dist_ponto_segmento(coords[vi], a, b_pt), vi)
+                for vi in ilha
+                if _lado_ok(nome, coords[vi].x)
+            ]
+            if not cand:
+                cand = [(_dist_ponto_segmento(coords[vi], a, b_pt), vi) for vi in ilha]
+            cand.sort(key=lambda item: item[0])
+            sementes = {vi: d0 for d0, vi in cand[: max(1, min(6, len(cand) // 8 or 1))]}
+            dist_v = _dijkstra_osso(n_total, adj, sementes, inf)
+            dist_mapas.append((nome, dist_v))
+
+        for vi in ilha:
+            vx = coords[vi].x
+            brutos: list[tuple[float, str]] = []
+            for nome, dist_v in dist_mapas:
+                if not _lado_ok(nome, vx):
+                    continue
+                d = dist_v[vi]
+                if d >= inf:
+                    continue
+                de = d + eps
+                de2 = de * de
+                brutos.append((1.0 / (de2 * de2), nome))
+            if not brutos:
+                for o in deformaveis:
+                    if not _lado_ok(o["nome"], vx):
+                        continue
+                    de = _dist_ponto_segmento(coords[vi], Vector(o["cabeca"]), Vector(o["cauda"])) + eps
+                    de2 = de * de
+                    brutos.append((1.0 / (de2 * de2), o["nome"]))
+            pesos_por_vertice[vi] = _normalizar_top4(brutos)
+
+    def _perm_criatura(nome_osso: str, vi_idx: int) -> bool:
+        return _lado_ok(nome_osso, coords[vi_idx].x)
+
+    _suavizar_aneis_juntas(
+        adj,
+        pesos_por_vertice,
+        deformaveis,
+        permitido_fn=_perm_criatura,
+        passos=2,
+        alpha=0.32,
+        pares_bloqueados={frozenset(("Chest", "Head"))},
+    )
+    for vi in range(n_total):
+        for nome, peso in pesos_por_vertice.get(vi, ()):
+            grupos_obj[nome].add([vi], peso, "REPLACE")
+
+
 def auto_rigar_humanoide(obj, esqueleto: str, criar_armadura_fn) -> tuple["bpy.types.Object", dict]:
     """Cria armadura humanoide ajustada à malha e aplica skinning geodésico topológico."""
-    if esqueleto not in ESQUELETOS_SUPORTADOS:
+    if esqueleto not in _ESQUELETOS_HUMANOS:
         raise ValueError(f"esqueleto nao suportado: {esqueleto}")
     if obj is None or obj.type != "MESH" or not obj.data.vertices:
         raise RuntimeError("objeto invalido para auto-rigging")
@@ -1578,6 +2175,73 @@ def auto_rigar_humanoide(obj, esqueleto: str, criar_armadura_fn) -> tuple["bpy.t
     return rig_obj, grupos
 
 
+def auto_rigar_por_tipo(
+    obj,
+    esqueleto_spec: str | None,
+    criar_armadura_fn,
+    tipo: str | None = None,
+) -> tuple["bpy.types.Object", dict]:
+    """Despacha auto-rig para humanoide, quadrupede ou montaria alada conforme tipo/esqueleto."""
+    esq = str(esqueleto_spec or "").strip()
+    tipo_norm = str(tipo or "").strip().lower()
+
+    if esq in _ESQUELETOS_CRIATURA:
+        alvo_esq = esq
+    elif tipo_norm == "criatura_alada":
+        alvo_esq = "winged_mount@1"
+    elif tipo_norm in ("criatura_quadrupede", "criatura"):
+        alvo_esq = "quadruped@1"
+    elif tipo_norm == "montaria":
+        # Detecta asas laterais largas pela geometria caso esqueleto nao tenha sido explicito
+        xs = [v.co.x for v in obj.data.vertices]
+        ys = [v.co.y for v in obj.data.vertices]
+        sx = (max(xs) - min(xs)) if xs else 0.0
+        sy = (max(ys) - min(ys)) if ys else 0.0
+        alvo_esq = "winged_mount@1" if sx > 1.25 * max(sy, 1e-4) else "quadruped@1"
+    else:
+        return auto_rigar_humanoide(obj, esq or "godot-humanoid@1", criar_armadura_fn)
+
+    if obj is None or obj.type != "MESH" or not obj.data.vertices:
+        raise RuntimeError("objeto invalido para auto-rigging")
+
+    obj.vertex_groups.clear()
+    for mod in list(obj.modifiers):
+        if mod.type == "ARMATURE":
+            obj.modifiers.remove(mod)
+
+    com_asas = alvo_esq == "winged_mount@1"
+    _alinhar_orientacao_criatura(obj, com_asas=com_asas)
+    marcos = _estimar_marcos_criatura(obj, com_asas=com_asas)
+    ossos = _construir_ossos_criatura(alvo_esq, marcos)
+    rig_obj = criar_armadura_fn(ossos)
+    _alinhar_roll_ossos(rig_obj)
+    _aplicar_identidade(rig_obj)
+
+    _atribuir_pesos_criatura(obj, ossos, marcos)
+    _garantir_modificador_armature(obj, rig_obj)
+    grupos = _normalizar_grupos_e_mapear(obj)
+    return rig_obj, grupos
+
+
+_ALIAS_OSSO_CRIATURA: dict[str, tuple[str, ...]] = {
+    "Spine1": ("Spine",),
+    "Shoulder.L": ("WingShoulder.L",),
+    "Shoulder.R": ("WingShoulder.R",),
+    "UpperArm.L": ("WingArm.L", "FrontUpperLeg.L"),
+    "UpperArm.R": ("WingArm.R", "FrontUpperLeg.R"),
+    "LowerArm.L": ("WingForearm.L", "FrontLowerLeg.L"),
+    "LowerArm.R": ("WingForearm.R", "FrontLowerLeg.R"),
+    "Hand.L": ("WingTip.L", "FrontFoot.L"),
+    "Hand.R": ("WingTip.R", "FrontFoot.R"),
+    "UpperLeg.L": ("BackUpperLeg.L",),
+    "UpperLeg.R": ("BackUpperLeg.R",),
+    "LowerLeg.L": ("BackLowerLeg.L",),
+    "LowerLeg.R": ("BackLowerLeg.R",),
+    "Foot.L": ("BackFoot.L",),
+    "Foot.R": ("BackFoot.R",),
+}
+
+
 def aplicar_animacoes_multi(rig_obj, clipes: list[dict]) -> list[dict]:
     """Aplica múltiplos clipes em Actions distintas + NLA tracks mudas sem vazamento de pose."""
     if not clipes:
@@ -1587,6 +2251,7 @@ def aplicar_animacoes_multi(rig_obj, clipes: list[dict]) -> list[dict]:
     while rig_obj.animation_data.nla_tracks:
         rig_obj.animation_data.nla_tracks.remove(rig_obj.animation_data.nla_tracks[0])
 
+    e_criatura = any(pb.name in _OSSOS_ASA or pb.name in _OSSOS_PATA for pb in rig_obj.pose.bones)
     geradas: list[dict] = []
     max_frame_end = 1
     for clipe in clipes:
@@ -1615,18 +2280,23 @@ def aplicar_animacoes_multi(rig_obj, clipes: list[dict]) -> list[dict]:
             tocados_loc: list[str] = []
             for pose in chave.get("poses") or []:
                 osso = pose.get("osso")
+                if osso and osso not in rig_obj.pose.bones and e_criatura:
+                    osso = next((c for c in _ALIAS_OSSO_CRIATURA.get(str(osso), ()) if c in rig_obj.pose.bones), osso)
                 if not osso or osso not in rig_obj.pose.bones:
                     continue
-                eixo = str(pose.get("eixo") or "X").upper()
-                vetor = {
-                    "X": (1.0, 0.0, 0.0),
-                    "Y": (0.0, 1.0, 0.0),
-                    "Z": (0.0, 0.0, 1.0),
-                }.get(eixo, (1.0, 0.0, 0.0))
                 pb = rig_obj.pose.bones[osso]
-                pb.rotation_quaternion = pb.rotation_quaternion @ Quaternion(
-                    vetor, math.radians(float(pose.get("graus", 0.0)))
-                )
+                quat_wxyz = pose.get("quat_wxyz")
+                if isinstance(quat_wxyz, (list, tuple)) and len(quat_wxyz) == 4:
+                    q_delta = Quaternion(tuple(float(v) for v in quat_wxyz)).normalized()
+                else:
+                    eixo = str(pose.get("eixo") or "X").upper()
+                    vetor = {
+                        "X": (1.0, 0.0, 0.0),
+                        "Y": (0.0, 1.0, 0.0),
+                        "Z": (0.0, 0.0, 1.0),
+                    }.get(eixo, (1.0, 0.0, 0.0))
+                    q_delta = Quaternion(vetor, math.radians(float(pose.get("graus", 0.0))))
+                pb.rotation_quaternion = (pb.rotation_quaternion @ q_delta).normalized()
                 if osso not in tocados_rot:
                     tocados_rot.append(osso)
                 desloc = pose.get("deslocamento_m")
@@ -1641,10 +2311,12 @@ def aplicar_animacoes_multi(rig_obj, clipes: list[dict]) -> list[dict]:
             for osso in tocados_loc:
                 rig_obj.pose.bones[osso].keyframe_insert("location", frame=frame)
 
-        if clipe.get("loop", True):
-            for fc in acao.fcurves:
-                for kp in fc.keyframe_points:
-                    kp.interpolation = "LINEAR"
+        for fc in acao.fcurves:
+            for kp in fc.keyframe_points:
+                kp.interpolation = "BEZIER"
+                kp.handle_left_type = "AUTO_CLAMPED"
+                kp.handle_right_type = "AUTO_CLAMPED"
+            fc.update()
 
         track = rig_obj.animation_data.nla_tracks.new()
         track.name = nome

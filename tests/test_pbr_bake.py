@@ -56,7 +56,7 @@ def test_bake_pbr_usa_apenas_bpy_bmesh_mathutils_e_stdlib():
 
 
 def test_mesh_provider_versao_e_tex_px_1024(monkeypatch, tmp_path):
-    assert mesh.VERSAO == "0.1.8"
+    assert mesh.VERSAO == "0.1.9"
     monkeypatch.delenv("FORGE3D_TEX_PX", raising=False)
     prov = mesh.MeshProvider()
     assert "+tex1024+" in prov.versao

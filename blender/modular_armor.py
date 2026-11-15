@@ -505,8 +505,192 @@ def _tingir_imagem(
     return out
 
 
+_TEXTURA_POR_ZONA = {
+    "leather": "leather_saddle_albedo.png",
+    "couro": "leather_saddle_albedo.png",
+    "saddle": "leather_saddle_albedo.png",
+    "linen": "linen_tunic_albedo.png",
+    "cloth": "linen_tunic_albedo.png",
+    "capa": "linen_tunic_albedo.png",
+    "bedroll": "linen_tunic_albedo.png",
+    "steel": "steel_forged_albedo.png",
+    "aco": "steel_forged_albedo.png",
+    "blade": "steel_forged_albedo.png",
+    "gold": "bronze_filigree_albedo.png",
+    "brass": "bronze_filigree_albedo.png",
+    "bronze": "bronze_filigree_albedo.png",
+    "ouro": "bronze_filigree_albedo.png",
+    "clasp": "bronze_filigree_albedo.png",
+}
+
+
+def _carregar_textura_pbr_local(nome_arquivo: str):
+    """Carrega textura sRGB de ``blender/textures_pbr/<nome_arquivo>`` se disponivel em disco."""
+    if not nome_arquivo:
+        return None
+    pasta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "textures_pbr")
+    caminho = os.path.join(pasta, nome_arquivo)
+    if not os.path.isfile(caminho):
+        return None
+    try:
+        img = bpy.data.images.load(caminho, check_existing=True)
+        try:
+            img.colorspace_settings.name = "sRGB"
+        except Exception:
+            pass
+        return img
+    except Exception:
+        return None
+
+
+def _vincular_micro_relevo_bsdf(
+    nt,
+    bsdf,
+    bump_strength: float,
+    noise_scale: float,
+) -> None:
+    """Conecta micro-relevo procedural sutil ao ``Normal`` sem invalidar glTF."""
+    if bump_strength <= 0.0:
+        return
+    normal_inp = bsdf.inputs.get("Normal")
+    if normal_inp is None or normal_inp.is_linked:
+        return
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    tc.location = (-680, -240)
+    nz = nt.nodes.new("ShaderNodeTexNoise")
+    nz.inputs["Scale"].default_value = float(noise_scale)
+    nz.inputs["Detail"].default_value = 6.0
+    nz.location = (-480, -240)
+    bmp = nt.nodes.new("ShaderNodeBump")
+    bmp.inputs["Strength"].default_value = float(bump_strength)
+    bmp.inputs["Distance"].default_value = 0.004
+    bmp.location = (-260, -240)
+    nt.links.new(tc.outputs["Object"], nz.inputs["Vector"])
+    nt.links.new(nz.outputs["Fac"], bmp.inputs["Height"])
+    nt.links.new(bmp.outputs["Normal"], normal_inp)
+
+
+def _vincular_textura_base_color(nt, bsdf, img) -> None:
+    """Conecta ``img`` ao ``Base Color`` reutilizando ou criando ``ShaderNodeTexImage``."""
+    bc_inp = bsdf.inputs.get("Base Color")
+    if bc_inp is None:
+        return
+    tex_node = next((n for n in nt.nodes if n.type == "TEX_IMAGE"), None)
+    if tex_node is None:
+        tex_node = nt.nodes.new("ShaderNodeTexImage")
+        tex_node.location = (-360, 220)
+    tex_node.image = img
+    for lk in list(bc_inp.links):
+        nt.links.remove(lk)
+    nt.links.new(tex_node.outputs["Color"], bc_inp)
+
+
+def _criar_material_pbr_zona(
+    nome: str,
+    base_color: tuple[float, float, float, float],
+    *,
+    metallic: float = 0.0,
+    roughness: float = 0.5,
+    textura_arquivo: str | None = None,
+    accent_color: tuple[float, float, float, float] | None = None,
+    emission_color: tuple[float, float, float, float] | None = None,
+    emission_strength: float = 0.0,
+    transmission: float = 0.0,
+    ior: float = 1.45,
+    alpha: float = 1.0,
+    blend_method: str | None = None,
+    bump_strength: float = 0.14,
+    noise_scale: float = 42.0,
+    backface_culling: bool = True,
+    zona_tag: str = "",
+):
+    """Constroi material PBR por zona usando textura local quando existir e fallback procedural."""
+    mat = bpy.data.materials.new(name=nome)
+    mat.use_nodes = True
+    mat.use_backface_culling = bool(backface_culling)
+    if blend_method and hasattr(mat, "blend_method"):
+        mat.blend_method = str(blend_method)
+    if zona_tag:
+        mat["forge3d_zona_pbr"] = zona_tag
+    if textura_arquivo:
+        mat["forge3d_textura_local"] = textura_arquivo
+
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out_node = nt.nodes.new("ShaderNodeOutputMaterial")
+    out_node.location = (320, 0)
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (0, 0)
+    nt.links.new(bsdf.outputs["BSDF"], out_node.inputs["Surface"])
+
+    if "Base Color" in bsdf.inputs:
+        bsdf.inputs["Base Color"].default_value = tuple(base_color)
+    if "Metallic" in bsdf.inputs:
+        bsdf.inputs["Metallic"].default_value = float(metallic)
+    if "Roughness" in bsdf.inputs:
+        bsdf.inputs["Roughness"].default_value = float(roughness)
+    if "Alpha" in bsdf.inputs:
+        bsdf.inputs["Alpha"].default_value = float(alpha)
+    if "IOR" in bsdf.inputs:
+        bsdf.inputs["IOR"].default_value = float(ior)
+    if "Transmission Weight" in bsdf.inputs:
+        bsdf.inputs["Transmission Weight"].default_value = float(transmission)
+    if emission_color is not None and "Emission Color" in bsdf.inputs:
+        bsdf.inputs["Emission Color"].default_value = tuple(emission_color)
+    if "Emission Strength" in bsdf.inputs:
+        bsdf.inputs["Emission Strength"].default_value = float(emission_strength)
+
+    # Materiais refrativos ou emissivos preservam Base Color escalar exato no glTF
+    if transmission <= 0.0 and emission_strength <= 0.0:
+        img_local = _carregar_textura_pbr_local(textura_arquivo or "")
+        if img_local is not None:
+            _vincular_textura_base_color(nt, bsdf, img_local)
+        else:
+            acc = accent_color[:3] if accent_color else None
+            img_proc = _criar_imagem_tinta(f"ZoneTex_{nome}", base_color[:3], acc)
+            _vincular_textura_base_color(nt, bsdf, img_proc)
+        _vincular_micro_relevo_bsdf(nt, bsdf, bump_strength, noise_scale)
+
+    return mat
+
+
+def _inferir_arquivo_textura_slot(mat) -> str | None:
+    """Resolve arquivo esperado em ``textures_pbr`` a partir de tag ou nome do material."""
+    if mat is None:
+        return None
+    explicito = mat.get("forge3d_textura_local") if hasattr(mat, "get") else None
+    if explicito:
+        return str(explicito)
+    nome_low = str(getattr(mat, "name", "") or "").lower()
+    for chave, arq in _TEXTURA_POR_ZONA.items():
+        if chave in nome_low:
+            return arq
+    return None
+
+
 def _aplicar_estilo_visual(obj, job: dict) -> None:
-    """Aplica cor/paleta/prompt/textura de concept e configura Principled BSDF exportavel em glTF."""
+    """Aplica estilo/texturas PBR preservando slots multi-zona ja construidos."""
+    _garantir_uv(obj)
+
+    if len(obj.data.materials) > 1:
+        for mat in list(obj.data.materials):
+            if mat is None or not getattr(mat, "use_nodes", False) or mat.node_tree is None:
+                continue
+            bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+            if bsdf is None:
+                continue
+            tw = bsdf.inputs.get("Transmission Weight")
+            es = bsdf.inputs.get("Emission Strength")
+            if (tw and tw.default_value > 0.0) or (es and es.default_value > 0.0):
+                continue
+            arq_tex = _inferir_arquivo_textura_slot(mat)
+            if arq_tex:
+                img_local = _carregar_textura_pbr_local(arq_tex)
+                if img_local is not None:
+                    _vincular_textura_base_color(mat.node_tree, bsdf, img_local)
+                    _vincular_micro_relevo_bsdf(mat.node_tree, bsdf, 0.14, 42.0)
+        return
+
     estilo = _resolver_estilo_visual(job)
     textura_path = str(job.get("textura") or "").strip()
     if not textura_path:
@@ -514,8 +698,6 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
         if origem_cand and os.path.splitext(origem_cand)[1].lower() in (".png", ".jpg", ".jpeg", ".webp"):
             if os.path.isfile(origem_cand):
                 textura_path = origem_cand
-
-    _garantir_uv(obj)
 
     if not obj.data.materials:
         mat_novo = bpy.data.materials.new(name="Armor_Mat")
@@ -565,12 +747,16 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
         if tex_node is None:
             tex_node = next((n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is not None), None)
 
+        arq_local = _inferir_arquivo_textura_slot(mat)
+        img_local = _carregar_textura_pbr_local(arq_local or "")
         if concept_img is not None:
             img_final = (
                 _tingir_imagem(concept_img, f"ArmorConcept_{idx_m}", estilo["tint"], estilo["accent"])
                 if estilo["tint"] is not None
                 else concept_img
             )
+        elif img_local is not None:
+            img_final = img_local
         elif tex_node is not None and tex_node.image is not None:
             if estilo["tint"] is not None:
                 img_final = _tingir_imagem(tex_node.image, f"ArmorTint_{idx_m}", estilo["tint"], estilo["accent"])
@@ -668,89 +854,783 @@ def _adicionar_caixa_chanfrada(
     return [v for v in bm.verts if v.is_valid and v not in antes]
 
 
-def _criar_mochila_capa_procedural(nome: str = "MochilaCapaModular") -> "bpy.types.Object":
-    """Cria mochila de couro com rolo superior e capa dorsal vertical (sem prancha horizontal)."""
-    bm = bmesh.new()
-    # Corpo principal da mochila (apoiado nas costas em -Y_bl, pendendo em -Z_bl)
-    _adicionar_caixa_chanfrada(bm, (0.0, -0.09, -0.18), (0.30, 0.15, 0.36), subdiv=2)
-    # Aba superior curvada e rolo de viagem (bedroll)
-    _adicionar_caixa_chanfrada(bm, (0.0, -0.09, 0.03), (0.34, 0.13, 0.11), subdiv=1)
-    # Bolsos laterais simetricos
-    _adicionar_caixa_chanfrada(bm, (-0.18, -0.09, -0.20), (0.07, 0.11, 0.20), subdiv=1)
-    _adicionar_caixa_chanfrada(bm, (0.18, -0.09, -0.20), (0.07, 0.11, 0.20), subdiv=1)
-    # Manto / capa dorsal pendendo verticalmente atras das costas (-Z_bl), fina em Y
-    verts_capa = _adicionar_caixa_chanfrada(bm, (0.0, -0.025, -0.34), (0.38, 0.032, 0.68), subdiv=3)
-    for v in verts_capa:
-        # Alarga suavemente na bainha inferior e curva as bordas
-        t_baixo = max(0.0, min(1.0, (0.0 - v.co.z) / 0.68))
-        v.co.x *= 1.0 + 0.22 * t_baixo
-        v.co.y -= 0.03 * t_baixo + 0.06 * (v.co.x ** 2)
+def _atribuir_mat_novas_faces(bm: bmesh.types.BMesh, faces_antes: set, mat_idx: int) -> None:
+    """Atribui ``mat_idx`` as faces criadas desde ``faces_antes``."""
+    for f in bm.faces:
+        if f not in faces_antes:
+            f.material_index = mat_idx
 
+
+def _adicionar_loft_fechado_bm(
+    bm: bmesh.types.BMesh,
+    aneis: list[list[tuple[float, float, float]]],
+    mat_idx: int = 0,
+    ponto_base: tuple[float, float, float] | None = None,
+    ponto_topo: tuple[float, float, float] | None = None,
+) -> list[bmesh.types.BMVert]:
+    """Constroi casca fechada manifold conectando aneis sucessivos e tampando extremos."""
+    bm_aneis = [[bm.verts.new(p) for p in anel] for anel in aneis]
+    n_seg = len(bm_aneis[0])
+    novas_faces = []
+    for r in range(len(bm_aneis) - 1):
+        a0 = bm_aneis[r]
+        a1 = bm_aneis[r + 1]
+        for i in range(n_seg):
+            j = (i + 1) % n_seg
+            novas_faces.append(bm.faces.new((a0[i], a0[j], a1[j], a1[i])))
+
+    if ponto_base is not None:
+        vb = bm.verts.new(ponto_base)
+        a0 = bm_aneis[0]
+        for i in range(n_seg):
+            j = (i + 1) % n_seg
+            novas_faces.append(bm.faces.new((vb, a0[j], a0[i])))
+    else:
+        novas_faces.append(bm.faces.new(tuple(reversed(bm_aneis[0]))))
+
+    if ponto_topo is not None:
+        vt = bm.verts.new(ponto_topo)
+        a_top = bm_aneis[-1]
+        for i in range(n_seg):
+            j = (i + 1) % n_seg
+            novas_faces.append(bm.faces.new((vt, a_top[i], a_top[j])))
+    else:
+        novas_faces.append(bm.faces.new(tuple(bm_aneis[-1])))
+
+    for f in novas_faces:
+        f.material_index = mat_idx
+    return [v for anel in bm_aneis for v in anel]
+
+
+def _adicionar_toro_bm(
+    bm: bmesh.types.BMesh,
+    major_r: float,
+    minor_r: float,
+    segs_major: int = 32,
+    segs_minor: int = 10,
+    *,
+    rx: float = 1.0,
+    ry: float = 1.0,
+    mat_idx: int = 0,
+    transform: Matrix | None = None,
+) -> None:
+    """Adiciona toro fechado 2-manifold sem arestas abertas ou vertices duplicados."""
+    aneis = []
+    for m in range(segs_major):
+        phi = (2.0 * math.pi * m) / float(segs_major)
+        cphi = math.cos(phi)
+        sphi = math.sin(phi)
+        n_vec = Vector((cphi * ry, sphi * rx, 0.0))
+        if n_vec.length > 1e-8:
+            n_vec.normalize()
+        else:
+            n_vec = Vector((cphi, sphi, 0.0))
+        centro_anel = Vector((major_r * rx * cphi, major_r * ry * sphi, 0.0))
+        anel_verts = []
+        for k in range(segs_minor):
+            theta = (2.0 * math.pi * k) / float(segs_minor)
+            pt = centro_anel + n_vec * (minor_r * math.cos(theta)) + Vector((0.0, 0.0, minor_r * math.sin(theta)))
+            if transform is not None:
+                pt = transform @ pt
+            anel_verts.append(bm.verts.new((pt.x, pt.y, pt.z)))
+        aneis.append(anel_verts)
+
+    for m in range(segs_major):
+        a0 = aneis[m]
+        a1 = aneis[(m + 1) % segs_major]
+        for k in range(segs_minor):
+            k2 = (k + 1) % segs_minor
+            f = bm.faces.new((a0[k], a1[k], a1[k2], a0[k2]))
+            f.material_index = mat_idx
+
+
+def _adicionar_tubo_curva_bm(
+    bm: bmesh.types.BMesh,
+    pontos: list[tuple[float, float, float]],
+    r_larg: float,
+    r_esp: float,
+    segs: int = 6,
+    mat_idx: int = 0,
+) -> None:
+    """Varre secao oval fechada por transporte paralelo ao longo de uma polilinha 3D."""
+    pts = [Vector(p) for p in pontos]
+    if len(pts) < 2:
+        return
+    tangentes: list[Vector] = []
+    for i, p in enumerate(pts):
+        if i == 0:
+            t = pts[1] - p
+        elif i == len(pts) - 1:
+            t = p - pts[-2]
+        else:
+            t = pts[i + 1] - pts[i - 1]
+        tangentes.append(t.normalized() if t.length > 1e-8 else Vector((0.0, 0.0, 1.0)))
+
+    u_ref = Vector((1.0, 0.0, 0.0))
+    if abs(u_ref.dot(tangentes[0])) > 0.9:
+        u_ref = Vector((0.0, 1.0, 0.0))
+    u = (u_ref - tangentes[0] * u_ref.dot(tangentes[0])).normalized()
+
+    aneis: list[list[tuple[float, float, float]]] = []
+    for i, (p, t) in enumerate(zip(pts, tangentes)):
+        if i > 0:
+            u_proj = u - t * u.dot(t)
+            if u_proj.length > 1e-6:
+                u = u_proj.normalized()
+        v = t.cross(u).normalized()
+        anel: list[tuple[float, float, float]] = []
+        for k in range(segs):
+            ang = (2.0 * math.pi * k) / float(segs)
+            pos = p + u * (r_larg * math.cos(ang)) + v * (r_esp * math.sin(ang))
+            anel.append((pos.x, pos.y, pos.z))
+        aneis.append(anel)
+
+    _adicionar_loft_fechado_bm(bm, aneis, mat_idx=mat_idx)
+
+
+def _adicionar_gema_octaedrica_bm(
+    bm: bmesh.types.BMesh,
+    centro: tuple[float, float, float],
+    raios: tuple[float, float, float],
+    rot_euler: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    mat_idx: int = 0,
+) -> None:
+    """Adiciona gema/medalhao octogonal chanfrado fechado para incrustacoes e fechos."""
+    rx, ry, rz = raios
+    rot = Matrix.Rotation(rot_euler[2], 4, "Z") @ Matrix.Rotation(rot_euler[1], 4, "Y") @ Matrix.Rotation(rot_euler[0], 4, "X")
+    c_vec = Vector(centro)
+    aneis: list[list[tuple[float, float, float]]] = []
+    for z_f, r_f in ((-1.0, 0.48), (-0.42, 1.0), (0.42, 1.0), (1.0, 0.48)):
+        anel: list[tuple[float, float, float]] = []
+        for k in range(8):
+            ang = (2.0 * math.pi * k) / 8.0 + (math.pi / 8.0)
+            local = Vector((rx * r_f * math.cos(ang), ry * r_f * math.sin(ang), rz * z_f))
+            mundo = c_vec + (rot @ local)
+            anel.append((mundo.x, mundo.y, mundo.z))
+        aneis.append(anel)
+    _adicionar_loft_fechado_bm(bm, aneis, mat_idx=mat_idx)
+
+
+def _aplicar_suavizacao_modular(obj, angulo_graus: float = 48.0) -> None:
+    """Aplica smooth shading com arestas vivas por angulo diedro."""
+    me = obj.data
+    if me is None or not me.polygons:
+        return
+    for poly in me.polygons:
+        poly.use_smooth = True
+    try:
+        me.shade_smooth()
+        me.set_sharp_from_angle(angle=math.radians(float(angulo_graus)))
+        me.update()
+    except Exception:
+        pass
+
+
+def _bmesh_criar_objeto_multimat(
+    nome: str,
+    bm: bmesh.types.BMesh,
+    materiais: list,
+    angulo_suave: float = 48.0,
+) -> "bpy.types.Object":
+    """Finaliza BMesh multi-zona como objeto fechado triangulado com UVs e normais."""
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bmesh.ops.triangulate(bm, faces=bm.faces)
     me = bpy.data.meshes.new(nome)
     bm.to_mesh(me)
     bm.free()
-    for p in me.polygons:
-        p.use_smooth = True
+
+    for mat in materiais:
+        me.materials.append(mat)
     obj = bpy.data.objects.new(nome, me)
     bpy.context.collection.objects.link(obj)
     _garantir_uv(obj)
+    _aplicar_suavizacao_modular(obj, angulo_graus=angulo_suave)
+    obj["forge3d_angulo_suave"] = float(angulo_suave)
     return obj
+
+
+def _criar_mochila_procedural(nome: str = "MochilaModular") -> "bpy.types.Object":
+    """Cria mochila anatomica em couro selado com alcas peitorais, rolo de linho e fivelas."""
+    mat_couro = _criar_material_pbr_zona(
+        "Pack_SaddleLeather",
+        (0.26, 0.14, 0.08, 1.0),
+        metallic=0.0,
+        roughness=0.68,
+        textura_arquivo="leather_saddle_albedo.png",
+        accent_color=(0.14, 0.07, 0.04, 1.0),
+        bump_strength=0.20,
+        noise_scale=36.0,
+        zona_tag="couro_gasto",
+    )
+    mat_linho = _criar_material_pbr_zona(
+        "Pack_LinenBedroll",
+        (0.56, 0.50, 0.39, 1.0),
+        metallic=0.0,
+        roughness=0.84,
+        textura_arquivo="linen_tunic_albedo.png",
+        accent_color=(0.38, 0.32, 0.24, 1.0),
+        bump_strength=0.24,
+        noise_scale=64.0,
+        zona_tag="tecido_linho",
+    )
+    mat_latao = _criar_material_pbr_zona(
+        "Pack_BrassHardware",
+        (0.77, 0.61, 0.22, 1.0),
+        metallic=0.90,
+        roughness=0.25,
+        textura_arquivo="bronze_filigree_albedo.png",
+        accent_color=(0.48, 0.36, 0.12, 1.0),
+        bump_strength=0.08,
+        noise_scale=52.0,
+        zona_tag="bronze_latao",
+    )
+
+    bm = bmesh.new()
+
+    # 1. Corpo principal ergonomico (concavidade em +Y_bl voltada para as costas, bojo em -Y_bl)
+    aneis_corpo: list[list[tuple[float, float, float]]] = []
+    n_z = 9
+    n_rad = 16
+    for iz in range(n_z):
+        t = iz / float(n_z - 1)
+        z = -0.35 + 0.36 * t
+        escala_ext = 0.72 + 0.28 * math.sin(math.pi * (0.12 + 0.76 * t))
+        hx = 0.142 * escala_ext
+        hy_tras = 0.165 * (0.80 + 0.24 * math.sin(math.pi * (1.0 - t) ** 0.75)) * escala_ext
+        hy_frente = 0.022 * escala_ext
+        anel: list[tuple[float, float, float]] = []
+        for ir in range(n_rad):
+            ang = (2.0 * math.pi * ir) / float(n_rad)
+            ca, sa = math.cos(ang), math.sin(ang)
+            sup = (abs(ca) ** 3.2 + abs(sa) ** 3.2) ** (-1.0 / 3.2)
+            ux = ca * sup
+            uy = sa * sup
+            x = hx * ux
+            if uy >= 0.0:
+                concavo = -0.020 * (1.0 - ux * ux)
+                y = -0.012 + concavo + hy_frente * uy
+            else:
+                y = -0.012 + hy_tras * uy
+            anel.append((x, y, z))
+        aneis_corpo.append(anel)
+    _adicionar_loft_fechado_bm(
+        bm,
+        aneis_corpo,
+        mat_idx=0,
+        ponto_base=(0.0, -0.09, -0.368),
+        ponto_topo=(0.0, -0.085, 0.024),
+    )
+
+    # 2. Aba superior curva arredondada sobre a tampa
+    aneis_aba: list[list[tuple[float, float, float]]] = []
+    curva_aba = (
+        (-0.012, 0.010, 0.0, 1.0),
+        (-0.060, 0.040, 0.0, 1.0),
+        (-0.135, 0.044, -0.45, 0.90),
+        (-0.184, 0.004, -1.10, 0.45),
+        (-0.194, -0.075, -1.48, 0.08),
+        (-0.190, -0.155, -1.55, 0.02),
+    )
+    for idx_c, (cy, cz, ny, nz) in enumerate(curva_aba):
+        larg_x = 0.148 if idx_c < 4 else (0.140 if idx_c == 4 else 0.122)
+        esp = 0.0065
+        perfil = (
+            (-larg_x, cy + esp * ny, cz + esp * nz),
+            (-larg_x * 0.65, cy + esp * ny, cz + esp * nz),
+            (0.0, cy + esp * ny, cz + esp * nz),
+            (larg_x * 0.65, cy + esp * ny, cz + esp * nz),
+            (larg_x, cy + esp * ny, cz + esp * nz),
+            (larg_x, cy - esp * ny, cz - esp * nz),
+            (larg_x * 0.65, cy - esp * ny, cz - esp * nz),
+            (0.0, cy - esp * ny, cz - esp * nz),
+            (-larg_x * 0.65, cy - esp * ny, cz - esp * nz),
+            (-larg_x, cy - esp * ny, cz - esp * nz),
+        )
+        aneis_aba.append(list(perfil))
+    _adicionar_loft_fechado_bm(bm, aneis_aba, mat_idx=0)
+
+    # 3. Duas tiras verticais dianteiras da aba + fivelas de latao
+    for sx in (-0.072, 0.072):
+        _adicionar_tubo_curva_bm(
+            bm,
+            [
+                (sx, -0.015, 0.018),
+                (sx, -0.065, 0.050),
+                (sx, -0.142, 0.052),
+                (sx, -0.194, 0.008),
+                (sx, -0.203, -0.085),
+                (sx, -0.201, -0.175),
+                (sx, -0.190, -0.245),
+            ],
+            r_larg=0.014,
+            r_esp=0.0045,
+            segs=6,
+            mat_idx=0,
+        )
+        _adicionar_gema_octaedrica_bm(
+            bm,
+            (sx, -0.208, -0.120),
+            (0.020, 0.0065, 0.022),
+            rot_euler=(0.0, 0.0, 0.0),
+            mat_idx=2,
+        )
+
+    # 4. Rolo horizontal de linho/la amarrado no topo (Z > 0) + 2 cintas de couro
+    aneis_rolo: list[list[tuple[float, float, float]]] = []
+    for ix in range(8):
+        tx = ix / 7.0
+        x = -0.165 + 0.330 * tx
+        estreita = 0.88 if (abs(abs(x) - 0.085) < 0.025) else (0.76 if ix in (0, 7) else 1.0)
+        r_rolo = 0.046 * estreita
+        anel_r: list[tuple[float, float, float]] = []
+        for ir in range(12):
+            a = (2.0 * math.pi * ir) / 12.0
+            anel_r.append((x, -0.095 + r_rolo * math.cos(a), 0.092 + r_rolo * math.sin(a)))
+        aneis_rolo.append(anel_r)
+    _adicionar_loft_fechado_bm(
+        bm,
+        aneis_rolo,
+        mat_idx=1,
+        ponto_base=(-0.180, -0.095, 0.092),
+        ponto_topo=(0.180, -0.095, 0.092),
+    )
+    rot_y90 = Matrix.Translation((0.0, -0.095, 0.092)) @ Matrix.Rotation(math.pi * 0.5, 4, "Y")
+    for sx in (-0.085, 0.085):
+        _adicionar_toro_bm(
+            bm,
+            major_r=0.045,
+            minor_r=0.0055,
+            segs_major=14,
+            segs_minor=6,
+            mat_idx=0,
+            transform=Matrix.Translation((sx, 0.0, 0.0)) @ rot_y90,
+        )
+
+    # 5. Dois bolsos laterais arredondados
+    for lado in (-1.0, 1.0):
+        aneis_bolso: list[list[tuple[float, float, float]]] = []
+        for iz in range(4):
+            tz = iz / 3.0
+            z = -0.295 + 0.165 * tz
+            esc_b = 0.78 + 0.22 * math.sin(math.pi * (0.15 + 0.70 * tz))
+            anel_b: list[tuple[float, float, float]] = []
+            for ir in range(10):
+                a = (2.0 * math.pi * ir) / 10.0
+                ca, sa = math.cos(a), math.sin(a)
+                sup = (abs(ca) ** 2.6 + abs(sa) ** 2.6) ** (-1.0 / 2.6)
+                anel_b.append((
+                    lado * (0.160 + 0.032 * esc_b * ca * sup),
+                    -0.095 + 0.052 * esc_b * sa * sup,
+                    z,
+                ))
+            aneis_bolso.append(anel_b)
+        _adicionar_loft_fechado_bm(
+            bm,
+            aneis_bolso,
+            mat_idx=0,
+            ponto_base=(lado * 0.160, -0.095, -0.310),
+            ponto_topo=(lado * 0.158, -0.095, -0.118),
+        )
+
+    # 6. Duas alcas anatomicas sobre as claviculas (+Y_bl) voltando sob os bracos + cinta esternal
+    for lado in (-1.0, 1.0):
+        _adicionar_tubo_curva_bm(
+            bm,
+            [
+                (lado * 0.095, -0.015, 0.005),
+                (lado * 0.112, 0.038, 0.088),
+                (lado * 0.125, 0.115, 0.106),
+                (lado * 0.118, 0.175, 0.032),
+                (lado * 0.102, 0.188, -0.068),
+                (lado * 0.132, 0.138, -0.168),
+                (lado * 0.168, 0.032, -0.242),
+                (lado * 0.135, -0.032, -0.296),
+            ],
+            r_larg=0.018,
+            r_esp=0.0045,
+            segs=6,
+            mat_idx=0,
+        )
+    _adicionar_tubo_curva_bm(
+        bm,
+        [
+            (-0.102, 0.192, -0.048),
+            (-0.048, 0.198, -0.048),
+            (0.0, 0.200, -0.048),
+            (0.048, 0.198, -0.048),
+            (0.102, 0.192, -0.048),
+        ],
+        r_larg=0.011,
+        r_esp=0.004,
+        segs=6,
+        mat_idx=0,
+    )
+    _adicionar_gema_octaedrica_bm(
+        bm,
+        (0.0, 0.204, -0.048),
+        (0.018, 0.006, 0.016),
+        mat_idx=2,
+    )
+
+    return _bmesh_criar_objeto_multimat(nome, bm, [mat_couro, mat_linho, mat_latao], angulo_suave=48.0)
+
+
+def _criar_capa_procedural(nome: str = "CapaSimuladaModular") -> "bpy.types.Object":
+    """Cria capa com simulacao real de tecido CLOTH sobre proxy de torso e fechos metalicos."""
+    mat_tecido = _criar_material_pbr_zona(
+        "Cape_WovenCloth",
+        (0.36, 0.09, 0.12, 1.0),
+        metallic=0.0,
+        roughness=0.84,
+        textura_arquivo="linen_tunic_albedo.png",
+        accent_color=(0.20, 0.04, 0.06, 1.0),
+        bump_strength=0.22,
+        noise_scale=58.0,
+        zona_tag="tecido_capa",
+    )
+    mat_fecho = _criar_material_pbr_zona(
+        "Cape_GoldClasp",
+        (0.831, 0.686, 0.216, 1.0),
+        metallic=0.90,
+        roughness=0.25,
+        textura_arquivo="bronze_filigree_albedo.png",
+        accent_color=(0.50, 0.39, 0.12, 1.0),
+        bump_strength=0.08,
+        noise_scale=54.0,
+        zona_tag="ouro_ornamentado",
+    )
+
+    cena = bpy.context.scene
+    frame_orig = cena.frame_current
+
+    # Proxy headless de torso e omoplatas para colisao natural do caimento
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=12, radius=0.18, location=(0.0, 0.115, -0.27))
+    proxy = bpy.context.active_object
+    proxy.name = f"{nome}_TorsoColProxy"
+    proxy.scale = (1.02, 0.72, 1.65)
+    bpy.ops.object.transform_apply(scale=True)
+    proxy.modifiers.new(name="TorsoCollision", type="COLLISION")
+
+    # Malha curvada nos ombros com pregas iniciais suaves para estimular dobras na simulacao
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=18, y_subdivisions=24, size=1.0)
+    capa = bpy.context.active_object
+    capa.name = nome
+    for v in capa.data.vertices:
+        u = v.co.x * 2.0  # -1..+1
+        t = 0.5 - v.co.y  # 0 no colarinho (+Z), 1 na barra (-Z)
+        largura_x = 0.205 + 0.135 * t
+        x = u * largura_x
+        pregas = 0.012 * (0.25 + 0.75 * t) * math.cos(5.0 * math.pi * u)
+        abraco_ombro = 0.055 * (1.0 - t) * (u * u)
+        queda_z = 0.020 - 0.86 * t - 0.025 * (1.0 - t) * (u * u)
+        y = -0.020 - 0.105 * t + abraco_ombro - pregas
+        v.co = Vector((x, y, queda_z))
+
+    vg_pin = capa.vertex_groups.new(name="PinCollar")
+    for v in capa.data.vertices:
+        if v.co.z > -0.035:
+            peso = 1.0 if v.co.z > -0.01 else 0.75
+            vg_pin.add([v.index], peso, "REPLACE")
+
+    mc = capa.modifiers.new(name="Cloth", type="CLOTH")
+    mc.settings.vertex_group_mass = "PinCollar"
+    mc.settings.quality = 5
+    mc.settings.mass = 0.45
+    mc.settings.tension_stiffness = 16.0
+    mc.settings.bending_stiffness = 1.2
+    mc.settings.air_damping = 1.2
+    mc.collision_settings.use_collision = True
+    mc.collision_settings.distance_min = 0.008
+
+    for f in range(1, 26):
+        cena.frame_set(f)
+
+    bpy.context.view_layer.objects.active = capa
+    bpy.ops.object.modifier_apply(modifier="Cloth")
+    bpy.data.objects.remove(proxy, do_unlink=True)
+    cena.frame_set(frame_orig)
+
+    ms = capa.modifiers.new(name="SolidifyCloth", type="SOLIDIFY")
+    ms.thickness = 0.004
+    ms.offset = 0.0
+    ms.use_rim = True
+    bpy.ops.object.modifier_apply(modifier="SolidifyCloth")
+
+    # Adiciona 2 fechos metalicos nos ombros sobre a malha simulada e fecha BMesh manifold
+    bm = bmesh.new()
+    bm.from_mesh(capa.data)
+    for f in bm.faces:
+        f.material_index = 0
+    for sx in (-0.145, 0.145):
+        _adicionar_gema_octaedrica_bm(
+            bm,
+            (sx, 0.014, 0.008),
+            (0.024, 0.012, 0.024),
+            rot_euler=(math.radians(15.0), 0.0, sx * -1.4),
+            mat_idx=1,
+        )
+    capa.data.materials.clear()
+    capa.data.materials.append(mat_tecido)
+    capa.data.materials.append(mat_fecho)
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bm.to_mesh(capa.data)
+    bm.free()
+    _garantir_uv(capa)
+    _aplicar_suavizacao_modular(capa, angulo_graus=65.0)
+    capa["forge3d_angulo_suave"] = 65.0
+    return capa
+
+
+def _criar_mochila_capa_procedural(
+    nome: str = "MochilaCapaModular",
+    tipo: str = "mochila",
+) -> "bpy.types.Object":
+    """Despacha construtor dedicado entre ``mochila`` estruturada e ``capa`` simulada."""
+    if str(tipo or "").strip().lower() in ("capa", "asas"):
+        return _criar_capa_procedural(nome=nome)
+    return _criar_mochila_procedural(nome=nome)
 
 
 def _criar_orbe_arcano_procedural(nome: str = "OrbeArcanoModular") -> "bpy.types.Object":
-    """Cria orbe de cristal facetado com aneis de filigrana centrado na palma (0, 0, 0)."""
-    bm = bmesh.new()
-    bmesh.ops.create_icosphere(bm, subdivisions=2, radius=0.105)
-    # Dois aneis astrolabio ortogonais envolvendo o nucleo cristalino
-    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.0), (0.24, 0.24, 0.028), subdiv=2)
-    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.0), (0.028, 0.24, 0.24), subdiv=2)
-    for v in bm.verts:
-        if v.co.length > 0.11:
-            v.co = v.co.normalized() * 0.125
+    """Cria orbe astrolabio de mao: nucleo estrelado emissivo, vidro refrativo e 2 aneis de ouro."""
+    mat_nucleo = _criar_material_pbr_zona(
+        "Orb_ArcaneCore",
+        (0.40, 0.95, 1.0, 1.0),
+        metallic=0.0,
+        roughness=0.12,
+        emission_color=(0.15, 0.85, 1.0, 1.0),
+        emission_strength=5.0,
+        zona_tag="nucleo_emissivo",
+    )
+    mat_vidro = _criar_material_pbr_zona(
+        "Orb_RefractiveGlass",
+        (0.72, 0.95, 1.0, 0.30),
+        metallic=0.0,
+        roughness=0.04,
+        transmission=0.92,
+        ior=1.52,
+        alpha=0.28,
+        blend_method="BLEND",
+        zona_tag="vidro_refrativo",
+    )
+    mat_ouro = _criar_material_pbr_zona(
+        "Orb_AstrolabeGold",
+        (0.831, 0.686, 0.216, 1.0),
+        metallic=0.94,
+        roughness=0.20,
+        textura_arquivo="bronze_filigree_albedo.png",
+        accent_color=(0.55, 0.42, 0.12, 1.0),
+        bump_strength=0.08,
+        noise_scale=60.0,
+        zona_tag="ouro_astrolabio",
+    )
 
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
-    me = bpy.data.meshes.new(nome)
-    bm.to_mesh(me)
-    bm.free()
-    for p in me.polygons:
-        p.use_smooth = True
-    obj = bpy.data.objects.new(nome, me)
-    bpy.context.collection.objects.link(obj)
-    _garantir_uv(obj)
-    return obj
+    bm = bmesh.new()
+
+    # 1. Nucleo estrelado arcano interno (r=0.028 m, 80 tris)
+    faces_0 = set(bm.faces)
+    ret_core = bmesh.ops.create_icosphere(bm, subdivisions=1, radius=0.028)
+    for idx_v, v in enumerate(ret_core["verts"]):
+        fator = 1.0 if (idx_v % 2 == 0) else 0.72
+        v.co *= fator
+    _atribuir_mat_novas_faces(bm, faces_0, 0)
+
+    # 2. Casca esferica externa de vidro refrativo (subdiv=3 -> 320 tris suaves, r=0.062 m)
+    faces_1 = set(bm.faces)
+    bmesh.ops.create_icosphere(bm, subdivisions=3, radius=0.062)
+    _atribuir_mat_novas_faces(bm, faces_1, 1)
+
+    # 3. Dois aneis astrolabio circulares inclinados +/-34 graus + 4 engastes cardinais
+    rot_pos = Matrix.Rotation(math.radians(34.0), 4, "X") @ Matrix.Rotation(math.radians(10.0), 4, "Y")
+    rot_neg = Matrix.Rotation(math.radians(-34.0), 4, "X") @ Matrix.Rotation(math.radians(-10.0), 4, "Y")
+    _adicionar_toro_bm(
+        bm, major_r=0.075, minor_r=0.005, segs_major=32, segs_minor=10, mat_idx=2, transform=rot_pos
+    )
+    _adicionar_toro_bm(
+        bm, major_r=0.081, minor_r=0.005, segs_major=32, segs_minor=10, mat_idx=2, transform=rot_neg
+    )
+
+    for cx, cy, cz, rx, ry, rz in (
+        (0.075, 0.0, 0.0, 0.009, 0.007, 0.009),
+        (-0.075, 0.0, 0.0, 0.009, 0.007, 0.009),
+        (0.0, 0.067, 0.045, 0.007, 0.009, 0.009),
+        (0.0, -0.067, -0.045, 0.007, 0.009, 0.009),
+    ):
+        _adicionar_gema_octaedrica_bm(bm, (cx, cy, cz), (rx, ry, rz), mat_idx=2)
+
+    return _bmesh_criar_objeto_multimat(
+        nome, bm, [mat_nucleo, mat_vidro, mat_ouro], angulo_suave=60.0
+    )
 
 
 def _criar_espada_arcana_procedural(nome: str = "EspadaArcanaModular") -> "bpy.types.Object":
-    """Cria espada longa forjada com pomo, empunhadura, guarda e lamina diamante ao longo de +Z."""
-    bm = bmesh.new()
-    # Pomo e empunhadura
-    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.03), (0.055, 0.055, 0.06), subdiv=1)
-    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.13), (0.036, 0.044, 0.16), subdiv=1)
-    # Guarda-mao (crossguard)
-    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.22), (0.045, 0.26, 0.038), subdiv=2)
-    # Lamina longa com perfil diamante afilando ate a ponta em Z=0.98
-    verts_lam = _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.60), (0.024, 0.082, 0.74), subdiv=3)
-    for v in verts_lam:
-        if v.co.z > 0.24:
-            t = max(0.0, min(1.0, (v.co.z - 0.24) / 0.73))
-            afila = max(0.08, 1.0 - 0.88 * (t ** 1.6))
-            v.co.y *= afila
-            v.co.x *= afila * (1.0 - 0.55 * min(1.0, abs(v.co.y) / 0.042))
+    """Cria espada longa forjada centrada na empunhadura (0,0,0), lamina diamante e gema arcana."""
+    mat_couro = _criar_material_pbr_zona(
+        "Sword_LeatherHilt",
+        (0.22, 0.12, 0.07, 1.0),
+        metallic=0.0,
+        roughness=0.68,
+        textura_arquivo="leather_saddle_albedo.png",
+        accent_color=(0.12, 0.06, 0.03, 1.0),
+        bump_strength=0.18,
+        noise_scale=52.0,
+        zona_tag="couro_gasto",
+    )
+    mat_ouro = _criar_material_pbr_zona(
+        "Sword_OrnateGold",
+        (0.831, 0.686, 0.216, 1.0),
+        metallic=0.92,
+        roughness=0.24,
+        textura_arquivo="bronze_filigree_albedo.png",
+        accent_color=(0.52, 0.39, 0.11, 1.0),
+        bump_strength=0.10,
+        noise_scale=56.0,
+        zona_tag="ouro_ornamentado",
+    )
+    mat_aco = _criar_material_pbr_zona(
+        "Sword_ForgedSteel",
+        (0.76, 0.80, 0.85, 1.0),
+        metallic=0.95,
+        roughness=0.18,
+        textura_arquivo="steel_forged_albedo.png",
+        accent_color=(0.56, 0.61, 0.68, 1.0),
+        bump_strength=0.07,
+        noise_scale=48.0,
+        zona_tag="aco_forjado",
+    )
+    mat_gema = _criar_material_pbr_zona(
+        "Sword_ArcaneGem",
+        (0.35, 0.92, 1.0, 1.0),
+        metallic=0.0,
+        roughness=0.10,
+        emission_color=(0.15, 0.85, 1.0, 1.0),
+        emission_strength=4.5,
+        zona_tag="gema_arcana",
+    )
 
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
-    me = bpy.data.meshes.new(nome)
-    bm.to_mesh(me)
-    bm.free()
-    for p in me.polygons:
-        p.use_smooth = True
-    obj = bpy.data.objects.new(nome, me)
-    bpy.context.collection.objects.link(obj)
-    _garantir_uv(obj)
-    return obj
+    bm = bmesh.new()
+
+    # 1. Haste oval em couro (Z = -0.068 .. +0.062) + 6 cordoes envoltos centrados na palma (0,0,0)
+    aneis_haste: list[list[tuple[float, float, float]]] = []
+    for iz, z in enumerate((-0.068, -0.035, 0.0, 0.032, 0.062)):
+        waist = 1.06 if iz == 2 else (0.98 if iz in (1, 3) else 0.92)
+        anel = [
+            (0.015 * waist * math.cos(2.0 * math.pi * k / 12.0),
+             0.020 * waist * math.sin(2.0 * math.pi * k / 12.0),
+             z)
+            for k in range(12)
+        ]
+        aneis_haste.append(anel)
+    _adicionar_loft_fechado_bm(bm, aneis_haste, mat_idx=0)
+
+    for idx_w in range(6):
+        zw = -0.052 + 0.020 * idx_w
+        rot_cordao = Matrix.Translation((0.0, 0.0, zw)) @ Matrix.Rotation(math.radians(7.0), 4, "Y")
+        _adicionar_toro_bm(
+            bm,
+            major_r=0.0155,
+            minor_r=0.0028,
+            segs_major=10,
+            segs_minor=5,
+            rx=1.0,
+            ry=1.32,
+            mat_idx=0,
+            transform=rot_cordao,
+        )
+
+    # 2. Pomo facetado em gota invertida (Z = -0.112 .. -0.068)
+    aneis_pomo: list[list[tuple[float, float, float]]] = []
+    perfil_pomo = (
+        (-0.112, 0.006, 0.006),
+        (-0.102, 0.019, 0.016),
+        (-0.090, 0.026, 0.021),
+        (-0.078, 0.022, 0.018),
+        (-0.068, 0.015, 0.019),
+    )
+    for z, rx, ry in perfil_pomo:
+        anel = []
+        for k in range(10):
+            flute = 1.07 if (k % 2 == 0) else 0.94
+            ang = (2.0 * math.pi * k) / 10.0
+            anel.append((rx * flute * math.cos(ang), ry * flute * math.sin(ang), z))
+        aneis_pomo.append(anel)
+    _adicionar_loft_fechado_bm(bm, aneis_pomo, mat_idx=1)
+
+    # 3. Guarda em S / quillons alargados (X in [-0.120, +0.120], Z in [+0.062, +0.098])
+    aneis_guarda: list[list[tuple[float, float, float]]] = []
+    n_g = 17
+    for ig in range(n_g):
+        u = -1.0 + 2.0 * (ig / float(n_g - 1))
+        x = 0.120 * u
+        flare = 1.0 + 0.55 * (abs(u) ** 2.4)
+        ponta_taper = 0.52 if abs(u) > 0.96 else 1.0
+        zc = 0.072 + 0.018 * (u * u) + 0.006 * math.sin(math.pi * u)
+        yc = 0.010 * math.sin(math.pi * u)
+        hw = 0.009 * flare * ponta_taper
+        hh = 0.0085 * flare * ponta_taper
+        anel_g = [
+            (x, yc - hw, zc),
+            (x, yc - hw * 0.45, zc + hh),
+            (x, yc + hw * 0.45, zc + hh),
+            (x, yc + hw, zc),
+            (x, yc + hw * 0.45, zc - hh),
+            (x, yc - hw * 0.45, zc - hh),
+        ]
+        aneis_guarda.append(anel_g)
+    _adicionar_loft_fechado_bm(bm, aneis_guarda, mat_idx=1)
+
+    # Colar chanfrado de ricasso + incrustacoes de gema arcana frontal/traseira
+    aneis_ricasso: list[list[tuple[float, float, float]]] = []
+    for z, sx, sy in ((0.062, 0.025, 0.023), (0.080, 0.036, 0.026), (0.104, 0.029, 0.018)):
+        anel_r = []
+        for k in range(8):
+            ang = (2.0 * math.pi * k) / 8.0 + (math.pi / 8.0)
+            anel_r.append((sx * math.cos(ang), sy * math.sin(ang), z))
+        aneis_ricasso.append(anel_r)
+    _adicionar_loft_fechado_bm(bm, aneis_ricasso, mat_idx=1)
+    for sy_g in (-0.022, 0.022):
+        _adicionar_gema_octaedrica_bm(bm, (0.0, sy_g, 0.082), (0.011, 0.0065, 0.015), mat_idx=3)
+
+    # 4. Lamina de aco forjado de 8 faces (sulco central hollow-ground + gume duplo + ponta parabolica)
+    aneis_lamina: list[list[tuple[float, float, float]]] = []
+    n_lam = 16
+    for il in range(n_lam):
+        t = il / float(n_lam - 1)
+        z = 0.095 + (0.905 - 0.095) * t
+        if t < 0.72:
+            afila_w = 1.0 - 0.24 * (t / 0.72)
+        else:
+            tp = (t - 0.72) / 0.28
+            afila_w = 0.76 * max(0.08, 1.0 - (tp ** 1.55))
+        w = 0.034 * afila_w
+        esp_crista = 0.0085 * (1.0 - 0.58 * t)
+        # Concavidade hollow-ground no meio da lamina (Z ~ 0.14..0.64)
+        fuller = 0.62 if (0.05 < t < 0.70) else 0.88
+        esp_ombro = esp_crista * fuller
+        x_sh = w * 0.34
+        anel_l = [
+            (-w, 0.0, z),
+            (-x_sh, esp_ombro, z),
+            (0.0, esp_crista, z),
+            (x_sh, esp_ombro, z),
+            (w, 0.0, z),
+            (x_sh, -esp_ombro, z),
+            (0.0, -esp_crista, z),
+            (-x_sh, -esp_ombro, z),
+        ]
+        aneis_lamina.append(anel_l)
+    _adicionar_loft_fechado_bm(
+        bm,
+        aneis_lamina,
+        mat_idx=2,
+        ponto_topo=(0.0, 0.0, 0.920),
+    )
+
+    return _bmesh_criar_objeto_multimat(
+        nome, bm, [mat_couro, mat_ouro, mat_aco, mat_gema], angulo_suave=36.0
+    )
 
 
 def _criar_sela_montaria_procedural(nome: str = "SelaMontariaModular") -> "bpy.types.Object":
@@ -889,13 +1769,24 @@ def _ajustar_pivo_socket(
     else:
         # Malha standalone centrada na origem: aplica ancoragem canonica por tipo de parte
         if parte == "arma":
-            ancora = Vector((centro.x, centro.y, min_z + 0.20 * max(max_z - min_z, 1e-4)))
+            if min_z < -0.05 and max_z > 0.5:
+                ancora = Vector((0.0, 0.0, 0.0))
+            else:
+                ancora = Vector((centro.x, centro.y, min_z + 0.20 * max(max_z - min_z, 1e-4)))
         elif parte == "escudo":
             # Lado interno de pegada no antebraco (-Y_bl), face convexa externa em +Y_bl
             ancora = Vector((centro.x, min_y + 0.15 * max(max_y - min_y, 1e-4), centro.z))
-        elif parte in ("capa", "mochila", "asas"):
-            # Ancoragem dorsal na borda superior-frontal (+Y_bl, z alto) para pender em -Z_bl
-            ancora = Vector((centro.x, max_y, max_z - 0.12 * max(max_z - min_z, 1e-4)))
+        elif parte == "mochila":
+            if min_y < -0.10 and max_y > 0.05 and min_z < -0.25 and max_z > 0.02:
+                ancora = Vector((0.0, 0.0, 0.0))
+            else:
+                ancora = Vector((centro.x, max_y, max_z - 0.12 * max(max_z - min_z, 1e-4)))
+        elif parte in ("capa", "asas"):
+            if min_z < -0.50 and max_z <= 0.12 and (max_z - min_z) > (max_y - min_y) * 1.5:
+                ancora = Vector((0.0, 0.0, 0.0))
+            else:
+                # Ancoragem dorsal na borda superior-frontal (+Y_bl, z alto) para pender em -Z_bl
+                ancora = Vector((centro.x, max_y, max_z - 0.12 * max(max_z - min_z, 1e-4)))
         elif parte == "sela":
             ancora = Vector((centro.x, centro.y, min_z + 0.25 * max(max_z - min_z, 1e-4)))
         else:
@@ -1011,8 +1902,11 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
         if parte == "escudo":
             cloth = _criar_escudo_procedural()
             mhclo_path = "procedural://escudo"
-        elif parte in ("mochila", "capa", "asas"):
-            cloth = _criar_mochila_capa_procedural()
+        elif parte == "mochila":
+            cloth = _criar_mochila_procedural()
+            mhclo_path = "procedural://mochila"
+        elif parte in ("capa", "asas"):
+            cloth = _criar_capa_procedural()
             mhclo_path = f"procedural://{parte}"
         elif parte == "orbe":
             cloth = _criar_orbe_arcano_procedural()
@@ -1108,6 +2002,11 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
         bpy.ops.object.modifier_apply(modifier="DecimateArmor")
 
     _limpar_malha_manifold(cloth)
+    angulo_pos = cloth.get("forge3d_angulo_suave") if hasattr(cloth, "get") else None
+    if angulo_pos is None and eh_procedural:
+        angulo_pos = {"arma": 36.0, "capa": 65.0, "asas": 65.0}.get(parte, 48.0)
+    if angulo_pos is not None:
+        _aplicar_suavizacao_modular(cloth, float(angulo_pos))
     _aplicar_estilo_visual(cloth, job)
 
     if skinned and rig_obj is not None and human is not None:

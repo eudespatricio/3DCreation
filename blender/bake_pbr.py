@@ -810,6 +810,38 @@ def _extrair_escalares_pbr_material(mat) -> tuple[float, float | None]:
     return max(0.0, min(1.0, met)), rough
 
 
+def _aplicar_opcoes_especiais_bsdf(mat, cfg_p: dict) -> None:
+    """Propaga propriedades PBR estendidas (transmissao, IOR, alpha, emissao) ao Principled BSDF."""
+    if mat is None or not cfg_p:
+        return
+    if cfg_p.get("blend_method") and hasattr(mat, "blend_method"):
+        mat.blend_method = str(cfg_p["blend_method"])
+    nt = getattr(mat, "node_tree", None)
+    if nt is None:
+        return
+    bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None:
+        return
+    if "Metallic" in bsdf.inputs:
+        bsdf.inputs["Metallic"].default_value = float(
+            0.5 * (cfg_p.get("metallic_min", 0.0) + cfg_p.get("metallic_max", 0.0))
+        )
+    if "Roughness" in bsdf.inputs:
+        bsdf.inputs["Roughness"].default_value = float(
+            0.5 * (cfg_p.get("roughness_min", 0.5) + cfg_p.get("roughness_max", 0.7))
+        )
+    if "transmission" in cfg_p and "Transmission Weight" in bsdf.inputs:
+        bsdf.inputs["Transmission Weight"].default_value = float(cfg_p["transmission"])
+    if "ior" in cfg_p and "IOR" in bsdf.inputs:
+        bsdf.inputs["IOR"].default_value = float(cfg_p["ior"])
+    if "alpha" in cfg_p and "Alpha" in bsdf.inputs:
+        bsdf.inputs["Alpha"].default_value = float(cfg_p["alpha"])
+    if "emission_color" in cfg_p and "Emission Color" in bsdf.inputs:
+        bsdf.inputs["Emission Color"].default_value = tuple(cfg_p["emission_color"])
+    if "emission_strength" in cfg_p and "Emission Strength" in bsdf.inputs:
+        bsdf.inputs["Emission Strength"].default_value = float(cfg_p["emission_strength"])
+
+
 def executar_bake_high_low(
     obj,
     saida_dir: str,
@@ -848,6 +880,59 @@ def executar_bake_high_low(
     os.makedirs(saida_dir, exist_ok=True)
     px = max(64, min(int(px), 2048))
     px_sub = min(px, 1024 if px >= 2048 else 512)
+
+    if (
+        len(obj.data.materials) > 1
+        and not tem_cor_vertice
+        and not str(perfil_nome or "").startswith("roblox")
+    ):
+        tris_high = _contar_triangulos(obj)
+        decimar_fn(obj, int(limite_triangulos))
+        info_reparo = reparo_fn(obj)
+        if _contar_triangulos(obj) > int(limite_triangulos):
+            decimar_fn(obj, max(50, int(int(limite_triangulos) * 0.97)))
+            info_reparo = reparo_fn(obj)
+        info_smooth = suavizar_fn(obj)
+        info_uv = uv_fn(obj)
+        if not obj.data.uv_layers:
+            raise RuntimeError("malha low-poly sem camada UV apos uv_fn")
+        tris_low = _contar_triangulos(obj)
+        bpy.context.view_layer.update()
+        diag = _bbox_diag(obj)
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        return {
+            "textura_px": px,
+            "normal_px": px_sub,
+            "orm_px": px_sub,
+            "bake": {
+                "textura_px": px,
+                "normal_px": px_sub,
+                "orm_px": px_sub,
+                "cor_atributo": "multimaterial",
+                "material_procedural": preset_proc or None,
+                "dispositivo_cycles": "PRESERVADO_MULTIMATERIAL",
+                "samples": 0,
+                "bbox_diag": round(diag, 6),
+                "cage_extrusion": 0.0,
+                "triangulos_high": tris_high,
+                "triangulos_low": tris_low,
+                "reparo": info_reparo,
+                "smooth": info_smooth,
+                "uv": info_uv,
+                "origem_textura_aplicada": False,
+                "metallic_hint_aplicado": False,
+                "roughness_hint_aplicado": False,
+                "multimaterial_preservado": True,
+                "materiais": len(obj.data.materials),
+                "png_bytes": 0,
+                "baseColor_bytes": 0,
+                "normal_bytes": 0,
+                "orm_bytes": 0,
+            },
+            "arquivos_textura": [],
+        }
 
     if tem_cor_vertice:
         ativo_cor = obj.data.color_attributes.active_color
@@ -1122,16 +1207,7 @@ def executar_bake_high_low(
         mat_final = _criar_material_pbr_gltf(f"{nome_base}_pbr", img_bc, img_nm, img_orm)
         if tem_procedural and proc_mod is not None:
             cfg_p = proc_mod.PRESETS_PBR.get(preset_proc, {})
-            bsdf_f = mat_final.node_tree.nodes.get("Principled BSDF")
-            if bsdf_f is not None:
-                if "Metallic" in bsdf_f.inputs:
-                    bsdf_f.inputs["Metallic"].default_value = float(
-                        0.5 * (cfg_p.get("metallic_min", 0.0) + cfg_p.get("metallic_max", 0.0))
-                    )
-                if "Roughness" in bsdf_f.inputs:
-                    bsdf_f.inputs["Roughness"].default_value = float(
-                        0.5 * (cfg_p.get("roughness_min", 0.5) + cfg_p.get("roughness_max", 0.7))
-                    )
+            _aplicar_opcoes_especiais_bsdf(mat_final, cfg_p)
         elif met_escalar_orig > 0.0:
             bsdf_f = mat_final.node_tree.nodes.get("Principled BSDF")
             if bsdf_f is not None and "Metallic" in bsdf_f.inputs:

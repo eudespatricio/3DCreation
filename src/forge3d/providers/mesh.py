@@ -27,7 +27,7 @@ from typing import Any
 from .. import locks, paths
 from .base import RawAsset
 
-VERSAO = "0.1.8"
+VERSAO = "0.1.9"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
 VRAM_MINIMA_MB = 3500
@@ -975,6 +975,16 @@ class MeshProvider:
 
         tex_max = int((perfil.get("material") or {}).get("textura_max") or 1024)
         mat_max = int((perfil.get("validacao") or {}).get("materiais_max") or 8)
+        qualidade = _qualidade(item)
+        usar_grip_padrao = bool(
+            qualidade == "hero" or item.get("sockets") or item.get("auto_rig", True)
+        )
+        pose_mao_r = str(
+            item.get("pose_mao_r") or ("grip" if usar_grip_padrao else "relaxed")
+        ).strip()
+        pose_mao_l = str(
+            item.get("pose_mao_l") or ("cupped" if usar_grip_padrao else "relaxed")
+        ).strip()
         job_path = destino / "template_job.json"
         job_data: dict[str, Any] = {
             "foto": prep_data["foto_template"],
@@ -984,6 +994,11 @@ class MeshProvider:
             "materiais_max": mat_max,
             "limite_triangulos": int(item.get("limite_triangulos") or 12000),
             "rig": False,
+            "projetar_foto_2d": bool(item.get("projetar_foto_2d") is True),
+            "corpo_nu": bool(item.get("corpo_nu") is True),
+            "qualidade": qualidade,
+            "pose_mao_r": pose_mao_r,
+            "pose_mao_l": pose_mao_l,
         }
         if item.get("macro"):
             job_data["macro"] = dict(item["macro"])
@@ -992,6 +1007,12 @@ class MeshProvider:
             job_data["makehuman_cabelo"] = mh_cabelo
         if item.get("cor_cabelo"):
             job_data["cor_cabelo"] = str(item["cor_cabelo"]).strip()
+        if item.get("prompt"):
+            job_data["prompt"] = str(item["prompt"]).strip()
+        if item.get("paleta"):
+            job_data["paleta"] = list(item["paleta"])
+        if item.get("cor"):
+            job_data["cor"] = str(item["cor"]).strip()
         job_path.write_text(json.dumps(job_data, indent=1) + "\n", encoding="utf-8")
 
         try:

@@ -2,12 +2,11 @@
 extends EditorPlugin
 
 const PostImport := preload("post_import.gd")
+const ScenePostImportPlugin := preload("scene_post_import_plugin.gd")
 var _importer: EditorScenePostImportPlugin
 
 
-class Forge3DPostImportPlugin extends EditorScenePostImportPlugin:
-	var _source_queue: Array[String] = []
-
+class Forge3DPostImportPlugin extends ScenePostImportPlugin:
 	func _get_import_options(path: String) -> void:
 		if path != "":
 			_source_queue.append(path)
@@ -22,6 +21,8 @@ class Forge3DPostImportPlugin extends EditorScenePostImportPlugin:
 			source_path = String(_source_queue.pop_front())
 		if source_path == "":
 			source_path = scene.scene_file_path
+		if scene.has_meta("forge3d_post_imported"):
+			return
 		PostImport.aplicar(scene, source_path)
 
 

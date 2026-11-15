@@ -985,8 +985,130 @@ def _desvio_pivo(regra: str, minimo_y: float, maximo_y: float) -> float | None:
     return None
 
 
+_CLIPES_CICLICOS = frozenset(
+    {"idle", "walk", "run", "gallop", "wing_flap", "glide", "ride_idle", "ride_fly"}
+)
+_TIPOS_ORGANICOS = frozenset(
+    {
+        "personagem_humanoide",
+        "criatura",
+        "criatura_quadrupede",
+        "criatura_alada",
+        "montaria",
+    }
+)
+
+
+def _inspecionar_facetamento_organico(gltf: dict, binario: bytes) -> dict:
+    """Detecta malhas organicas 100% facetadas (normais quebradas em arestas suaves < 30 graus)."""
+    acessores = gltf.get("accessors", [])
+    meshes = gltf.get("meshes", [])
+    cos_30 = math.cos(math.radians(30.0))
+    cos_meio_grau = math.cos(math.radians(0.5))
+
+    # Mapeia aresta soldada (pA, pB) -> lista de (face_normal, vnorm_em_pA, vnorm_em_pB)
+    arestas_adj: dict[
+        tuple[tuple[float, float, float], tuple[float, float, float]],
+        list[tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]],
+    ] = {}
+    sem_normal_accessor = False
+    total_tris = 0
+
+    for malha_gltf in meshes:
+        for prim in malha_gltf.get("primitives", []):
+            if int(prim.get("mode", 4)) != 4:
+                continue
+            attrs = prim.get("attributes") or {}
+            pos_idx = attrs.get("POSITION")
+            norm_idx = attrs.get("NORMAL")
+            if pos_idx is None or int(pos_idx) >= len(acessores):
+                continue
+            pos = [(float(p[0]), float(p[1]), float(p[2])) for p in _accessor(gltf, binario, int(pos_idx))]
+            if not pos:
+                continue
+            idx_acc = prim.get("indices")
+            if idx_acc is not None and int(idx_acc) < len(acessores):
+                ids = [int(v[0]) for v in _accessor(gltf, binario, int(idx_acc))]
+            else:
+                ids = list(range(len(pos)))
+            n_tris_prim = len(ids) // 3
+            total_tris += n_tris_prim
+            if norm_idx is None or int(norm_idx) >= len(acessores):
+                sem_normal_accessor = True
+                continue
+            norms = [
+                _vec3_norm((float(n[0]), float(n[1]), float(n[2])))
+                for n in _accessor(gltf, binario, int(norm_idx))
+            ]
+            if len(norms) < len(pos):
+                sem_normal_accessor = True
+                continue
+
+            solda_p = [(round(p[0], 5), round(p[1], 5), round(p[2], 5)) for p in pos]
+            for k in range(0, len(ids) - 2, 3):
+                i0, i1, i2 = ids[k], ids[k + 1], ids[k + 2]
+                if i0 >= len(pos) or i1 >= len(pos) or i2 >= len(pos):
+                    continue
+                p0, p1, p2 = pos[i0], pos[i1], pos[i2]
+                ux, uy, uz = p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]
+                vx, vy, vz = p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]
+                fn = _vec3_norm((uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx))
+                if fn == (0.0, 0.0, 0.0):
+                    continue
+                for a, b in ((i0, i1), (i1, i2), (i2, i0)):
+                    ka, kb = solda_p[a], solda_p[b]
+                    if ka == kb:
+                        continue
+                    if ka < kb:
+                        chave = (ka, kb)
+                        na, nb = norms[a], norms[b]
+                    else:
+                        chave = (kb, ka)
+                        na, nb = norms[b], norms[a]
+                    arestas_adj.setdefault(chave, []).append((fn, na, nb))
+
+    if sem_normal_accessor and total_tris >= 200:
+        return {
+            "facetada": True,
+            "fracao_facetada": 1.0,
+            "arestas_suaves": total_tris,
+            "arestas_facetadas": total_tris,
+            "motivo": "malha_organica_facetada",
+        }
+
+    arestas_suaves = 0
+    arestas_facetadas = 0
+    for faces in arestas_adj.values():
+        if len(faces) != 2:
+            continue
+        (fn1, n1a, n1b), (fn2, n2a, n2b) = faces[0], faces[1]
+        cos_dih = _vec3_dot(fn1, fn2)
+        if cos_30 < cos_dih < cos_meio_grau:
+            arestas_suaves += 1
+            split_a = _vec3_dot(n1a, n2a) < 0.9995
+            split_b = _vec3_dot(n1b, n2b) < 0.9995
+            colado_face = (
+                _vec3_dot(n1a, fn1) > 0.9995
+                and _vec3_dot(n2a, fn2) > 0.9995
+                and _vec3_dot(n1b, fn1) > 0.9995
+                and _vec3_dot(n2b, fn2) > 0.9995
+            )
+            if (split_a and split_b) or colado_face:
+                arestas_facetadas += 1
+
+    fracao = (arestas_facetadas / float(arestas_suaves)) if arestas_suaves > 0 else 0.0
+    facetada = total_tris >= 200 and arestas_suaves >= 8 and fracao > 0.85
+    return {
+        "facetada": facetada,
+        "fracao_facetada": round(fracao, 4),
+        "arestas_suaves": arestas_suaves,
+        "arestas_facetadas": arestas_facetadas,
+        "motivo": "malha_organica_facetada" if facetada else None,
+    }
+
+
 def animacoes(gltf: dict, binario: bytes) -> list[dict]:
-    """Le os clipes do glTF: nome, duracao em segundos e ossos efetivamente animados.
+    """Le os clipes do glTF: nome, duracao em segundos, ossos animados e continuidade de loop.
 
     Canal que nao aponta para um joint do skin e ignorado: o que interessa ao gate e motion de
     esqueleto, nao transform de objeto.
@@ -1003,10 +1125,13 @@ def animacoes(gltf: dict, binario: bytes) -> list[dict]:
         }
     clipes: list[dict] = []
     for animacao in gltf.get("animations", []):
+        nome_clipe = animacao.get("name") or f"anim{len(clipes)}"
         duracao = 0.0
         ossos: set[str] = set()
         movendo: set[str] = set()
         canais = 0
+        max_loop_delta_rot = 0.0
+        max_loop_delta_pos = 0.0
         for canal in animacao.get("channels", []):
             alvo = canal.get("target") or {}
             indice = alvo.get("node")
@@ -1024,27 +1149,49 @@ def animacoes(gltf: dict, binario: bytes) -> list[dict]:
                 continue
             ossos.add(nome)
             canais += 1
-            # canal de rotacao existe sempre (o export amostra todos os ossos); o que
-            # interessa ao gate e algum valor diferente da rotacao inicial.
             saida = amostrador.get("output")
-            if alvo.get("path") == "rotation" and isinstance(saida, int) and saida < len(acessores):
+            caminho_alvo = alvo.get("path")
+            if caminho_alvo in ("rotation", "translation") and isinstance(saida, int) and saida < len(acessores):
                 try:
                     valores = _accessor(gltf, binario, saida)
-                except Exception:  # noqa: BLE001 - accessor de terceiro pode nao ser VEC4 float
+                except Exception:  # noqa: BLE001 - accessor de terceiro pode nao ser VEC3/VEC4 float
                     valores = []
                 if valores:
-                    base = valores[0]
+                    base = [float(c) for c in valores[0]]
                     for valor in valores[1:]:
-                        if any(abs(float(c) - float(b)) > 1e-5 for b, c in zip(base, valor)):
+                        vf = [float(c) for c in valor]
+                        if caminho_alvo == "rotation" and len(base) == 4 and len(vf) == 4:
+                            dot_q = abs(sum(a * b for a, b in zip(base, vf)))
+                            if 1.0 - min(1.0, dot_q) > 1e-6 or any(abs(b - c) > 1e-5 for b, c in zip(base, vf)):
+                                movendo.add(nome)
+                                break
+                        elif any(abs(b - c) > 1e-5 for b, c in zip(base, vf)):
                             movendo.add(nome)
                             break
+                    if len(valores) >= 2:
+                        fim = [float(c) for c in valores[-1]]
+                        if caminho_alvo == "rotation" and len(base) == 4 and len(fim) == 4:
+                            n_b = math.sqrt(sum(c * c for c in base)) or 1.0
+                            n_f = math.sqrt(sum(c * c for c in fim)) or 1.0
+                            dot_se = abs(sum((a / n_b) * (b / n_f) for a, b in zip(base, fim)))
+                            ang_se = 2.0 * math.acos(min(1.0, max(0.0, dot_se)))
+                            max_loop_delta_rot = max(max_loop_delta_rot, ang_se)
+                        elif caminho_alvo == "translation" and len(base) == 3 and len(fim) == 3:
+                            dist_se = math.sqrt(sum((a - b) ** 2 for a, b in zip(base, fim)))
+                            max_loop_delta_pos = max(max_loop_delta_pos, dist_se)
+        eh_ciclico = nome_clipe in _CLIPES_CICLICOS
+        loop_fechado = True
+        if eh_ciclico:
+            loop_fechado = max_loop_delta_rot <= math.radians(25.0) and max_loop_delta_pos <= 0.15
         clipes.append(
             {
-                "nome": animacao.get("name") or f"anim{len(clipes)}",
+                "nome": nome_clipe,
                 "duracao_s": round(duracao, 3),
                 "ossos": sorted(ossos),
                 "movendo": sorted(movendo),
                 "canais": canais,
+                "loop_delta_rad": round(max_loop_delta_rot, 5),
+                "loop_fechado": loop_fechado,
             }
         )
     return clipes
@@ -1162,9 +1309,24 @@ def _g2_orientacao(
                 if por_nome[toe_n][11] > por_nome[foot_n][11] + 0.01:
                     _marcar("rig_de_costas")
 
+        eh_criatura_ou_montaria = (
+            str(item.get("esqueleto") or "") in ("quadruped@1", "winged_mount@1")
+            or str(item.get("tipo") or "") in ("criatura", "criatura_quadrupede", "criatura_alada", "montaria")
+        )
+        if eh_criatura_ou_montaria:
+            ossos_frente = [por_nome[n][11] for n in ("Jaw", "Head", "Neck1") if n in por_nome]
+            ossos_tras = [por_nome[n][11] for n in ("Tail3", "Tail2", "Tail1", "Hips") if n in por_nome]
+            if ossos_frente and ossos_tras:
+                if min(ossos_frente) > max(ossos_tras) + 0.01:
+                    _marcar("rig_de_costas")
+                    _marcar("criatura_de_costas")
+
         eh_humanoid_godot = (
-            (perfil.get("rig") or {}).get("padrao") == "godot-humanoid@1"
-            or item.get("esqueleto") == "godot-humanoid@1"
+            (
+                (perfil.get("rig") or {}).get("padrao") == "godot-humanoid@1"
+                or item.get("esqueleto") == "godot-humanoid@1"
+            )
+            and not eh_criatura_ou_montaria
         )
         if eh_humanoid_godot:
             cos5 = math.cos(math.radians(5.0))
@@ -1178,7 +1340,9 @@ def _g2_orientacao(
                 cruz = _vec3_cross(c1_s, c1_i)
                 if math.sqrt(_vec3_dot(cruz, cruz)) > 0.08:
                     n_ref = _vec3_norm(cruz)
-                    if n_ref[0] > 0.5:
+                    if abs(n_ref[0]) > 0.5:
+                        if n_ref[0] < 0.0:
+                            n_ref = (-n_ref[0], -n_ref[1], -n_ref[2])
                         alvos_braco[sup_n] = n_ref
                         alvos_braco[inf_n] = n_ref
 
@@ -1204,7 +1368,71 @@ def _g2_orientacao(
                     c0_ref = _vec3_norm(cruz_cz)
                 if _vec3_dot(c0, c0_ref) < cos5:
                     _marcar("roll_osso_desalinhado")
-                    ossos_desalinhados.append(bnome)
+                    if bnome not in ossos_desalinhados:
+                        ossos_desalinhados.append(bnome)
+
+            # Consistencia de espelhamento L/R do roll dos bracos
+            for nome_l, nome_r in (("UpperArm.L", "UpperArm.R"), ("LowerArm.L", "LowerArm.R")):
+                if nome_l in por_nome and nome_r in por_nome:
+                    ml, mr = por_nome[nome_l], por_nome[nome_r]
+                    c0_l = _vec3_norm((ml[0], ml[4], ml[8]))
+                    c0_r = _vec3_norm((mr[0], mr[4], mr[8]))
+                    c0_l_esp = (c0_l[0], -c0_l[1], -c0_l[2])
+                    if _vec3_dot(c0_r, c0_l_esp) < 0.5:
+                        _marcar("roll_osso_desalinhado")
+                        if nome_r not in ossos_desalinhados:
+                            ossos_desalinhados.append(nome_r)
+
+    eh_criatura_tipo = (
+        str(item.get("esqueleto") or "") in ("quadruped@1", "winged_mount@1")
+        or str(item.get("tipo") or "") in ("criatura", "criatura_quadrupede", "criatura_alada", "montaria")
+    )
+    if (
+        frente_perfil == "-Z"
+        and eh_criatura_tipo
+        and not skins
+        and gltf.get("meshes")
+    ):
+        verts, _ = malha(gltf, binario)
+        y_min = info["min"][1]
+        alt = info["bbox_m"][1]
+        z_min, z_max = info["min"][2], info["max"][2]
+        dz = z_max - z_min
+        if verts and alt > 1e-6 and dz > 1e-6:
+            z_mid = 0.5 * (z_min + z_max)
+            topo_zs = [v[2] for v in verts if v[1] >= y_min + 0.72 * alt]
+            if topo_zs:
+                mean_topo_z = sum(topo_zs) / len(topo_zs)
+                if mean_topo_z > z_mid + 0.08 * dz:
+                    _marcar("malha_de_costas")
+                    _marcar("criatura_de_costas")
+
+    raw_sockets = item.get("sockets") or item.get("sockets_manifest") or info.get("_sockets")
+    if isinstance(raw_sockets, dict) and raw_sockets:
+        nomes_ossos_validos = set(info.get("nomes_ossos") or [])
+        if not nomes_ossos_validos:
+            nomes_ossos_validos = {
+                str(n.get("name")) for n in nodes if isinstance(n.get("name"), str)
+            }
+        for _sk_nome, sk_cfg in raw_sockets.items():
+            if not isinstance(sk_cfg, dict):
+                _marcar("socket_invalido")
+                continue
+            osso_sk = str(sk_cfg.get("osso") or "").strip()
+            if not osso_sk or (nomes_ossos_validos and osso_sk not in nomes_ossos_validos):
+                _marcar("socket_invalido")
+            q_sk = sk_cfg.get("rotacao_quat_wxyz")
+            if q_sk is not None:
+                if not isinstance(q_sk, (list, tuple)) or len(q_sk) != 4:
+                    _marcar("socket_invalido")
+                else:
+                    try:
+                        qf = [float(c) for c in q_sk]
+                        q_norm = math.sqrt(sum(c * c for c in qf))
+                        if not all(math.isfinite(c) for c in qf) or abs(q_norm - 1.0) > 0.02:
+                            _marcar("socket_invalido")
+                    except (TypeError, ValueError):
+                        _marcar("socket_invalido")
 
     if (
         frente_perfil == "-Z"
@@ -1276,6 +1504,34 @@ def verificar(
 
     gltf, binario = ler_glb_bin(pasta / arq_malha["caminho"])
     info = analisar(gltf, binario)
+    info["_sockets"] = (
+        resultado.get("sockets") or medidas.get("sockets") or item.get("sockets")
+    )
+
+    tags_item = [str(t) for t in (item.get("tags") or [])]
+    eh_blocky = (
+        item.get("rota") == "blocky"
+        or item.get("estilo") == "blocky_voxel"
+        or "blocky_voxel" in tags_item
+    )
+    checar_facetamento = (
+        exigir_orientacao
+        and str(item.get("tipo") or "") in _TIPOS_ORGANICOS
+        and not eh_blocky
+        and info["triangulos"] >= 200
+        and bool(gltf.get("meshes"))
+    )
+    fac_info = (
+        _inspecionar_facetamento_organico(gltf, binario)
+        if checar_facetamento
+        else {
+            "arestas_suaves": 0,
+            "arestas_facetadas": 0,
+            "fracao_facetada": 0.0,
+            "facetada": False,
+        }
+    )
+    malha_facetada = bool(fac_info.get("facetada", False))
 
     # G1 geometria sa — mede o GLB real em Python puro tambem no `run`, sem confiar so em medidas
     topo = (
@@ -1290,16 +1546,24 @@ def verificar(
         nao_manifold <= int(v["nao_manifold_max"])
         and degeneradas <= int(v["faces_degeneradas_max"])
         and invertidas == 0
+        and not malha_facetada
     )
+    medido_g1: dict = {
+        "nao_manifold": nao_manifold,
+        "degeneradas": degeneradas,
+        "invertidas": invertidas,
+    }
+    if checar_facetamento:
+        medido_g1["fracao_facetada"] = fac_info["fracao_facetada"]
+        medido_g1["malha_organica_facetada"] = malha_facetada
+    if malha_facetada:
+        medido_g1["motivo"] = "malha_organica_facetada"
+        medido_g1["motivos"] = ["malha_organica_facetada"]
     gates.append(
         {
             "id": "G1",
             "status": "ok" if g1_ok else "falhou",
-            "medido": {
-                "nao_manifold": nao_manifold,
-                "degeneradas": degeneradas,
-                "invertidas": invertidas,
-            },
+            "medido": medido_g1,
             "limite": {
                 "nao_manifold_max": v["nao_manifold_max"],
                 "degeneradas_max": v["faces_degeneradas_max"],
@@ -1470,17 +1734,25 @@ def verificar(
         and (materiais_validos == info["materiais"] or info["com_textura"] == info["materiais"])
         and not info["imagens_externas"]
         and (sem_tangent_normal == 0 or not exigir_tangent_normal)
+        and not malha_facetada
     )
+    medido_g5: dict = {
+        "materiais": info["materiais"],
+        "com_textura": info["com_textura"],
+        "imagens_externas": info["imagens_externas"],
+        "sem_tangent_normal": sem_tangent_normal,
+    }
+    if checar_facetamento:
+        medido_g5["fracao_facetada"] = fac_info["fracao_facetada"]
+        medido_g5["malha_organica_facetada"] = malha_facetada
+    if malha_facetada:
+        medido_g5["motivo"] = "malha_organica_facetada"
+        medido_g5["motivos"] = ["malha_organica_facetada"]
     gates.append(
         {
             "id": "G5",
             "status": "ok" if mat_ok else "falhou",
-            "medido": {
-                "materiais": info["materiais"],
-                "com_textura": info["com_textura"],
-                "imagens_externas": info["imagens_externas"],
-                "sem_tangent_normal": sem_tangent_normal,
-            },
+            "medido": medido_g5,
             "limite": {
                 "materiais_max": v["materiais_max"],
                 "imagens_externas_max": 0,
@@ -1704,14 +1976,30 @@ def verificar(
     por_nome = {c["nome"]: c for c in clipes}
     faltando = [n for n in pedidos if n not in por_nome]
     invalidos = [
-        c["nome"] for c in clipes if c["duracao_s"] <= 0.2 or c["canais"] < 1 or not c["movendo"]
+        c["nome"]
+        for c in clipes
+        if c["duracao_s"] <= 0.2
+        or c["canais"] < 1
+        or not c["movendo"]
+        or (
+            exigir_orientacao
+            and (
+                not bool(c.get("loop_fechado", True))
+                or (info["ossos"] >= 6 and len(c["movendo"]) < 2)
+            )
+        )
     ]
     anim_ok = not faltando and not invalidos
     gates.append(
         {
             "id": "G10",
             "status": "ok" if anim_ok else "falhou",
-            "medido": {"clipes": clipes, "pedidos": pedidos, "faltando": faltando},
+            "medido": {
+                "clipes": clipes,
+                "pedidos": pedidos,
+                "faltando": faltando,
+                "invalidos": invalidos,
+            },
             "limite": {"duracao_min_s": 0.2, "canais_min": 1},
             "codigo": None if anim_ok else "FORGE-E-QC",
         }

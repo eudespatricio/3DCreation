@@ -38,7 +38,9 @@ static func aplicar(scene: Node, source_file: String = "") -> Node:
 	_configurar_materiais(scene, source_file, manifesto, perfil_cfg)
 	_configurar_animacoes(scene)
 	_aplicar_bone_map(scene, manifesto)
+	_configurar_sockets(scene, manifesto)
 	_aplicar_orientacao_frente(scene, manifesto, perfil_cfg)
+	scene.set_meta("forge3d_post_imported", true)
 	return scene
 
 
@@ -558,6 +560,7 @@ static func _processar_material(
 	usar_nearest: bool
 ) -> Material:
 	var resultado: Material = mat
+	var criado_novo := false
 	if orm_tex != null:
 		var orm_mat: ORMMaterial3D
 		if mat is ORMMaterial3D:
@@ -567,21 +570,34 @@ static func _processar_material(
 			if mat is BaseMaterial3D:
 				var src_bm := mat as BaseMaterial3D
 				_copiar_base_material(src_bm, orm_mat)
-				if src_bm.metallic_texture == null and src_bm.metallic == 0.0:
-					orm_mat.metallic = 1.0
-				if src_bm.roughness_texture == null:
-					orm_mat.roughness = 1.0
+				if src_bm.metallic_texture == null and src_bm.roughness_texture == null:
+					if src_bm.metallic >= 0.999 and src_bm.roughness >= 0.999:
+						orm_mat.metallic = 0.0
+						orm_mat.roughness = 0.65
+					elif src_bm.metallic == 0.0 and src_bm.roughness >= 0.999:
+						orm_mat.roughness = 0.65
 			else:
-				orm_mat.metallic = 1.0
-				orm_mat.roughness = 1.0
+				orm_mat.metallic = 0.0
+				orm_mat.roughness = 0.65
 		orm_mat.orm_texture = orm_tex
 		orm_mat.ao_enabled = true
 		resultado = orm_mat
 	elif resultado == null and (normal_tex != null or base_color_tex != null):
-		resultado = StandardMaterial3D.new()
+		var std_mat := StandardMaterial3D.new()
+		std_mat.metallic = 0.0
+		std_mat.roughness = 0.65
+		resultado = std_mat
+		criado_novo = true
 
 	if resultado is BaseMaterial3D:
 		var bm := resultado as BaseMaterial3D
+		if orm_tex == null and not (bm is ORMMaterial3D):
+			if bm.metallic_texture == null and bm.roughness_texture == null and not criado_novo:
+				if bm.metallic >= 0.999 and bm.roughness >= 0.999:
+					bm.metallic = 0.0
+					bm.roughness = 0.65
+				elif bm.metallic == 0.0 and bm.roughness >= 0.999:
+					bm.roughness = 0.65
 		if bm.normal_texture != null:
 			bm.normal_enabled = true
 		elif normal_tex != null:
@@ -649,11 +665,22 @@ static func _configurar_animacoes(scene: Node) -> void:
 		"idle": Animation.LOOP_LINEAR,
 		"walk": Animation.LOOP_LINEAR,
 		"run": Animation.LOOP_LINEAR,
+		"gallop": Animation.LOOP_LINEAR,
+		"wing_flap": Animation.LOOP_LINEAR,
+		"glide": Animation.LOOP_LINEAR,
+		"ride_idle": Animation.LOOP_LINEAR,
+		"ride_fly": Animation.LOOP_LINEAR,
 		"jump": Animation.LOOP_NONE,
 		"attack": Animation.LOOP_NONE,
 		"block": Animation.LOOP_NONE,
 		"hit": Animation.LOOP_NONE,
 		"death": Animation.LOOP_NONE,
+		"roar": Animation.LOOP_NONE,
+		"tail_swipe": Animation.LOOP_NONE,
+		"land": Animation.LOOP_NONE,
+		"rear_up": Animation.LOOP_NONE,
+		"mount_up": Animation.LOOP_NONE,
+		"dismount": Animation.LOOP_NONE,
 	}
 	for node in scene.find_children("*", "AnimationPlayer", true, false):
 		var player := node as AnimationPlayer
@@ -698,13 +725,195 @@ static func criar_bone_map_humanoid() -> BoneMap:
 	return bone_map
 
 
+static func _eh_esqueleto_humanoide(esqueleto: String) -> bool:
+	var esq := esqueleto.strip_edges().to_lower()
+	if esq == "" or esq.begins_with("quadruped") or esq.begins_with("winged_mount"):
+		return false
+	return esq.begins_with("godot-humanoid") or esq.begins_with("humanoid")
+
+
 static func _aplicar_bone_map(scene: Node, manifesto: Dictionary) -> void:
 	var rig: Variant = manifesto.get("rig", null)
 	if typeof(rig) != TYPE_DICTIONARY:
 		return
 	var esq := str((rig as Dictionary).get("esqueleto", ""))
-	if esq.begins_with("godot-humanoid"):
-		scene.set_meta("forge3d_bone_map", criar_bone_map_humanoid())
+	if not _eh_esqueleto_humanoide(esq):
+		scene.set_meta("forge3d_bone_map_skipped", esq)
+		return
+	scene.set_meta("forge3d_bone_map", criar_bone_map_humanoid())
+
+
+static func _nome_marker_socket(chave: String) -> String:
+	var k := chave.strip_edges()
+	var mapa := {
+		"Hand.R": "Socket_HandR",
+		"RightHand": "Socket_HandR",
+		"Socket_HandR": "Socket_HandR",
+		"Hand.L": "Socket_HandL",
+		"LeftHand": "Socket_HandL",
+		"Socket_HandL": "Socket_HandL",
+		"Back": "Socket_Back",
+		"Chest": "Socket_Back",
+		"UpperTorso": "Socket_Back",
+		"Socket_Back": "Socket_Back",
+		"Mount": "Socket_Mount",
+		"MountSeat": "Socket_Mount",
+		"Socket_Mount": "Socket_Mount",
+		"Head": "Socket_Head",
+		"Socket_Head": "Socket_Head",
+		"Shoulder.L": "Socket_ShoulderL",
+		"LeftShoulder": "Socket_ShoulderL",
+		"Socket_ShoulderL": "Socket_ShoulderL",
+		"Shoulder.R": "Socket_ShoulderR",
+		"RightShoulder": "Socket_ShoulderR",
+		"Socket_ShoulderR": "Socket_ShoulderR",
+	}
+	if mapa.has(k):
+		return str(mapa[k])
+	if k.begins_with("Socket_"):
+		return k
+	return "Socket_" + k.replace(".", "")
+
+
+static func _basis_orthonormal_positiva(b: Basis) -> Basis:
+	var out := b.orthonormalized()
+	if out.determinant() < 0.0:
+		out.x = -out.x
+	return out
+
+
+static func _espelhar_basis_yz_det_positivo(b: Basis) -> Basis:
+	var mx := Basis(Vector3(-1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, 1.0))
+	return _basis_orthonormal_positiva(mx * b * mx)
+
+
+static func _obter_ou_criar_bone_attachment(skel: Skeleton3D, bone_name: String, owner_node: Node) -> BoneAttachment3D:
+	for child in skel.get_children():
+		if child is BoneAttachment3D and (child as BoneAttachment3D).bone_name == bone_name:
+			return child as BoneAttachment3D
+	var attachment := BoneAttachment3D.new()
+	attachment.name = "BoneAttachment_" + bone_name
+	attachment.bone_name = bone_name
+	skel.add_child(attachment)
+	if owner_node != null:
+		attachment.owner = owner_node
+	return attachment
+
+
+static func _configurar_sockets(scene: Node, manifesto: Dictionary) -> void:
+	if scene == null:
+		return
+	var skel: Skeleton3D = scene as Skeleton3D
+	if skel == null:
+		var skels := scene.find_children("*", "Skeleton3D", true, false)
+		if not skels.is_empty():
+			skel = skels[0] as Skeleton3D
+	if skel == null:
+		return
+
+	var sockets_cfg: Dictionary = {}
+	var raw_sockets: Variant = manifesto.get("sockets", null)
+	if typeof(raw_sockets) == TYPE_DICTIONARY:
+		for k in (raw_sockets as Dictionary).keys():
+			var item: Variant = (raw_sockets as Dictionary)[k]
+			if typeof(item) == TYPE_DICTIONARY:
+				var marker_name := _nome_marker_socket(str(k))
+				sockets_cfg[marker_name] = item
+
+	var fallbacks := [
+		{"marker": "Socket_HandR", "ossos": ["Hand.R", "RightHand"], "pos": [0.0, 0.0, 0.0]},
+		{"marker": "Socket_HandL", "ossos": ["Hand.L", "LeftHand"], "pos": [0.0, 0.0, 0.0]},
+		{"marker": "Socket_Back", "ossos": ["Chest", "UpperTorso"], "pos": [0.0, 0.08, 0.15]},
+		{"marker": "Socket_Mount", "ossos": ["MountSeat"], "pos": [0.0, 0.15, 0.0]},
+	]
+	for fb in fallbacks:
+		var m_name: String = fb["marker"]
+		if sockets_cfg.has(m_name):
+			continue
+		for cand_osso in fb["ossos"]:
+			if skel.find_bone(str(cand_osso)) >= 0:
+				sockets_cfg[m_name] = {
+					"osso": str(cand_osso),
+					"posicao_m": fb["pos"],
+					"_fallback": true,
+				}
+				break
+
+	var basis_hand_r_padrao := Basis(
+		Vector3(0.0, 1.0, 0.0),
+		Vector3(0.0, 0.0, -1.0),
+		Vector3(-1.0, 0.0, 0.0)
+	)
+	var basis_hand_l_padrao := _espelhar_basis_yz_det_positivo(basis_hand_r_padrao)
+
+	var basis_hand_r_final := basis_hand_r_padrao
+	if sockets_cfg.has("Socket_HandR"):
+		var cfg_r: Dictionary = sockets_cfg["Socket_HandR"]
+		var q_r: Variant = cfg_r.get("rotacao_quat_wxyz", null)
+		if typeof(q_r) == TYPE_ARRAY and (q_r as Array).size() == 4:
+			var arr_r := q_r as Array
+			var quat_r := Quaternion(float(arr_r[1]), float(arr_r[2]), float(arr_r[3]), float(arr_r[0])).normalized()
+			if not quat_r.is_equal_approx(Quaternion.IDENTITY):
+				basis_hand_r_final = _basis_orthonormal_positiva(Basis(quat_r))
+
+	for marker_name in sockets_cfg.keys():
+		var cfg: Dictionary = sockets_cfg[marker_name]
+		var osso := str(cfg.get("osso", ""))
+		if osso == "" or skel.find_bone(osso) < 0:
+			continue
+		var bone_idx := skel.find_bone(osso)
+		var bone_rest_basis := _basis_orthonormal_positiva(skel.get_bone_global_rest(bone_idx).basis)
+		var attachment := _obter_ou_criar_bone_attachment(skel, osso, scene)
+
+		var marker: Marker3D = null
+		for ch in attachment.get_children():
+			if ch is Marker3D and String(ch.name) == marker_name:
+				marker = ch as Marker3D
+				break
+		if marker == null:
+			marker = Marker3D.new()
+			marker.name = marker_name
+			attachment.add_child(marker)
+			marker.owner = scene
+
+		var pos := Vector3.ZERO
+		var raw_pos: Variant = cfg.get("posicao_m", null)
+		if typeof(raw_pos) == TYPE_ARRAY and (raw_pos as Array).size() == 3:
+			var p_arr := raw_pos as Array
+			pos = Vector3(float(p_arr[0]), float(p_arr[1]), float(p_arr[2]))
+		elif marker_name == "Socket_Back":
+			pos = Vector3(0.0, 0.08, 0.15)
+		elif marker_name == "Socket_Mount":
+			pos = Vector3(0.0, 0.15, 0.0)
+		marker.position = pos
+
+		var target_skel_basis := Basis.IDENTITY
+		var tem_quat_custom := false
+		var raw_q: Variant = cfg.get("rotacao_quat_wxyz", null)
+		if typeof(raw_q) == TYPE_ARRAY and (raw_q as Array).size() == 4:
+			var q_arr := raw_q as Array
+			var quat := Quaternion(float(q_arr[1]), float(q_arr[2]), float(q_arr[3]), float(q_arr[0])).normalized()
+			if not quat.is_equal_approx(Quaternion.IDENTITY):
+				target_skel_basis = _basis_orthonormal_positiva(Basis(quat))
+				tem_quat_custom = true
+
+		if marker_name == "Socket_HandR":
+			if not tem_quat_custom:
+				target_skel_basis = basis_hand_r_padrao
+			marker.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * target_skel_basis)
+		elif marker_name == "Socket_HandL":
+			if not tem_quat_custom or target_skel_basis.is_equal_approx(basis_hand_r_final):
+				target_skel_basis = _espelhar_basis_yz_det_positivo(basis_hand_r_final)
+			var local_l := _basis_orthonormal_positiva(bone_rest_basis.inverse() * target_skel_basis)
+			var local_r := _basis_orthonormal_positiva(bone_rest_basis.inverse() * basis_hand_r_final)
+			if local_l.is_equal_approx(local_r):
+				local_l = _espelhar_basis_yz_det_positivo(local_r)
+			marker.basis = local_l
+		elif marker_name == "Socket_Mount":
+			# Socket_Mount sempre aponta para -Z no espaco da montaria (yaw = 0, det = +1).
+			marker.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * Basis.IDENTITY)
+		else:
+			marker.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * target_skel_basis)
 
 
 static func _frente_mais_z(manifesto: Dictionary, perfil_cfg: Dictionary) -> bool:
@@ -728,6 +937,60 @@ static func _aplicar_orientacao_frente(scene: Node, manifesto: Dictionary, perfi
 	if _frente_mais_z(manifesto, perfil_cfg):
 		(scene as Node3D).rotate_y(PI)
 		scene.set_meta("forge3d_turned_180_y", true)
+
+
+## Posiciona e anexa um cavaleiro no Socket_Mount da montaria alinhado em -Z (yaw = 0) e toca ride_idle.
+static func montar_cavaleiro_em_montaria(cavaleiro: Node3D, montaria: Node3D) -> Node3D:
+	if cavaleiro == null or montaria == null:
+		return null
+	var socket_mount := montaria.find_child("Socket_Mount", true, false) as Node3D
+	if socket_mount == null:
+		var skels := montaria.find_children("*", "Skeleton3D", true, false)
+		var skel: Skeleton3D = montaria as Skeleton3D if montaria is Skeleton3D else (skels[0] as Skeleton3D if not skels.is_empty() else null)
+		if skel != null:
+			var osso_mount := ""
+			for cand in ["MountSeat", "Spine1", "Chest", "Spine", "Hips"]:
+				if skel.find_bone(cand) >= 0:
+					osso_mount = cand
+					break
+			if osso_mount != "":
+				var bone_idx := skel.find_bone(osso_mount)
+				var bone_rest_basis := _basis_orthonormal_positiva(skel.get_bone_global_rest(bone_idx).basis)
+				var ba := _obter_ou_criar_bone_attachment(skel, osso_mount, montaria)
+				var m := Marker3D.new()
+				m.name = "Socket_Mount"
+				m.position = Vector3(0.0, 0.15, 0.0)
+				m.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * Basis.IDENTITY)
+				ba.add_child(m)
+				m.owner = montaria
+				socket_mount = m
+		if socket_mount == null:
+			var m_fallback := Marker3D.new()
+			m_fallback.name = "Socket_Mount"
+			m_fallback.position = Vector3(0.0, 1.0, 0.0)
+			m_fallback.basis = Basis.IDENTITY
+			montaria.add_child(m_fallback)
+			m_fallback.owner = montaria
+			socket_mount = m_fallback
+
+	if cavaleiro.get_parent() != null:
+		cavaleiro.get_parent().remove_child(cavaleiro)
+	socket_mount.add_child(cavaleiro)
+	if montaria.owner != null:
+		cavaleiro.owner = montaria.owner
+	else:
+		cavaleiro.owner = montaria
+	cavaleiro.transform = Transform3D.IDENTITY
+
+	for node in cavaleiro.find_children("*", "AnimationPlayer", true, false):
+		var player := node as AnimationPlayer
+		if player != null and player.has_animation("ride_idle"):
+			var anim := player.get_animation("ride_idle")
+			if anim != null:
+				anim.loop_mode = Animation.LOOP_LINEAR
+			player.autoplay = "ride_idle"
+			player.play("ride_idle")
+	return socket_mount
 
 
 ## Vincula uma malha modular skinned (armadura/roupa/capa) diretamente a um Skeleton3D alvo.
@@ -815,11 +1078,7 @@ static func montar_character_body(
 					continue
 				if anexo_node.get_parent() != null:
 					anexo_node.get_parent().remove_child(anexo_node)
-				var attachment := BoneAttachment3D.new()
-				attachment.name = "BoneAttachment_" + bone_name
-				attachment.bone_name = bone_name
-				skel.add_child(attachment)
-				attachment.owner = char_body
+				var attachment := _obter_ou_criar_bone_attachment(skel, bone_name, char_body)
 				if anexo_node is Node3D:
 					_orientar_anexo_socket(anexo_node as Node3D, skel, bone_name)
 				attachment.add_child(anexo_node)
@@ -854,16 +1113,17 @@ static func _orientar_anexo_socket(n3d: Node3D, skel: Skeleton3D, bone_name: Str
 				n3d.basis = Basis(Quaternion(float(arr[0]), float(arr[1]), float(arr[2]), float(arr[3]))).scaled(n3d.scale)
 				return
 
-	var bone_rest_basis := skel.get_bone_global_rest(bone_idx).basis.orthonormalized()
+	var bone_rest_basis := _basis_orthonormal_positiva(skel.get_bone_global_rest(bone_idx).basis)
 	var target_basis_skel := Basis.IDENTITY
 	var tratado := false
+	var lado_r := bone_name.ends_with(".R") or bone_name.begins_with("Right")
 	if parte == "arma":
 		# Arma em glTF tem ponta em +Y e fio em +X: aponta para frente (-Z) com fio vertical (+Y).
-		target_basis_skel = Basis(Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(-1.0, 0.0, 0.0))
+		var basis_r := Basis(Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(-1.0, 0.0, 0.0))
+		target_basis_skel = basis_r if lado_r else _espelhar_basis_yz_det_positivo(basis_r)
 		tratado = true
 	elif parte == "escudo":
 		# Escudo em glTF tem topo em +Y e face convexa em -Z: mantem topo +Y e face externa para fora.
-		var lado_r := bone_name.ends_with(".R") or bone_name.begins_with("Right")
 		if lado_r:
 			target_basis_skel = Basis(Vector3(0.0, 0.0, -1.0), Vector3(0.0, 1.0, 0.0), Vector3(1.0, 0.0, 0.0))
 		else:
@@ -873,4 +1133,4 @@ static func _orientar_anexo_socket(n3d: Node3D, skel: Skeleton3D, bone_name: Str
 		target_basis_skel = Basis.IDENTITY
 		tratado = true
 	if tratado:
-		n3d.basis = (bone_rest_basis.inverse() * target_basis_skel).scaled(n3d.scale)
+		n3d.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * target_basis_skel).scaled(n3d.scale)

@@ -22,6 +22,56 @@ __all__ = ["executar", "gerar_assets_gd", "gerar_assets_lua"]
 
 _IDENTIFICADOR_LUAU = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SUFIXO_GODOT_KEEP_RE = re.compile(r"(?:_colisao|_lod[1-9]\d*)\.glb$", re.IGNORECASE)
+_GODOT_POST_IMPORT_RES = "res://addons/forge3d/post_import.gd"
+_IMPORT_SCRIPT_LINE_RE = re.compile(r'^(\s*import_script/path\s*=\s*)"([^"]*)"(.*)$', re.MULTILINE)
+
+
+def _atualizar_import_sidecar_glb(import_dst: Path, tag: str = "sync") -> None:
+    """Cria ou atualiza ``<asset>.glb.import`` garantindo ``import_script/path`` sem perder params."""
+    if import_dst.suffix.lower() == ".glb":
+        import_dst = Path(f"{import_dst}.import")
+    if not import_dst.is_file():
+        conteudo = (
+            "[remap]\n\n"
+            'importer="scene"\n'
+            "importer_version=1\n"
+            'type="PackedScene"\n\n'
+            "[params]\n\n"
+            f'import_script/path="{_GODOT_POST_IMPORT_RES}"\n'
+        )
+        _escrever_atomico(import_dst, conteudo, tag)
+        return
+
+    texto = import_dst.read_text(encoding="utf-8")
+    m = _IMPORT_SCRIPT_LINE_RE.search(texto)
+    if m is not None:
+        atual = m.group(2).strip()
+        if atual != "":
+            return
+        novo = (
+            texto[: m.start()]
+            + f'{m.group(1)}"{_GODOT_POST_IMPORT_RES}"{m.group(3)}'
+            + texto[m.end() :]
+        )
+        _escrever_atomico(import_dst, novo, tag)
+        return
+
+    if re.search(r"^\s*\[params\]\s*$", texto, flags=re.MULTILINE):
+        linhas = texto.splitlines(keepends=True)
+        saida: list[str] = []
+        inserido = False
+        for linha in linhas:
+            saida.append(linha)
+            if not inserido and linha.strip() == "[params]":
+                if not linha.endswith("\n"):
+                    saida[-1] = linha + "\n"
+                saida.append(f'import_script/path="{_GODOT_POST_IMPORT_RES}"\n')
+                inserido = True
+        _escrever_atomico(import_dst, "".join(saida), tag)
+    else:
+        sep = "" if texto.endswith("\n") or not texto else "\n"
+        novo = f'{texto}{sep}\n[params]\n\nimport_script/path="{_GODOT_POST_IMPORT_RES}"\n'
+        _escrever_atomico(import_dst, novo, tag)
 
 
 def _raiz_repo() -> Path | None:
@@ -575,7 +625,9 @@ def executar(
     raiz_godot: Path | None = None
     alvo_abs = alvo.resolve(strict=False)
     for cand in (alvo_abs, *alvo_abs.parents):
-        if (cand / "project.godot").is_file():
+        if (cand / "project.godot").is_file() or (
+            cand / "addons" / "forge3d" / "post_import.gd"
+        ).is_file():
             raiz_godot = cand
             break
 
@@ -628,6 +680,10 @@ def executar(
         if is_godot and _SUFIXO_GODOT_KEEP_RE.search(dst.name):
             import_dst = Path(f"{dst}.import")
             _escrever_atomico(import_dst, '[remap]\nimporter="keep"\n', tag)
+            sidecars_godot.append(import_dst.resolve(strict=False))
+        elif is_godot and dst.suffix.lower() == ".glb":
+            import_dst = Path(f"{dst}.import")
+            _atualizar_import_sidecar_glb(import_dst, tag)
             sidecars_godot.append(import_dst.resolve(strict=False))
     for src, dst, rel in pares_manifestos:
         total_bytes += _copiar_atomico(src, dst, tag)

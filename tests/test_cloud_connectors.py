@@ -57,6 +57,9 @@ def test_licencas_comerciais_gemini_e_higgsfield_registradas():
     assert LICENCAS["gemini"]["uso_comercial"] is True
     assert "higgsfield" in LICENCAS
     assert LICENCAS["higgsfield"]["uso_comercial"] is True
+    assert "trellis" in LICENCAS
+    assert LICENCAS["trellis"]["uso_comercial"] is True
+    assert "Microsoft TRELLIS" in LICENCAS["trellis"]["modelo"]
 
 
 def test_gemini_connector_env_e_arquivo_key_mock_http(monkeypatch, tmp_path):
@@ -64,6 +67,7 @@ def test_gemini_connector_env_e_arquivo_key_mock_http(monkeypatch, tmp_path):
     cfg_dir.mkdir()
     monkeypatch.setenv("FORGE3D_CONFIG", str(cfg_dir))
     monkeypatch.delenv("FORGE3D_GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("FORGE3D_GEMINI_MODELO", raising=False)
 
     ok0, det0 = cloud_ai.gemini_disponivel()
     assert ok0 is False
@@ -74,6 +78,7 @@ def test_gemini_connector_env_e_arquivo_key_mock_http(monkeypatch, tmp_path):
     ok1, det1 = cloud_ai.gemini_disponivel()
     assert ok1 is True
     assert "arquivo:gemini.key" in det1
+    assert "gemini-nano-banana-2.1" in det1
     assert segredo not in det1
 
     png_raw = _png_bytes_rgba((200, 80, 40, 255))
@@ -81,6 +86,9 @@ def test_gemini_connector_env_e_arquivo_key_mock_http(monkeypatch, tmp_path):
     capturado: dict = {}
 
     class _FakeResp:
+        def __init__(self, payload: dict):
+            self._payload = payload
+
         def __enter__(self):
             return self
 
@@ -88,13 +96,22 @@ def test_gemini_connector_env_e_arquivo_key_mock_http(monkeypatch, tmp_path):
             return False
 
         def read(self) -> bytes:
-            return json.dumps({"predictions": [{"bytesBase64Encoded": b64_png}]}).encode("utf-8")
+            return json.dumps(self._payload).encode("utf-8")
+
+    resposta_interactions = {
+        "steps": [
+            {
+                "type": "model_output",
+                "content": [{"type": "image", "data": b64_png}],
+            }
+        ]
+    }
 
     def fake_urlopen(req, timeout=120):
         capturado["url"] = req.full_url
-        capturado["headers"] = dict(req.header_items())
+        capturado["headers"] = {k.lower(): v for k, v in req.header_items()}
         capturado["body"] = json.loads(req.data.decode("utf-8"))
-        return _FakeResp()
+        return _FakeResp(resposta_interactions)
 
     monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_urlopen)
     destino = tmp_path / "out_gemini" / "concept.png"
@@ -108,10 +125,68 @@ def test_gemini_connector_env_e_arquivo_key_mock_http(monkeypatch, tmp_path):
     )
     assert destino.is_file()
     assert destino.read_bytes() == png_raw
+    assert capturado["url"] == "https://generativelanguage.googleapis.com/v1beta/interactions"
+    assert capturado["headers"]["api-revision"] == "2026-05-20"
+    assert capturado["headers"]["x-goog-api-key"] == segredo
+    assert capturado["body"] == {
+        "model": "gemini-nano-banana-2.1",
+        "input": [{"type": "text", "text": "armored paladin. Avoid: blurry, text"}],
+    }
     assert meta["ok"] is True
     assert meta["provider_conceito"] == "gemini"
+    assert meta["modelo"] == "gemini/gemini-nano-banana-2.1"
     assert meta["licenca"]["uso_comercial"] is True
     assert segredo not in json.dumps(meta)
+
+
+def test_gemini_modelos_novos_e_legado_imagen_predict(monkeypatch, tmp_path):
+    monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", "AIza_TEST_KEY_778899")
+    png_raw = _png_bytes_rgba((50, 120, 210, 255))
+    b64_png = base64.b64encode(png_raw).decode("ascii")
+    chamadas: list[dict] = []
+
+    class _FakeResp:
+        def __init__(self, payload: dict):
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+    def fake_urlopen(req, timeout=120):
+        body = json.loads(req.data.decode("utf-8"))
+        chamadas.append({"url": req.full_url, "body": body})
+        if req.full_url.endswith(":predict"):
+            return _FakeResp({"predictions": [{"bytesBase64Encoded": b64_png}]})
+        if body.get("model") == "gemini-3-pro-image":
+            return _FakeResp(
+                {"steps": [{"type": "model_output", "content": [{"type": "image", "inline_data": {"data": b64_png}}]}]}
+            )
+        return _FakeResp(
+            {"candidates": [{"content": {"parts": [{"inlineData": {"data": b64_png}}]}}]}
+        )
+
+    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_urlopen)
+
+    monkeypatch.setenv("FORGE3D_GEMINI_MODELO", "gemini-3-pro-image")
+    m1 = cloud_ai.gerar_conceito_gemini("golem", "", 10, tmp_path / "g1.png")
+    assert m1["modelo"] == "gemini/gemini-3-pro-image"
+    assert chamadas[-1]["url"].endswith("/v1beta/interactions")
+
+    monkeypatch.setenv("FORGE3D_GEMINI_MODELO", "gemini-3.1-flash-lite-image")
+    m2 = cloud_ai.gerar_conceito_gemini("knight", "", 11, tmp_path / "g2.png")
+    assert m2["modelo"] == "gemini/gemini-3.1-flash-lite-image"
+    assert chamadas[-1]["url"].endswith("/v1beta/interactions")
+
+    monkeypatch.setenv("FORGE3D_GEMINI_MODELO", "imagen-3.0-generate-002")
+    m3 = cloud_ai.gerar_conceito_gemini("wizard", "", 12, tmp_path / "g3.png")
+    assert m3["modelo"] == "gemini/imagen-3.0-generate-002"
+    assert chamadas[-1]["url"].endswith("/imagen-3.0-generate-002:predict")
 
 
 def test_higgsfield_connector_e_concept_provider_auto(monkeypatch, tmp_path):
@@ -172,29 +247,35 @@ def test_doctor_conectores_ia_e_zero_vazamento_de_segredos(monkeypatch, tmp_path
     cfg_dir = tmp_path / "cfg_doc"
     cfg_dir.mkdir()
     monkeypatch.setenv("FORGE3D_CONFIG", str(cfg_dir))
+    monkeypatch.delenv("FORGE3D_GEMINI_MODELO", raising=False)
     k_gem = "GEM_SUPER_SECRET_TOKEN_ABC123XYZ"
     k_hig = "HIG_SUPER_SECRET_TOKEN_DEF456UVW"
+    k_fal = "FAL_SUPER_SECRET_TOKEN_JKL012MNO"
     k_rbx = "RBX_SUPER_SECRET_TOKEN_GHI789RST"
     monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", k_gem)
     monkeypatch.setenv("FORGE3D_HIGGSFIELD_API_KEY", k_hig)
+    monkeypatch.setenv("FORGE3D_FAL_API_KEY", k_fal)
     monkeypatch.setenv("FORGE3D_ROBLOX_API_KEY", k_rbx)
 
     rel = doctor.checar()
     assert "conectores_ia" in rel
     con = rel["conectores_ia"]
-    for esperado in ("sd15", "triposr", "mpfb_cc0", "gemini", "higgsfield", "roblox_open_cloud"):
+    for esperado in ("sd15", "triposr", "mpfb_cc0", "gemini", "higgsfield", "trellis", "roblox_open_cloud"):
         assert esperado in con
         assert isinstance(con[esperado]["ok"], bool)
         assert isinstance(con[esperado]["pronto"], bool)
         assert isinstance(con[esperado]["detalhe"], str)
 
     assert con["gemini"]["pronto"] is True
+    assert "gemini-nano-banana-2.1" in con["gemini"]["detalhe"]
     assert con["higgsfield"]["pronto"] is True
+    assert con["trellis"]["pronto"] is True
     assert con["roblox_open_cloud"]["pronto"] is True
 
     serializado = json.dumps(rel)
     assert k_gem not in serializado
     assert k_hig not in serializado
+    assert k_fal not in serializado
     assert k_rbx not in serializado
 
     # Sanitizacao também em erros HTTP
@@ -298,3 +379,228 @@ def test_mpfb2_auto_template_humanoide_e_delight_escamas_coloridas(monkeypatch, 
     m_map, r_map = dl.estimar_mapas_pbr(img)
     assert m_map.getpixel((32, 32)) == 0
     assert 120 <= r_map.getpixel((32, 32)) <= 215
+
+
+def test_avaliar_qualidade_visual_gemini_mock(monkeypatch, tmp_path):
+    segredo = "AIza_QA_SECRET_11223344"
+    monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", segredo)
+    png_path = tmp_path / "turntable.png"
+    png_path.write_bytes(_png_bytes_rgba((180, 150, 120, 255)))
+    capturado: dict = {}
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self) -> bytes:
+            qa_json = json.dumps(
+                {"aprovado": False, "nota": 4.2, "defeitos": ["black forehead band"]}
+            )
+            return json.dumps(
+                {
+                    "steps": [
+                        {
+                            "type": "model_output",
+                            "content": [{"type": "text", "text": f"```json\n{qa_json}\n```"}],
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(req, timeout=120):
+        capturado["url"] = req.full_url
+        capturado["headers"] = {k.lower(): v for k, v in req.header_items()}
+        capturado["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp()
+
+    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_urlopen)
+    res = cloud_ai.avaliar_qualidade_visual_gemini(png_path, contexto="hero paladin")
+    assert res["ok"] is True
+    assert res["aprovado"] is False
+    assert res["nota"] == 4.2
+    assert res["defeitos"] == ["black forehead band"]
+    assert res["modelo"] == "gemini-4-hydrogen"
+    assert capturado["url"] == "https://generativelanguage.googleapis.com/v1beta/interactions"
+    assert capturado["headers"]["api-revision"] == "2026-05-20"
+    assert capturado["body"]["model"] == "gemini-4-hydrogen"
+    assert capturado["body"]["input"][1]["type"] == "image"
+
+    def fake_err(req, timeout=120):
+        raise urllib.error.URLError(f"erro ?key={segredo}")
+
+    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_err)
+    with pytest.raises(ForgeError) as exc_info:
+        cloud_ai.avaliar_qualidade_visual_gemini(png_path)
+    assert segredo not in str(exc_info.value)
+    assert "REDACTED" in str(exc_info.value)
+
+
+def test_trellis_connector_mock(monkeypatch, tmp_path):
+    cfg_dir = tmp_path / "cfg_fal"
+    cfg_dir.mkdir()
+    monkeypatch.setenv("FORGE3D_CONFIG", str(cfg_dir))
+    monkeypatch.delenv("FORGE3D_FAL_API_KEY", raising=False)
+
+    ok0, det0 = cloud_ai.trellis_disponivel()
+    assert ok0 is False
+    assert "FORGE3D_FAL_API_KEY" in det0
+
+    segredo = "fal_key_secret_654321"
+    (cfg_dir / "fal.key").write_text(segredo + "\n", encoding="utf-8")
+    ok1, det1 = cloud_ai.trellis_disponivel()
+    assert ok1 is True
+    assert "arquivo:fal.key" in det1
+    assert segredo not in det1
+
+    png_in = tmp_path / "concept.png"
+    png_in.write_bytes(_png_bytes_rgba((120, 150, 180, 255)))
+    glb_fake = b"glTF\x02\x00\x00\x00FAKE_TRELLIS_GLB"
+    chamadas: list[dict] = []
+
+    class _FakeResp:
+        def __init__(self, raw: bytes):
+            self._raw = raw
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self) -> bytes:
+            return self._raw
+
+    def fake_urlopen(req, timeout=180):
+        chamadas.append(
+            {
+                "url": req.full_url,
+                "method": req.get_method(),
+                "headers": {k.lower(): v for k, v in req.header_items()},
+            }
+        )
+        if req.get_method() == "POST":
+            return _FakeResp(
+                json.dumps({"model_mesh": {"url": "https://cdn.fal.example/out.glb"}}).encode("utf-8")
+            )
+        return _FakeResp(glb_fake)
+
+    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_urlopen)
+    destino_glb = tmp_path / "out" / "hero.glb"
+    meta = cloud_ai.gerar_malha_trellis(png_in, destino_glb, seed=7)
+    assert destino_glb.read_bytes() == glb_fake
+    assert chamadas[0]["url"] == "https://fal.run/fal-ai/trellis"
+    assert chamadas[0]["headers"]["authorization"] == f"Key {segredo}"
+    assert chamadas[1]["url"] == "https://cdn.fal.example/out.glb"
+    assert meta["ok"] is True
+    assert meta["provider_mesh"] == "trellis"
+    assert meta["licenca"]["uso_comercial"] is True
+    assert segredo not in json.dumps(meta)
+
+    def fake_err(req, timeout=180):
+        raise urllib.error.URLError(f"Authorization Key {segredo} denied")
+
+    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_err)
+    with pytest.raises(ForgeError) as exc_info:
+        cloud_ai.gerar_malha_trellis(png_in, tmp_path / "fail.glb", seed=1)
+    assert segredo not in str(exc_info.value)
+    assert "REDACTED" in str(exc_info.value)
+
+
+def _desenhar_turntable_sintetico(
+    caminho: Path,
+    *,
+    cor_testa: tuple[int, int, int, int] = (220, 175, 145, 255),
+    cor_bochecha: tuple[int, int, int, int] = (220, 175, 145, 255),
+    cor_perna_esq: tuple[int, int, int, int] = (60, 95, 165, 255),
+    cor_perna_dir: tuple[int, int, int, int] = (60, 95, 165, 255),
+) -> Path:
+    from PIL import ImageDraw
+
+    qw, qh = 160, 200
+    bg = (110, 114, 120, 255)
+    sheet = Image.new("RGBA", (qw * 2, qh * 2), bg)
+    draw = ImageDraw.Draw(sheet)
+
+    def _desenhar_humanoide(ox: int, oy: int, frontal_ou_costas: bool) -> None:
+        # Cabeca (y: 20..52, cx: 80 -> w_box ~ 44..116)
+        draw.rectangle((ox + 68, oy + 20, ox + 92, oy + 35), fill=cor_testa)
+        draw.rectangle((ox + 66, oy + 36, ox + 94, oy + 52), fill=cor_bochecha)
+        # Torso + bracos (y: 53..115)
+        draw.rectangle((ox + 54, oy + 53, ox + 106, oy + 115), fill=(95, 115, 140, 255))
+        # Pernas (y: 116..180)
+        if frontal_ou_costas:
+            draw.rectangle((ox + 60, oy + 116, ox + 75, oy + 180), fill=cor_perna_esq)
+            draw.rectangle((ox + 85, oy + 116, ox + 100, oy + 180), fill=cor_perna_dir)
+        else:
+            draw.rectangle((ox + 70, oy + 116, ox + 90, oy + 180), fill=cor_perna_esq)
+
+    _desenhar_humanoide(0, 0, True)         # TL: front
+    _desenhar_humanoide(qw, 0, False)       # TR: right
+    _desenhar_humanoide(0, qh, True)        # BL: back
+    _desenhar_humanoide(qw, qh, False)      # BR: 3/4
+    sheet.save(caminho, format="PNG")
+    return caminho
+
+
+def test_visual_qa_critic_aprova_limpo_e_reprova_defeitos(tmp_path):
+    import importlib.util
+
+    spec_vqa = importlib.util.spec_from_file_location(
+        "visual_qa_critic_mod", RAIZ / "tools" / "visual_qa_critic.py"
+    )
+    assert spec_vqa and spec_vqa.loader
+    vqa = importlib.util.module_from_spec(spec_vqa)
+    spec_vqa.loader.exec_module(vqa)
+
+    limpo_png = _desenhar_turntable_sintetico(tmp_path / "limpo.png")
+    res_ok = vqa.avaliar_turntable_png(limpo_png)
+    assert res_ok["aprovado"] is True
+    assert res_ok["layout"] == "turntable"
+    assert res_ok["defeitos"] == []
+    assert vqa.main([str(limpo_png), "--json"]) == 0
+
+    testa_preta_png = _desenhar_turntable_sintetico(
+        tmp_path / "testa_preta.png",
+        cor_testa=(8, 8, 10, 255),
+    )
+    res_testa = vqa.avaliar_turntable_png(testa_preta_png)
+    assert res_testa["aprovado"] is False
+    assert any("forehead_smear" in d for d in res_testa["defeitos"])
+    assert vqa.main([str(testa_preta_png)]) == 1
+
+    perna_assim_png = _desenhar_turntable_sintetico(
+        tmp_path / "perna_assim.png",
+        cor_perna_esq=(210, 35, 35, 255),
+        cor_perna_dir=(30, 55, 190, 255),
+    )
+    res_perna = vqa.avaliar_turntable_png(perna_assim_png)
+    assert res_perna["aprovado"] is False
+    assert any("leg_asymmetry" in d for d in res_perna["defeitos"])
+    assert vqa.main([str(perna_assim_png)]) == 1
+
+
+def test_colab_trellis_worker_gera_spec_v5_valido(tmp_path):
+    import importlib.util
+    import yaml
+    from forge3d import spec
+
+    spec_tw = importlib.util.spec_from_file_location(
+        "colab_trellis_worker_mod", RAIZ / "tools" / "colab_trellis_worker.py"
+    )
+    assert spec_tw and spec_tw.loader
+    tw = importlib.util.module_from_spec(spec_tw)
+    spec_tw.loader.exec_module(tw)
+
+    glb = tmp_path / "paladin.glb"
+    glb.write_bytes(b"glTF\x02\x00\x00\x00TEST")
+    digest = tw.sha256_arquivo(glb)
+    yaml_str = tw.gerar_yaml_spec_v5(
+        [{"stem": "paladin", "glb_rel": str(glb), "sha256": digest, "seed": 42}]
+    )
+    doc = yaml.safe_load(yaml_str)
+    spec_doc, _perfil, _avisos = spec.preparar(doc)
+    assert spec_doc["schema"] == "forge3d/spec@5"
+    assert spec_doc["requisicao"]["base_externa"]["sha256"] == digest

@@ -25,7 +25,7 @@ from . import cloud_ai
 
 cloud_ai.registrar_licencas_cloud()
 
-VERSAO = "0.2.2"
+VERSAO = "0.2.3"
 MODELO_PADRAO = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 CONTROLNET_MODELO_PADRAO = "lllyasviel/control_v11p_sd15_openpose"
 LIMITE_TOKENS_CLIP = 77

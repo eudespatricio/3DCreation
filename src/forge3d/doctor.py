@@ -120,6 +120,7 @@ def _diagnosticar_conectores_ia() -> dict[str, dict]:
     mpfb_ok, mpfb_det = mesh.mpfb2_cc0_disponivel()
     gem_ok, gem_det = cloud_ai.gemini_disponivel()
     hig_ok, hig_det = cloud_ai.higgsfield_disponivel()
+    tre_ok, tre_det = cloud_ai.trellis_disponivel()
     rbx_ok, rbx_det = cloud_ai.roblox_open_cloud_disponivel()
 
     def _fmt(ok: bool, det: str) -> dict:
@@ -136,6 +137,7 @@ def _diagnosticar_conectores_ia() -> dict[str, dict]:
         "mpfb_cc0": _fmt(mpfb_ok, mpfb_det),
         "gemini": _fmt(gem_ok, gem_det),
         "higgsfield": _fmt(hig_ok, hig_det),
+        "trellis": _fmt(tre_ok, tre_det),
         "roblox_open_cloud": _fmt(rbx_ok, rbx_det),
     }
 

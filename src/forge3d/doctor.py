@@ -29,10 +29,12 @@ def _checar_schemas() -> dict:
         "spec.v2.schema.json",
         "spec.v3.schema.json",
         "spec.v4.schema.json",
+        "spec.v5.schema.json",
         "manifest.v1.schema.json",
         "manifest.v2.schema.json",
         "manifest.v3.schema.json",
         "manifest.v4.schema.json",
+        "manifest.v5.schema.json",
     ):
         arq = paths.raiz_dados() / "schemas" / nome
         if not arq.is_file():
@@ -42,7 +44,7 @@ def _checar_schemas() -> dict:
             jsonschema.Draft202012Validator.check_schema(json.loads(arq.read_text(encoding="utf-8")))
         except jsonschema.SchemaError as exc:
             falhas.append(f"{nome}: {exc.message}")
-    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1..@4 e manifest@1..@4 validos")
+    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1..@5 e manifest@1..@5 validos")
 
 
 def _checar_perfis() -> dict:

@@ -18,12 +18,13 @@ __all__ = [
 
 MANIFEST_SCHEMA_CACHE: dict[str, dict] = {}
 
-#: versao do contrato por `schema`; `manifest@1..@3` continuam aceitos na leitura (D62)
+#: versao do contrato por `schema`; `manifest@1..@4` continuam aceitos na leitura (D62)
 _VERSAO_POR_SCHEMA = {
     "forge3d/manifest@1": "1",
     "forge3d/manifest@2": "2",
     "forge3d/manifest@3": "3",
     "forge3d/manifest@4": "4",
+    "forge3d/manifest@5": "5",
 }
 
 #: aspectos que o `verify --only` sabe recortar (I8/I10)
@@ -217,7 +218,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             continue
         # D62: manifest@1 nao declara unidade — o arquivo dele esta em metros (escala 1.0).
         escala = 1.0
-        if versao in ("2", "3", "4"):
+        if versao in ("2", "3", "4", "5"):
             unidades = man["unidades_export"]
             escala = float(unidades["escala_saida"])
             metros = float(unidades["metros_por_unidade"])
@@ -302,8 +303,8 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             "determinism": man.get("determinism"),
         }
         try:
-            exigir_orientacao = versao == "4" and _versao_maior_igual(
-                man.get("pipeline_version"), "0.6.1"
+            exigir_orientacao = (versao == "5") or (
+                versao == "4" and _versao_maior_igual(man.get("pipeline_version"), "0.6.1")
             )
             revalidado = qc.verificar(
                 item,
@@ -311,7 +312,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                 destino,
                 resultado,
                 escala_saida=escala,
-                exigir_tangent_normal=(versao == "4"),
+                exigir_tangent_normal=(versao in ("4", "5")),
                 exigir_orientacao=exigir_orientacao,
             )
         except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto

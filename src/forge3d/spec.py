@@ -41,6 +41,9 @@ ROTEAMENTO: dict[str, dict[str, str]] = {
     "lowpoly_lit": {
         "personagem_humanoide": "mesh",
         "criatura": "mesh",
+        "criatura_quadrupede": "mesh",
+        "criatura_alada": "mesh",
+        "montaria": "mesh",
         "prop_equipavel": "mesh",
         "prop_estatico": "modular",
         "modulo_cenario": "modular",
@@ -59,6 +62,9 @@ CAMPOS_CANONICOS_ITEM = (
     "pivot",
     "limite_triangulos",
     "material",
+    "material_procedural",
+    "suavizacao_normais",
+    "provider_conceito",
     "colisao",
     "lod",
     "seed",
@@ -79,6 +85,8 @@ CAMPOS_CANONICOS_ITEM = (
     "osso",
     "tags",
     "animacoes_base",
+    "clipes",
+    "sockets",
     "paleta",
     "estilo",
     "retopologia",
@@ -86,12 +94,13 @@ CAMPOS_CANONICOS_ITEM = (
     "modo_rig_roblox",
 )
 
-#: contratos de entrada aceitos. spec@2..@4 sao supersets retrocompativeis de spec@1.
+#: contratos de entrada aceitos. spec@2..@5 sao supersets retrocompativeis de spec@1.
 SPEC_SCHEMAS = {
     "forge3d/spec@1": "spec.v1.schema.json",
     "forge3d/spec@2": "spec.v2.schema.json",
     "forge3d/spec@3": "spec.v3.schema.json",
     "forge3d/spec@4": "spec.v4.schema.json",
+    "forge3d/spec@5": "spec.v5.schema.json",
 }
 _SPEC_SCHEMA_CACHE: dict[str, dict] = {}
 
@@ -384,9 +393,19 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
         if limite > 50000:
             erros.append({"id": iid, "regra": "B5", "mensagem": f"limite_triangulos {limite} > 50000"})
 
-        if item.get("auto_rig") and item.get("tipo") not in ("personagem_humanoide", "criatura"):
+        if item.get("auto_rig") and item.get("tipo") not in (
+            "personagem_humanoide",
+            "criatura",
+            "criatura_quadrupede",
+            "criatura_alada",
+            "montaria",
+        ):
             erros.append(
-                {"id": iid, "regra": "B6", "mensagem": "auto_rig so em personagem_humanoide/criatura"}
+                {
+                    "id": iid,
+                    "regra": "B6",
+                    "mensagem": "auto_rig so em personagem_humanoide, criatura, criatura_quadrupede, criatura_alada ou montaria",
+                }
             )
 
         if item.get("auto_rig"):
@@ -417,6 +436,24 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                 "calcas": ("prop_equipavel", "personagem_humanoide"),
                 "botas": ("prop_equipavel", "personagem_humanoide"),
                 "escudo": ("prop_equipavel", "prop_estatico"),
+                "mochila": ("prop_equipavel", "prop_estatico", "personagem_humanoide"),
+                "orbe": ("prop_equipavel", "prop_estatico"),
+                "sela": (
+                    "prop_equipavel",
+                    "prop_estatico",
+                    "montaria",
+                    "criatura_quadrupede",
+                    "criatura_alada",
+                    "criatura",
+                ),
+                "asas": (
+                    "prop_equipavel",
+                    "prop_estatico",
+                    "personagem_humanoide",
+                    "criatura_alada",
+                    "criatura",
+                    "montaria",
+                ),
             }.get(parte)
             if item.get("rota") not in ("blocky", "mesh"):
                 erros.append(
@@ -435,7 +472,9 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                         "mensagem": f"parte '{parte}' exige tipo {permitidos}",
                     }
                 )
-            if parte in ("capa", "cabelo", "elmo", "escudo") and item.get("auto_rig"):
+            if parte in ("capa", "cabelo", "elmo", "escudo", "mochila", "orbe", "sela") and item.get(
+                "auto_rig"
+            ):
                 erros.append(
                     {
                         "id": iid,

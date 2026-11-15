@@ -354,7 +354,7 @@ CLIPES = [
 
 def test_manifesto_v3_declara_os_clipes():
     man = _manifesto(CLIPES)
-    assert man["schema"] == "forge3d/manifest@4"
+    assert man["schema"] == "forge3d/manifest@5"
     assert man["animacoes"] == [
         {
             "nome": "idle",
@@ -362,20 +362,20 @@ def test_manifesto_v3_declara_os_clipes():
             "ossos": ["Chest", "Head", "Spine1", "UpperArm.L", "UpperArm.R"],
         }
     ]
-    jsonschema.validate(man, _schema("4"))
+    jsonschema.validate(man, _schema("5"))
 
 
 def test_manifesto_v3_sem_animacoes_reprova():
     man = _manifesto(CLIPES)
     man.pop("animacoes")
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(man, _schema("4"))
+        jsonschema.validate(man, _schema("5"))
 
 
 def test_manifesto_v3_com_animacao_vazia_e_valido():
     man = _manifesto([])
     assert man["animacoes"] == []
-    jsonschema.validate(man, _schema("4"))
+    jsonschema.validate(man, _schema("5"))
 
 
 def test_jump_e_block_levantam_ombros_com_espelho_lr():

@@ -1,0 +1,125 @@
+# Lote de referencia v5: Heroi humanoide + mochila/orbe + montaria alada (IP-neutro)
+schema: forge3d/spec@5
+
+projeto: demo
+perfil: godot4
+destino_exportacao: ~/.local/state/forge3d/saida/lote_12_creatures_mounts
+estilo_global: stylized_pbr
+paleta:
+  - "#2B3240"
+  - "#C79A3B"
+  - "#2E6F5E"
+  - "#D8CFC2"
+
+politica:
+  falha: continuar
+  custo_max_min: 180
+  seed_base: 20261115
+
+lote:
+  - id: hero.arcane.warden.01
+    tipo: personagem_humanoide
+    rota: mesh
+    template_humanoide: true
+    qualidade: hero
+    material_procedural: pele_humana
+    provider_conceito: auto
+    suavizacao_normais:
+      modo: organico
+      angulo_graus: 65
+      corrective_smooth: true
+      soldar_componentes_organicos: true
+    prompt: >-
+      Stylized fantasy arcane warden hero in dark slate tunic and leather bracers,
+      neutral A-pose, clean proportions, game-ready silhouette.
+    altura_metros: 1.82
+    pivot: base
+    limite_triangulos: 12000
+    material: pbr
+    colisao: convex
+    auto_rig: true
+    esqueleto: godot-humanoid@1
+    clipes: [idle, walk, run, cast, slash_combo]
+    sockets: [Hand.R, Hand.L, Back]
+    seed: 20261115
+    lod: [100, 50]
+    tags: [hero, humanoid, showcase]
+
+  - id: gear.warden.pack.01
+    tipo: prop_equipavel
+    rota: mesh
+    parte: mochila
+    skinned: false
+    material_procedural: couro_gasto
+    suavizacao_normais:
+      modo: auto
+      angulo_graus: 45
+      weighted_normals: true
+    prompt: Travel field backpack and rolled cloak with brass buckles, front view.
+    altura_metros: 0.55
+    pivot: origem
+    limite_triangulos: 1500
+    material: pbr
+    colisao: none
+    seed: 20261116
+    tags: [gear, backpack, cloak]
+
+  - id: gear.warden.orb.01
+    tipo: prop_equipavel
+    rota: mesh
+    parte: orbe
+    skinned: false
+    material_procedural: cristal_arcano
+    suavizacao_normais:
+      modo: hard_surface
+      angulo_graus: 35
+      weighted_normals: true
+    prompt: Faceted arcane crystal focus orb mounted in a bronze filigree cage.
+    altura_metros: 0.28
+    pivot: centro
+    limite_triangulos: 1200
+    material: pbr
+    colisao: convex
+    seed: 20261117
+    tags: [gear, offhand, orb]
+
+  - id: mount.wyvern.sky.01
+    tipo: criatura_alada
+    rota: mesh
+    qualidade: hero
+    material_procedural: escamas_dragao
+    provider_conceito: auto
+    suavizacao_normais:
+      modo: organico
+      angulo_graus: 70
+      corrective_smooth: true
+      soldar_componentes_organicos: true
+    prompt: >-
+      Winged scaled sky wyvern mount in neutral standing pose, spread wings,
+      emerald scales and horn crests, clean game-ready anatomy.
+    altura_metros: 2.60
+    pivot: base
+    limite_triangulos: 15000
+    material: pbr
+    colisao: convex
+    auto_rig: true
+    clipes: [idle, gallop, wing_flap, glide]
+    sockets: [MountSeat]
+    seed: 20261118
+    lod: [100, 50]
+    tags: [mount, winged, creature]
+
+  - id: gear.mount.saddle.01
+    tipo: prop_equipavel
+    rota: mesh
+    parte: sela
+    skinned: false
+    material_procedural: couro_gasto
+    prompt: Heavy stitched leather riding saddle with brass stirrups, front view.
+    altura_metros: 0.45
+    pivot: origem
+    limite_triangulos: 1400
+    material: pbr
+    colisao: none
+    seed: 20261119
+    tags: [mount, saddle]

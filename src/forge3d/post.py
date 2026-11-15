@@ -72,12 +72,46 @@ def preflight() -> tuple[bool, str]:
     return True, f"blender {v[0]}.{v[1]}.{v[2]}"
 
 
+def _preparar_job(job: dict) -> dict:
+    """Encaminha campos opcionais spec@5 de ``job['item']`` sem alterar payloads legados."""
+    preparado = dict(job)
+    item = preparado.get("item")
+    if isinstance(item, dict):
+        for chave in (
+            "material_procedural",
+            "suavizacao_normais",
+            "provider_conceito",
+            "template_humanoide",
+            "sockets",
+        ):
+            if chave in item and chave not in preparado:
+                preparado[chave] = item[chave]
+        if "clipes" in item and "clipes_pedidos" not in preparado:
+            preparado["clipes_pedidos"] = list(item["clipes"])
+    return preparado
+
+
+def _extrair_metadados_v5(resultado: dict) -> dict:
+    """Promove metadados opcionais spec@5 de ``resultado``/``medidas`` quando presentes."""
+    medidas_raw = resultado.get("medidas")
+    medidas: dict = medidas_raw if isinstance(medidas_raw, dict) else {}
+    for chave in ("orientacao_export", "sockets", "sombreamento"):
+        valor = resultado.get(chave)
+        if valor is None and chave in medidas:
+            valor = medidas.get(chave)
+        if isinstance(valor, dict) and valor:
+            resultado[chave] = dict(valor)
+        elif isinstance(valor, list) and valor:
+            resultado[chave] = list(valor)
+    return resultado
+
+
 def executar(job: dict, timeout: int = 900, tentativas: int = 2) -> dict:
     """Roda o pos-processo. Devolve o ``resultado.json`` ou levanta ``FORGE-E-BPY``."""
     for tentativa in range(1, tentativas + 1):
         resultado = _executar_uma(job, timeout)
         if resultado.get("ok"):
-            return resultado
+            return _extrair_metadados_v5(resultado)
         if tentativa == tentativas:
             raise erro_bpy(
                 f"pos-processo falhou apos {tentativas} tentativa(s): {resultado.get('erro')}",
@@ -87,9 +121,10 @@ def executar(job: dict, timeout: int = 900, tentativas: int = 2) -> dict:
 
 
 def _executar_uma(job: dict, timeout: int) -> dict:
-    job_path = Path(job["saida_dir"]) / "_job.json"
+    job_preparado = _preparar_job(job)
+    job_path = Path(job_preparado["saida_dir"]) / "_job.json"
     job_path.parent.mkdir(parents=True, exist_ok=True)
-    job_path.write_text(json.dumps(job, sort_keys=True, indent=1), encoding="utf-8")
+    job_path.write_text(json.dumps(job_preparado, sort_keys=True, indent=1), encoding="utf-8")
 
     resultado_path = Path(job["saida_resultado"])
     if resultado_path.exists():

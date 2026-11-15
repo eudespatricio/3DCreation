@@ -42,7 +42,10 @@ RE_CAMINHO_PROIBIDO = re.compile(
 )
 
 # I15: nome de projeto de jogo nao entra no pipeline (o projeto e consumidor, nao preset)
-RE_PROJETO = re.compile(r"gamezero|game-zero|jogo-roblox|jogo_roblox|jogoroblox", re.IGNORECASE)
+RE_PROJETO = re.compile(
+    r"gamezero|game-zero|gameone|game-one|sylveria|jogo-roblox|jogo_roblox|jogoroblox",
+    re.IGNORECASE,
+)
 
 # I15: caminho pessoal fixo em codigo/perfil/exemplo/schema (usa raiz de estado ou variavel)
 RE_HOME_FIXO = re.compile(r"/home/[a-z0-9_.-]+/", re.IGNORECASE)

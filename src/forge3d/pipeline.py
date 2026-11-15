@@ -64,10 +64,17 @@ def _escrever_json(caminho: Path, obj: dict) -> None:
 # ---------------------------------------------------------------- item
 
 
+def _clipes_pedidos(item: dict) -> list[str] | None:
+    bruto = [*(item.get("animacoes_base") or []), *(item.get("clipes") or [])]
+    if not bruto:
+        return None
+    return list(dict.fromkeys(str(c) for c in bruto))
+
+
 def _pos_processar(item: dict, perfil: dict, bruto, run_id: str) -> dict:
     final = paths.dir_staging() / run_id / item["id"] / "final"
     final.mkdir(parents=True, exist_ok=True)
-    job = {
+    job: dict = {
         "bruto_dir": str(bruto.dir),
         "bruto_arquivo": "modelo.json",
         "saida_dir": str(final),
@@ -81,9 +88,21 @@ def _pos_processar(item: dict, perfil: dict, bruto, run_id: str) -> dict:
         "clipes": animacao.clipes(
             perfil,
             item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao") or "",
-            item.get("animacoes_base"),
+            _clipes_pedidos(item),
         ),
     }
+    for chave_opt in (
+        "material_procedural",
+        "suavizacao_normais",
+        "provider_conceito",
+        "template_humanoide",
+        "sockets",
+    ):
+        if chave_opt in item:
+            job[chave_opt] = item[chave_opt]
+    if "clipes" in item:
+        job["clipes_pedidos"] = list(item["clipes"])
+
     resultado = post.executar(job)
     for arq in resultado.get("arquivos", []):
         caminho = final / arq["caminho"]
@@ -191,7 +210,7 @@ def _executar_item(
     if publicar_arquivos:
         artefatos = publish.publicar(origem, destino, manifesto, run_id)
 
-    return {
+    saida_item: dict = {
         "id": item["id"],
         "estado": estado,
         "rota": item["rota"],
@@ -204,6 +223,11 @@ def _executar_item(
         "manifesto": f"{item['id']}.manifest.json" if publicar_arquivos else None,
         "manifesto_doc": manifesto if publicar_arquivos else None,
     }
+    for chave_meta in ("orientacao_export", "sockets", "sombreamento"):
+        valor_meta = resultado.get(chave_meta)
+        if valor_meta:
+            saida_item[chave_meta] = valor_meta
+    return saida_item
 
 
 # ---------------------------------------------------------------- lote

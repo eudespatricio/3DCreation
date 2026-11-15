@@ -37,10 +37,12 @@ for rel in (
     "schemas/spec.v2.schema.json",
     "schemas/spec.v3.schema.json",
     "schemas/spec.v4.schema.json",
+    "schemas/spec.v5.schema.json",
     "schemas/manifest.v1.schema.json",
     "schemas/manifest.v2.schema.json",
     "schemas/manifest.v3.schema.json",
     "schemas/manifest.v4.schema.json",
+    "schemas/manifest.v5.schema.json",
 ):
     try:
         s = json.loads((ROOT / rel).read_text(encoding="utf-8"))
@@ -62,6 +64,7 @@ LOTES = (
     ("examples/lote_03_kit.yaml", "schemas/spec.v2.schema.json", "spec@2"),
     ("examples/lote_10_modular.yaml", "schemas/spec.v3.schema.json", "spec@3"),
     ("examples/lote_11_hero_armor_set.yaml", "schemas/spec.v4.schema.json", "spec@4"),
+    ("examples/lote_12_creatures_mounts.yaml", "schemas/spec.v5.schema.json", "spec@5"),
 )
 for rel, schema_rel, rotulo in LOTES:
     try:
@@ -99,10 +102,36 @@ for rel, schema_rel, rotulo in LOTES:
                         "calças": ("prop_equipavel", "personagem_humanoide"),
                         "botas": ("prop_equipavel", "personagem_humanoide"),
                         "escudo": ("prop_equipavel", "prop_estatico"),
+                        "mochila": ("prop_equipavel", "prop_estatico", "personagem_humanoide"),
+                        "orbe": ("prop_equipavel", "prop_estatico"),
+                        "sela": (
+                            "prop_equipavel",
+                            "prop_estatico",
+                            "montaria",
+                            "criatura_quadrupede",
+                            "criatura_alada",
+                            "criatura",
+                        ),
+                        "asas": (
+                            "prop_equipavel",
+                            "prop_estatico",
+                            "personagem_humanoide",
+                            "criatura_alada",
+                            "criatura",
+                            "montaria",
+                        ),
                     }.get(parte, ())
                     if esperados and item.get("tipo") not in esperados:
                         fail(f"{rel}: B12 parte {parte} com tipo {item.get('tipo')}")
-                    if parte in ("capa", "cabelo", "elmo", "escudo") and item.get("auto_rig"):
+                    if parte in (
+                        "capa",
+                        "cabelo",
+                        "elmo",
+                        "escudo",
+                        "mochila",
+                        "orbe",
+                        "sela",
+                    ) and item.get("auto_rig"):
                         fail(f"{rel}: B13 {parte} com auto_rig")
     except Exception as e:  # noqa: BLE001
         fail(f"{rel}: {e}")
@@ -113,6 +142,7 @@ for rel_man, rel_schema, rotulo in (
     ("examples/manifest.exemplo.v2.json", "schemas/manifest.v2.schema.json", "manifest@2"),
     ("examples/manifest.exemplo.v3.json", "schemas/manifest.v3.schema.json", "manifest@3"),
     ("examples/manifest.exemplo.v4.json", "schemas/manifest.v4.schema.json", "manifest@4"),
+    ("examples/manifest.exemplo.v5.json", "schemas/manifest.v5.schema.json", "manifest@5"),
 ):
     try:
         man = json.loads((ROOT / rel_man).read_text(encoding="utf-8"))

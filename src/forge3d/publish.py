@@ -52,6 +52,10 @@ _ANEXOS_POR_PARTE: dict[str, dict[str, Any]] = {
     "calcas": {"parte": "calcas", "osso": "Hips", "attachment_roblox": "WaistCenterAttachment", "skinned": True},
     "botas": {"parte": "botas", "osso": "Foot.R", "attachment_roblox": "RightFootAttachment", "skinned": True},
     "escudo": {"parte": "escudo", "osso": "LowerArm.L", "attachment_roblox": "LeftGripAttachment", "skinned": False},
+    "mochila": {"parte": "mochila", "osso": "Chest", "attachment_roblox": "BodyBackAttachment", "skinned": False},
+    "orbe": {"parte": "orbe", "osso": "Hand.L", "attachment_roblox": "LeftGripAttachment", "skinned": False},
+    "sela": {"parte": "sela", "osso": "MountSeat", "attachment_roblox": "BodyFrontAttachment", "skinned": False},
+    "asas": {"parte": "asas", "osso": "Chest", "attachment_roblox": "BodyBackAttachment", "skinned": False},
 }
 
 _OSSO_GODOT_PARA_R15: dict[str, str] = {
@@ -59,6 +63,7 @@ _OSSO_GODOT_PARA_R15: dict[str, str] = {
     "Hips": "LowerTorso",
     "Chest": "UpperTorso",
     "Hand.R": "RightHand",
+    "Hand.L": "LeftHand",
     "LowerArm.L": "LeftLowerArm",
     "Foot.R": "RightFoot",
     "Shoulder.L": "UpperTorso",
@@ -202,8 +207,14 @@ def montar_manifesto(
         if modo_rig in ("motor6d", "bone"):
             rig["modo_rig_roblox"] = str(modo_rig)
 
+    orientacao_export = resultado.get("orientacao_export") or medidas.get("orientacao_export")
+    sockets_meta = (
+        resultado.get("sockets") if "sockets" in resultado else medidas.get("sockets")
+    )
+    sombreamento = resultado.get("sombreamento") or medidas.get("sombreamento")
+
     return {
-        "schema": "forge3d/manifest@4",
+        "schema": "forge3d/manifest@5",
         "asset_id": item["id"],
         "projeto": spec_doc["projeto"],
         "perfil": perfil_nome,
@@ -223,6 +234,21 @@ def montar_manifesto(
         },
         # D62: o glb do roblox-r15 sai em studs; quem consome le a unidade aqui, nunca supoe metro
         "unidades_export": unidades_export,
+        **(
+            {"orientacao_export": dict(orientacao_export)}
+            if isinstance(orientacao_export, dict) and orientacao_export
+            else {}
+        ),
+        **(
+            {"sockets": list(sockets_meta)}
+            if isinstance(sockets_meta, list) and sockets_meta
+            else {}
+        ),
+        **(
+            {"sombreamento": dict(sombreamento)}
+            if isinstance(sombreamento, dict) and sombreamento
+            else {}
+        ),
         # D66: clipes embutidos no glb (nome, duracao, ossos animados)
         "animacoes": [
             {

@@ -36,7 +36,7 @@ def construir_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="diagnostico do ambiente")
     d.add_argument("--json", action="store_true")
 
-    v = sub.add_parser("validate", help="valida o lote contra spec@1..@4 + regras de negocio")
+    v = sub.add_parser("validate", help="valida o lote contra spec@1..@5 + regras de negocio")
     v.add_argument("lote")
     v.add_argument("--json", action="store_true")
 
@@ -84,7 +84,7 @@ def construir_parser() -> argparse.ArgumentParser:
     q.add_argument("--json", action="store_true")
 
     mi = sub.add_parser(
-        "migrate", help="sobe um lote para o contrato corrente (spec@4), sem inventar valor"
+        "migrate", help="sobe um lote para o contrato corrente (spec@5), sem inventar valor"
     )
     mi.add_argument("lote")
     mi.add_argument("--saida", help="grava o lote migrado neste arquivo")

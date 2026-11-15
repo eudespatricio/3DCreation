@@ -47,7 +47,7 @@ rig:
     "r15@1":
       quadril: LowerTorso
       tronco: UpperTorso
-      coluna: LowerTorso
+      coluna: UpperTorso
       cabeca: Head
       ombro_e: LeftUpperArm
       ombro_d: RightUpperArm

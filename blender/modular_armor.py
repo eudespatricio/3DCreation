@@ -23,7 +23,7 @@ from typing import Any
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_DIR)
@@ -58,6 +58,10 @@ _OSSOS_SOCKET_PADRAO: dict[str, str] = {
     "botas": "Foot.R",
     "escudo": "LowerArm.L",
     "capa": "Chest",
+    "mochila": "Chest",
+    "asas": "Chest",
+    "orbe": "Hand.L",
+    "sela": "MountSeat",
     "cabelo": "Head",
     "arma": "Hand.R",
     "corpo": "Root",
@@ -72,6 +76,10 @@ _OSSOS_R15_PADRAO: dict[str, str] = {
     "botas": "RightFoot",
     "escudo": "LeftHand",
     "capa": "UpperTorso",
+    "mochila": "UpperTorso",
+    "asas": "UpperTorso",
+    "orbe": "LeftHand",
+    "sela": "UpperTorso",
     "cabelo": "Head",
     "arma": "RightHand",
     "corpo": "HumanoidRootPart",
@@ -99,6 +107,10 @@ _SKINNED_PADRAO: dict[str, bool] = {
     "ombreiras": True,
     "escudo": False,
     "capa": False,
+    "mochila": False,
+    "asas": False,
+    "orbe": False,
+    "sela": False,
     "cabelo": False,
     "arma": False,
 }
@@ -266,10 +278,11 @@ def _transferir_pesos_esqueleto(body_obj, cloth_obj, rig_obj) -> None:
 
     autorig._normalizar_grupos_e_mapear(cloth_obj)
 
-    # Vincula Armature modifier
+    # Vincula Armature modifier com preservacao de volume (Dual Quaternion)
     cloth_obj.parent = rig_obj
     arm_mod = cloth_obj.modifiers.new(name="Armature", type="ARMATURE")
     arm_mod.object = rig_obj
+    arm_mod.use_deform_preserve_volume = True
 
 
 _CORES_PROMPT: dict[str, tuple[float, float, float]] = {
@@ -677,8 +690,17 @@ def _aplicar_transformes(obj) -> None:
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
 
-def _ajustar_pivo_socket(obj, parte: str, osso_alvo: str, cabeca_osso: Vector | None = None) -> None:
-    """Ajusta o ponto de pivo do acessorio rigido aplicando translacao nos vertices e zerando location."""
+_MAT_GLTF_PARA_BL_LINHAS = ((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0))
+
+
+def _ajustar_pivo_socket(
+    obj,
+    parte: str,
+    osso_alvo: str,
+    cabeca_osso: Vector | None = None,
+    matriz_osso: Matrix | None = None,
+) -> None:
+    """Ajusta o pivo do acessorio rigido para o espaco local do osso alvo (M_bone_rest.inverted())."""
     obj.parent = None
     _aplicar_transformes(obj)
 
@@ -687,17 +709,79 @@ def _ajustar_pivo_socket(obj, parte: str, osso_alvo: str, cabeca_osso: Vector | 
         obj.location = Vector((0.0, 0.0, 0.0))
         return
 
-    if parte == "escudo" or cabeca_osso is None:
-        xs = [v.co.x for v in verts]
-        ys = [v.co.y for v in verts]
-        zs = [v.co.z for v in verts]
-        centro = Vector(((min(xs) + max(xs)) * 0.5, (min(ys) + max(ys)) * 0.5, (min(zs) + max(zs)) * 0.5))
-        delta = -centro
-    else:
-        delta = -cabeca_osso
+    xs = [v.co.x for v in verts]
+    ys = [v.co.y for v in verts]
+    zs = [v.co.z for v in verts]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    min_z, max_z = min(zs), max(zs)
+    centro = Vector(((min_x + max_x) * 0.5, (min_y + max_y) * 0.5, (min_z + max_z) * 0.5))
+    diag = Vector((max_x - min_x, max_y - min_y, max_z - min_z)).length
 
-    for v in verts:
-        v.co += delta
+    ref_cabeca = cabeca_osso
+    if ref_cabeca is None and matriz_osso is not None:
+        ref_cabeca = matriz_osso.translation.copy()
+
+    # Detecta se a malha foi modelada em coordenadas do corpo (proxima ao osso) ou na origem (procedural)
+    lateral_mismatch = (
+        ref_cabeca is not None
+        and abs(ref_cabeca.x) > 0.12
+        and abs(centro.x) < 0.05
+        and abs(centro.x - ref_cabeca.x) > 0.15
+    )
+    na_origem = (
+        ref_cabeca is None
+        or lateral_mismatch
+        or (
+            centro.length <= max(diag * 0.6, 0.20)
+            and (centro - ref_cabeca).length > max(diag * 0.75, 0.35)
+        )
+    )
+
+    if not na_origem and matriz_osso is not None:
+        m_inv = matriz_osso.inverted_safe()
+        p_inv = Matrix(_MAT_GLTF_PARA_BL_LINHAS).to_4x4()
+        xform = p_inv @ m_inv
+        for v in verts:
+            v.co = xform @ v.co
+    elif not na_origem and ref_cabeca is not None:
+        delta = -ref_cabeca
+        for v in verts:
+            v.co += delta
+    else:
+        # Malha standalone centrada na origem: aplica ancoragem canonica por tipo de parte
+        if parte == "arma":
+            ancora = Vector((centro.x, centro.y, min_z + 0.20 * max(max_z - min_z, 1e-4)))
+        elif parte == "escudo":
+            # Lado interno de pegada no antebraco (-Y_bl), face convexa externa em +Y_bl
+            ancora = Vector((centro.x, min_y + 0.15 * max(max_y - min_y, 1e-4), centro.z))
+        elif parte in ("capa", "mochila", "asas"):
+            # Ancoragem dorsal na borda superior-frontal (+Y_bl, z alto) para pender em -Z_bl
+            ancora = Vector((centro.x, max_y, max_z - 0.12 * max(max_z - min_z, 1e-4)))
+        elif parte == "sela":
+            ancora = Vector((centro.x, centro.y, min_z + 0.25 * max(max_z - min_z, 1e-4)))
+        else:
+            ancora = centro
+        for v in verts:
+            v.co -= ancora
+
+    # Garante que capa nao sobressaia horizontalmente como prancha (deve pender em -Z_bl)
+    if parte == "capa":
+        ys_pos = [v.co.y for v in verts]
+        zs_pos = [v.co.z for v in verts]
+        span_y = max(ys_pos) - min(ys_pos)
+        span_z = max(zs_pos) - min(zs_pos)
+        if span_y > span_z * 1.5 and span_y > 0.15:
+            rot_x = Matrix.Rotation(-math.pi * 0.5, 4, "X")
+            for v in verts:
+                v.co = rot_x @ v.co
+        # Garante que o topo da capa fique proximo a Z=0 e o tecido penda para -Z_bl
+        z_topo = max(v.co.z for v in verts)
+        if z_topo > 0.15:
+            shift_z = 0.08 - z_topo
+            for v in verts:
+                v.co.z += shift_z
+
     obj.data.update()
     obj.location = Vector((0.0, 0.0, 0.0))
     obj.rotation_euler = (0.0, 0.0, 0.0)
@@ -834,14 +918,27 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
 
     rig_obj = None
     cabeca_osso = None
+    matriz_osso = None
     if skinned:
         rig_obj, _ = autorig.auto_rigar_humanoide(human, esqueleto, _criar_armadura)
         if osso_alvo in rig_obj.data.bones:
-            cabeca_osso = rig_obj.data.bones[osso_alvo].head_local.copy()
-    elif parte != "escudo":
+            bone = rig_obj.data.bones[osso_alvo]
+            matriz_osso = bone.matrix_local.copy()
+            cabeca_osso = bone.head_local.copy()
+    else:
         rig_tmp, _ = autorig.auto_rigar_humanoide(human, esqueleto, _criar_armadura)
         if osso_alvo in rig_tmp.data.bones:
-            cabeca_osso = rig_tmp.data.bones[osso_alvo].head_local.copy()
+            bone = rig_tmp.data.bones[osso_alvo]
+            matriz_osso = bone.matrix_local.copy()
+            if parte == "orbe":
+                # Centro da palma da mao, nunca punho/joelhos
+                cabeca_osso = (bone.head_local + bone.tail_local) * 0.5
+                matriz_osso.translation = cabeca_osso
+            elif parte in ("capa", "mochila", "asas"):
+                cabeca_osso = (bone.head_local + bone.tail_local) * 0.5 + Vector((0.0, -0.10, 0.0))
+                matriz_osso.translation = cabeca_osso
+            else:
+                cabeca_osso = bone.head_local.copy()
         bpy.data.objects.remove(rig_tmp, do_unlink=True)
 
     # Decimate antes de transferir pesos / ajustar socket para preservar ordenamento limpo
@@ -866,7 +963,7 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
         cloth.scale = Vector((1.0, 1.0, 1.0))
     else:
         bpy.data.objects.remove(human, do_unlink=True)
-        _ajustar_pivo_socket(cloth, parte, osso_alvo, cabeca_osso)
+        _ajustar_pivo_socket(cloth, parte, osso_alvo, cabeca_osso, matriz_osso=matriz_osso)
 
     tris_final, verts_final, bbox_m = _medir_geometria(cloth)
 

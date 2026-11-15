@@ -199,6 +199,16 @@ def _estimar_lado_braco(
         and z0 + 0.28 * altura <= v.z <= z0 + 0.86 * altura
         and (v.z > z_coxa_corte or v.x * sinal > limiar_coxa)
     ]
+    if braco_verts:
+        max_x_lado = max(v.x * sinal for v in braco_verts)
+        if max_x_lado > max(abs(shoulder_x_default) * 1.45, 0.20 * altura):
+            filtrados = [
+                v
+                for v in braco_verts
+                if not (v.z < z0 + 0.58 * altura and v.x * sinal < max_x_lado * 0.62)
+            ]
+            if len(filtrados) >= 6:
+                braco_verts = filtrados
     shoulder_pos = Vector((shoulder_x_default, cy, shoulder_z))
 
     if len(braco_verts) < 6:
@@ -464,6 +474,18 @@ def estimar_marcos(obj) -> dict:
         leg_top_z=leg_top_z,
         leg_x=leg_x_R,
     )
+    if abs(abs(braco_L["elbow"].x) - abs(braco_R["elbow"].x)) <= 0.06 * altura:
+        clav_sym = 0.5 * (abs(braco_L["clav_x"]) + abs(braco_R["clav_x"]))
+        braco_L["clav_x"] = clav_sym
+        braco_R["clav_x"] = -clav_sym
+        for chave in ("shoulder", "elbow", "wrist", "tip"):
+            pL = braco_L[chave]
+            pR = braco_R[chave]
+            sx = 0.5 * (abs(pL.x) + abs(pR.x))
+            sy = 0.5 * (pL.y + pR.y)
+            sz = 0.5 * (pL.z + pR.z)
+            braco_L[chave] = Vector((sx, sy, sz))
+            braco_R[chave] = Vector((-sx, sy, sz))
 
     return {
         "z_min": z_min,
@@ -1472,11 +1494,20 @@ def _atribuir_pesos_inverso(
         zs = [coords_xyz[vi][2] for vi in ilha]
         diag = Vector((max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))).length
 
+        eh_roupa_bilateral = (
+            tem_ilha_principal
+            and idx_ilha > 0
+            and min(xs) < -0.045 * h
+            and max(xs) > 0.045 * h
+            and diag >= 0.22 * h
+        )
         arma_mao_osso: str | None = None
         if idx_ilha == 0:
             e_acessorio = False
         elif tem_ilha_principal:
-            e_acessorio = (len(ilha) < 0.12 * n_total) or (diag < 0.22 * h)
+            e_acessorio = (not eh_roupa_bilateral) and (
+                (len(ilha) < 0.12 * n_total) or (diag < 0.22 * h)
+            )
             if not e_acessorio and diag < 0.90 * h and hands_pos:
                 unilateral = min(xs) > 0.14 * h or max(xs) < -0.14 * h
                 if unilateral:
@@ -1495,6 +1526,22 @@ def _atribuir_pesos_inverso(
         )
         if calculados is not None:
             pesos_por_vertice.update(calculados)
+        elif eh_roupa_bilateral and ilhas[0]:
+            passo_ref = max(1, len(ilhas[0]) // 800)
+            amostra_corpo = ilhas[0][::passo_ref]
+            for vi in ilha:
+                cx, cy_v, cz = coords_xyz[vi]
+                melhor_vb = amostra_corpo[0]
+                melhor_d2 = float("inf")
+                for vb in amostra_corpo:
+                    bx, by_v, bz = coords_xyz[vb]
+                    d2 = (cx - bx) ** 2 + (cy_v - by_v) ** 2 + (cz - bz) ** 2
+                    if d2 < melhor_d2:
+                        melhor_d2 = d2
+                        melhor_vb = vb
+                pesos_por_vertice[vi] = list(
+                    pesos_por_vertice.get(melhor_vb, [(ossos[0]["nome"], 1.0)])
+                )
         else:
             osso_unico = arma_mao_osso or _osso_acessorio_ilha(
                 ilha,
@@ -1763,8 +1810,20 @@ def extrair_sockets(
             quat = -quat
 
         delta_bl = Vector((0.0, 0.0, 0.0))
-        if nome_socket in ("Hand.R", "Hand.L"):
-            delta_bl = (osso.tail_local - osso.head_local) * 0.35
+        if nome_socket == "Hand.R":
+            vetor_mao = osso.tail_local - osso.head_local
+            escala_mao = max(vetor_mao.length, 0.05) / 0.10
+            # Centro do tunel de empunhadura (punho fechado): ~0.42*(tail-head) + offset palmar (+Y_bl/-Z_bl)
+            delta_bl = vetor_mao * 0.42 + (
+                m_bone_3x3 @ Vector((0.004 * escala_mao, 0.0, 0.015 * escala_mao))
+            )
+        elif nome_socket == "Hand.L":
+            vetor_mao = osso.tail_local - osso.head_local
+            escala_mao = max(vetor_mao.length, 0.05) / 0.10
+            # Centro acima da palma em concha (orbe): ~0.45*(tail-head) + offset palmar/superior (+Y_bl/+Z_bl)
+            delta_bl = vetor_mao * 0.45 + (
+                m_bone_3x3 @ Vector((-0.004 * escala_mao, 0.0, 0.022 * escala_mao))
+            )
         elif nome_socket == "Back":
             meio_osso = (osso.head_local + osso.tail_local) * 0.5
             dorsal_y = -0.14

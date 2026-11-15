@@ -246,6 +246,40 @@ def _usar_modular_armor(item: dict) -> bool:
     return False
 
 
+def mpfb2_cc0_disponivel() -> tuple[bool, str]:
+    """Verifica se o addon MPFB2 e o pacote CC0 (makehuman_system_assets_cc0.zip) estao instalados."""
+    zip_env = os.environ.get("FORGE3D_MPFB_ASSETS_ZIP", "").strip()
+    if zip_env:
+        zip_path = Path(zip_env).expanduser()
+    else:
+        zip_path = (
+            Path.home()
+            / ".cache"
+            / "forge3d"
+            / "mpfb_assets"
+            / "makehuman_system_assets_cc0.zip"
+        )
+    if not zip_path.is_file():
+        return False, f"pacote CC0 ausente em {zip_path}"
+
+    mpfb_env = os.environ.get("FORGE3D_MPFB_DIR", "").strip()
+    raizes_ext: list[Path] = []
+    if mpfb_env:
+        raizes_ext.append(Path(mpfb_env).expanduser())
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if xdg:
+        raizes_ext.append(Path(xdg).expanduser() / "blender" / "4.2" / "extensions")
+    raizes_ext.append(Path.home() / ".config" / "blender" / "4.2" / "extensions")
+
+    tem_addon = any(
+        raiz.is_dir() and ((raiz / "__init__.py").is_file() or any(raiz.glob("**/mpfb/__init__.py")))
+        for raiz in raizes_ext
+    )
+    if not tem_addon:
+        return False, "extensao Blender MPFB2 ausente em ~/.config/blender/4.2/extensions"
+    return True, f"pronto (MPFB2 + {zip_path.name})"
+
+
 def _usar_template_humanoide(item: dict) -> bool:
     if _usar_makehuman_cabelo(item):
         return False
@@ -259,7 +293,15 @@ def _usar_template_humanoide(item: dict) -> bool:
         return False
     if item.get("makehuman_cabelo"):
         return True
-    return os.environ.get("FORGE3D_HUMANOIDE_TEMPLATE", "").strip() == "1"
+    env_flag = os.environ.get("FORGE3D_HUMANOIDE_TEMPLATE", "").strip().lower()
+    if env_flag in ("0", "false", "nao", "off"):
+        return False
+    if env_flag in ("1", "true", "sim", "on"):
+        return True
+    if "pose_guard" in item:
+        return False
+    ok_mpfb, _ = mpfb2_cc0_disponivel()
+    return ok_mpfb
 
 
 def _vram_livre_mb() -> int | None:
@@ -380,6 +422,18 @@ def _decidir_rembg(imagem: Path, concept_meta: dict | None) -> tuple[bool, str]:
     if tem_alfa:
         return False, f"imagem com fundo transparente ({detalhe})"
     return True, f"fundo opaco ({detalhe})"
+
+
+def _preflight_concept_item(item: dict) -> tuple[bool, str]:
+    from .concept import ConceptProvider
+
+    cp = ConceptProvider()
+    if item.get("provider_conceito") or os.environ.get("FORGE3D_PROVIDER_CONCEITO"):
+        try:
+            return cp.preflight(item)
+        except TypeError:
+            return cp.preflight()
+    return cp.preflight()
 
 
 class MeshProvider:
@@ -541,9 +595,7 @@ class MeshProvider:
                 return False, "scripts de template MPFB2 ausentes"
             if item.get("origem"):
                 return True, "pronto (template MPFB2 com origem)"
-            from .concept import ConceptProvider
-
-            c_pronto, c_razao = ConceptProvider().preflight()
+            c_pronto, c_razao = _preflight_concept_item(item)
             if not c_pronto:
                 return False, c_razao
             return True, f"pronto (template MPFB2); concept: {c_razao}"
@@ -562,9 +614,7 @@ class MeshProvider:
                 return False, f"script tools/pose_guard.py ausente em {script_pose_guard()}"
             if item.get("origem"):
                 return True, "pronto (extrude 2D com origem)"
-            from .concept import ConceptProvider
-
-            c_pronto, c_razao = ConceptProvider().preflight()
+            c_pronto, c_razao = _preflight_concept_item(item)
             if not c_pronto:
                 return False, c_razao
             return True, f"pronto (extrude 2D); concept: {c_razao}"
@@ -574,9 +624,7 @@ class MeshProvider:
             return pronto, razao
         if item.get("origem"):
             return True, razao
-        from .concept import ConceptProvider
-
-        c_pronto, c_razao = ConceptProvider().preflight()
+        c_pronto, c_razao = _preflight_concept_item(item)
         if not c_pronto:
             return False, c_razao
         return True, f"{razao}; concept: {c_razao}"
@@ -1427,7 +1475,8 @@ class MeshProvider:
 
         imagem, pose_guard_report = self._executar_pose_guard(item, imagem, destino, env)
 
-        resolucao = os.environ.get("FORGE3D_MC_RESOLUTION", "256")
+        mc_default = "320" if _qualidade(item) == "hero" else "256"
+        resolucao = os.environ.get("FORGE3D_MC_RESOLUTION", mc_default)
         rembg_mod = _rembg_modelo()
         comando = [
             str(dir_venv() / "bin" / "python"),
@@ -1516,8 +1565,19 @@ class MeshProvider:
             "retopologia": str(item.get("retopologia") or "auto"),
             "pivos": {},
             "concept": concept_meta,
-            "proteger_decimate": item.get("tipo") in ("personagem_humanoide", "criatura"),
+            "proteger_decimate": item.get("tipo")
+            in (
+                "personagem_humanoide",
+                "criatura",
+                "criatura_quadrupede",
+                "criatura_alada",
+                "montaria",
+            ),
         }
+        if item.get("material_procedural"):
+            modelo["material_procedural"] = str(item["material_procedural"])
+        if item.get("quadriflow_faces"):
+            modelo["quadriflow_faces"] = int(item["quadriflow_faces"])
         if entrada_tex.is_file() or not delight_ativo:
             modelo["origem_textura"] = origem_textura
         if metallic_hint:

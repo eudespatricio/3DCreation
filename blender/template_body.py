@@ -976,25 +976,30 @@ def exportar(obj, rig, saida: str, manter_rig: bool, nome_glb: str = "template_b
         bpy.context.view_layer.objects.active = obj
         obj.select_set(True)
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import postprocess as _pp  # noqa: E402
+
+    if obj is not None and getattr(obj, "type", None) == "MESH":
+        _pp.suavizar_por_angulo(obj, angulo_graus=65.0)
+    if manter_rig and rig is not None:
+        for filho in rig.children:
+            if filho is not obj and getattr(filho, "type", None) == "MESH":
+                _pp.suavizar_por_angulo(filho, angulo_graus=65.0)
+    bpy.ops.object.select_all(action="DESELECT")
+    if manter_rig and rig is not None:
+        rig.select_set(True)
+        for filho in rig.children:
+            filho.select_set(True)
     obj.select_set(True)
     glb = os.path.join(saida, nome_glb)
-    tem_normal = any(
-        inp.is_linked
-        for mat in (obj.data.materials if obj and obj.data else ())
-        if mat and mat.use_nodes
-        for node in mat.node_tree.nodes
-        if node.type == "BSDF_PRINCIPLED"
-        for inp in [node.inputs.get("Normal")]
-        if inp is not None
-    )
     export_kw = {
         "filepath": glb,
         "use_selection": True,
         "export_format": "GLB",
         "export_animations": False,
+        "export_normals": True,
+        "export_tangents": True,
     }
-    if tem_normal:
-        export_kw["export_tangents"] = True
     bpy.ops.export_scene.gltf(**export_kw)
     return glb
 

@@ -21,6 +21,10 @@ import sys
 import time
 from pathlib import Path
 
+from . import cloud_ai
+
+cloud_ai.registrar_licencas_cloud()
+
 VERSAO = "0.2.2"
 MODELO_PADRAO = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 CONTROLNET_MODELO_PADRAO = "lllyasviel/control_v11p_sd15_openpose"
@@ -335,8 +339,44 @@ def _diagnostico() -> dict:
     return resultado
 
 
-def preflight() -> tuple[bool, str]:
-    """Checa venv, script, CUDA e pesos. Nao baixa nada: o erro diz o que fazer."""
+def resolver_provider_conceito(item: dict | None = None) -> str:
+    """Resolve ``provider_conceito`` ('auto' | 'sd15' | 'gemini' | 'higgsfield')."""
+    raw = (
+        str(
+            (item or {}).get("provider_conceito")
+            or os.environ.get("FORGE3D_PROVIDER_CONCEITO")
+            or "auto"
+        )
+        .strip()
+        .lower()
+    )
+    if raw in ("sd15", "gemini", "higgsfield"):
+        return raw
+    if raw == "auto":
+        if cloud_ai.gemini_disponivel()[0]:
+            return "gemini"
+        if cloud_ai.higgsfield_disponivel()[0]:
+            return "higgsfield"
+        return "sd15"
+    raise ValueError(
+        f"provider_conceito invalido: {raw!r} (use 'auto', 'sd15', 'gemini' ou 'higgsfield')"
+    )
+
+
+def preflight(item: dict | None = None) -> tuple[bool, str]:
+    """Checa venv/script/CUDA/pesos (sd15) ou chave de API (gemini/higgsfield)."""
+    try:
+        prov = resolver_provider_conceito(item)
+    except ValueError as exc:
+        return False, f"P3.5: {exc}"
+
+    if prov == "gemini":
+        ok, razao = cloud_ai.gemini_disponivel()
+        return ok, f"gemini: {razao}" if not ok else razao
+    if prov == "higgsfield":
+        ok, razao = cloud_ai.higgsfield_disponivel()
+        return ok, f"higgsfield: {razao}" if not ok else razao
+
     pose_raw = _pose_env_raw()
     if pose_raw not in ("", "none", "off", "0", "tpose", "apose", "auto"):
         return False, f"P3.5: FORGE3D_CONCEPT_POSE invalido: {pose_raw!r}"
@@ -464,30 +504,49 @@ class ConceptProvider:
         return {"concept", "text-to-image", "image"}
 
     def custo(self, item: dict, perfil: dict) -> dict:
+        try:
+            prov = resolver_provider_conceito(item)
+        except ValueError:
+            prov = "sd15"
+        if prov in ("gemini", "higgsfield"):
+            return {"segundos_estimados": 8.0, "vram_mb": 0, "disco_mb": 20}
         # [estimado] a partir do SD1.5 fp16 em 6 GB; medir na primeira execucao
         if _device().startswith("cpu"):
             return {"segundos_estimados": 180.0, "vram_mb": 0, "disco_mb": 4000}
         return {"segundos_estimados": 15.0, "vram_mb": 3000, "disco_mb": 4000}
 
-    def preflight(self) -> tuple[bool, str]:
-        return preflight()
+    def preflight(self, item: dict | None = None) -> tuple[bool, str]:
+        if item is None:
+            return preflight()
+        try:
+            return preflight(item)
+        except TypeError:
+            return preflight()
 
     def gerar(self, item: dict, destino: Path) -> dict:
         from ..errors import erro_provider_run, erro_recurso
         from . import LICENCAS
 
-        pronto, razao = preflight()
+        try:
+            prov_conceito = resolver_provider_conceito(item)
+        except ValueError as exc:
+            raise erro_provider_run(str(exc), id=item.get("id")) from exc
+
+        try:
+            pronto, razao = preflight(item) if prov_conceito != "sd15" else preflight()
+        except TypeError:
+            pronto, razao = preflight()
         if not pronto:
             if "VRAM" in razao:
                 raise erro_recurso(
                     f"concept sem VRAM: {razao}",
                     id=item.get("id"),
-                    modelo=modelo_escolhido(),
+                    modelo=prov_conceito if prov_conceito != "sd15" else modelo_escolhido(),
                 )
             raise erro_provider_run(
                 f"concept indisponivel: {razao}",
                 id=item.get("id"),
-                modelo=modelo_escolhido(),
+                modelo=prov_conceito if prov_conceito != "sd15" else modelo_escolhido(),
             )
 
         prompt = (item.get("prompt") or "").strip()
@@ -495,13 +554,53 @@ class ConceptProvider:
             raise erro_provider_run("concept exige 'prompt' no item", id=item.get("id"))
 
         destino.mkdir(parents=True, exist_ok=True)
+        if prov_conceito in ("gemini", "higgsfield"):
+            sufixo = os.environ.get("FORGE3D_CONCEPT_SUFIXO", SUFIXO_PADRAO).strip()
+            efetivo = sufixo_efetivo(prompt, sufixo)
+            prompt_final = f"{prompt}, {efetivo}" if efetivo else prompt
+            negative_final = negativo_efetivo(item)
+            largura = int(os.environ.get("FORGE3D_CONCEPT_LARGURA", "512").strip() or "512")
+            altura = int(os.environ.get("FORGE3D_CONCEPT_ALTURA", "512").strip() or "512")
+            seed = int(item.get("seed", 20261110))
+            png = destino / "concept.png"
+            resultado_path = destino / "concept_resultado.json"
+            if prov_conceito == "gemini":
+                resultado = cloud_ai.gerar_conceito_gemini(
+                    prompt_final,
+                    negative_final,
+                    seed,
+                    png,
+                    largura=largura,
+                    altura=altura,
+                    item_id=item.get("id"),
+                )
+            else:
+                resultado = cloud_ai.gerar_conceito_higgsfield(
+                    prompt_final,
+                    negative_final,
+                    seed,
+                    png,
+                    largura=largura,
+                    altura=altura,
+                    item_id=item.get("id"),
+                )
+            resultado["tempo_provider_s"] = resultado.get("tempo_s", 0.0)
+            resultado["versao"] = VERSAO
+            resultado["prompt_final"] = prompt_final
+            resultado["negativo"] = negative_final
+            resultado["pose"] = ""
+            resultado_path.write_text(
+                json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
+            )
+            return {"png": png, "meta": resultado}
+
         try:
             comando, info = montar_comando(item, destino)
         except ValueError as exc:
             raise erro_provider_run(str(exc), id=item.get("id")) from exc
 
-        png: Path = info["png"]
-        resultado_path: Path = info["resultado_path"]
+        png = info["png"]
+        resultado_path = info["resultado_path"]
         if resultado_path.exists():
             resultado_path.unlink()
 
@@ -561,6 +660,7 @@ class ConceptProvider:
             cn_lic = dict(LICENCAS["sd15_openpose"])
             lic["notice"] = f"{lic['notice'].rstrip()} {cn_lic['notice']}".strip()
 
+        resultado["provider_conceito"] = "sd15"
         resultado["tempo_provider_s"] = round(time.monotonic() - t0, 3)
         resultado["versao"] = VERSAO
         resultado["licenca"] = lic

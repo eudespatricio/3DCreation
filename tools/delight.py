@@ -320,42 +320,50 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     )
 
     prata = (
-        (s_hsv < 45)
-        & (l_lab >= 95)
+        (s_hsv < 42)
+        & (l_lab >= 100)
         & (l_lab <= 240)
         & (local_min >= 80.0)
         & contraste_forte
     )
     gunmetal = (
-        (s_hsv < 55)
-        & (l_lab >= 50)
-        & (l_lab < 95)
-        & (local_min >= 45.0)
-        & (local_max >= 95.0)
-        & (local_range >= 18.0)
+        (s_hsv < 38)
+        & (l_lab >= 55)
+        & (l_lab < 100)
+        & (local_min >= 48.0)
+        & (local_max >= 115.0)
+        & (local_range >= 32.0)
     )
-    ouro = (h_deg >= 28.0) & (h_deg <= 52.0) & (s_hsv >= 75) & (s_hsv <= 210) & (v_hsv > 125)
+    ouro = (h_deg >= 34.0) & (h_deg <= 48.0) & (s_hsv >= 110) & (s_hsv <= 205) & (v_hsv >= 165)
     bronze = (
-        (h_deg >= 12.0)
-        & (h_deg < 28.0)
-        & (s_hsv >= 85)
-        & (s_hsv <= 230)
-        & (v_hsv >= 100)
-        & (local_range >= 18.0)
+        (h_deg >= 16.0)
+        & (h_deg < 30.0)
+        & (s_hsv >= 105)
+        & (s_hsv <= 220)
+        & (v_hsv >= 135)
+        & (local_range >= 28.0)
     )
     metal = (prata | gunmetal | ouro | bronze) & fg
 
     metallic = np.zeros((h, w), dtype=np.uint8)
-    # 210..245 em metal; 0 no restante.
-    metal_val = np.clip(222.0 + (l_f32 - 95.0) * 0.14, 220.0, 245.0).astype(np.uint8)
+    # 195..230 em metal real; 0 em armaduras pintadas/escamas/tecidos para nao esmagar o albedo.
+    metal_val = np.clip(205.0 + (l_f32 - 95.0) * 0.14, 198.0, 230.0).astype(np.uint8)
     metallic[metal] = metal_val[metal]
-    gun_val = np.clip(212.0 + (l_f32 - 50.0) * 0.45, 210.0, 235.0).astype(np.uint8)
+    gun_val = np.clip(195.0 + (l_f32 - 50.0) * 0.35, 192.0, 218.0).astype(np.uint8)
     metallic[gunmetal & fg] = gun_val[gunmetal & fg]
-    metallic[bronze & fg] = 225
-    metallic[ouro & fg] = 235
+    metallic[bronze & fg] = 208
+    metallic[ouro & fg] = 218
 
-    # Roughness: metal ~0.25..0.42, pele/couro ~0.55, pano/cabelo ~0.82.
+    # Roughness: metal ~0.25..0.42, pele/couro ~0.55, escamas/armadura pintada ~0.62, pano ~0.82.
     roughness = np.full((h, w), 209, dtype=np.uint8)  # 0.82 * 255
+    escamas_pintadas = (
+        fg
+        & (~metal)
+        & (s_hsv >= 65)
+        & (v_hsv >= 55)
+        & (local_range >= 22.0)
+    )
+    roughness[escamas_pintadas] = 158  # ~0.62 (acetinado suave sem virar metal escuro)
     couro_pele = (
         fg
         & (~metal)
@@ -425,28 +433,31 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         s_u8 = s_f * 255.0
         v_u8 = v_f * 255.0
         l_u8 = l_bytes[idx]
-        contraste = (l_max[idx] - l_min[idx]) >= 18
+        l_range = l_max[idx] - l_min[idx]
+        contraste = l_range >= 28
 
-        eh_prata = s_u8 < 45 and 95 <= l_u8 <= 240 and l_min[idx] >= 80 and contraste
+        eh_prata = s_u8 < 42 and 100 <= l_u8 <= 240 and l_min[idx] >= 80 and contraste
         eh_gunmetal = (
-            s_u8 < 55 and 50 <= l_u8 < 95 and l_min[idx] >= 45 and l_max[idx] >= 95 and contraste
+            s_u8 < 38 and 55 <= l_u8 < 100 and l_min[idx] >= 48 and l_max[idx] >= 115 and l_range >= 32
         )
-        eh_ouro = 28.0 <= h_deg <= 52.0 and 75 <= s_u8 <= 210 and v_u8 > 125
-        eh_bronze = 12.0 <= h_deg < 28.0 and 85 <= s_u8 <= 230 and v_u8 >= 100 and contraste
+        eh_ouro = 34.0 <= h_deg <= 48.0 and 110 <= s_u8 <= 205 and v_u8 >= 165
+        eh_bronze = 16.0 <= h_deg < 30.0 and 105 <= s_u8 <= 220 and v_u8 >= 135 and contraste
         if eh_ouro:
-            metallic[idx] = 235
+            metallic[idx] = 218
             roughness[idx] = max(64, min(97, round(95.0 - (l_u8 / 255.0) * 26.0)))
         elif eh_bronze:
-            metallic[idx] = 225
+            metallic[idx] = 208
             roughness[idx] = max(64, min(105, round(102.0 - (l_u8 / 255.0) * 28.0)))
         elif eh_prata:
-            metallic[idx] = max(220, min(245, round(222.0 + (l_u8 - 95.0) * 0.14)))
+            metallic[idx] = max(198, min(230, round(205.0 + (l_u8 - 95.0) * 0.14)))
             roughness[idx] = max(64, min(97, round(95.0 - (l_u8 / 255.0) * 26.0)))
         elif eh_gunmetal:
-            metallic[idx] = max(210, min(235, round(212.0 + (l_u8 - 50.0) * 0.45)))
+            metallic[idx] = max(192, min(218, round(195.0 + (l_u8 - 50.0) * 0.35)))
             roughness[idx] = max(72, min(115, round(112.0 - (l_u8 / 255.0) * 32.0)))
         elif 4.0 <= h_deg <= 42.0 and 30 <= s_u8 <= 195 and v_u8 >= 45:
             roughness[idx] = 140
+        elif s_u8 >= 65 and v_u8 >= 55 and l_range >= 22:
+            roughness[idx] = 158
 
     return (
         Image.frombytes("L", (w, h), bytes(metallic)),

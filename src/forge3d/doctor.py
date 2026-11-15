@@ -111,10 +111,46 @@ def _checar_gpu() -> dict:
     return _item("gpu", bool(saida), saida or "sem resposta", critico=False)
 
 
+def _diagnosticar_conectores_ia() -> dict[str, dict]:
+    from .providers import cloud_ai, concept, mesh
+
+    cloud_ai.registrar_licencas_cloud()
+    sd15_ok, sd15_det = concept.preflight({"provider_conceito": "sd15"})
+    triposr_ok, triposr_det = mesh.MeshProvider().preflight()
+    mpfb_ok, mpfb_det = mesh.mpfb2_cc0_disponivel()
+    gem_ok, gem_det = cloud_ai.gemini_disponivel()
+    hig_ok, hig_det = cloud_ai.higgsfield_disponivel()
+    rbx_ok, rbx_det = cloud_ai.roblox_open_cloud_disponivel()
+
+    def _fmt(ok: bool, det: str) -> dict:
+        return {
+            "ok": bool(ok),
+            "pronto": bool(ok),
+            "status": "pronto" if ok else "indisponivel",
+            "detalhe": det,
+        }
+
+    return {
+        "sd15": _fmt(sd15_ok, sd15_det),
+        "triposr": _fmt(triposr_ok, triposr_det),
+        "mpfb_cc0": _fmt(mpfb_ok, mpfb_det),
+        "gemini": _fmt(gem_ok, gem_det),
+        "higgsfield": _fmt(hig_ok, hig_det),
+        "roblox_open_cloud": _fmt(rbx_ok, rbx_det),
+    }
+
+
 def _checar_providers() -> dict:
     estado = providers.registrados()
     texto = " · ".join(f"{k}: {v}" for k, v in estado.items())
     return _item("providers", True, texto, critico=False)
+
+
+def _checar_conectores_ia(conectores: dict[str, dict]) -> dict:
+    resumo = " · ".join(
+        f"{k}: {'pronto' if v['ok'] else 'off'}" for k, v in conectores.items()
+    )
+    return _item("conectores_ia", True, resumo, critico=False)
 
 
 def _checar_python() -> dict:
@@ -130,6 +166,7 @@ def _checar_script_blender() -> dict:
 
 
 def checar() -> dict:
+    conectores = _diagnosticar_conectores_ia()
     checks = [
         _checar_python(),
         _checar_schemas(),
@@ -141,6 +178,7 @@ def checar() -> dict:
         _checar_disco(),
         _checar_gpu(),
         _checar_providers(),
+        _checar_conectores_ia(conectores),
     ]
     criticos_ok = all(c["ok"] for c in checks if c["critico"])
     return {
@@ -155,6 +193,7 @@ def checar() -> dict:
             {v["modelo"] for v in providers.LICENCAS.values() if v.get("uso_comercial")},
             key=str.lower,
         ),
+        "conectores_ia": conectores,
         "checks": checks,
     }
 

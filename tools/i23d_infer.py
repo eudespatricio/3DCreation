@@ -294,6 +294,113 @@ def _preparar_imagem(
     return _compor_cutout_neutro(imagem, desmultiplicar=False)
 
 
+def _suavizar_malha_taubin(
+    malha: Any,
+    iteracoes: int = 3,
+    lamb: float = 0.45,
+    nu: float = -0.47,
+) -> dict[str, Any]:
+    """Suavizacao Taubin preservadora de volume para remover degraus do Marching Cubes."""
+    try:
+        import trimesh.smoothing as _tsmooth
+
+        _tsmooth.filter_taubin(malha, lamb=lamb, nu=nu, iterations=int(iteracoes))
+        return {"aplicado": True, "modo": "trimesh_taubin", "iteracoes": int(iteracoes)}
+    except Exception:
+        pass
+    try:
+        import numpy as np
+
+        verts = np.asarray(malha.vertices, dtype=np.float64).copy()
+        faces = np.asarray(malha.faces, dtype=np.int64)
+        n_v = len(verts)
+        if n_v < 4 or len(faces) < 4:
+            return {"aplicado": False, "iteracoes": 0}
+        arestas = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+        src = np.concatenate([arestas[:, 0], arestas[:, 1]])
+        dst = np.concatenate([arestas[:, 1], arestas[:, 0]])
+        graus = np.zeros(n_v, dtype=np.float64)
+        np.add.at(graus, src, 1.0)
+        graus = np.maximum(graus, 1.0)[:, None]
+        for _ in range(max(1, int(iteracoes))):
+            for passo in (float(lamb), float(nu)):
+                soma = np.zeros_like(verts)
+                np.add.at(soma, src, verts[dst])
+                media = soma / graus
+                verts = verts + passo * (media - verts)
+        malha.vertices = verts
+        return {"aplicado": True, "modo": "numpy_taubin", "iteracoes": int(iteracoes)}
+    except Exception:
+        pass
+    try:
+        verts_py = [[float(c) for c in v] for v in malha.vertices]
+        faces_py = [[int(i) for i in f] for f in malha.faces]
+        n_v = len(verts_py)
+        if n_v < 4 or len(faces_py) < 4:
+            return {"aplicado": False, "iteracoes": 0}
+        adj: list[set[int]] = [set() for _ in range(n_v)]
+        for f in faces_py:
+            for a, b in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
+                adj[a].add(b)
+                adj[b].add(a)
+        for _ in range(max(1, int(iteracoes))):
+            for passo in (float(lamb), float(nu)):
+                novos = []
+                for idx, v in enumerate(verts_py):
+                    viz = adj[idx]
+                    if not viz:
+                        novos.append(v)
+                        continue
+                    inv = 1.0 / len(viz)
+                    mx = sum(verts_py[j][0] for j in viz) * inv
+                    my = sum(verts_py[j][1] for j in viz) * inv
+                    mz = sum(verts_py[j][2] for j in viz) * inv
+                    novos.append(
+                        [
+                            v[0] + passo * (mx - v[0]),
+                            v[1] + passo * (my - v[1]),
+                            v[2] + passo * (mz - v[2]),
+                        ]
+                    )
+                verts_py = novos
+        malha.vertices = verts_py
+        return {"aplicado": True, "modo": "python_taubin", "iteracoes": int(iteracoes)}
+    except Exception:
+        return {"aplicado": False, "iteracoes": 0}
+
+
+def _extrair_malha_com_fallback_oom(
+    modelo: Any,
+    codigos: Any,
+    resolucao: int,
+    torch_mod: Any = None,
+) -> tuple[Any, int, bool]:
+    """Extrai malha Marching Cubes; em caso de OOM com resolucao > 256, recua para 256."""
+    res_alvo = int(resolucao)
+    try:
+        malhas = modelo.extract_mesh(codigos, True, resolution=res_alvo)
+        return malhas[0], res_alvo, False
+    except (RuntimeError, MemoryError) as exc:
+        msg = str(exc).lower()
+        eh_oom = (
+            isinstance(exc, MemoryError)
+            or "out of memory" in msg
+            or "cuda" in msg
+            or "alloc" in msg
+        )
+        if res_alvo <= 256 or not eh_oom:
+            raise
+        gc.collect()
+        if torch_mod is not None and getattr(torch_mod, "cuda", None) is not None:
+            try:
+                if torch_mod.cuda.is_available():
+                    torch_mod.cuda.empty_cache()
+            except Exception:
+                pass
+        malhas = modelo.extract_mesh(codigos, True, resolution=256)
+        return malhas[0], 256, True
+
+
 def main() -> int:
     args = _args()
     saida_dir = Path(args.saida_dir).expanduser().resolve()
@@ -302,6 +409,8 @@ def main() -> int:
         "ok": False,
         "modelo": args.modelo,
         "mc_resolution": args.mc_resolution,
+        "mc_resolution_solicitada": args.mc_resolution,
+        "mc_oom_fallback": False,
         "imagem": str(Path(args.imagem).expanduser().resolve()),
     }
     try:
@@ -345,10 +454,13 @@ def main() -> int:
             codigos = modelo([imagem], device=args.device)
         t_forward = time.monotonic()
 
-        malhas = modelo.extract_mesh(codigos, True, resolution=args.mc_resolution)
+        malha, mc_efetiva, oom_fb = _extrair_malha_com_fallback_oom(
+            modelo, codigos, args.mc_resolution, torch_mod=torch
+        )
+        resultado["mc_resolution"] = mc_efetiva
+        resultado["mc_oom_fallback"] = oom_fb
         t_extrair = time.monotonic()
 
-        malha = malhas[0]
         # TripoSR extrai em +Z up, +X front, +Y camera-right (tsr/utils.py);
         # glTF exige +Y up e os perfis usam -Z frente: (-y, z, -x) tem det=+1 (sem espelho).
         malha.apply_transform(
@@ -359,6 +471,7 @@ def main() -> int:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
+        resultado["taubin_smooth"] = _suavizar_malha_taubin(malha, iteracoes=3)
         destino = saida_dir / "modelo.glb"
         malha.export(destino)
         t_exportar = time.monotonic()

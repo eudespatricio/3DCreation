@@ -22,8 +22,19 @@ ORDEM = ["--size", "--samples"]
 def _args() -> dict:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     if len(argv) < 2:
-        raise SystemExit("uso: render_preview.py -- <glb> <saida> [--size N] [--samples N]")
-    opcoes = {"glb": argv[0], "saida": argv[1], "size": 720, "samples": 32, "pose": False, "close": False, "alto": False}
+        raise SystemExit(
+            "uso: render_preview.py -- <glb> <saida> [--size N] [--samples N] [--turntable]"
+        )
+    opcoes = {
+        "glb": argv[0],
+        "saida": argv[1],
+        "size": 720,
+        "samples": 32,
+        "pose": False,
+        "close": False,
+        "alto": False,
+        "turntable": False,
+    }
     resto = argv[2:]
     i = 0
     while i < len(resto):
@@ -41,6 +52,9 @@ def _args() -> dict:
             i += 1
         elif resto[i] == "--alto":
             opcoes["alto"] = True
+            i += 1
+        elif resto[i] == "--turntable":
+            opcoes["turntable"] = True
             i += 1
         else:
             i += 1
@@ -161,16 +175,77 @@ def luzes(centro: Vector, raio: float) -> None:
     area("rim", Vector((0.2, -1.2, 0.9)), 45.0, raio * 1.6)
 
 
-def camera(centro: Vector, raio: float, direcao: Vector, escala: float) -> None:
+def camera(
+    centro: Vector,
+    raio: float,
+    direcao: Vector,
+    escala: float,
+    *,
+    perspectiva: bool = False,
+) -> None:
     dados = bpy.data.cameras.new("cam")
-    dados.type = "ORTHO"
     dados.sensor_fit = "VERTICAL"
-    dados.ortho_scale = escala
+    if perspectiva:
+        dados.type = "PERSP"
+        dados.lens = 50.0
+        dist = max(raio * 3.1, escala * 1.45)
+    else:
+        dados.type = "ORTHO"
+        dados.ortho_scale = escala
+        dist = raio * 6.0
     obj = bpy.data.objects.new("cam", dados)
     bpy.context.collection.objects.link(obj)
-    obj.location = centro + direcao.normalized() * raio * 6.0
+    obj.location = centro + direcao.normalized() * dist
     obj.rotation_euler = (centro - obj.location).normalized().to_track_quat("-Z", "Y").to_euler()
     bpy.context.scene.camera = obj
+
+
+def compor_contact_sheet_2x2(
+    caminhos_4: tuple[str, str, str, str],
+    destino_png: str,
+) -> str:
+    """Compoe 4 PNGs (TL=Front -Z, TR=Right +X, BL=Back +Z, BR=3/4 Persp) em contact sheet 2x2."""
+    tl_path, tr_path, bl_path, br_path = caminhos_4
+    imgs = [bpy.data.images.load(p, check_existing=False) for p in (tl_path, tr_path, bl_path, br_path)]
+    try:
+        w, h = int(imgs[0].size[0]), int(imgs[0].size[1])
+        for im in imgs[1:]:
+            if int(im.size[0]) != w or int(im.size[1]) != h:
+                im.scale(w, h)
+        px_tl = list(imgs[0].pixels)
+        px_tr = list(imgs[1].pixels)
+        px_bl = list(imgs[2].pixels)
+        px_br = list(imgs[3].pixels)
+
+        out_w = w * 2
+        out_h = h * 2
+        buf = [0.0] * (out_w * out_h * 4)
+        row_len = w * 4
+        out_row_len = out_w * 4
+
+        for y in range(h):
+            src_off = y * row_len
+            # Parte inferior (y = 0..h-1 no buffer de imagem do Blender): BL (esq) e BR (dir)
+            dst_bot = y * out_row_len
+            buf[dst_bot : dst_bot + row_len] = px_bl[src_off : src_off + row_len]
+            buf[dst_bot + row_len : dst_bot + out_row_len] = px_br[src_off : src_off + row_len]
+            # Parte superior (y = h..2h-1): TL (esq) e TR (dir)
+            dst_top = (y + h) * out_row_len
+            buf[dst_top : dst_top + row_len] = px_tl[src_off : src_off + row_len]
+            buf[dst_top + row_len : dst_top + out_row_len] = px_tr[src_off : src_off + row_len]
+
+        sheet = bpy.data.images.new("turntable_2x2", width=out_w, height=out_h, alpha=True)
+        try:
+            sheet.pixels.foreach_set(buf)
+            sheet.filepath_raw = destino_png
+            sheet.file_format = "PNG"
+            sheet.save()
+        finally:
+            bpy.data.images.remove(sheet)
+    finally:
+        for im in imgs:
+            bpy.data.images.remove(im)
+    return destino_png
 
 
 def configurar_render(saida: str, size: int, samples: int) -> None:
@@ -232,6 +307,16 @@ def main() -> int:
         "frente": Vector((0.0, 1.0, 0.08)),
         "tres_quartos": Vector((0.8, 1.0, 0.28)),
     }
+    vistas_persp: set[str] = set()
+    if opcoes["turntable"]:
+        # 2x2 contact sheet: Front -Z (+Y Blender), Right +X (-X Blender), Back +Z (-Y Blender), 3/4 Perspective
+        vistas = {
+            "frente": Vector((0.0, 1.0, 0.08)),
+            "direita": Vector((-1.0, 0.0, 0.08)),
+            "costas": Vector((0.0, -1.0, 0.08)),
+            "tres_quartos": Vector((0.8, 1.0, 0.28)),
+        }
+        vistas_persp.add("tres_quartos")
     if opcoes["close"]:
         # close-up do terco superior: e onde densidade de texel e detalhe aparecem
         centro = Vector((0.0, 0.0, maximo.z - altura_total * 0.22))
@@ -240,16 +325,38 @@ def main() -> int:
     if opcoes["alto"]:
         # vista de cima: e a unica que mostra o lado fechado continuo de um setor (GAP-047)
         vistas["alto"] = Vector((0.55, 0.75, 1.0))
+
+    saida_base = opcoes["saida"][:-4] if opcoes["saida"].lower().endswith(".png") else opcoes["saida"]
+    gerados: dict[str, str] = {}
     for nome, direcao in vistas.items():
         for obj in [o for o in bpy.context.scene.objects if o.type == "CAMERA"]:
             bpy.data.objects.remove(obj, do_unlink=True)
-        camera(centro, raio, direcao, escala)
-        configurar_render(f"{opcoes['saida']}_{nome}.png", opcoes["size"], opcoes["samples"])
+        camera(centro, raio, direcao, escala, perspectiva=(nome in vistas_persp))
+        arq_vista = f"{saida_base}_{nome}.png"
+        configurar_render(arq_vista, opcoes["size"], opcoes["samples"])
         if nome == "alto":
             # a vista de cima enquadra o footprint inteiro: moldura quadrada, nao retrato
             bpy.context.scene.render.resolution_y = opcoes["size"]
         bpy.ops.render.render(write_still=True)
-        print(f"RENDER_OK {opcoes['saida']}_{nome}.png")
+        gerados[nome] = arq_vista
+        print(f"RENDER_OK {arq_vista}")
+
+    if opcoes["turntable"] and all(k in gerados for k in ("frente", "direita", "costas", "tres_quartos")):
+        destino_sheet = (
+            opcoes["saida"]
+            if opcoes["saida"].lower().endswith(".png")
+            else f"{saida_base}_turntable.png"
+        )
+        compor_contact_sheet_2x2(
+            (
+                gerados["frente"],
+                gerados["direita"],
+                gerados["costas"],
+                gerados["tres_quartos"],
+            ),
+            destino_sheet,
+        )
+        print(f"RENDER_TURNTABLE_OK {destino_sheet}")
 
     return 0
 

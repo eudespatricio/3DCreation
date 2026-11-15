@@ -455,6 +455,8 @@ def _empacotar_orm(
     px: int,
     img_hints=None,
     piso_dieletrico_rough: float = 0.0,
+    metallic_base: float = 0.0,
+    roughness_base: float | None = None,
 ):
     """Empacota R=AO, G=Roughness, B=Metallic via ``array('f')``."""
     total_floats = px * px * 4
@@ -466,6 +468,7 @@ def _empacotar_orm(
         hints_buf = array("f", [0.0]) * total_floats
         img_hints.pixels.foreach_get(hints_buf)
 
+    met_padrao = max(0.0, min(1.0, float(metallic_base)))
     orm_buf = array("f", [0.0]) * total_floats
     for i in range(0, total_floats, 4):
         ao = ao_buf[i]
@@ -478,6 +481,9 @@ def _empacotar_orm(
             rough_ao = 0.50
         elif rough_ao > 0.90:
             rough_ao = 0.90
+        if roughness_base is not None:
+            rb = max(0.04, min(1.0, float(roughness_base)))
+            rough_ao = 0.65 * rb + 0.35 * rough_ao
 
         if hints_buf is not None:
             met = hints_buf[i]
@@ -504,7 +510,7 @@ def _empacotar_orm(
                 rough = 1.0
         else:
             rough = rough_ao
-            met = 0.0
+            met = met_padrao
 
         orm_buf[i] = ao
         orm_buf[i + 1] = rough
@@ -744,6 +750,66 @@ def _adicionar_detalhe_sobel_normal(
     img_nm.pixels.foreach_set(nm_buf)
 
 
+def _configurar_dispositivo_cycles(cena, preferir_gpu: bool = True) -> str:
+    """Ativa Cycles GPU (OPTIX/CUDA) se disponivel no subprocesso, com fallback limpo para CPU."""
+    cena.render.engine = "CYCLES"
+    env_dev = os.environ.get("FORGE3D_CYCLES_DEVICE", "").strip().upper()
+    if not preferir_gpu or env_dev == "CPU":
+        cena.cycles.device = "CPU"
+        return "CPU"
+    addon = bpy.context.preferences.addons.get("cycles")
+    if addon is not None:
+        cprefs = addon.preferences
+        tipos = (env_dev,) if env_dev in ("OPTIX", "CUDA") else ("OPTIX", "CUDA")
+        for tipo in tipos:
+            try:
+                cprefs.compute_device_type = tipo
+                if hasattr(cprefs, "get_devices"):
+                    cprefs.get_devices()
+                elif hasattr(cprefs, "refresh_devices"):
+                    cprefs.refresh_devices()
+                gpus = [d for d in cprefs.devices if getattr(d, "type", "") == tipo]
+                if gpus:
+                    for d in cprefs.devices:
+                        d.use = getattr(d, "type", "") in (tipo, "CPU")
+                    cena.cycles.device = "GPU"
+                    return f"GPU:{tipo}"
+            except Exception:
+                continue
+    cena.cycles.device = "CPU"
+    return "CPU"
+
+
+def _executar_bake_seguro(cena, **kwargs) -> None:
+    """Roda ``bpy.ops.object.bake`` caindo automaticamente em CPU se o bake na GPU falhar."""
+    try:
+        bpy.ops.object.bake(**kwargs)
+    except RuntimeError:
+        if getattr(cena.cycles, "device", "CPU") == "GPU":
+            cena.cycles.device = "CPU"
+            bpy.ops.object.bake(**kwargs)
+        else:
+            raise
+
+
+def _extrair_escalares_pbr_material(mat) -> tuple[float, float | None]:
+    """Le defaults de Metallic e Roughness de um material existente sem grampear Metallic=0."""
+    if mat is None or not getattr(mat, "use_nodes", False) or mat.node_tree is None:
+        return 0.0, None
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf is None:
+        bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None:
+        return 0.0, None
+    met = 0.0
+    rough = None
+    if "Metallic" in bsdf.inputs:
+        met = float(bsdf.inputs["Metallic"].default_value)
+    if "Roughness" in bsdf.inputs:
+        rough = float(bsdf.inputs["Roughness"].default_value)
+    return max(0.0, min(1.0, met)), rough
+
+
 def executar_bake_high_low(
     obj,
     saida_dir: str,
@@ -759,17 +825,39 @@ def executar_bake_high_low(
     roughness_hint_png: str | None = None,
     proteger_superficie: bool = False,
     perfil_nome: str | None = None,
+    material_procedural: str | None = None,
+    permitir_sem_cor_vertice: bool = False,
 ) -> dict:
     """Executa bake PBR High->Low (BaseColor, Normal, ORM) e atribui material glTF PBR em ``obj``."""
-    if obj is None or obj.data is None or not obj.data.color_attributes:
+    tem_cor_vertice = bool(
+        obj is not None and obj.data is not None and len(obj.data.color_attributes) > 0
+    )
+    preset_proc = str(material_procedural or "").strip().lower()
+    tem_procedural = bool(preset_proc)
+    tem_mat_uv = bool(
+        permitir_sem_cor_vertice
+        and obj is not None
+        and obj.data is not None
+        and len(obj.data.uv_layers) > 0
+    )
+    if obj is None or obj.data is None or (
+        not tem_cor_vertice and not tem_procedural and not tem_mat_uv
+    ):
         raise RuntimeError("malha sem atributo de cor por vertice para assar PBR")
 
     os.makedirs(saida_dir, exist_ok=True)
     px = max(64, min(int(px), 2048))
     px_sub = min(px, 1024 if px >= 2048 else 512)
 
-    ativo_cor = obj.data.color_attributes.active_color
-    nome_cor = ativo_cor.name if ativo_cor is not None else obj.data.color_attributes[0].name
+    if tem_cor_vertice:
+        ativo_cor = obj.data.color_attributes.active_color
+        nome_cor = (
+            ativo_cor.name if ativo_cor is not None else obj.data.color_attributes[0].name
+        )
+    elif tem_procedural:
+        nome_cor = f"procedural:{preset_proc}"
+    else:
+        nome_cor = "uv_material"
     tris_high = _contar_triangulos(obj)
 
     high_mesh = obj.data.copy()
@@ -798,15 +886,16 @@ def executar_bake_high_low(
             _suavizar_high_taubin(high_obj, iteracoes=3, fator=0.45)
         suavizar_fn(high_obj)
 
-        if origem_textura and os.path.isfile(origem_textura):
-            img_origem = bpy.data.images.load(origem_textura, check_existing=False)
-            img_origem.colorspace_settings.name = "sRGB"
-        if metallic_hint_png and os.path.isfile(metallic_hint_png):
-            img_met = bpy.data.images.load(metallic_hint_png, check_existing=False)
-            img_met.colorspace_settings.name = "Non-Color"
-        if roughness_hint_png and os.path.isfile(roughness_hint_png):
-            img_rough = bpy.data.images.load(roughness_hint_png, check_existing=False)
-            img_rough.colorspace_settings.name = "Non-Color"
+        if not tem_procedural:
+            if origem_textura and os.path.isfile(origem_textura):
+                img_origem = bpy.data.images.load(origem_textura, check_existing=False)
+                img_origem.colorspace_settings.name = "sRGB"
+            if metallic_hint_png and os.path.isfile(metallic_hint_png):
+                img_met = bpy.data.images.load(metallic_hint_png, check_existing=False)
+                img_met.colorspace_settings.name = "Non-Color"
+            if roughness_hint_png and os.path.isfile(roughness_hint_png):
+                img_rough = bpy.data.images.load(roughness_hint_png, check_existing=False)
+                img_rough.colorspace_settings.name = "Non-Color"
 
         nome_visivel = None
         if img_origem is not None or img_met is not None or img_rough is not None:
@@ -836,23 +925,58 @@ def executar_bake_high_low(
             cage_extrusion = max(0.02, 0.03 * diag)
             max_ray_dist = max(0.025, 0.06 * diag)
 
-        high_mat = _criar_material_high_vc(
-            f"{nome_base}_high_bake_tmp",
-            nome_cor,
-            img_origem=img_origem,
-            nome_uv="UV_Camera_Front",
-            calibrar_vc=proteger_superficie,
-            nome_visivel=nome_visivel,
-        )
-        high_obj.data.materials.clear()
-        high_obj.data.materials.append(high_mat)
+        proc_mod = None
+        met_escalar_orig = 0.0
+        rough_escalar_orig: float | None = None
+        if tem_procedural:
+            proc_mod = __import__("procedural_pbr")
+            high_mat = proc_mod.criar_material_procedural(
+                preset_proc, nome_mat=f"{nome_base}_high_proc_tmp"
+            )
+            high_obj.data.materials.clear()
+            high_obj.data.materials.append(high_mat)
+        elif tem_cor_vertice:
+            high_mat = _criar_material_high_vc(
+                f"{nome_base}_high_bake_tmp",
+                nome_cor,
+                img_origem=img_origem,
+                nome_uv="UV_Camera_Front",
+                calibrar_vc=proteger_superficie,
+                nome_visivel=nome_visivel,
+            )
+            high_obj.data.materials.clear()
+            high_obj.data.materials.append(high_mat)
+        else:
+            mat_src = high_obj.data.materials[0] if high_obj.data.materials else None
+            met_escalar_orig, rough_escalar_orig = _extrair_escalares_pbr_material(mat_src)
+            if mat_src is not None:
+                high_mat = mat_src.copy()
+                high_mat.name = f"{nome_base}_high_mat_tmp"
+                high_obj.data.materials.clear()
+                high_obj.data.materials.append(high_mat)
+            elif img_origem is not None:
+                high_mat = bpy.data.materials.new(f"{nome_base}_high_tex_tmp")
+                high_mat.use_nodes = True
+                nt_h = high_mat.node_tree
+                bsdf_h = nt_h.nodes.get("Principled BSDF")
+                tex_h = nt_h.nodes.new("ShaderNodeTexImage")
+                tex_h.image = img_origem
+                nt_h.links.new(tex_h.outputs["Color"], bsdf_h.inputs["Base Color"])
+                high_obj.data.materials.clear()
+                high_obj.data.materials.append(high_mat)
+            else:
+                high_mat = bpy.data.materials.new(f"{nome_base}_high_def_tmp")
+                high_mat.use_nodes = True
+                high_obj.data.materials.clear()
+                high_obj.data.materials.append(high_mat)
 
         low_bake_mat, tex_bake = _criar_material_alvo_bake(f"{nome_base}_low_bake_tmp")
         obj.data.materials.clear()
         obj.data.materials.append(low_bake_mat)
 
-        cena.render.engine = "CYCLES"
-        cena.cycles.device = "CPU"
+        dispositivo_cycles = _configurar_dispositivo_cycles(cena, preferir_gpu=True)
+        samples_bake = 8 if (tem_procedural or permitir_sem_cor_vertice) else 1
+        samples_ao = 8 if (tem_procedural or permitir_sem_cor_vertice) else 4
         cena.cycles.use_denoising = False
         cena.render.bake.use_selected_to_active = True
         cena.render.bake.use_cage = False
@@ -861,7 +985,7 @@ def executar_bake_high_low(
         cena.render.bake.use_clear = True
         _configurar_render_png_linear(cena)
 
-        # 1. BaseColor (DIFFUSE color pass) em `px`
+        # 1. BaseColor em `px`
         nome_bc = f"{nome_base}_baseColor.png"
         path_bc = os.path.join(saida_dir, nome_bc)
         img_bc_tmp = bpy.data.images.new(f"{nome_base}_bc_tmp", width=px, height=px, alpha=False)
@@ -870,16 +994,28 @@ def executar_bake_high_low(
         tex_bake.select = True
         low_bake_mat.node_tree.nodes.active = tex_bake
 
-        cena.cycles.samples = 1
-        cena.render.bake.use_pass_direct = False
-        cena.render.bake.use_pass_indirect = False
-        cena.render.bake.use_pass_color = True
+        cena.cycles.samples = samples_bake
         cena.render.bake.margin = max(4, px // 128)
         _selecionar_high_para_low(high_obj, obj)
-        bpy.ops.object.bake(type="DIFFUSE")
+        if tem_procedural and proc_mod is not None:
+            proc_mod.configurar_saida_albedo_emit(high_mat)
+            _executar_bake_seguro(cena, type="EMIT")
+            proc_mod.configurar_saida_pbr_bsdf(high_mat)
+        else:
+            bsdf_h = high_mat.node_tree.nodes.get("Principled BSDF") if high_mat else None
+            met_ant = None
+            if bsdf_h is not None and "Metallic" in bsdf_h.inputs:
+                met_ant = float(bsdf_h.inputs["Metallic"].default_value)
+                bsdf_h.inputs["Metallic"].default_value = 0.0
+            cena.render.bake.use_pass_direct = False
+            cena.render.bake.use_pass_indirect = False
+            cena.render.bake.use_pass_color = True
+            _executar_bake_seguro(cena, type="DIFFUSE")
+            if bsdf_h is not None and met_ant is not None:
+                bsdf_h.inputs["Metallic"].default_value = met_ant
         img_bc = _salvar_e_recarregar_png(img_bc_tmp, path_bc, "sRGB", cena)
 
-        # 2. Normal (TANGENT) em `min(px, 512)`
+        # 2. Normal (TANGENT) em `px_sub`
         nome_nm = f"{nome_base}_normal.png"
         path_nm = os.path.join(saida_dir, nome_nm)
         img_nm_tmp = bpy.data.images.new(
@@ -890,19 +1026,20 @@ def executar_bake_high_low(
         tex_bake.select = True
         low_bake_mat.node_tree.nodes.active = tex_bake
 
-        cena.cycles.samples = 1
+        cena.cycles.samples = samples_bake
         cena.render.bake.normal_space = "TANGENT"
         cena.render.bake.normal_r = "POS_X"
         cena.render.bake.normal_g = "POS_Y"
         cena.render.bake.normal_b = "POS_Z"
         cena.render.bake.margin = max(4, px_sub // 128)
         _selecionar_high_para_low(high_obj, obj)
-        bpy.ops.object.bake(type="NORMAL")
+        _executar_bake_seguro(cena, type="NORMAL")
         _corrigir_normais_invertidas(img_nm_tmp, px_sub)
-        _adicionar_detalhe_sobel_normal(img_nm_tmp, img_bc, px_sub, px)
+        if not tem_procedural:
+            _adicionar_detalhe_sobel_normal(img_nm_tmp, img_bc, px_sub, px)
         img_nm = _salvar_e_recarregar_png(img_nm_tmp, path_nm, "Non-Color", cena)
 
-        # 3. ORM via AO (4 samples) + hints opcionais (EMIT 1 sample) em `min(px, 512)`
+        # 3. ORM via AO + hints opcionais/procedurais em `px_sub`
         nome_orm = f"{nome_base}_orm.png"
         path_orm = os.path.join(saida_dir, nome_orm)
         img_ao_tmp = bpy.data.images.new(
@@ -913,18 +1050,32 @@ def executar_bake_high_low(
         tex_bake.select = True
         low_bake_mat.node_tree.nodes.active = tex_bake
 
-        cena.cycles.samples = 4
+        cena.cycles.samples = samples_ao
         cena.render.bake.margin = max(4, px_sub // 128)
         _selecionar_high_para_low(high_obj, obj)
-        bpy.ops.object.bake(type="AO")
+        _executar_bake_seguro(cena, type="AO")
 
-        if img_met is not None or img_rough is not None:
+        if tem_procedural and proc_mod is not None:
+            proc_mod.configurar_saida_orm_hints_emit(high_mat)
+            img_hints_tmp = bpy.data.images.new(
+                f"{nome_base}_hints_tmp", width=px_sub, height=px_sub, alpha=False
+            )
+            img_hints_tmp.colorspace_settings.name = "Non-Color"
+            tex_bake.image = img_hints_tmp
+            tex_bake.select = True
+            low_bake_mat.node_tree.nodes.active = tex_bake
+            cena.cycles.samples = samples_bake
+            cena.render.bake.margin = max(4, px_sub // 128)
+            _selecionar_high_para_low(high_obj, obj)
+            _executar_bake_seguro(cena, type="EMIT")
+            proc_mod.configurar_saida_pbr_bsdf(high_mat)
+        elif img_met is not None or img_rough is not None:
             high_hints_mat = _criar_material_high_hints_emit(
                 f"{nome_base}_high_hints_tmp",
                 img_met,
                 img_rough,
                 nome_uv="UV_Camera_Front",
-                nome_cor=nome_cor,
+                nome_cor=nome_cor if tem_cor_vertice else None,
                 img_origem=img_origem,
                 nome_visivel=nome_visivel,
             )
@@ -942,14 +1093,16 @@ def executar_bake_high_low(
             cena.cycles.samples = 1
             cena.render.bake.margin = max(4, px_sub // 128)
             _selecionar_high_para_low(high_obj, obj)
-            bpy.ops.object.bake(type="EMIT")
+            _executar_bake_seguro(cena, type="EMIT")
 
         img_orm_tmp = _empacotar_orm(
             img_ao_tmp,
             f"{nome_base}_orm_tmp",
             px_sub,
             img_hints=img_hints_tmp,
-            piso_dieletrico_rough=0.68 if proteger_superficie else 0.0,
+            piso_dieletrico_rough=0.68 if (proteger_superficie and not tem_procedural) else 0.0,
+            metallic_base=met_escalar_orig,
+            roughness_base=rough_escalar_orig,
         )
         bpy.data.images.remove(img_ao_tmp)
         extras_roblox = (
@@ -964,6 +1117,22 @@ def executar_bake_high_low(
 
         obj.data.materials.clear()
         mat_final = _criar_material_pbr_gltf(f"{nome_base}_pbr", img_bc, img_nm, img_orm)
+        if tem_procedural and proc_mod is not None:
+            cfg_p = proc_mod.PRESETS_PBR.get(preset_proc, {})
+            bsdf_f = mat_final.node_tree.nodes.get("Principled BSDF")
+            if bsdf_f is not None:
+                if "Metallic" in bsdf_f.inputs:
+                    bsdf_f.inputs["Metallic"].default_value = float(
+                        0.5 * (cfg_p.get("metallic_min", 0.0) + cfg_p.get("metallic_max", 0.0))
+                    )
+                if "Roughness" in bsdf_f.inputs:
+                    bsdf_f.inputs["Roughness"].default_value = float(
+                        0.5 * (cfg_p.get("roughness_min", 0.5) + cfg_p.get("roughness_max", 0.7))
+                    )
+        elif met_escalar_orig > 0.0:
+            bsdf_f = mat_final.node_tree.nodes.get("Principled BSDF")
+            if bsdf_f is not None and "Metallic" in bsdf_f.inputs:
+                bsdf_f.inputs["Metallic"].default_value = met_escalar_orig
         obj.data.materials.append(mat_final)
 
         bpy.ops.object.select_all(action="DESELECT")
@@ -1000,6 +1169,9 @@ def executar_bake_high_low(
             "normal_px": px_sub,
             "orm_px": px_sub,
             "cor_atributo": nome_cor,
+            "material_procedural": preset_proc or None,
+            "dispositivo_cycles": dispositivo_cycles,
+            "samples": samples_bake,
             "bbox_diag": round(diag, 6),
             "cage_extrusion": round(cage_extrusion, 6),
             "triangulos_high": tris_high,
@@ -1008,8 +1180,8 @@ def executar_bake_high_low(
             "smooth": info_smooth,
             "uv": info_uv,
             "origem_textura_aplicada": bool(img_origem is not None),
-            "metallic_hint_aplicado": bool(img_met is not None),
-            "roughness_hint_aplicado": bool(img_rough is not None),
+            "metallic_hint_aplicado": bool(img_met is not None or tem_procedural),
+            "roughness_hint_aplicado": bool(img_rough is not None or tem_procedural),
             "png_bytes": bytes_bc,
             "baseColor_bytes": bytes_bc,
             "normal_bytes": bytes_nm,

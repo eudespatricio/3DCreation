@@ -25,6 +25,26 @@ if _BLENDER_DIR not in sys.path:
 import autorig  # noqa: E402
 import bake_pbr  # noqa: E402
 import extrude_2d  # noqa: E402
+import organic_sculpt  # noqa: E402
+
+TIPOS_ORGANICOS = (
+    "personagem_humanoide",
+    "criatura",
+    "criatura_quadrupede",
+    "criatura_alada",
+    "montaria",
+)
+PARTES_RIGIDAS = (
+    "elmo",
+    "ombreiras",
+    "peitoral",
+    "luvas",
+    "calcas",
+    "calças",
+    "botas",
+    "escudo",
+    "arma",
+)
 
 # Limiar compartilhado com src/forge3d/qc.py para decidir frente/costas humanoide sem ambiguidade.
 LIMIAR_SCORE_FRENTE = 0.035
@@ -770,14 +790,151 @@ def _alinhar_frente_humanoide(obj, limiar: float = LIMIAR_SCORE_FRENTE) -> dict:
     info["girado_frente"] = girado_frente
     return info
 
-def suavizar_por_angulo(obj, angulo_graus: float = 45.0) -> dict:
-    """Smooth shading por angulo (Blender 4.2): solda normais suaves e mantem arestas vivas."""
-    obj.data.shade_smooth()
-    obj.data.set_sharp_from_angle(angle=math.radians(angulo_graus))
-    obj.data.update()
-    sharp = obj.data.attributes.get("sharp_edge")
-    arestas_vivas = sum(1 for d in sharp.data if d.value) if sharp is not None else 0
-    return {"angulo_graus": angulo_graus, "arestas_vivas": arestas_vivas}
+def _resolver_config_suavizacao(job: dict, bruto: dict) -> dict:
+    """Resolve parametros de suavizacao de normais (organico 65 deg vs hard-surface 38 deg)."""
+    item = job.get("item") if isinstance(job.get("item"), dict) else {}
+    cfg_raw = job.get("suavizacao_normais") or item.get("suavizacao_normais") or {}
+    cfg = cfg_raw if isinstance(cfg_raw, dict) else {}
+    modo = str(cfg.get("modo") or "auto").strip().lower()
+    tipo = str(job.get("tipo") or item.get("tipo") or "").strip()
+    parte = str(item.get("parte") or "").strip().lower()
+    eh_armadura = bool(bruto.get("armadura_modular")) or (parte in PARTES_RIGIDAS)
+
+    if modo == "organico":
+        eh_organico = True
+    elif modo == "hard_surface":
+        eh_organico = False
+    else:
+        eh_organico = (tipo in TIPOS_ORGANICOS) and not eh_armadura
+
+    if "angulo_graus" in cfg and cfg["angulo_graus"] is not None:
+        angulo_graus = float(cfg["angulo_graus"])
+    elif eh_organico:
+        angulo_graus = 65.0
+    elif item.get("rota") == "import" and bruto.get("origem_nome") == "malha_colorida.glb" and not cfg:
+        angulo_graus = 45.0
+    else:
+        angulo_graus = 38.0
+
+    if "weighted_normals" in cfg and cfg["weighted_normals"] is not None:
+        weighted_normals = bool(cfg["weighted_normals"])
+    else:
+        weighted_normals = (not eh_organico) and (
+            tipo in ("prop_equipavel", "prop_estatico", "modulo_cenario")
+            or eh_armadura
+            or bruto.get("schema") == "forge3d/bruto-extrude@1"
+        )
+
+    if "corrective_smooth" in cfg and cfg["corrective_smooth"] is not None:
+        corrective_smooth = bool(cfg["corrective_smooth"])
+    else:
+        corrective_smooth = eh_organico
+
+    return {
+        "modo": "organico" if eh_organico else "hard_surface",
+        "eh_organico": eh_organico,
+        "angulo_graus": angulo_graus,
+        "weighted_normals": weighted_normals,
+        "corrective_smooth": corrective_smooth,
+        "soldar_componentes_organicos": bool(cfg.get("soldar_componentes_organicos", False)),
+    }
+
+
+def suavizar_por_angulo(obj, angulo_graus: float = 65.0) -> dict:
+    """Smooth shading real por angulo diedro + custom split normals ponderadas por angulo."""
+    if obj is None or obj.type != "MESH" or obj.data is None:
+        return {"angulo_graus": float(angulo_graus), "arestas_vivas": 0, "custom_normals": False}
+    me = obj.data
+    _selecionar(obj)
+    if getattr(me, "has_custom_normals", False):
+        try:
+            bpy.ops.mesh.customdata_custom_splitnormals_clear()
+        except Exception:
+            pass
+    for poly in me.polygons:
+        poly.use_smooth = True
+    me.shade_smooth()
+    rad = math.radians(float(angulo_graus))
+    me.set_sharp_from_angle(angle=rad)
+    me.update()
+
+    sharp_attr = me.attributes.get("sharp_edge")
+    sharp_indices = (
+        {i for i, d in enumerate(sharp_attr.data) if d.value}
+        if sharp_attr is not None
+        else set()
+    )
+
+    if len(me.loops) > 0 and len(me.polygons) > 0:
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(me)
+            bm.faces.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+            bm.normal_update()
+            for e in bm.edges:
+                if e.index in sharp_indices:
+                    e.smooth = False
+                elif len(e.link_faces) == 2:
+                    n0 = e.link_faces[0].normal
+                    n1 = e.link_faces[1].normal
+                    if n0.length > 1e-8 and n1.length > 1e-8:
+                        cos_a = max(-1.0, min(1.0, n0.dot(n1)))
+                        if math.acos(cos_a) >= rad:
+                            e.smooth = False
+                            sharp_indices.add(e.index)
+                        else:
+                            e.smooth = True
+                    else:
+                        e.smooth = True
+                else:
+                    e.smooth = False
+                    sharp_indices.add(e.index)
+
+            loop_normals = [Vector((0.0, 0.0, 1.0))] * len(me.loops)
+            for v in bm.verts:
+                visitados: set = set()
+                for lp_ini in v.link_loops:
+                    if lp_ini in visitados:
+                        continue
+                    grupo = []
+                    fila = [lp_ini]
+                    visitados.add(lp_ini)
+                    while fila:
+                        atual = fila.pop()
+                        grupo.append(atual)
+                        for e_adj in (atual.edge, atual.link_loop_prev.edge):
+                            if e_adj.index in sharp_indices or not e_adj.smooth:
+                                continue
+                            for l_adj in e_adj.link_loops:
+                                for cand in (l_adj, l_adj.link_loop_next):
+                                    if cand.vert == v and cand not in visitados:
+                                        visitados.add(cand)
+                                        fila.append(cand)
+                    acum = Vector((0.0, 0.0, 0.0))
+                    for lp in grupo:
+                        peso = max(1e-6, lp.calc_angle())
+                        acum += lp.face.normal * peso
+                    if acum.length > 1e-8:
+                        n_final = acum.normalized()
+                    elif v.normal.length > 1e-8:
+                        n_final = v.normal.normalized()
+                    else:
+                        n_final = Vector((0.0, 0.0, 1.0))
+                    for lp in grupo:
+                        loop_normals[lp.index] = n_final
+        finally:
+            bm.free()
+        me.normals_split_custom_set(loop_normals)
+        me.update()
+
+    arestas_vivas = len(sharp_indices)
+    return {
+        "angulo_graus": float(angulo_graus),
+        "arestas_vivas": arestas_vivas,
+        "custom_normals": bool(getattr(me, "has_custom_normals", False)),
+    }
 
 
 def aplicar_weighted_normal(obj) -> dict:
@@ -791,23 +948,50 @@ def aplicar_weighted_normal(obj) -> dict:
     return {"weighted_normal": True}
 
 
-def retopologizar_quadriflow(obj, alvo_tris: int) -> bool:
-    """Retopologia Quadriflow opcional; devolve False se a malha nao suportar remesh."""
+def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
+    """Retopologia Quadriflow deterministica; devolve False e restaura malha se falhar ou zerar faces."""
+    if obj is None or obj.type != "MESH" or not obj.data or len(obj.data.polygons) < 4:
+        return False
     _selecionar(obj)
-    alvos_quads = max(200, int(alvo_tris) // 2)
+    alvos_quads = int(alvo_faces) if int(alvo_faces or 0) >= 100 else max(250, int(alvo_tris) // 2)
+    backup = obj.data.copy()
     try:
-        bpy.ops.object.quadriflow_remesh(
-            use_mesh_symmetry=False,
-            use_preserve_sharp=True,
-            use_preserve_boundary=True,
-            target_faces=alvos_quads,
-        )
+        props = set(bpy.ops.object.quadriflow_remesh.get_rna_type().properties.keys())
+        kw = {
+            "use_mesh_symmetry": False,
+            "use_preserve_sharp": False,
+            "use_preserve_boundary": True,
+            "preserve_attributes": False,
+            "smooth_normals": True,
+            "target_faces": alvos_quads,
+            "seed": 0,
+        }
+        kw = {k: v for k, v in kw.items() if k in props}
+        bpy.ops.object.quadriflow_remesh(**kw)
+        if len(obj.data.polygons) < 4 or len(obj.data.vertices) < 4:
+            raise RuntimeError("quadriflow retornou 0 faces")
+        bpy.data.meshes.remove(backup)
         return True
     except Exception:
+        antiga = obj.data
+        obj.data = backup
+        if antiga.users == 0:
+            bpy.data.meshes.remove(antiga)
         return False
 
 
 def desdobrar_uv(obj, margem: float = 0.02) -> str:
+    if obj is not None and obj.type == "MESH" and obj.data and len(obj.data.polygons) > 4:
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(obj.data)
+            colapsadas = _colapsar_faces_degeneradas(bm, area_min=1e-9)
+            if colapsadas > 0:
+                bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+                bm.to_mesh(obj.data)
+                obj.data.update()
+        finally:
+            bm.free()
     _selecionar(obj)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
@@ -1414,6 +1598,18 @@ def processar(job: dict) -> dict:
     info_gerada: dict = {}
     texturas_geradas: list[dict] = []
     nome_base = str(job["nome_base"])
+    qualidade_item = str(item.get("qualidade") or "").strip().lower()
+    cfg_suav = _resolver_config_suavizacao(job, bruto)
+    smooth_normals_aplicado = False
+    angulo_smooth_final = 0.0
+    weighted_normals_aplicado = False
+    quadriflow_aplicado = False
+    esqueleto_efetivo: str | None = (
+        str(item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao"))
+        if (item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao"))
+        else None
+    )
+
     if bruto["schema"] == "forge3d/bruto-blocky@1":
         obj, grupos = construir_blocky(bruto, bruto_dir)
         if bruto.get("ossos"):
@@ -1449,8 +1645,12 @@ def processar(job: dict) -> dict:
         if malha_triangulada(obj) > limite_tris:
             decimar(obj, limite_tris)
             info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
-        info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=35.0)
-        info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
+        angulo_smooth_final = float(cfg_suav["angulo_graus"])
+        info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth_final)
+        smooth_normals_aplicado = True
+        if cfg_suav["weighted_normals"]:
+            info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
+            weighted_normals_aplicado = True
         met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
         rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
         if met_hint or rough_hint:
@@ -1478,21 +1678,81 @@ def processar(job: dict) -> dict:
         if bruto.get("canonicalizar"):
             info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
         info_gerada["reparo_inicial"] = reparar_malha(obj)
-        if obj.data.color_attributes:
-            px = int(bruto.get("textura_px") or TEX_PX_GERADA)
+
+        mat_proc = str(
+            job.get("material_procedural")
+            or item.get("material_procedural")
+            or bruto.get("material_procedural")
+            or ""
+        ).strip()
+        retopologia_pedida = str(
+            item.get("retopologia") or bruto.get("retopologia") or "padrao"
+        ).strip().lower()
+        quadriflow_faces = int(
+            item.get("quadriflow_faces") or bruto.get("quadriflow_faces") or 0
+        )
+
+        # Soldagem voxel organica (Deliverable 4) antes de retopologia/bake/rig
+        deve_soldar = bool(cfg_suav["soldar_componentes_organicos"]) or bool(
+            bruto.get("soldar_componentes_organicos")
+        )
+        if (
+            not deve_soldar
+            and cfg_suav["eh_organico"]
+            and rig_obj is None
+            and item.get("tipo") in ("criatura", "criatura_quadrupede", "criatura_alada", "montaria")
+            and (bool(mat_proc) or bool(obj.data.color_attributes))
+            and organic_sculpt.contar_componentes(obj) > 1
+        ):
+            deve_soldar = True
+        if deve_soldar and rig_obj is None:
+            info_solda = organic_sculpt.soldar_componentes_organicos(obj)
+            info_gerada["soldagem_organica"] = info_solda
+            if info_solda.get("soldado"):
+                info_gerada["reparo_pos_solda"] = reparar_malha(obj)
+
+        proteger = bool(bruto.get("proteger_decimate", False)) or cfg_suav["eh_organico"]
+        angulo_smooth = float(cfg_suav["angulo_graus"])
+        angulo_smooth_final = angulo_smooth
+        limite_tris = int(item["limite_triangulos"])
+        px_padrao = 2048 if qualidade_item == "hero" else TEX_PX_GERADA
+        px = int(bruto.get("textura_px") or px_padrao)
+
+        def _reduzir_low(alvo_o, lim_t: int) -> int:
+            nonlocal quadriflow_aplicado
+            if retopologia_pedida == "quadriflow":
+                if retopologizar_quadriflow(alvo_o, lim_t, alvo_faces=quadriflow_faces):
+                    quadriflow_aplicado = True
+                    info_gerada["retopologia"] = "quadriflow"
+                    if malha_triangulada(alvo_o) > lim_t:
+                        decimar(alvo_o, lim_t, proteger_cabeca_maos=proteger)
+                elif malha_triangulada(alvo_o) > lim_t:
+                    decimar(alvo_o, lim_t, proteger_cabeca_maos=proteger)
+            elif malha_triangulada(alvo_o) > lim_t:
+                decimar(alvo_o, lim_t, proteger_cabeca_maos=proteger)
+            if cfg_suav["corrective_smooth"] and malha_triangulada(alvo_o) >= 120:
+                info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
+                    alvo_o, iteracoes=2, fator=0.35
+                )
+            return malha_triangulada(alvo_o)
+
+        usar_bake_high_low = bool(obj.data.color_attributes) or bool(mat_proc) or (
+            retopologia_pedida == "quadriflow"
+            and bool(obj.data.uv_layers)
+            and bool(obj.data.materials)
+        )
+        if usar_bake_high_low:
             origem_tex = _resolver_opcional_bruto(bruto_dir, bruto.get("origem_textura"))
             met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
             rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
-            proteger = bool(bruto.get("proteger_decimate", False))
-            angulo_smooth = 85.0 if proteger else 45.0
             res_bake = bake_pbr.executar_bake_high_low(
                 obj,
                 saida_dir,
                 nome_base,
                 px,
-                int(item["limite_triangulos"]),
+                limite_tris,
                 reparar_malha,
-                lambda o, t, p=proteger: decimar(o, t, proteger_cabeca_maos=p),
+                _reduzir_low,
                 lambda o, a=angulo_smooth: suavizar_por_angulo(o, angulo_graus=a),
                 desdobrar_uv,
                 origem_textura=origem_tex,
@@ -1500,6 +1760,8 @@ def processar(job: dict) -> dict:
                 roughness_hint_png=rough_hint,
                 proteger_superficie=proteger,
                 perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
+                material_procedural=mat_proc or None,
+                permitir_sem_cor_vertice=bool(mat_proc or retopologia_pedida == "quadriflow"),
             )
             bake_meta = res_bake["bake"]
             info_gerada["triangulos_antes_decimate"] = bake_meta["triangulos_high"]
@@ -1508,48 +1770,67 @@ def processar(job: dict) -> dict:
             info_gerada["smooth"] = bake_meta["smooth"]
             info_gerada["uv"] = bake_meta["uv"]
             info_gerada["bake"] = bake_meta
+            if mat_proc:
+                info_gerada["material_procedural"] = mat_proc
+            smooth_normals_aplicado = True
             texturas_geradas.extend(res_bake["arquivos_textura"])
+            if cfg_suav["weighted_normals"] and rig_obj is None and not bruto.get("armadura_modular"):
+                info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
+                weighted_normals_aplicado = True
         elif not obj.data.uv_layers:
             raise RuntimeError(
                 "malha importada sem UV e sem cor por vertice: nao ha como assar textura"
             )
         else:
-            proteger = bool(bruto.get("proteger_decimate", False))
             tris_antes = malha_triangulada(obj)
-            limite_tris = int(item["limite_triangulos"])
             info_gerada["triangulos_antes_decimate"] = tris_antes
-            if bruto.get("retopologia") == "quadriflow" and tris_antes > limite_tris:
-                if retopologizar_quadriflow(obj, limite_tris):
+            if retopologia_pedida == "quadriflow":
+                if retopologizar_quadriflow(obj, limite_tris, alvo_faces=quadriflow_faces):
+                    quadriflow_aplicado = True
                     info_gerada["retopologia"] = "quadriflow"
                     desdobrar_uv(obj)
             if malha_triangulada(obj) > limite_tris:
                 decimar(obj, limite_tris, proteger_cabeca_maos=proteger)
                 info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
-                info_gerada["smooth"] = suavizar_por_angulo(
-                    obj, angulo_graus=85.0 if proteger else 45.0
-                )
+                if cfg_suav["corrective_smooth"] and malha_triangulada(obj) >= 120:
+                    info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
+                        obj, iteracoes=2, fator=0.35
+                    )
             elif bruto.get("armadura_modular"):
                 info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
-            elif bruto.get("suavizar"):
-                info_gerada["smooth"] = suavizar_por_angulo(
-                    obj, angulo_graus=85.0 if proteger else 45.0
-                )
+            info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth)
+            smooth_normals_aplicado = True
             if (
                 rig_obj is None
-                and item.get("tipo") in ("prop_equipavel", "modulo_cenario")
+                and cfg_suav["weighted_normals"]
                 and not bruto.get("armadura_modular")
             ):
                 info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
+                weighted_normals_aplicado = True
             info_gerada["triangulos_pos_decimate"] = malha_triangulada(obj)
+
         if bruto.get("canonicalizar") and item.get("tipo") == "personagem_humanoide":
             info_gerada["alinhamento_frente_pos_decimate"] = _alinhar_frente_humanoide(obj)
-        if bool(item.get("auto_rig")) and item.get("tipo") in ("personagem_humanoide", "criatura"):
-            esq = str(
-                item.get("esqueleto")
-                or (perfil.get("rig") or {}).get("esqueleto_padrao")
-                or "godot-humanoid@1"
-            )
-            rig_obj, grupos = autorig.auto_rigar_humanoide(obj, esq, criar_armadura)
+        if bool(item.get("auto_rig")) and item.get("tipo") in TIPOS_ORGANICOS:
+            tipo_item = str(job.get("tipo") or item.get("tipo") or "personagem_humanoide")
+            esq_padrao = (perfil.get("rig") or {}).get("esqueleto_padrao") or "godot-humanoid@1"
+            if not item.get("esqueleto"):
+                mapas_rig = (perfil.get("rig") or {}).get("mapas") or {}
+                if tipo_item == "criatura_quadrupede" and (
+                    "quadruped@1" in mapas_rig or str(perfil.get("perfil", "")).startswith("godot")
+                ):
+                    esq_padrao = "quadruped@1"
+                elif tipo_item in ("criatura_alada", "montaria") and (
+                    "winged_mount@1" in mapas_rig or str(perfil.get("perfil", "")).startswith("godot")
+                ):
+                    esq_padrao = "winged_mount@1"
+            esq = str(item.get("esqueleto") or esq_padrao)
+            esqueleto_efetivo = esq
+            fn_rig_tipo = getattr(autorig, "auto_rigar_por_tipo", None)
+            if callable(fn_rig_tipo):
+                rig_obj, grupos = fn_rig_tipo(obj, esq, criar_armadura, tipo=tipo_item)
+            else:
+                rig_obj, grupos = autorig.auto_rigar_humanoide(obj, esq, criar_armadura)
     else:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
 
@@ -1601,6 +1882,12 @@ def processar(job: dict) -> dict:
         or escala < 0.999
     ):
         info_gerada["reparo_pos_escala"] = reparar_malha(obj)
+        if smooth_normals_aplicado:
+            info_gerada["smooth_pos_escala"] = suavizar_por_angulo(
+                obj, angulo_graus=angulo_smooth_final
+            )
+            if weighted_normals_aplicado and rig_obj is None:
+                aplicar_weighted_normal(obj)
 
     if rig_obj is not None and grupos:
         if obj.parent is not rig_obj:
@@ -1613,6 +1900,31 @@ def processar(job: dict) -> dict:
     animacoes_geradas: list[dict] = []
     if rig_obj is not None and job.get("clipes"):
         animacoes_geradas = animar(rig_obj, job["clipes"])
+
+    sockets_extraidos: list[dict] = []
+    if rig_obj is not None:
+        fn_sockets = getattr(autorig, "extrair_sockets", None)
+        if callable(fn_sockets):
+            solicitados_sockets = job.get("sockets") or item.get("sockets")
+            try:
+                sockets_extraidos = list(
+                    fn_sockets(rig_obj, mesh_obj=obj, solicitados=solicitados_sockets) or []
+                )
+            except TypeError:
+                sockets_extraidos = list(fn_sockets(rig_obj) or [])
+
+    sombreamento_meta = {
+        "smooth_normals": bool(smooth_normals_aplicado),
+        "angulo_graus": round(float(angulo_smooth_final), 2),
+        "weighted_normals": bool(weighted_normals_aplicado),
+        "quadriflow_aplicado": bool(quadriflow_aplicado),
+    }
+    orientacao_export_meta = {
+        "frente_gltf": "-Z",
+        "cima_gltf": "+Y",
+        "direita_gltf": "+X",
+        "det_matriz": 1,
+    }
 
     # --- medicao do LOD0 ---
     # A malha neste ponto esta na unidade do ARQUIVO (studs no roblox-r15). O relatorio guarda as
@@ -1634,7 +1946,11 @@ def processar(job: dict) -> dict:
         "escala_preservada": escala_preservada,
         "aabb_min": [minimo.x / escala_saida, minimo.z / escala_saida, -maximo.y / escala_saida],
         "aabb_max": [maximo.x / escala_saida, maximo.z / escala_saida, -minimo.y / escala_saida],
+        "sombreamento": sombreamento_meta,
+        "orientacao_export": orientacao_export_meta,
     }
+    if sockets_extraidos:
+        medidas_base["sockets"] = sockets_extraidos
     medidas_base.update(medir_geometria(obj))
 
     qualidade_item = str(item.get("qualidade") or "").strip().lower()
@@ -1665,6 +1981,8 @@ def processar(job: dict) -> dict:
                 mod_lod.object = rig_obj
             info_lod = aplicar_lod(alvo_obj, pct)
             reparar_malha(alvo_obj)
+            if smooth_normals_aplicado:
+                suavizar_por_angulo(alvo_obj, angulo_graus=angulo_smooth_final)
             medidas_base.setdefault("lod_modo", {})[str(nivel)] = info_lod
         nome = job["nome_arquivo"] if nivel == 0 else f"{job['nome_base']}_LOD{nivel}.glb"
         caminho = os.path.join(saida_dir, nome)
@@ -1757,11 +2075,7 @@ def processar(job: dict) -> dict:
     if info_gerada:
         medidas_base["gerada"] = info_gerada
     medidas_base["partes_colisao"] = len(colisores)
-    medidas_base["esqueleto"] = (
-        (item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao"))
-        if rig_obj is not None
-        else None
-    )
+    medidas_base["esqueleto"] = esqueleto_efetivo if rig_obj is not None else None
     medidas_base["lod"] = [{"nivel": a["nivel"], "triangulos": a["triangulos"]} for a in arquivos if a["papel"] in ("mesh", "lod")]
 
     resultado = {
@@ -1770,7 +2084,11 @@ def processar(job: dict) -> dict:
         "arquivos": arquivos,
         # o fator aplicado volta no relatorio: e o que o manifesto declara em unidades_export
         "escala_saida": escala_saida,
+        "sombreamento": sombreamento_meta,
+        "orientacao_export": orientacao_export_meta,
     }
+    if sockets_extraidos:
+        resultado["sockets"] = sockets_extraidos
     if bruto.get("concept"):
         # proveniencia do estagio text-to-image; o manifest grava em providers.texture
         resultado["concept"] = bruto["concept"]

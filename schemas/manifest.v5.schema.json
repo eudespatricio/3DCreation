@@ -303,7 +303,7 @@
       "properties": {
         "esqueleto": {
           "type": "string",
-          "pattern": "^(godot-humanoid|r15)@[0-9]+$"
+          "pattern": "^(godot-humanoid|r15|quadruped|winged_mount)@[0-9]+$"
         },
         "ossos": {
           "type": "integer",

@@ -15,6 +15,8 @@ __all__ = [
     "caminho_perfil",
     "carregar",
     "escala_saida",
+    "esqueleto_padrao",
+    "esqueleto_para_item",
     "limite_tri_hero",
     "perfis_disponiveis",
     "retarget",
@@ -84,7 +86,13 @@ def limite_tri_padrao(perfil: dict, tipo: str) -> int:
 def limite_tri_hero(perfil: dict, tipo: str) -> int:
     """Orcamento de triangulos no modo hero, respeitando teto por parte do perfil."""
     base = limite_tri_padrao(perfil, tipo)
-    if tipo not in ("personagem_humanoide", "criatura"):
+    if tipo not in (
+        "personagem_humanoide",
+        "criatura",
+        "criatura_quadrupede",
+        "criatura_alada",
+        "montaria",
+    ):
         return base
     if perfil.get("perfil") == "roblox-r15":
         return min(10000, max(base, 10000))
@@ -92,7 +100,13 @@ def limite_tri_hero(perfil: dict, tipo: str) -> int:
 
 
 def colisao_padrao(perfil: dict, tipo: str) -> str:
-    if tipo in ("personagem_humanoide", "criatura"):
+    if tipo in (
+        "personagem_humanoide",
+        "criatura",
+        "criatura_quadrupede",
+        "criatura_alada",
+        "montaria",
+    ):
         return "convex"
     if tipo in ("prop_estatico", "mapa_setor"):
         return "box"
@@ -103,6 +117,31 @@ def colisao_padrao(perfil: dict, tipo: str) -> str:
 
 def esqueleto_padrao(perfil: dict) -> str:
     return perfil["rig"]["esqueleto_padrao"]
+
+
+def esqueleto_para_item(perfil: dict, item: dict) -> str:
+    """Resolve esqueleto efetivo do item respeitando criaturas/montarias de spec@5."""
+    explicito = str(item.get("esqueleto") or "").strip()
+    if explicito:
+        return explicito
+    tipo = str(item.get("tipo") or "").strip()
+    mapas = mapas_esqueleto(perfil)
+    if tipo == "criatura_quadrupede" and "quadruped@1" in mapas:
+        return "quadruped@1"
+    if tipo == "criatura_alada" and "winged_mount@1" in mapas:
+        return "winged_mount@1"
+    if tipo == "montaria":
+        pedidos = {
+            str(c)
+            for c in [*(item.get("clipes") or []), *(item.get("animacoes_base") or [])]
+        }
+        if pedidos & {"wing_flap", "glide", "ride_fly"} and "winged_mount@1" in mapas:
+            return "winged_mount@1"
+        if "quadruped@1" in mapas:
+            return "quadruped@1"
+        if "winged_mount@1" in mapas:
+            return "winged_mount@1"
+    return esqueleto_padrao(perfil)
 
 
 def mapas_esqueleto(perfil: dict) -> dict:

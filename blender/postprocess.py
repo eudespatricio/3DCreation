@@ -592,14 +592,19 @@ def decimar(obj, alvo_tris: int, proteger_cabeca_maos: bool = False) -> int:
                 obj.vertex_groups.remove(vg_ref)
 
     tris_pos = malha_triangulada(obj)
-    if vg_name is not None and tris_pos > alvo_tris:
-        mod_fb = obj.modifiers.new("forge3d_decimate_fallback", "DECIMATE")
-        mod_fb.ratio = max(0.01, min(1.0, (alvo_tris * 0.995) / tris_pos))
+    for passo_fb in range(2):
+        if tris_pos <= alvo_tris or tris_pos <= 4:
+            break
+        mod_fb = obj.modifiers.new(f"forge3d_decimate_fb_{passo_fb}", "DECIMATE")
+        mod_fb.ratio = max(0.01, min(0.99, (alvo_tris * 0.985) / tris_pos))
         _selecionar(obj)
         if len(obj.modifiers) > 1:
             bpy.ops.object.modifier_move_to_index(modifier=mod_fb.name, index=0)
         bpy.ops.object.modifier_apply(modifier=mod_fb.name)
-        tris_pos = malha_triangulada(obj)
+        novo_tris = malha_triangulada(obj)
+        if novo_tris >= tris_pos:
+            break
+        tris_pos = novo_tris
 
     if proteger_cabeca_maos and obj.data.vertices:
         bm_pos = bmesh.new()
@@ -644,18 +649,25 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
     profundidade = ordem[0]
     sobra = [i for i in range(3) if i != profundidade]
     quadrupede = (
-        tipo == "criatura"
-        and extensao[2] >= 0.35 * max(extensao)
-        and max(extensao[0], extensao[1]) > 1.2 * extensao[2]
+        tipo in ("criatura", "criatura_quadrupede", "montaria")
+        and extensao[2] >= 0.30 * max(extensao)
+        and max(extensao[0], extensao[1]) > 1.15 * extensao[2]
     )
-    # Em T-pose, a envergadura horizontal (X) frequentemente >= altura (Z): se o eixo fino de
-    # profundidade ja e Y (glTF +Y up importado no Blender) e Z nao esta achatado, preserva Z up.
+    criatura_alada = (
+        tipo == "criatura_alada"
+        and extensao[2] >= 0.30 * max(extensao)
+    )
+    # Em T-pose ou montaria alada, a envergadura horizontal (X) frequentemente >= altura (Z):
+    # preserva Z up (importado do glTF +Y up do TripoSR) em vez de tombar a asa/braco para cima.
     if quadrupede:
         altura = 2
         profundidade = max((0, 1), key=lambda i: extensao[i])
         largura = 1 - profundidade
+    elif criatura_alada:
+        altura = 2
+        largura, profundidade = 0, 1
     elif (
-        tipo in ("personagem_humanoide", "criatura")
+        tipo in TIPOS_ORGANICOS
         and profundidade == 1
         and extensao[2] >= 0.55 * extensao[0]
     ):
@@ -1685,6 +1697,9 @@ def processar(job: dict) -> dict:
             or bruto.get("material_procedural")
             or ""
         ).strip()
+        if bruto.get("arquivo") == "template_body.glb" and mat_proc == "pele_humana":
+            # Preserva a textura vestida/armadurada projetada pelo template MPFB2/concept
+            mat_proc = ""
         retopologia_pedida = str(
             item.get("retopologia") or bruto.get("retopologia") or "padrao"
         ).strip().lower()
@@ -1705,7 +1720,7 @@ def processar(job: dict) -> dict:
             and organic_sculpt.contar_componentes(obj) > 1
         ):
             deve_soldar = True
-        if deve_soldar and rig_obj is None:
+        if deve_soldar and rig_obj is None and bruto.get("arquivo") != "template_body.glb":
             info_solda = organic_sculpt.soldar_componentes_organicos(obj)
             info_gerada["soldagem_organica"] = info_solda
             if info_solda.get("soldado"):
@@ -1715,7 +1730,7 @@ def processar(job: dict) -> dict:
         angulo_smooth = float(cfg_suav["angulo_graus"])
         angulo_smooth_final = angulo_smooth
         limite_tris = int(item["limite_triangulos"])
-        px_padrao = 2048 if qualidade_item == "hero" else TEX_PX_GERADA
+        px_padrao = (1024 if mat_proc else 2048) if qualidade_item == "hero" else TEX_PX_GERADA
         px = int(bruto.get("textura_px") or px_padrao)
 
         def _reduzir_low(alvo_o, lim_t: int) -> int:
@@ -1831,6 +1846,11 @@ def processar(job: dict) -> dict:
                 rig_obj, grupos = fn_rig_tipo(obj, esq, criar_armadura, tipo=tipo_item)
             else:
                 rig_obj, grupos = autorig.auto_rigar_humanoide(obj, esq, criar_armadura)
+            if rig_obj is not None:
+                if "WingShoulder.L" in rig_obj.data.bones:
+                    esqueleto_efetivo = "winged_mount@1"
+                elif "FrontUpperLeg.L" in rig_obj.data.bones:
+                    esqueleto_efetivo = "quadruped@1"
     else:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
 
@@ -1951,6 +1971,8 @@ def processar(job: dict) -> dict:
     }
     if sockets_extraidos:
         medidas_base["sockets"] = sockets_extraidos
+    if rig_obj is not None and esqueleto_efetivo:
+        medidas_base["esqueleto"] = esqueleto_efetivo
     medidas_base.update(medir_geometria(obj))
 
     qualidade_item = str(item.get("qualidade") or "").strip().lower()
@@ -2046,15 +2068,17 @@ def processar(job: dict) -> dict:
             {"caminho": arquivo_colisor, "papel": "colisor", "partes": len(colisores)}
         )
 
-    # --- atlas (vai junto como arquivo irmao) ---
-    if bruto.get("atlas"):
+    # --- atlas (vai junto como arquivo irmao se nao houver baseColor gerada pelo bake) ---
+    caminhos_gerados = {t["caminho"] for t in texturas_geradas}
+    nome_atlas_saida = f"{job['nome_base']}_baseColor.png"
+    if bruto.get("atlas") and nome_atlas_saida not in caminhos_gerados:
         import shutil
 
-        destino_atlas = os.path.join(saida_dir, f"{job['nome_base']}_baseColor.png")
+        destino_atlas = os.path.join(saida_dir, nome_atlas_saida)
         shutil.copyfile(os.path.join(bruto_dir, bruto["atlas"]), destino_atlas)
         arquivos.append(
             {
-                "caminho": f"{job['nome_base']}_baseColor.png",
+                "caminho": nome_atlas_saida,
                 "papel": "textura",
                 "bytes": os.path.getsize(destino_atlas),
             }

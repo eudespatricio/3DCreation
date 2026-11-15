@@ -493,7 +493,7 @@ def _upload_animation(args) -> int:
 
 
 def _export_anim(args) -> int:
-    from .. import profiles, rbx
+    from .. import animacao, profiles, rbx
     from ..errors import erro_spec
 
     if args.todos:
@@ -507,7 +507,7 @@ def _export_anim(args) -> int:
         if len(clipes) == 1:
             relatorio = rbx.exportar_animacao(args.lote, args.item, clipes[0], saida=args.saida)
         else:
-            desconhecidos = [c for c in clipes if c not in profiles.ANIMACOES_SUPORTADAS]
+            desconhecidos = [c for c in clipes if c not in animacao.CLIPES_SUPORTADOS]
             if desconhecidos:
                 raise erro_spec(
                     f"export-anim: clipe(s) nao suportado(s): {', '.join(desconhecidos)}"

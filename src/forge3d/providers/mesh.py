@@ -155,6 +155,17 @@ def script_modular_armor() -> Path:
     return paths.raiz_dados() / "blender" / "modular_armor.py"
 
 
+def script_organic_sculpt() -> Path:
+    env = os.environ.get("FORGE3D_ORGANIC_SCULPT_SCRIPT")
+    if env and Path(env).is_file():
+        return Path(env).expanduser().resolve()
+    for base in (paths.raiz_dados(), Path(__file__).resolve().parents[1] / "data"):
+        alvo = base / "blender" / "organic_sculpt.py"
+        if alvo.is_file():
+            return alvo
+    return paths.raiz_dados() / "blender" / "organic_sculpt.py"
+
+
 def _python_imagem() -> Path:
     """Python da venv-i23d ou venv-concept (que ja possuem cv2/numpy/PIL)."""
     py_i23d = dir_venv() / "bin" / "python"
@@ -241,7 +252,21 @@ def _usar_modular_armor(item: dict) -> bool:
     if raw_origem.startswith("makehuman://clothes/"):
         return True
     parte = str(item.get("parte") or "").strip().lower()
-    if parte in ("elmo", "ombreiras", "peitoral", "luvas", "calcas", "calças", "botas", "escudo"):
+    if parte in (
+        "elmo",
+        "ombreiras",
+        "peitoral",
+        "luvas",
+        "calcas",
+        "calças",
+        "botas",
+        "escudo",
+        "mochila",
+        "orbe",
+        "sela",
+    ):
+        return True
+    if parte in ("capa", "arma") and item.get("extrudir_2d") is False and not raw_origem:
         return True
     return False
 
@@ -302,6 +327,20 @@ def _usar_template_humanoide(item: dict) -> bool:
         return False
     ok_mpfb, _ = mpfb2_cc0_disponivel()
     return ok_mpfb
+
+
+def _usar_template_criatura(item: dict) -> bool:
+    tipo = str(item.get("tipo") or "").strip()
+    if tipo not in ("criatura_alada", "criatura_quadrupede", "montaria"):
+        return False
+    if item.get("origem"):
+        return False
+    if item.get("template_humanoide") is False:
+        return False
+    env_flag = os.environ.get("FORGE3D_CRIATURA_TEMPLATE", "").strip().lower()
+    if env_flag in ("0", "false", "nao", "off"):
+        return False
+    return True
 
 
 def _vram_livre_mb() -> int | None:
@@ -497,6 +536,8 @@ class MeshProvider:
             return {"segundos_estimados": 6.0, "vram_mb": 0, "disco_mb": 20}
         if _usar_modular_armor(item):
             return {"segundos_estimados": 10.0, "vram_mb": 0, "disco_mb": 50}
+        if _usar_template_criatura(item):
+            return {"segundos_estimados": 12.0, "vram_mb": 0, "disco_mb": 60}
         if _usar_template_humanoide(item):
             vram_tmpl = 0 if (item.get("origem") or _device().startswith("cpu")) else 3500
             return {
@@ -580,6 +621,18 @@ class MeshProvider:
             if not script_modular_armor().is_file():
                 return False, "script blender/modular_armor.py ausente"
             return True, f"pronto (modular armor MakeHuman/MPFB2 CC0: {item.get('parte')})"
+
+        if _usar_template_criatura(item):
+            from ..errors import ForgeError
+            from ..post import binario
+
+            try:
+                binario()
+            except ForgeError as exc:
+                return False, exc.mensagem
+            if not script_organic_sculpt().is_file():
+                return False, "script blender/organic_sculpt.py ausente"
+            return True, f"pronto (criatura anatomica 4-patas: {item.get('tipo')})"
 
         if _usar_template_humanoide(item):
             from ..errors import ForgeError
@@ -1260,6 +1313,97 @@ class MeshProvider:
             },
         )
 
+    def _gerar_criatura_anatomica(
+        self,
+        item: dict,
+        perfil: dict,
+        destino: Path,
+        env: dict[str, str],
+        t0: float,
+    ) -> RawAsset:
+        from ..errors import erro_provider_run
+        from ..post import binario
+
+        tipo = str(item.get("tipo") or "criatura_alada").strip()
+        esqueleto = str(item.get("esqueleto") or "").strip()
+        com_asas = bool(
+            item.get("asas", tipo == "criatura_alada" or esqueleto == "winged_mount@1")
+        )
+        glb = destino / "bruto.glb"
+        arq_modelo = destino / "modelo.json"
+        job_path = destino / "criatura_anatomica_job.json"
+        job_data: dict[str, Any] = {
+            "acao": "gerar_criatura",
+            "id": item.get("id"),
+            "tipo": tipo,
+            "esqueleto": esqueleto,
+            "asas": com_asas,
+            "saida_dir": str(destino),
+            "saida_glb": str(glb),
+            "saida_meta": str(arq_modelo),
+        }
+        job_path.write_text(json.dumps(job_data, indent=1) + "\n", encoding="utf-8")
+
+        try:
+            proc_b = subprocess.run(
+                [
+                    binario(),
+                    "-b",
+                    "--factory-startup",
+                    "--python",
+                    str(script_organic_sculpt()),
+                    "--",
+                    "--modo",
+                    "criatura",
+                    str(job_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT_S,
+                env=env,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise erro_provider_run(
+                f"falha blender organic_sculpt: {exc}", id=item.get("id")
+            ) from exc
+
+        if proc_b.returncode != 0 or not glb.is_file() or not arq_modelo.is_file():
+            raise erro_provider_run(
+                f"blender organic_sculpt nao produziu bruto.glb para tipo '{tipo}'",
+                id=item.get("id"),
+                exit=proc_b.returncode,
+                stderr=(proc_b.stderr or proc_b.stdout or "")[-2000:],
+            )
+
+        meta_criatura = json.loads(arq_modelo.read_text(encoding="utf-8"))
+        resultado_path = destino / "i23d_resultado.json"
+        resultado = {
+            "ok": True,
+            "modo": "anatomical_creature_sculpt",
+            "modelo": "procedural",
+            "tipo": tipo,
+            "asas": com_asas,
+            "criatura": meta_criatura,
+            "tempo_provider_s": round(time.monotonic() - t0, 3),
+        }
+        resultado_path.write_text(
+            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
+        )
+        return RawAsset(
+            dir=destino,
+            schema=str(meta_criatura.get("schema", "forge3d/bruto-arquivo@1")),
+            determinism=self.determinism,
+            arquivos=[arq_modelo, glb, resultado_path],
+            meta={
+                "modelo": "procedural",
+                "modo": "anatomical_creature_sculpt",
+                "tipo": tipo,
+                "asas": com_asas,
+                "criatura": meta_criatura,
+                "concept": None,
+            },
+        )
+
     def _gerar_extrude_2d(
         self,
         item: dict,
@@ -1450,6 +1594,9 @@ class MeshProvider:
         if _usar_modular_armor(item):
             return self._gerar_modular_armor(item, perfil, destino, env, t0)
 
+        if _usar_template_criatura(item):
+            return self._gerar_criatura_anatomica(item, perfil, destino, env, t0)
+
         origem = item.get("origem")
         concept_meta = None
         if origem:
@@ -1553,7 +1700,11 @@ class MeshProvider:
             roughness_hint = dl["roughness_hint"]
             arquivos_extras = [*arquivos_extras, *dl["arquivos"]]
 
-        tex_default = "2048" if _qualidade(item) == "hero" else "1024"
+        tex_default = (
+            ("1024" if item.get("material_procedural") else "2048")
+            if _qualidade(item) == "hero"
+            else "1024"
+        )
         tex_max_lim = 2048 if _qualidade(item) == "hero" else 1024
         textura_px = int(os.environ.get("FORGE3D_TEX_PX", tex_default))
         modelo: dict[str, Any] = {

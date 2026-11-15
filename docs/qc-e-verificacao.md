@@ -20,16 +20,16 @@ Duas consequências:
 
 | # | Gate | Mede | Como | Padrão de limite | Sev. |
 |---|---|---|---|---|---|
-| **G1** | Geometria sã | arestas não-manifold, faces degeneradas, normais invertidas por componente (`invertidas` + guarda de cavidade), buracos | `bpy` + volume assinado em Python puro | `0` não-manifold, `0` degenerada | erro |
-| **G2** | Escala e pivô | altura da AABB (matrizes de mundo ÷ `escala_saida`) vs `altura_metros`; pivô vs regra; `escala_preservada` (`skinned`) | leitura do `.glb` (sem Blender) | `≤ 0,5 %` e `≤ 1 mm` | erro |
+| **G1** | Geometria sã | arestas não-manifold, faces degeneradas, normais invertidas por componente e anti-facetamento orgânico (`malha_organica_facetada`) | `bpy` + volume assinado + inspeção de normais por vértice em Python puro | `0` não-manifold, `0` degenerada, normais suaves em orgânicos `@5` | erro |
+| **G2** | Escala, pivô e eixos | altura da AABB vs `altura_metros`; pivô vs regra; frente `-Z` (humanoide e focinho de criatura), roll simétrico de braços e `sockets` válidos | leitura do `.glb` (sem Blender) | `≤ 0,5 %`, `≤ 1 mm`, roll simétrico e frente `-Z` | erro |
 | **G3** | UV | `TEXCOORD_0` presente, UV em `[0,1]` (salvo `permitir_tiling`) e área UV 2D não colapsada (`uv_colapsada`) | parse do `.glb` + buffer binário | cobertura `100 %`, área UV > 0 | erro |
 | **G4** | Textura | dimensão POT, `≤ textura_max`, integridade PNG (`CRC32`/`IHDR`/`IEND`), JPEG e WEBP | header/chunks + `PIL.Image` | `≤ 1024`, POT obrigatório | erro |
-| **G5** | Material | nº de materiais, texturas existentes, sem caminho absoluto e normais/tangentes PBR (`exigir_tangent_normal` em `@4`) | parse do `.glb` + `fsck` de arquivo | `≤ 8` por asset | erro |
-| **G6** | Rig | nº de ossos, nomes contra mapa do perfil, root na origem, sem escala, e `JOINTS_0`/`WEIGHTS_0` válidos | parse de `skins`/`nodes`/primitivos | `≤ 64` (Godot) / `≤ 24` (R15) | erro |
+| **G5** | Material | nº de materiais, texturas existentes, sem caminho absoluto, `exigir_tangent_normal` (`@4`+) e sombreamento suave em orgânicos | parse do `.glb` + `fsck` de arquivo | `≤ 8` por asset | erro |
+| **G6** | Rig | nº de ossos, nomes contra mapa do perfil (`godot-humanoid@1`, `r15@1`, `quadruped@1`, `winged_mount@1`), root na origem, sem escala e `JOINTS_0`/`WEIGHTS_0` válidos | parse de `skins`/`nodes`/primitivos | `≤ 64` (Godot) / `≤ 24` (R15) | erro |
 | **G7** | Colisão | presença, nº de partes, prefixo `UCX_`, convexidade 1 mm/m e detecção coplanar/degenerada | parse de nodes + análise geométrica | `≤ 15` partes | erro |
 | **G8** | Licença | modelo na allowlist, `uso_comercial: true`, `NOTICE` presente | manifesto + allowlist | obrigatório | erro |
 | **G9** | Orçamento | triângulos vs `limite_triangulos` (`qualidade: hero` elevado), bytes por arquivo e silhueta IoU 128×128 entre LODs | parse do `.glb` + render 2D Pillow | tri `≤` orçamento · `≤ 2048 KB` (`hero`: `≤ 4096 KB`) | erro |
-| **G10** | Animação | clipes pedidos em `animacoes_base` existem, duração > 0,2 s e canais em ossos do rig | parse de `animations` do `.glb` | clipe presente · ≥ 1 canal | erro |
+| **G10** | Animação | clipes pedidos (`animacoes_base`/`clipes`) existem, duração > 0,2 s, ≥ 2 ossos em movimento em marchas e fechamento C0 de loop cíclico (`loop_quebrado`) | parse de `animations` do `.glb` | clipe presente · loop fechado (< 0,08 rad / < 0,03 m) | erro |
 
 **G1 mede topologia soldada.** O glTF divide vértice em cada costura de UV; sem soldar, todo asset
 importado pareceria ter borda aberta. Efeito colateral: duas peças que compartilham **canto exato**
@@ -71,8 +71,11 @@ Vai para `.forge/staging/<id>/relatorio_qc.json` e é embutido no manifesto:
 ortográfica 128×128 (Pillow) dos LODs quando declarados; e o script `tools/lod_qualidade.py` mede IoU
 (frente e lado), pior faixa vertical (8) e delta de bbox contra o LOD0 — critério padrão IoU ≥ 0,85,
 faixa ≥ 0,75 e bbox ≤ 2% (adaptado para `0,78` / `0,65` quando o LOD0 tem `< 200` tris). Roda na máquina
-do operador depois do `run`; `verify` preserva `exigir_tangent_normal` apenas em `manifest@4` para manter
-todos os destinos legados `@1`–`@3` verdes.
+do operador depois do `run`; `verify` preserva `exigir_tangent_normal` em `manifest@4`+ e anti-facetamento
+orgânico / sockets em `manifest@5`, mantendo todos os destinos legados `@1`–`@4` verdes. Para QA de
+importação real no Godot 4 headless, [`../tools/godot_visual_qa.gd`](../tools/godot_visual_qa.gd) valida
+instanciação, ausência de faces facetadas em malhas orgânicas, materiais PBR, `Skeleton3D`, `Socket_*`
+e `AnimationPlayer` (`GODOT_VISUAL_QA_OK`).
 
 ## 4. Verificação em CI (`forge3d verify`)
 

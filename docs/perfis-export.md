@@ -33,17 +33,20 @@ para acontecer com a segunda engine.
 | `pivot` | `base` para `prop_estatico`/`modulo_cenario`; `empunhadura` para `prop_equipavel`; `base` para humanoides | origem no centro da base da AABB, não no centro de massa |
 | `colisao` | `convex_hull` por peça, nome `UCX_<Mesh>_<nn>` | Godot gera `-col` do sufixo `-colonly`/`-col`; `UCX_` é convenção de pipeline para achar depois |
 | `lod` | sufixos `_LOD0.._LOD2` | importar como `MeshInstance3D` separado; LOD automático é P5 |
-| `rig.esqueleto` | `godot-humanoid@1` | 23 ossos, sufixo `.L`/`.R` (convenção Blender) |
+| `rig.esqueleto` | `godot-humanoid@1` · `quadruped@1` · `winged_mount@1` | 23 ossos humanoide, 23 quadrúpede e 31 montaria alada (sufixo `.L`/`.R`) |
 | `rig.max_ossos` | `64` | acima disso, multiplica custo de skinning |
 | `material.modelo` | `metallic-roughness` | PBR padrão glTF |
 | `material.textura_max` | `1024` | pixel art fica em 64–256, por decisão de arte |
 | `material.filtro` | `nearest` | **o glTF não força filtro**; precisa do preset de import no Godot (`[verificar]` na importação) |
-| `validacao` | escala `0.5 %` · pivô `1 mm` · materiais `≤ 8` · bytes `≤ 2048 KB` | consumido pelo QC |
+| `validacao` | escala `0.5 %` · pivô `1 mm` · materiais `≤ 8` · bytes `≤ 2048 KB` (`hero`: `≤ 4096 KB`) | consumido pelo QC |
 
-**Export e paridade Godot 4 (`v0.6.0`, D90):** `addons/forge3d/` configura import automático para
-`UCX_` (colisor irmão), `_LOD1`/`_LOD2`, loop em clipes e preservação do canal `UV2` (lightmap);
-`forge3d sync <origem> --para <alvo> --godot-gd Forge3DAssets.gd` copia o destino verificado e gera
-um módulo GDScript tipado pronto para consumo no Godot 4.
+**Export e paridade Godot 4 (`v0.6.0`–`v0.7.0`, D90/D97):** `addons/forge3d/` registra
+`EditorScenePostImportPlugin` zero-click, configura `UCX_` (colisor irmão), `_LOD1`/`_LOD2`, loop em
+clipes cíclicos (`idle`/`walk`/`run`/`ride_idle`/`ride_fly`/`gallop`/`wing_flap`/`glide`), preservação
+de `UV2`, `BoneAttachment3D` com `Socket_<nome>` orientados pelo `manifest@5` e
+`PostImport.montar_cavaleiro_em_montaria(montaria, cavaleiro)`. `forge3d sync <origem> --para <alvo> --godot-gd Forge3DAssets.gd`
+copia o destino verificado, gera sidecars `.glb.import` (`import_script/path="res://addons/forge3d/post_import.gd"`
+quando o addon existe) e cria o módulo GDScript tipado.
 
 ## 3. `roblox-r15`
 
@@ -62,12 +65,14 @@ um módulo GDScript tipado pronto para consumo no Godot 4.
 | `lod` | `nenhum` | Roblox tem `RenderFidelity` próprio; LOD exportado é ignorado |
 | `validacao` | escala `1 %` (arredondamento de stud) · pivô por junta `2 mm` · tri/parte `≤ 10.000` · partes `≤ 15` | |
 
-**Export nativo e PBR Roblox (`v0.6.0`, D90):** além do `forge3d export-r15 <lote> --item <id>`
+**Export nativo e PBR Roblox (`v0.6.0`–`v0.7.0`, D90/D97):** além do `forge3d export-r15 <lote> --item <id>`
 (`--modo-rig motor6d` por Parts + Motor6D ou `forge3d export-r15 <lote> --item <id> --modo-rig bone`
 com `MeshPart` + 16 Bones), o CLI oferece `forge3d export-surface <origem> --item <id>` (gera `.rbxmx`
 de `SurfaceAppearance` PBR multi-canal), `forge3d export-acessorio <origem> --item <id>` (gera
-`.rbxmx` de `Accessory` + `Handle` `MeshPart` + `Attachment`), `forge3d export-anim <lote> --item <id> --todos`
-e `forge3d sync <origem> --para <alvo> --rojo-lua Assets.lua` para integrar os AssetIds ao Rojo.
+`.rbxmx` de `Accessory` + `Handle` `MeshPart` + `Attachment` com `CFrame` ortonormal 3×3 derivada de
+`rotacao_quat_wxyz`), `forge3d export-anim <lote> --item <id> --todos` (24 fps C1 contínuo) e
+`forge3d sync <origem> --para <alvo> --rojo-lua Assets.lua` para integrar os AssetIds ao Rojo
+(`LeftCollarAttachment` em `-X` e `RightCollarAttachment` em `+X`).
 
 ### Upload Open Cloud (free)
 
@@ -99,7 +104,15 @@ escala/stud e U1–U4 continuam pendentes (GAP-006). `colisao.prefixo` ausente n
 `Root` · `Hips` · `Spine` · `Spine1` · `Chest` · `Neck` · `Head` · `Shoulder.L/R` · `UpperArm.L/R` ·
 `LowerArm.L/R` · `Hand.L/R` · `UpperLeg.L/R` · `LowerLeg.L/R` · `Foot.L/R` · `Toe.L/R` — 23 ossos.
 
-**Estes dois esqueletos são convenção deste projeto**, não padrão de indústria. Mixamo usa
+### Esqueletos `quadruped@1` e `winged_mount@1` (D96)
+
+- `quadruped@1` (23 ossos): `Root` · `Hips` · `Spine` · `Chest` · `Neck` · `Head` · `Jaw` ·
+  `Tail1..Tail3` · `FrontUpperLeg.L/R` · `FrontLowerLeg.L/R` · `FrontFoot.L/R` · `BackUpperLeg.L/R` ·
+  `BackLowerLeg.L/R` · `BackFoot.L/R` · `MountSeat`.
+- `winged_mount@1` (31 ossos): todos os ossos de `quadruped@1` + `WingShoulder.L/R` · `WingArm.L/R` ·
+  `WingForearm.L/R` · `WingTip.L/R`.
+
+**Estes esqueletos são convenção deste projeto**, não padrão de indústria. Mixamo usa
 `mixamorig:LeftArm`; Rigify usa `DEF-upper_arm.L`. Por isso o mapa de retarget é **tabela no perfil**,
 versionada — e o teste de rig verifica nome a nome, não "parece razoável".
 
@@ -146,15 +159,17 @@ perfil e a validação de rig confere nome a nome, não "parece razoável".
 
 Nome de arquivo é **determinístico a partir do `id`**: nada de timestamp, nada de sufixo `_final_v2`.
 
-### 5.1 Retarget das animações base (D66 / D91)
+### 5.1 Retarget das animações procedurais (D66 / D91 / D96)
 
-Os **8 clipes suportados** (`idle`, `walk`, `run`, `jump`, `attack`, `block`, `hit`, `death`) são
-gerados em **espaço semântico** de **16 ossos** e materializados por `rig.retarget` do perfil:
+Os **17 clipes suportados** (`idle`, `walk`, `run`, `jump`, `attack`, `slash_combo`, `cast`, `block`,
+`hit`, `death`, `ride_idle`, `ride_fly`, `gallop`, `wing_flap`, `glide`, `bite`, `roar`) são amostrados
+a **24 fps** com tangentes `BEZIER` (`AUTO_CLAMPED`, C1 contínuos em loop) em espaço semântico e
+materializados por `rig.retarget` do perfil:
 
 | Osso semântico | `godot-humanoid@1` | `r15@1` |
 |---|---|---|
 | `quadril` | `Hips` | `LowerTorso` |
-| `coluna` | `Spine1` | `LowerTorso` |
+| `coluna` | `Spine1` | `UpperTorso` |
 | `tronco` | `Chest` | `UpperTorso` |
 | `cabeca` | `Head` | `Head` |
 | `ombro_e` / `ombro_d` | `Shoulder.L` / `Shoulder.R` | `LeftUpperArm` / `RightUpperArm` |
@@ -165,7 +180,8 @@ gerados em **espaço semântico** de **16 ossos** e materializados por `rig.reta
 | `pe_e` / `pe_d` | `Foot.L` / `Foot.R` | `LeftFoot` / `RightFoot` |
 
 No `r15@1`, `rbx.py` compõe com `_mul_mat3` as rotações quando mais de um osso semântico mapeia para a
-mesma junta R15 (ex.: `quadril` + `coluna` em `LowerTorso`, ou múltiplas rotações por membro).
+mesma junta R15 (`coluna` + `tronco` em `UpperTorso`, ou `ombro` + `braco` em `UpperArm`). Criaturas e
+montarias usam os mapas `quadruped@1` e `winged_mount@1` declarados em `profiles/godot4.yaml`.
 
 ## 6. Incertezas declaradas
 

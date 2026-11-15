@@ -307,7 +307,7 @@ def test_r15_perfil_hierarquia_e_simetria_anexos_padrao(tmp_path, monkeypatch):
 
     lc = atts["UpperTorso"]["LeftCollarAttachment"]
     rc = atts["UpperTorso"]["RightCollarAttachment"]
-    assert lc[0] == pytest.approx(-rc[0], abs=1e-5) and lc[0] > 0.0
+    assert lc[0] == pytest.approx(-rc[0], abs=1e-5) and lc[0] < 0.0
     assert lc[1] == pytest.approx(rc[1], abs=1e-5)
 
     lg = atts["LeftHand"]["LeftGripAttachment"]

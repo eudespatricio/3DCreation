@@ -249,6 +249,15 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             else None
         )
         anexo_man = man.get("anexo")
+        esq_man = (man.get("rig") or {}).get("esqueleto")
+        tipo_inferido = man.get("tipo")
+        if not tipo_inferido and man.get("rig") and not isinstance(anexo_man, dict):
+            if esq_man == "winged_mount@1":
+                tipo_inferido = "criatura_alada"
+            elif esq_man == "quadruped@1":
+                tipo_inferido = "criatura_quadrupede"
+            else:
+                tipo_inferido = "personagem_humanoide"
         item = {
             "id": man["asset_id"],
             "altura_metros": medido_g2.get("esperado_m"),
@@ -257,9 +266,12 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             "pivot": medido_g2.get("pivo_regra"),
             "limite_triangulos": medido_g9.get("limite"),
             "auto_rig": bool(man.get("rig")),
-            "esqueleto": (man.get("rig") or {}).get("esqueleto"),
+            "esqueleto": esq_man,
             "colisao": (man.get("colisao") or {}).get("tipo", "none"),
             "escala_preservada": bool(medido_g2.get("escala_preservada")),
+            **({"tipo": tipo_inferido} if tipo_inferido else {}),
+            **({"rota": man["rota"]} if man.get("rota") else {}),
+            **({"tags": list(man["tags"])} if man.get("tags") else {}),
             **({"anexo": anexo_man, "parte": anexo_man.get("parte")} if isinstance(anexo_man, dict) else {}),
             **({"qualidade": qualidade_item} if qualidade_item else {}),
         }
@@ -301,6 +313,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             "arquivos": arquivos,
             "licenca": man.get("licenca") or {},
             "determinism": man.get("determinism"),
+            **({"sockets": man["sockets"]} if "sockets" in man else {}),
         }
         try:
             exigir_orientacao = (versao == "5") or (

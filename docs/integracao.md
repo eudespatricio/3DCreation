@@ -53,13 +53,13 @@ forge3d allowlist add "$PWD/assets/forge3d"
 
 > `plan` também resolve o destino: sem allowlist ele sai `2` (`FORGE-E-DESTINO`), não só o `run`.
 
-## 4. Escrever o lote (`spec@4`)
+## 4. Escrever o lote (`spec@5`)
 
 Topo obrigatório: `schema`, `projeto`, `perfil`, `destino_exportacao`, `lote`. Item obrigatório:
 `id`, `tipo`. Exemplo mínimo que passa em `validate`:
 
 ```yaml
-schema: forge3d/spec@4
+schema: forge3d/spec@5
 projeto: meu-jogo
 perfil: godot4                 # ou roblox-r15
 destino_exportacao: /caminho/do/jogo/assets/forge3d
@@ -81,7 +81,7 @@ lote:
     tags: [props, madeira]
 ```
 
-Condicionais que o contrato aplica (schema + B1–B25 em `src/forge3d/spec.py`):
+Condicionais que o contrato aplica (schema + regras B em `src/forge3d/spec.py`):
 
 | Situação | Exige |
 |---|---|
@@ -89,16 +89,19 @@ Condicionais que o contrato aplica (schema + B1–B25 em `src/forge3d/spec.py`):
 | `rota: import` | `origem` (arquivo existente) |
 | `rota: modular` | bloco `modular` com `grade`/`modulos`, e `seed` |
 | `tipo` ≠ `textura`/`mapa_setor` | `altura_metros` |
-| `auto_rig: true` | `tipo` humanoide/criatura e `esqueleto` do perfil |
-| `animacoes_base` | `auto_rig: true` |
+| `auto_rig: true` | `tipo` humanoide/criatura/montaria e `esqueleto` do perfil |
+| `animacoes_base` / `clipes` | `auto_rig: true` |
 | `parte` | rotas `blocky` ou `mesh` (B11–B13) |
 | `id` | único e no padrão `a.b.c` |
 
-Lote antigo (`spec@1`..`@3`) sobe sem reescrever à mão:
+Lote antigo (`spec@1`..`@4`) sobe sem reescrever à mão:
 
 ```bash
-forge3d migrate lote.yaml --saida lote.v4.yaml   # dry-run sem --saida/--em-lugar
+forge3d migrate lote.yaml --saida lote.v5.yaml   # dry-run sem --saida/--em-lugar
 ```
+
+Para geração de imagem conceito em nuvem (`provider_conceito: gemini` ou `higgsfield`), exporte
+`GEMINI_API_KEY` ou `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_SECRET` (inspecionável via `forge3d doctor --json` em `conectores_ia`).
 
 ## 5. O ciclo no pipe
 
@@ -142,22 +145,23 @@ Quando nada publicou, vale a causa mais grave (`4 > 2 > 6 > 5 > 3`). `0` só qua
 
 ## 7. O que o jogo lê: o manifesto
 
-`<asset_id>.manifest.json` (`manifest@1`..`@4`; o corrente é `@4`). Campos que o consumidor usa:
+`<asset_id>.manifest.json` (`manifest@1`..`@5`; o corrente é `@5`). Campos que o consumidor usa:
 
 ```json
 {
   "asset_id": "weapon.caixa.demo.01",
-  "schema": "forge3d/manifest@4",
+  "schema": "forge3d/manifest@5",
   "perfil": "godot4",
   "determinism": "D1",
   "unidades_export": { "metros_por_unidade": 1.0, "escala_saida": 1.0 },
+  "orientacao_export": { "frente_gltf": "-Z", "cima_gltf": "+Y", "direita_gltf": "+X", "det_matriz": 1 },
   "geometry": { "triangulos": 300, "bbox_m": [0.35, 0.45, 0.35], "materiais": 1, "tangentes": false, "uv_lightmap": true },
   "files": [
     { "caminho": "weapon.caixa.demo.01.glb", "papel": "mesh", "sha256": "sha256:…", "bytes": 48120 },
     { "caminho": "weapon.caixa.demo.01_baseColor.png", "papel": "textura", "sha256": "sha256:…", "bytes": 1024 }
   ],
   "colisao": { "tipo": "convex", "partes": 1 },
-  "lod": [], "animacoes": [],
+  "lod": [], "animacoes": [], "sockets": [],
   "qc": { "aprovado": true, "gates": [] }
 }
 ```
@@ -231,7 +235,7 @@ ele acusa em vez de confiar no manifesto antigo.
 
 ## 11. Onde está o contrato
 
-- `schemas/spec.v4.schema.json` (entrada) e `schemas/manifest.v4.schema.json` (saída)
+- `schemas/spec.v5.schema.json` (entrada) e `schemas/manifest.v5.schema.json` (saída)
 - `docs/contratos.md` — regras, B1–B25, saída JSON, exit codes, códigos de erro
 - `profiles/godot4.yaml` · `profiles/roblox-r15.yaml` — unidade, eixos, pivô, colisão, tolerâncias
 - `docs/perfis-export.md` — o que cada plataforma espera do arquivo

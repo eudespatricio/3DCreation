@@ -848,7 +848,9 @@ def _normalizar_sockets_map(raw_sockets: Any) -> dict[str, dict[str, Any]] | Non
             nome = str(item_s.get("nome") or item_s.get("id") or "").strip()
             osso = str(item_s.get("osso") or "").strip()
             entry = dict(item_s)
-            if "posicao" in entry and "posicao_m" not in entry:
+            if "posicao_local" in entry and "posicao_m" not in entry:
+                entry["posicao_m"] = entry["posicao_local"]
+            elif "posicao" in entry and "posicao_m" not in entry:
                 entry["posicao_m"] = entry["posicao"]
             if "rotacao_wxyz" in entry and "rotacao_quat_wxyz" not in entry:
                 entry["rotacao_quat_wxyz"] = entry["rotacao_wxyz"]
@@ -879,7 +881,11 @@ def _resolver_socket_offset(
     if entrada is None:
         return None, None
     pos_studs: tuple[float, float, float] | None = None
-    raw_pos = entrada.get("posicao_m") or entrada.get("posicao")
+    raw_pos = entrada.get("posicao_m")
+    if raw_pos is None:
+        raw_pos = entrada.get("posicao_local")
+    if raw_pos is None:
+        raw_pos = entrada.get("posicao")
     if isinstance(raw_pos, (list, tuple)) and len(raw_pos) == 3 and mps > 0:
         pos_studs = (
             float(raw_pos[0]) / mps,

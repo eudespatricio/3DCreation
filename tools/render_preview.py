@@ -11,23 +11,32 @@ tres luzes e piso, para julgar silhueta, proporcao, paleta e contato com o chao.
 from __future__ import annotations
 
 import math
+import shutil
+import subprocess
 import sys
 
-import bpy
-from mathutils import Vector
+try:
+    import bpy
+    from mathutils import Vector
+except ModuleNotFoundError:
+    if __name__ == "__main__":
+        _bl_bin = shutil.which("blender") or "blender"
+        _uargs = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else sys.argv[1:]
+        raise SystemExit(
+            subprocess.call(
+                [_bl_bin, "--background", "--factory-startup", "--python", __file__, "--", *_uargs]
+            )
+        ) from None
+    raise
 
 ORDEM = ["--size", "--samples"]
 
 
 def _args() -> dict:
-    argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-    if len(argv) < 2:
-        raise SystemExit(
-            "uso: render_preview.py -- <glb> <saida> [--size N] [--samples N] [--turntable]"
-        )
-    opcoes = {
-        "glb": argv[0],
-        "saida": argv[1],
+    argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else sys.argv[1:]
+    opcoes: dict = {
+        "glb": "",
+        "saida": "",
         "size": 720,
         "samples": 32,
         "pose": False,
@@ -35,29 +44,36 @@ def _args() -> dict:
         "alto": False,
         "turntable": False,
     }
-    resto = argv[2:]
+    posicionais: list[str] = []
     i = 0
-    while i < len(resto):
-        if resto[i] == "--size":
-            opcoes["size"] = int(resto[i + 1])
+    while i < len(argv):
+        if argv[i] == "--size":
+            opcoes["size"] = int(argv[i + 1])
             i += 2
-        elif resto[i] == "--samples":
-            opcoes["samples"] = int(resto[i + 1])
+        elif argv[i] == "--samples":
+            opcoes["samples"] = int(argv[i + 1])
             i += 2
-        elif resto[i] == "--pose":
+        elif argv[i] == "--pose":
             opcoes["pose"] = True
             i += 1
-        elif resto[i] == "--close":
+        elif argv[i] == "--close":
             opcoes["close"] = True
             i += 1
-        elif resto[i] == "--alto":
+        elif argv[i] == "--alto":
             opcoes["alto"] = True
             i += 1
-        elif resto[i] == "--turntable":
+        elif argv[i] == "--turntable":
             opcoes["turntable"] = True
             i += 1
         else:
+            posicionais.append(argv[i])
             i += 1
+    if len(posicionais) < 2:
+        raise SystemExit(
+            "uso: render_preview.py [--turntable] <glb> <saida> [--size N] [--samples N]"
+        )
+    opcoes["glb"] = posicionais[0]
+    opcoes["saida"] = posicionais[1]
     return opcoes
 
 
@@ -160,9 +176,11 @@ def piso(minimo: Vector, maximo: Vector) -> None:
 
 
 def luzes(centro: Vector, raio: float) -> None:
+    fator_escala = max(1.0, (raio / 1.05) ** 2)
+
     def area(nome: str, direcao: Vector, energia: float, tamanho: float) -> None:
         dados = bpy.data.lights.new(nome, "AREA")
-        dados.energy = energia
+        dados.energy = energia * fator_escala
         dados.size = tamanho
         obj = bpy.data.objects.new(nome, dados)
         bpy.context.collection.objects.link(obj)
@@ -188,7 +206,7 @@ def camera(
     if perspectiva:
         dados.type = "PERSP"
         dados.lens = 50.0
-        dist = max(raio * 3.1, escala * 1.45)
+        dist = max(raio * 3.8, escala * 2.15)
     else:
         dados.type = "ORTHO"
         dados.ortho_scale = escala
@@ -285,6 +303,17 @@ def main() -> int:
     bpy.ops.import_scene.gltf(filepath=opcoes["glb"])
     if opcoes["pose"]:
         aplicar_pose()
+    else:
+        for obj in bpy.context.scene.objects:
+            if obj.type == "ARMATURE":
+                if obj.animation_data is not None:
+                    obj.animation_data.action = None
+                for pb in obj.pose.bones:
+                    pb.location = (0.0, 0.0, 0.0)
+                    pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+                    pb.rotation_euler = (0.0, 0.0, 0.0)
+                    pb.scale = (1.0, 1.0, 1.0)
+        bpy.context.view_layer.update()
 
     minimo, maximo = bbox_objetos()
     if minimo.x > 1e8:

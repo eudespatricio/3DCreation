@@ -642,6 +642,144 @@ def _criar_escudo_procedural(nome: str = "EscudoModular") -> "bpy.types.Object":
     return obj
 
 
+def _adicionar_caixa_chanfrada(
+    bm: bmesh.types.BMesh,
+    centro: tuple[float, float, float],
+    tamanho: tuple[float, float, float],
+    subdiv: int = 1,
+) -> list[bmesh.types.BMVert]:
+    """Cria bloco fechado subdividido no BMesh para modelagem procedural manifold."""
+    antes = set(bm.verts)
+    ret = bmesh.ops.create_cube(bm, size=1.0)
+    verts = ret["verts"]
+    sx, sy, sz = tamanho
+    cx, cy, cz = centro
+    for v in verts:
+        v.co.x = v.co.x * sx + cx
+        v.co.y = v.co.y * sy + cy
+        v.co.z = v.co.z * sz + cz
+    if subdiv > 0:
+        arestas = [
+            e
+            for e in bm.edges
+            if e.verts[0] in verts and e.verts[1] in verts
+        ]
+        bmesh.ops.subdivide_edges(bm, edges=arestas, cuts=subdiv, use_grid_fill=True)
+    return [v for v in bm.verts if v.is_valid and v not in antes]
+
+
+def _criar_mochila_capa_procedural(nome: str = "MochilaCapaModular") -> "bpy.types.Object":
+    """Cria mochila de couro com rolo superior e capa dorsal vertical (sem prancha horizontal)."""
+    bm = bmesh.new()
+    # Corpo principal da mochila (apoiado nas costas em -Y_bl, pendendo em -Z_bl)
+    _adicionar_caixa_chanfrada(bm, (0.0, -0.09, -0.18), (0.30, 0.15, 0.36), subdiv=2)
+    # Aba superior curvada e rolo de viagem (bedroll)
+    _adicionar_caixa_chanfrada(bm, (0.0, -0.09, 0.03), (0.34, 0.13, 0.11), subdiv=1)
+    # Bolsos laterais simetricos
+    _adicionar_caixa_chanfrada(bm, (-0.18, -0.09, -0.20), (0.07, 0.11, 0.20), subdiv=1)
+    _adicionar_caixa_chanfrada(bm, (0.18, -0.09, -0.20), (0.07, 0.11, 0.20), subdiv=1)
+    # Manto / capa dorsal pendendo verticalmente atras das costas (-Z_bl), fina em Y
+    verts_capa = _adicionar_caixa_chanfrada(bm, (0.0, -0.025, -0.34), (0.38, 0.032, 0.68), subdiv=3)
+    for v in verts_capa:
+        # Alarga suavemente na bainha inferior e curva as bordas
+        t_baixo = max(0.0, min(1.0, (0.0 - v.co.z) / 0.68))
+        v.co.x *= 1.0 + 0.22 * t_baixo
+        v.co.y -= 0.03 * t_baixo + 0.06 * (v.co.x ** 2)
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(nome)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    obj = bpy.data.objects.new(nome, me)
+    bpy.context.collection.objects.link(obj)
+    _garantir_uv(obj)
+    return obj
+
+
+def _criar_orbe_arcano_procedural(nome: str = "OrbeArcanoModular") -> "bpy.types.Object":
+    """Cria orbe de cristal facetado com aneis de filigrana centrado na palma (0, 0, 0)."""
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=2, radius=0.105)
+    # Dois aneis astrolabio ortogonais envolvendo o nucleo cristalino
+    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.0), (0.24, 0.24, 0.028), subdiv=2)
+    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.0), (0.028, 0.24, 0.24), subdiv=2)
+    for v in bm.verts:
+        if v.co.length > 0.11:
+            v.co = v.co.normalized() * 0.125
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(nome)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    obj = bpy.data.objects.new(nome, me)
+    bpy.context.collection.objects.link(obj)
+    _garantir_uv(obj)
+    return obj
+
+
+def _criar_espada_arcana_procedural(nome: str = "EspadaArcanaModular") -> "bpy.types.Object":
+    """Cria espada longa forjada com pomo, empunhadura, guarda e lamina diamante ao longo de +Z."""
+    bm = bmesh.new()
+    # Pomo e empunhadura
+    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.03), (0.055, 0.055, 0.06), subdiv=1)
+    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.13), (0.036, 0.044, 0.16), subdiv=1)
+    # Guarda-mao (crossguard)
+    _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.22), (0.045, 0.26, 0.038), subdiv=2)
+    # Lamina longa com perfil diamante afilando ate a ponta em Z=0.98
+    verts_lam = _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.60), (0.024, 0.082, 0.74), subdiv=3)
+    for v in verts_lam:
+        if v.co.z > 0.24:
+            t = max(0.0, min(1.0, (v.co.z - 0.24) / 0.73))
+            afila = max(0.08, 1.0 - 0.88 * (t ** 1.6))
+            v.co.y *= afila
+            v.co.x *= afila * (1.0 - 0.55 * min(1.0, abs(v.co.y) / 0.042))
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(nome)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    obj = bpy.data.objects.new(nome, me)
+    bpy.context.collection.objects.link(obj)
+    _garantir_uv(obj)
+    return obj
+
+
+def _criar_sela_montaria_procedural(nome: str = "SelaMontariaModular") -> "bpy.types.Object":
+    """Cria sela anatomica de montaria com pomo frontal (+Y), encosto traseiro (-Y) e abas laterais."""
+    bm = bmesh.new()
+    # Assento principal curvado sobre o dorso
+    verts_base = _adicionar_caixa_chanfrada(bm, (0.0, 0.0, 0.06), (0.42, 0.48, 0.09), subdiv=2)
+    for v in verts_base:
+        v.co.z -= 0.18 * (v.co.x ** 2) + 0.08 * (v.co.y ** 2)
+    # Pomo frontal (+Y_bl) e cantle traseiro (-Y_bl)
+    _adicionar_caixa_chanfrada(bm, (0.0, 0.20, 0.14), (0.18, 0.09, 0.12), subdiv=1)
+    _adicionar_caixa_chanfrada(bm, (0.0, -0.20, 0.15), (0.30, 0.10, 0.13), subdiv=1)
+    # Abas laterais de couro e estribos (±X_bl)
+    _adicionar_caixa_chanfrada(bm, (-0.21, 0.0, -0.05), (0.05, 0.34, 0.22), subdiv=1)
+    _adicionar_caixa_chanfrada(bm, (0.21, 0.0, -0.05), (0.05, 0.34, 0.22), subdiv=1)
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(nome)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    obj = bpy.data.objects.new(nome, me)
+    bpy.context.collection.objects.link(obj)
+    _garantir_uv(obj)
+    return obj
+
+
 def _limpar_malha_manifold(obj) -> None:
     """Remove vertices duplicados, faces degeneradas e arestas nao-manifold pos-decimate."""
     me = obj.data
@@ -860,72 +998,91 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
     # Limpa cena inicial
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    from bl_ext.user_default.mpfb.services.humanservice import HumanService
-    from bl_ext.user_default.mpfb.services.targetservice import TargetService
-
-    # 1. Cria humano base com macro CC0 para alinhamento anatomico (+Y frente canonica)
-    macro = TargetService.get_default_macro_info_dict()
-    macro.update(MACRO_PADRAO)
-    if isinstance(job.get("macro"), dict):
-        macro.update(job["macro"])
-    human = HumanService.create_human(scale=0.1, macro_detail_dict=macro)
-
-    # 2. Localiza e carrega vestuario .mhclo ANTES de bake_targets para casar proporcoes exatas
     subpasta = "clothes"
     if parte in ("cabelo", "capa") and "hair" in origem_raw:
         subpasta = "hair"
     mhclo_path = _encontrar_mhclo(origem_raw, subpasta=subpasta) if origem_raw else None
 
     eh_procedural = False
-    if not mhclo_path:
+    human = None
+    cloth = None
+    if not mhclo_path and not skinned and parte in ("escudo", "mochila", "capa", "asas", "orbe", "arma", "sela"):
+        eh_procedural = True
         if parte == "escudo":
             cloth = _criar_escudo_procedural()
             mhclo_path = "procedural://escudo"
-            eh_procedural = True
-        elif parte in ("elmo", "capacete"):
-            mhclo_path = _encontrar_mhclo("fedora01", subpasta="clothes")
-            cloth = HumanService.add_mhclo_asset(
-                mhclo_path, human, asset_type="Clothes", subdiv_levels=0, set_up_rigging=False
-            )
-        elif parte in ("botas", "shoes"):
-            mhclo_path = _encontrar_mhclo("shoes01", subpasta="clothes")
-            cloth = HumanService.add_mhclo_asset(
-                mhclo_path, human, asset_type="Clothes", subdiv_levels=0, set_up_rigging=False
-            )
-        else:
-            mhclo_path = _encontrar_mhclo("male_casualsuit01", subpasta="clothes")
-            cloth = HumanService.add_mhclo_asset(
-                mhclo_path, human, asset_type="Clothes", subdiv_levels=0, set_up_rigging=False
-            )
+        elif parte in ("mochila", "capa", "asas"):
+            cloth = _criar_mochila_capa_procedural()
+            mhclo_path = f"procedural://{parte}"
+        elif parte == "orbe":
+            cloth = _criar_orbe_arcano_procedural()
+            mhclo_path = "procedural://orbe"
+        elif parte == "arma":
+            cloth = _criar_espada_arcana_procedural()
+            mhclo_path = "procedural://arma"
+        elif parte == "sela":
+            cloth = _criar_sela_montaria_procedural()
+            mhclo_path = "procedural://sela"
     else:
-        cloth = HumanService.add_mhclo_asset(
-            mhclo_path, human, asset_type="Clothes", subdiv_levels=0, set_up_rigging=False
-        )
+        from bl_ext.user_default.mpfb.services.humanservice import HumanService
+        from bl_ext.user_default.mpfb.services.targetservice import TargetService
+
+        # 1. Cria humano base com macro CC0 para alinhamento anatomico (+Y frente canonica)
+        macro = TargetService.get_default_macro_info_dict()
+        macro.update(MACRO_PADRAO)
+        if isinstance(job.get("macro"), dict):
+            macro.update(job["macro"])
+        human = HumanService.create_human(scale=0.1, macro_detail_dict=macro)
+
+        # 2. Localiza e carrega vestuario .mhclo ANTES de bake_targets para casar proporcoes exatas
+        if not mhclo_path:
+            if parte in ("elmo", "capacete"):
+                mhclo_path = _encontrar_mhclo("fedora01", subpasta="clothes")
+                cloth = HumanService.add_mhclo_asset(
+                    mhclo_path, human, asset_type="Clothes", subdiv_levels=0, set_up_rigging=False
+                )
+            elif parte in ("botas", "shoes"):
+                mhclo_path = _encontrar_mhclo("shoes01", subpasta="clothes")
+                cloth = HumanService.add_mhclo_asset(
+                    mhclo_path, human, asset_type="Clothes", subdiv_levels=0, set_up_rigging=False
+                )
+            else:
+                mhclo_path = _encontrar_mhclo("male_casualsuit01", subpasta="clothes")
+                cloth = HumanService.add_mhclo_asset(
+                    mhclo_path, human, asset_type="Clothes", subdiv_levels=0, set_up_rigging=False
+                )
+        else:
+            cloth = HumanService.add_mhclo_asset(
+                mhclo_path, human, asset_type="Clothes", subdiv_levels=0, set_up_rigging=False
+            )
+
+        if cloth is None or cloth.type != "MESH":
+            raise RuntimeError(f"falha ao carregar peca de vestuario '{mhclo_path}'")
+
+        TargetService.bake_targets(human)
+        _limpar_helpers_humano(human)
+
+        # Desvincula de human e orienta MPFB2 (-Y) para frente canonica (+Y) antes de auto-rig
+        cloth.parent = None
+        if not eh_procedural:
+            human.rotation_euler.z = math.pi
+            cloth.rotation_euler.z = math.pi
+        _aplicar_transformes(human)
 
     if cloth is None or cloth.type != "MESH":
         raise RuntimeError(f"falha ao carregar peca de vestuario '{mhclo_path}'")
-
-    TargetService.bake_targets(human)
-    _limpar_helpers_humano(human)
-
-    # Desvincula de human e orienta MPFB2 (-Y) para frente canonica (+Y) antes de auto-rig
-    cloth.parent = None
-    if not eh_procedural:
-        human.rotation_euler.z = math.pi
-        cloth.rotation_euler.z = math.pi
-    _aplicar_transformes(human)
     _aplicar_transformes(cloth)
 
     rig_obj = None
     cabeca_osso = None
     matriz_osso = None
-    if skinned:
+    if skinned and human is not None:
         rig_obj, _ = autorig.auto_rigar_humanoide(human, esqueleto, _criar_armadura)
         if osso_alvo in rig_obj.data.bones:
             bone = rig_obj.data.bones[osso_alvo]
             matriz_osso = bone.matrix_local.copy()
             cabeca_osso = bone.head_local.copy()
-    else:
+    elif human is not None:
         rig_tmp, _ = autorig.auto_rigar_humanoide(human, esqueleto, _criar_armadura)
         if osso_alvo in rig_tmp.data.bones:
             bone = rig_tmp.data.bones[osso_alvo]
@@ -953,16 +1110,17 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
     _limpar_malha_manifold(cloth)
     _aplicar_estilo_visual(cloth, job)
 
-    if skinned and rig_obj is not None:
+    if skinned and rig_obj is not None and human is not None:
         _aplicar_transformes(rig_obj)
         _transferir_pesos_esqueleto(human, cloth, rig_obj)
         bpy.data.objects.remove(human, do_unlink=True)
         rig_obj.location = Vector((0.0, 0.0, 0.0))
-        rig_obj.scale = Vector((1.0, 1.0, 1.0))
+        rig_obj.scale = Vector((1.0, 1.0, 0.0) if False else (1.0, 1.0, 1.0))
         cloth.location = Vector((0.0, 0.0, 0.0))
         cloth.scale = Vector((1.0, 1.0, 1.0))
     else:
-        bpy.data.objects.remove(human, do_unlink=True)
+        if human is not None:
+            bpy.data.objects.remove(human, do_unlink=True)
         _ajustar_pivo_socket(cloth, parte, osso_alvo, cabeca_osso, matriz_osso=matriz_osso)
 
     tris_final, verts_final, bbox_m = _medir_geometria(cloth)

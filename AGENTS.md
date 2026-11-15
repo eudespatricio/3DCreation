@@ -13,9 +13,9 @@ Leia nesta ordem, antes de qualquer ação:
   pipeline, instalar modelo ou baixar peso exige autorização explícita do operador (D1).
 - **Não invente número.** Fato medido, medido por terceiro e estimativa são rótulos diferentes e
   vivem separados (`DECISOES.md` §1). Se não mediu, escreva `[estimado]`.
-- **Contrato é lei.** `schemas/spec.v1.schema.json`..`schemas/spec.v4.schema.json` e
-  `schemas/manifest.v1.schema.json`..`schemas/manifest.v4.schema.json` são a fronteira com os
-  projetos de jogo (correntes: `spec@4` e `manifest@4`; `@1`..`@3` continuam válidos na leitura).
+- **Contrato é lei.** `schemas/spec.v1.schema.json`..`schemas/spec.v5.schema.json` e
+  `schemas/manifest.v1.schema.json`..`schemas/manifest.v5.schema.json` são a fronteira com os
+  projetos de jogo (correntes: `spec@5` e `manifest@5`; `@1`..`@4` continuam válidos na leitura).
   Mudou o schema? Suba a versão e registre em `DECISOES.md`. Não existe alteração silenciosa.
 - **Nada escreve direto na pasta do jogo.** Só `publish`, atômico, via staging (I3).
 - **QC reprovado não publica.** Não existe flag para "publicar mesmo assim" (I5).
@@ -60,7 +60,7 @@ forge3d plan     examples/lote_01.yaml  # plano sem GPU, sem escrita
 forge3d run      examples/lote_01.yaml  # executa + QC + publish
 forge3d verify   <destino>              # portão de CI
 bash tools/check-contexto.sh            # tetos de MAPA/AGENTS/INVARIANTES/CONTINUAR/CONSELHOS
-python -m pytest                        # suíte completa (398 verdes + 1 GPU skip)
+python -m pytest                        # suíte completa (457 verdes + 1 GPU skip)
 bash tools/ci.sh                        # o que o GitHub roda: testes + contexto + P0
 ```
 

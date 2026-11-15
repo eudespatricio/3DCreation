@@ -3,7 +3,7 @@ schema: forge3d/spec@5
 
 projeto: demo
 perfil: godot4
-destino_exportacao: ~/.local/state/forge3d/saida/lote_12_creatures_mounts
+destino_exportacao: ~/.local/state/forge3d/saida/v07_showcase
 estilo_global: stylized_pbr
 paleta:
   - "#2B3240"
@@ -21,14 +21,14 @@ lote:
     tipo: personagem_humanoide
     rota: mesh
     template_humanoide: true
+    makehuman_cabelo: short01
+    cor_cabelo: "#2B3240"
     qualidade: hero
-    material_procedural: pele_humana
     provider_conceito: auto
     suavizacao_normais:
       modo: organico
       angulo_graus: 65
       corrective_smooth: true
-      soldar_componentes_organicos: true
     prompt: >-
       Stylized fantasy arcane warden hero in dark slate tunic and leather bracers,
       neutral A-pose, clean proportions, game-ready silhouette.
@@ -39,7 +39,7 @@ lote:
     colisao: convex
     auto_rig: true
     esqueleto: godot-humanoid@1
-    clipes: [idle, walk, run, cast, slash_combo]
+    clipes: [idle, walk, run, attack, cast, slash_combo, ride_idle]
     sockets: [Hand.R, Hand.L, Back]
     seed: 20261115
     lod: [100, 50]
@@ -56,13 +56,33 @@ lote:
       angulo_graus: 45
       weighted_normals: true
     prompt: Travel field backpack and rolled cloak with brass buckles, front view.
-    altura_metros: 0.55
+    altura_metros: 0.62
     pivot: origem
     limite_triangulos: 1500
     material: pbr
     colisao: none
     seed: 20261116
     tags: [gear, backpack, cloak]
+
+  - id: gear.warden.sword.01
+    tipo: prop_equipavel
+    rota: mesh
+    parte: arma
+    extrudir_2d: false
+    skinned: false
+    material_procedural: aco_forjado
+    suavizacao_normais:
+      modo: hard_surface
+      angulo_graus: 35
+      weighted_normals: true
+    prompt: Forged steel arcane warden longsword with bronze crossguard and leather grip.
+    altura_metros: 0.96
+    pivot: empunhadura
+    limite_triangulos: 1500
+    material: pbr
+    colisao: none
+    seed: 20261120
+    tags: [gear, weapon, sword]
 
   - id: gear.warden.orb.01
     tipo: prop_equipavel
@@ -75,7 +95,7 @@ lote:
       angulo_graus: 35
       weighted_normals: true
     prompt: Faceted arcane crystal focus orb mounted in a bronze filigree cage.
-    altura_metros: 0.28
+    altura_metros: 0.18
     pivot: centro
     limite_triangulos: 1200
     material: pbr
@@ -95,8 +115,8 @@ lote:
       corrective_smooth: true
       soldar_componentes_organicos: true
     prompt: >-
-      Winged scaled sky wyvern mount in neutral standing pose, spread wings,
-      emerald scales and horn crests, clean game-ready anatomy.
+      Full body emerald dragon figurine standing on four legs with symmetrical spread wings,
+      front view, isolated miniature on solid light gray background, no pedestal, no rock.
     altura_metros: 2.60
     pivot: base
     limite_triangulos: 15000
@@ -105,7 +125,7 @@ lote:
     auto_rig: true
     clipes: [idle, gallop, wing_flap, glide]
     sockets: [MountSeat]
-    seed: 20261118
+    seed: 20261121
     lod: [100, 50]
     tags: [mount, winged, creature]
 

@@ -226,7 +226,7 @@ def _resolver_defaults(doc: dict, perfil: dict, avisos: list[dict]) -> None:
             item.setdefault("altura_metros", 2.4)
         item.setdefault("tags", [])
         if item["auto_rig"] and "esqueleto" not in item:
-            item["esqueleto"] = profiles.esqueleto_padrao(perfil)
+            item["esqueleto"] = profiles.esqueleto_para_item(perfil, item)
         pedidas = [str(a) for a in (item.get("animacoes_base") or [])]
         desconhecidas = [a for a in pedidas if a not in profiles.ANIMACOES_SUPORTADAS]
         if desconhecidas:
@@ -250,7 +250,7 @@ def _resolver_defaults(doc: dict, perfil: dict, avisos: list[dict]) -> None:
                 }
             )
         if pedidas:
-            esqueleto = item.get("esqueleto") or profiles.esqueleto_padrao(perfil)
+            esqueleto = profiles.esqueleto_para_item(perfil, item)
             if not profiles.retarget(perfil, esqueleto):
                 avisos.append(
                     {
@@ -409,7 +409,7 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
             )
 
         if item.get("auto_rig"):
-            esq = item.get("esqueleto") or perfil["rig"]["esqueleto_padrao"]
+            esq = profiles.esqueleto_para_item(perfil, item)
             if esq not in esqueletos:
                 erros.append(
                     {

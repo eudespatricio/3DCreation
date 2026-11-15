@@ -280,3 +280,103 @@ def test_creatures_mounts_blender_pca_skinning_and_sockets(tmp_path: Path):
     w_socks = {s["nome"]: s for s in d["w_sockets"]}
     assert {"Back", "Head", "MountSeat"} <= set(w_socks)
     assert d["w_bezier"] > 50
+
+
+@pytest.mark.blender
+def test_gerar_criatura_anatomica_4_patas_e_asas_no_blender(tmp_path: Path):
+    blender = _blender_bin()
+    job_path = tmp_path / "criatura_job.json"
+    glb_path = tmp_path / "bruto.glb"
+    meta_path = tmp_path / "modelo.json"
+    job_path.write_text(
+        json.dumps(
+            {
+                "acao": "gerar_criatura",
+                "tipo": "criatura_alada",
+                "esqueleto": "winged_mount@1",
+                "asas": True,
+                "saida_dir": str(tmp_path),
+                "saida_glb": str(glb_path),
+                "saida_meta": str(meta_path),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    proc = subprocess.run(
+        [
+            blender,
+            "-b",
+            "--factory-startup",
+            "--python-exit-code",
+            "1",
+            "--python",
+            str(RAIZ / "blender" / "organic_sculpt.py"),
+            "--",
+            "--modo",
+            "criatura",
+            str(job_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + "\n" + proc.stderr
+    assert glb_path.is_file()
+    assert meta_path.is_file()
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["frente"] == "+Y"
+    assert meta["canonicalizar"] is False
+    assert meta["solda"]["componentes_depois"] == 1
+    assert meta["dimensoes_bl"]["largura_x"] > 2.5
+    assert meta["dimensoes_bl"]["comprimento_y"] > 2.5
+    assert meta["dimensoes_bl"]["altura_z"] > 1.2
+
+    # Verifica no Blender que o GLB possui 4 patas apoiadas no solo (4 quadrantes X/Y em Z<=0.06) e normais suaves
+    check_json = tmp_path / "check_criatura.json"
+    expr_check = """
+import json, sys, bpy
+argv = sys.argv[sys.argv.index("--") + 1:]
+glb_p, out_p = argv[0], argv[1]
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=glb_p)
+meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+obj = meshes[0]
+verts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+z_min = min(v.z for v in verts)
+low = [v for v in verts if v.z <= z_min + 0.06]
+quadrantes = {
+    "fl": any(v.x > 0.12 and v.y > 0.20 for v in low),
+    "fr": any(v.x < -0.12 and v.y > 0.20 for v in low),
+    "bl": any(v.x > 0.12 and v.y < -0.20 for v in low),
+    "br": any(v.x < -0.12 and v.y < -0.20 for v in low),
+}
+front_z = max(v.z for v in verts if v.y > 0.6)
+tail_z = max(v.z for v in verts if v.y < -0.8)
+smooth_ratio = sum(1 for p in obj.data.polygons if p.use_smooth) / max(1, len(obj.data.polygons))
+with open(out_p, "w", encoding="utf-8") as f:
+    json.dump({"quadrantes": quadrantes, "front_z": front_z, "tail_z": tail_z, "smooth_ratio": smooth_ratio}, f)
+"""
+    proc_c = subprocess.run(
+        [
+            blender,
+            "-b",
+            "--factory-startup",
+            "--python-exit-code",
+            "1",
+            "--python-expr",
+            expr_check,
+            "--",
+            str(glb_path),
+            str(check_json),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc_c.returncode == 0, proc_c.stdout + "\n" + proc_c.stderr
+    chk = json.loads(check_json.read_text(encoding="utf-8"))
+    assert chk["quadrantes"] == {"fl": True, "fr": True, "bl": True, "br": True}
+    assert chk["front_z"] > chk["tail_z"] + 0.4
+    assert chk["smooth_ratio"] > 0.99
+

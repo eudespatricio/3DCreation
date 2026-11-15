@@ -77,13 +77,14 @@ def test_export_r15_gera_place_com_16_partes_e_15_motores(tmp_path):
 
 
 def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
-    """D69: o mesmo clipe do glb vira KeyframeSequence no place (5 chaves, 5 poses)."""
+    """D69: o mesmo clipe do glb vira KeyframeSequence no place (chaves 24fps, 15 poses)."""
     from forge3d import animacao, profiles
 
+    esperado = animacao.clipes(profiles.carregar("roblox-r15"), "r15@1", ["idle"])[0]
     saida = tmp_path / "r15.rbxlx"
     rel = rbx.exportar_r15("examples/lote_09_r15.yaml", "personagem.r15.guard.01", saida=saida)
     assert rel["animacoes"] == ["idle"]
-    assert rel["keyframes"] == {"idle": 5}
+    assert rel["keyframes"] == {"idle": len(esperado["chaves"])}
 
     place = rbx.ler_place(saida)
     assert len(place["clipes"]) == 1
@@ -91,20 +92,22 @@ def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
     assert clipe["nome"] == "idle" and clipe["loop"] is True
     # idle usa Idle (0), movimentacao Movement (1), acoes Action (2)
     assert clipe["priority"] == 0
-    assert [c["tempo"] for c in clipe["chaves"]] == [0.0, 0.5, 1.0, 1.5, 2.0]
+    assert clipe["chaves"][0]["tempo"] == 0.0
+    assert clipe["chaves"][-1]["tempo"] == pytest.approx(2.0, abs=1e-4)
 
-    esperado = animacao.clipes(profiles.carregar("roblox-r15"), "r15@1", ["idle"])[0]
     juntas = set(rbx.JOINT_R15.values())
-    for chave, esperada in zip(clipe["chaves"], esperado["chaves"]):
-        assert chave["tempo"] == esperada["segundos"]
+    identidade = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    for chave, ch_exp in zip(clipe["chaves"], esperado["chaves"]):
+        assert chave["tempo"] == pytest.approx(ch_exp["segundos"], abs=1e-4)
         # pose COMPLETA: todas as 15 juntas do R15 (o Animator nao aplica chave parcial)
         assert {p["osso"] for p in chave["poses"]} == juntas
-        dadas = {
-            rbx.JOINT_R15.get(p["osso"], p["osso"]): p for p in esperada["poses"]
-        }
+        dadas_m: dict[str, list[float]] = {}
+        for p in ch_exp["poses"]:
+            junta = rbx.JOINT_R15.get(p["osso"], p["osso"])
+            m_p = rbx._matriz_rotacao(p["graus"], p["eixo"])
+            dadas_m[junta] = m_p if junta not in dadas_m else rbx._mul_mat3(dadas_m[junta], m_p)
         for pose in chave["poses"]:
-            fonte = dadas.get(pose["osso"], {"graus": 0.0, "eixo": "X"})
-            matriz = rbx._matriz_rotacao(fonte["graus"], fonte["eixo"])
+            matriz = dadas_m.get(pose["osso"], identidade)
             # o .rbxlx grava com 6 casas: a tolerancia e do formato, nao do calculo
             assert pose["cframe"][3:] == pytest.approx(matriz, abs=1e-5)
 
@@ -178,10 +181,10 @@ def test_export_r15_attachments_transparency_e_anchored(tmp_path):
     assert "BodyFrontAttachment" in atts_por_parte["UpperTorso"]
     assert atts_por_parte["UpperTorso"]["BodyFrontAttachment"][2] < 0.0
     assert "LeftCollarAttachment" in atts_por_parte["UpperTorso"]
-    assert atts_por_parte["UpperTorso"]["LeftCollarAttachment"][0] > 0.0
+    assert atts_por_parte["UpperTorso"]["LeftCollarAttachment"][0] < 0.0
     assert atts_por_parte["UpperTorso"]["LeftCollarAttachment"][1] > 0.0
     assert "RightCollarAttachment" in atts_por_parte["UpperTorso"]
-    assert atts_por_parte["UpperTorso"]["RightCollarAttachment"][0] < 0.0
+    assert atts_por_parte["UpperTorso"]["RightCollarAttachment"][0] > 0.0
     assert atts_por_parte["UpperTorso"]["RightCollarAttachment"][1] > 0.0
     assert "WaistCenterAttachment" in atts_por_parte["LowerTorso"]
     assert atts_por_parte["LowerTorso"]["WaistCenterAttachment"] == pytest.approx([0.0, 0.0, 0.0])
@@ -214,9 +217,11 @@ def test_export_animacao_rbxmx_walk_run_jump_identico_ao_clip(tmp_path):
             clipe=clipe_nome,
             saida=saida,
         )
+        esperado = animacao.clipes(roblox, "r15@1", [clipe_nome])[0]
         assert rel["ok"] is True
         assert rel["clipe"] == clipe_nome
-        assert rel["keyframes"] == 9
+        assert rel["keyframes"] == len(esperado["chaves"])
+        assert rel["keyframes"] >= 16
         assert rel["duracao_s"] >= 1.6
 
         lido = rbx.ler_place(saida)
@@ -226,7 +231,6 @@ def test_export_animacao_rbxmx_walk_run_jump_identico_ao_clip(tmp_path):
         assert seq["loop"] is loop_esperado
         assert seq["priority"] == prio_esperada
 
-        esperado = animacao.clipes(roblox, "r15@1", [clipe_nome])[0]
         for chave, ch_exp in zip(seq["chaves"], esperado["chaves"]):
             assert chave["tempo"] == pytest.approx(ch_exp["segundos"], abs=1e-4)
             assert {p["osso"] for p in chave["poses"]} == juntas
@@ -351,10 +355,18 @@ def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
             "--json",
         ]
     )
+    from forge3d import animacao, profiles
+
+    roblox = profiles.carregar("roblox-r15")
+    kf_por_clipe = {
+        c["nome"]: len(c["chaves"])
+        for c in animacao.clipes(roblox, "r15@1", list(profiles.ANIMACOES_SUPORTADAS))
+    }
+
     assert rc == 0
     rel_unico = json.loads(capsys.readouterr().out)
     assert rel_unico["clipe"] == "idle"
-    assert rel_unico["keyframes"] == 5
+    assert rel_unico["keyframes"] == kf_por_clipe["idle"]
     assert rel_unico["bytes"] == unico.stat().st_size
 
     # 2) Comma-separated list: --clipe idle,walk (human output + JSON)
@@ -394,7 +406,7 @@ def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
     assert rc == 0
     rel_par = json.loads(capsys.readouterr().out)
     assert rel_par["clipes"] == ["idle", "walk"]
-    assert rel_par["keyframes"] == {"idle": 5, "walk": 9}
+    assert rel_par["keyframes"] == {"idle": kf_por_clipe["idle"], "walk": kf_por_clipe["walk"]}
     assert [c["nome"] for c in rbx.ler_place(par_json)["clipes"]] == ["idle", "walk"]
 
     # 3) --todos exports all ANIMACOES_SUPORTADAS clips into one .rbxmx
@@ -415,16 +427,7 @@ def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
     rel_todos = json.loads(capsys.readouterr().out)
     todos_esperados = ["idle", "walk", "run", "jump", "attack", "block", "hit", "death"]
     assert rel_todos["clipes"] == todos_esperados
-    assert rel_todos["keyframes"] == {
-        "idle": 5,
-        "walk": 9,
-        "run": 9,
-        "jump": 9,
-        "attack": 9,
-        "block": 9,
-        "hit": 9,
-        "death": 9,
-    }
+    assert rel_todos["keyframes"] == kf_por_clipe
     assert rel_todos["bytes"] == todos_rbxmx.stat().st_size
     assert [c["nome"] for c in rbx.ler_place(todos_rbxmx)["clipes"]] == todos_esperados
 

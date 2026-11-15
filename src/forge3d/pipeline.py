@@ -20,6 +20,7 @@ from . import (
     paths,
     plan,
     post,
+    profiles,
     providers,
     publish,
     spec,
@@ -87,7 +88,7 @@ def _pos_processar(item: dict, perfil: dict, bruto, run_id: str) -> dict:
         # O bpy nao decide movimento: aplica as chaves; o .rbxlx usa a mesma definicao.
         "clipes": animacao.clipes(
             perfil,
-            item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao") or "",
+            profiles.esqueleto_para_item(perfil, item),
             _clipes_pedidos(item),
         ),
     }

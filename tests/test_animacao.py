@@ -118,21 +118,25 @@ def test_clipe_e_deterministico_e_resolve_os_ossos():
     clipe = a[0]
     assert clipe["nome"] == "idle"
     assert clipe["duracao_s"] == 2.0
-    assert [c["segundos"] for c in clipe["chaves"]] == [0.0, 0.5, 1.0, 1.5, 2.0]
-    assert clipe["ossos"] == ["Chest", "Head", "Spine1", "UpperArm.L", "UpperArm.R"]
+    assert len(clipe["chaves"]) == 25
+    assert clipe["chaves"][0]["segundos"] == 0.0
+    assert clipe["chaves"][-1]["segundos"] == 2.0
+    assert {"Chest", "Head", "Hips", "Spine1", "UpperArm.L", "UpperArm.R"} <= set(clipe["ossos"])
 
 
 def test_clipe_materializa_os_dois_esqueletos():
     from forge3d import animacao
 
     r15 = animacao.clipes(ROBLOX, "r15@1", ["idle"])[0]
-    assert r15["ossos"] == ["Head", "LeftUpperArm", "LowerTorso", "RightUpperArm", "UpperTorso"]
-    # mesma amplitude no eixo X nos dois esqueletos: o clipe e o mesmo, o osso muda
+    assert {"Head", "LeftUpperArm", "LowerTorso", "RightUpperArm", "UpperTorso"} <= set(r15["ossos"])
+    # mesma definicao semantica nos dois esqueletos: quadril -> Hips/LowerTorso, cabeca -> Head
     godot = animacao.clipes(GODOT, "godot-humanoid@1", ["idle"])[0]
-    meio_r15 = {p["osso"]: p["graus"] for p in r15["chaves"][2]["poses"]}
-    meio_godot = {p["osso"]: p["graus"] for p in godot["chaves"][2]["poses"]}
-    assert meio_r15["UpperTorso"] == pytest.approx(meio_godot["Chest"])
-    assert meio_r15["LowerTorso"] == pytest.approx(meio_godot["Spine1"])
+    assert len(r15["chaves"]) == len(godot["chaves"])
+    idx_meio = len(r15["chaves"]) // 4
+    meio_r15 = {p["osso"]: p["graus"] for p in r15["chaves"][idx_meio]["poses"]}
+    meio_godot = {p["osso"]: p["graus"] for p in godot["chaves"][idx_meio]["poses"]}
+    assert meio_r15["Head"] == pytest.approx(meio_godot["Head"])
+    assert meio_r15["LowerTorso"] == pytest.approx(meio_godot["Hips"])
 
 
 def test_clipe_sem_retarget_ou_sem_gerador_e_vazio():
@@ -382,17 +386,22 @@ def test_jump_e_block_levantam_ombros_com_espelho_lr():
     from forge3d import animacao
 
     clips = {c["nome"]: c for c in animacao.clipes(GODOT, "godot-humanoid@1", ["jump", "block", "hit"])}
-    # Pico do jump (indice 4): ambos os bracos sobem (+120 deg), logo Shoulder.L < 0 e Shoulder.R > 0
-    jump_pico = {p["osso"]: p["graus"] for p in clips["jump"]["chaves"][4]["poses"]}
+    # Pico do jump (~meio do clipe): ambos os bracos sobem (+120 deg), logo Shoulder.L < 0 e Shoulder.R > 0
+    jump_poses = [{p["osso"]: p["graus"] for p in ch["poses"]} for ch in clips["jump"]["chaves"]]
+    jump_pico = min(jump_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
     assert jump_pico["Shoulder.L"] < -5.0, jump_pico["Shoulder.L"]
     assert jump_pico["Shoulder.R"] > 5.0, jump_pico["Shoulder.R"]
-    assert jump_pico["Shoulder.L"] == pytest.approx(-jump_pico["Shoulder.R"])
+    for ps in jump_poses:
+        if "Shoulder.L" in ps and "Shoulder.R" in ps:
+            assert ps["Shoulder.L"] == pytest.approx(-ps["Shoulder.R"])
 
-    # Block (indice 4): braco esquerdo ergue escudo (+82 deg) -> Shoulder.L sobe (< 0) e Shoulder.R acompanha (> 0)
-    block_pico = {p["osso"]: p["graus"] for p in clips["block"]["chaves"][4]["poses"]}
+    # Block: braco esquerdo ergue escudo -> Shoulder.L sobe (< -5.0) e Shoulder.R acompanha (> 0)
+    block_poses = [{p["osso"]: p["graus"] for p in ch["poses"]} for ch in clips["block"]["chaves"]]
+    block_pico = min(block_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
     assert block_pico["Shoulder.L"] < -5.0, block_pico["Shoulder.L"]
     assert block_pico["Shoulder.R"] > 0.0, block_pico["Shoulder.R"]
 
     # Hit mantem o mesmo sinal de elevacao dos ombros
-    hit_pico = {p["osso"]: p["graus"] for p in clips["hit"]["chaves"][2]["poses"]}
+    hit_poses = [{p["osso"]: p["graus"] for p in ch["poses"]} for ch in clips["hit"]["chaves"]]
+    hit_pico = min(hit_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
     assert hit_pico["Shoulder.L"] < -5.0 and hit_pico["Shoulder.R"] > 5.0

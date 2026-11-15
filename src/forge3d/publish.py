@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import __version__, locks
+from . import __version__, locks, profiles
 from .cache import _dir_cache, ler_cache, salvar_cache  # noqa: F401
 from .errors import ForgeError, erro_manifesto
 from .index import _conexao, _indice_remover, _indice_upsert, consultar, registrar_ledger  # noqa: F401
@@ -179,8 +179,10 @@ def montar_manifesto(
                 licenca_manifesto["notice"].rstrip() + " Concept: " + c_lic["notice"]
             ).strip()
 
-    esqueleto_padrao = ((perfil or {}).get("rig") or {}).get("esqueleto_padrao") or "godot-humanoid@1"
-    esqueleto_alvo = item.get("esqueleto") or esqueleto_padrao
+    esqueleto_alvo = str(
+        medidas.get("esqueleto")
+        or profiles.esqueleto_para_item(perfil or {"rig": {"esqueleto_padrao": "godot-humanoid@1"}}, item)
+    )
 
     parte = item.get("parte")
     if parte == "calças":

@@ -910,6 +910,9 @@ def executar_bake_high_low(
 
         decimar_fn(obj, int(limite_triangulos))
         info_reparo = reparo_fn(obj)
+        if _contar_triangulos(obj) > int(limite_triangulos):
+            decimar_fn(obj, max(50, int(int(limite_triangulos) * 0.97)))
+            info_reparo = reparo_fn(obj)
         info_smooth = suavizar_fn(obj)
         info_uv = uv_fn(obj)
         if not obj.data.uv_layers:

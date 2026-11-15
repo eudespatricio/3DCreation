@@ -4,11 +4,12 @@
 > prontos para o jogo — `.glb` com escala, pivô, LOD, colisão, rig, QC e manifesto — e publica de forma
 > atômica num destino autorizado.
 
-**Estado:** `P0`–`P6` + Ondas A–D (**v0.6.0**) — **398 verdes + 1 GPU (skip)** em 399 testes; CI no GitHub com
-**347 testes em 3 jobs** (`portoes`, `verificar` com Blender 4.2.0 pinado por sha256 e `distribuicao`).
-Contratos correntes `spec@4` / `manifest@4` (`@1`–`@3` compatíveis na leitura), `blocky`/`import`/`modular` sem
-GPU, `mesh` com TripoSR + concept SD1.5 + bake PBR 360°, armaduras modulares (`reparar_malha` manifold),
-8 clipes em 16 ossos semânticos, QC V2 e paridade Godot 4 (`addons/forge3d/`, `sync --godot-gd`) + Roblox
+**Estado:** `P0`–`P6` + Ondas A–D + v0.7 (**v0.7.0**) — **456 verdes + 1 GPU (skip)** em 457 testes (`FORGE3D_CONCEPT_E2E=1` também verde); CI no GitHub com
+**392 + 64 testes em 3 jobs** (`portoes`, `verificar` com Blender 4.2.0 + Godot 4.7.2 pinados e `distribuicao`).
+Contratos correntes `spec@5` / `manifest@5` (`@1`–`@4` compatíveis na leitura), `blocky`/`import`/`modular` sem
+GPU, `mesh` com TripoSR + MPFB2 CC0 + concept (`sd15`/`gemini`/`higgsfield`) + 10 presets PBR 3D procedurais,
+normais suaves anti-facetamento, esqueletos `godot-humanoid@1`/`r15@1`/`quadruped@1`/`winged_mount@1` com 17 clipes
+24fps C1 e sockets locais de osso, QC V3 e paridade Godot 4 (`addons/forge3d/`, `sync --godot-gd`) + Roblox
 (`export-r15 --modo-rig bone`, `export-surface`, `export-acessorio`, `sync --rojo-lua`).
 Leia [`AGENTS.md`](AGENTS.md) antes de qualquer ação.
 
@@ -37,7 +38,7 @@ forge3d plan   lote_01.yaml --json   # custo e cache, sem GPU, sem escrever nada
 forge3d run    lote_01.yaml --json   # gera, verifica QC e publica no destino autorizado
 forge3d verify <destino>   --json    # portão de CI: hash + G1–G10 reexecutados
 forge3d query  --max-tris 100 --json # "by demand": o que já existe
-forge3d migrate lote_01.yaml --saida lote.v4.yaml  # sobe o contrato (spec@1..@3 -> @4)
+forge3d migrate lote_01.yaml --saida lote.v5.yaml  # sobe o contrato (spec@1..@4 -> @5)
 forge3d doctor                       # diagnóstico do ambiente
 forge3d gc --manter-dias 30          # retenção de cache/runs/staging (não toca no publicado)
 forge3d export-r15 examples/lote_09_r15.yaml --item personagem.r15.guard.01  # .rbxlx nativo

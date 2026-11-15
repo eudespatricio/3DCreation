@@ -88,7 +88,9 @@ func _validar_glb(caminho: String) -> String:
 
 	var tipo := str(manifesto.get("tipo", ""))
 	var rota := str(manifesto.get("rota", ""))
-	var eh_organico := (tipo in TIPOS_ORGANICOS) and rota != "blocky"
+	var tem_rig_man := typeof(manifesto.get("rig", null)) == TYPE_DICTIONARY
+	var tem_anexo_man := typeof(manifesto.get("anexo", null)) == TYPE_DICTIONARY
+	var eh_organico := ((tipo in TIPOS_ORGANICOS) or (tem_rig_man and not tem_anexo_man)) and rota != "blocky"
 
 	# 1. Inspeciona malhas, normais, facetamento organico e materiais PBR
 	var mesh_nodes := cena.find_children("*", "MeshInstance3D", true, false)

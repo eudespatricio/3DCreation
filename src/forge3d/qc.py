@@ -13,11 +13,12 @@ import math
 import struct
 import zlib
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageDraw
 
 from .errors import ForgeError, erro_qc
-from .profiles import FRACAO_EMPUNHADURA
+from .profiles import FRACAO_EMPUNHADURA, esqueleto_para_item
 
 __all__ = [
     "ler_glb",
@@ -1407,14 +1408,25 @@ def _g2_orientacao(
                     _marcar("malha_de_costas")
                     _marcar("criatura_de_costas")
 
-    raw_sockets = item.get("sockets") or item.get("sockets_manifest") or info.get("_sockets")
+    raw_sockets = info.get("_sockets")
+    if raw_sockets is None:
+        cand_sock = item.get("sockets_manifest") or item.get("sockets")
+        if isinstance(cand_sock, dict) or (
+            isinstance(cand_sock, list) and cand_sock and not isinstance(cand_sock[0], str)
+        ):
+            raw_sockets = cand_sock
+    entradas_sockets: list[Any] = []
     if isinstance(raw_sockets, dict) and raw_sockets:
+        entradas_sockets = list(raw_sockets.values())
+    elif isinstance(raw_sockets, list) and raw_sockets:
+        entradas_sockets = [s for s in raw_sockets if not isinstance(s, str)]
+    if entradas_sockets:
         nomes_ossos_validos = set(info.get("nomes_ossos") or [])
         if not nomes_ossos_validos:
             nomes_ossos_validos = {
                 str(n.get("name")) for n in nodes if isinstance(n.get("name"), str)
             }
-        for _sk_nome, sk_cfg in raw_sockets.items():
+        for sk_cfg in entradas_sockets:
             if not isinstance(sk_cfg, dict):
                 _marcar("socket_invalido")
                 continue
@@ -1504,9 +1516,16 @@ def verificar(
 
     gltf, binario = ler_glb_bin(pasta / arq_malha["caminho"])
     info = analisar(gltf, binario)
-    info["_sockets"] = (
-        resultado.get("sockets") or medidas.get("sockets") or item.get("sockets")
-    )
+    sock_res = resultado.get("sockets") if "sockets" in resultado else medidas.get("sockets")
+    if sock_res is None:
+        cand_sock_item = item.get("sockets_manifest") or item.get("sockets")
+        if isinstance(cand_sock_item, dict) or (
+            isinstance(cand_sock_item, list)
+            and cand_sock_item
+            and not isinstance(cand_sock_item[0], str)
+        ):
+            sock_res = cand_sock_item
+    info["_sockets"] = sock_res
 
     tags_item = [str(t) for t in (item.get("tags") or [])]
     eh_blocky = (
@@ -1765,7 +1784,7 @@ def verificar(
     # G6 rig (auto_rig ou anexo skinned; valida JOINTS_0 + WEIGHTS_0)
     eh_skinned = bool(item.get("auto_rig")) or bool(anexo_item.get("skinned"))
     if eh_skinned:
-        esqueleto = item.get("esqueleto") or perfil["rig"]["esqueleto_padrao"]
+        esqueleto = medidas.get("esqueleto") or esqueleto_para_item(perfil, item)
         mapa = set(perfil["rig"].get("mapas", {}).get(esqueleto, []))
         presentes = set(info["nomes_ossos"])
         fora = sorted(presentes - mapa) if mapa else []

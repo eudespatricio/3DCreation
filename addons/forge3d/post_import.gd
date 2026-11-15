@@ -819,6 +819,15 @@ static func _configurar_sockets(scene: Node, manifesto: Dictionary) -> void:
 			if typeof(item) == TYPE_DICTIONARY:
 				var marker_name := _nome_marker_socket(str(k))
 				sockets_cfg[marker_name] = item
+	elif typeof(raw_sockets) == TYPE_ARRAY:
+		for entry_var in (raw_sockets as Array):
+			if typeof(entry_var) == TYPE_DICTIONARY:
+				var entry := (entry_var as Dictionary).duplicate()
+				var chave := str(entry.get("nome", entry.get("id", entry.get("osso", ""))))
+				if chave != "":
+					var marker_name := _nome_marker_socket(chave)
+					entry["_bone_local"] = true
+					sockets_cfg[marker_name] = entry
 
 	var fallbacks := [
 		{"marker": "Socket_HandR", "ossos": ["Hand.R", "RightHand"], "pos": [0.0, 0.0, 0.0]},
@@ -877,7 +886,7 @@ static func _configurar_sockets(scene: Node, manifesto: Dictionary) -> void:
 			marker.owner = scene
 
 		var pos := Vector3.ZERO
-		var raw_pos: Variant = cfg.get("posicao_m", null)
+		var raw_pos: Variant = cfg.get("posicao_local", cfg.get("posicao_m", null))
 		if typeof(raw_pos) == TYPE_ARRAY and (raw_pos as Array).size() == 3:
 			var p_arr := raw_pos as Array
 			pos = Vector3(float(p_arr[0]), float(p_arr[1]), float(p_arr[2]))
@@ -887,17 +896,36 @@ static func _configurar_sockets(scene: Node, manifesto: Dictionary) -> void:
 			pos = Vector3(0.0, 0.15, 0.0)
 		marker.position = pos
 
+		var eh_bone_local := bool(cfg.get("_bone_local", false))
 		var target_skel_basis := Basis.IDENTITY
+		var local_quat_basis := Basis.IDENTITY
 		var tem_quat_custom := false
 		var raw_q: Variant = cfg.get("rotacao_quat_wxyz", null)
 		if typeof(raw_q) == TYPE_ARRAY and (raw_q as Array).size() == 4:
 			var q_arr := raw_q as Array
 			var quat := Quaternion(float(q_arr[1]), float(q_arr[2]), float(q_arr[3]), float(q_arr[0])).normalized()
-			if not quat.is_equal_approx(Quaternion.IDENTITY):
-				target_skel_basis = _basis_orthonormal_positiva(Basis(quat))
+			local_quat_basis = _basis_orthonormal_positiva(Basis(quat))
+			if eh_bone_local:
+				tem_quat_custom = true
+			elif not quat.is_equal_approx(Quaternion.IDENTITY):
+				target_skel_basis = local_quat_basis
 				tem_quat_custom = true
 
-		if marker_name == "Socket_HandR":
+		if marker_name == "Socket_Mount":
+			# Socket_Mount sempre aponta para -Z no espaco da montaria (yaw = 0, det = +1).
+			marker.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * Basis.IDENTITY)
+		elif eh_bone_local and tem_quat_custom:
+			if marker_name == "Socket_HandL" and sockets_cfg.has("Socket_HandR"):
+				var cfg_r_bl: Dictionary = sockets_cfg["Socket_HandR"]
+				var q_r_bl: Variant = cfg_r_bl.get("rotacao_quat_wxyz", null)
+				if typeof(q_r_bl) == TYPE_ARRAY and (q_r_bl as Array).size() == 4:
+					var ar_bl := q_r_bl as Array
+					var qr_bl := Quaternion(float(ar_bl[1]), float(ar_bl[2]), float(ar_bl[3]), float(ar_bl[0])).normalized()
+					var br_bl := _basis_orthonormal_positiva(Basis(qr_bl))
+					if local_quat_basis.is_equal_approx(br_bl):
+						local_quat_basis = _espelhar_basis_yz_det_positivo(br_bl)
+			marker.basis = local_quat_basis
+		elif marker_name == "Socket_HandR":
 			if not tem_quat_custom:
 				target_skel_basis = basis_hand_r_padrao
 			marker.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * target_skel_basis)
@@ -909,9 +937,6 @@ static func _configurar_sockets(scene: Node, manifesto: Dictionary) -> void:
 			if local_l.is_equal_approx(local_r):
 				local_l = _espelhar_basis_yz_det_positivo(local_r)
 			marker.basis = local_l
-		elif marker_name == "Socket_Mount":
-			# Socket_Mount sempre aponta para -Z no espaco da montaria (yaw = 0, det = +1).
-			marker.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * Basis.IDENTITY)
 		else:
 			marker.basis = _basis_orthonormal_positiva(bone_rest_basis.inverse() * target_skel_basis)
 

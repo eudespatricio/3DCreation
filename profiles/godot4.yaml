@@ -216,5 +216,8 @@ orcamento_triangulos:
   prop_equipavel: 800
   personagem_humanoide: 6000
   criatura: 6000
+  criatura_quadrupede: 8000
+  criatura_alada: 10000
+  montaria: 8000
   modulo_cenario: 2000
   mapa_setor: 20000

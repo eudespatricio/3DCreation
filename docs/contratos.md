@@ -15,23 +15,24 @@
 | Encoding | UTF-8, LF. JSON de saída com chaves ordenadas e sem espaços variáveis (hash estável) |
 | Relógio | `created_at` em UTC ISO-8601; nunca entra na chave de cache |
 
-## 2. `spec@1`, `spec@2`, `spec@3` e `spec@4` — a entrada
+## 2. `spec@1`..`spec@5` — a entrada
 
 Exemplo canônico: [`../examples/lote_01.yaml`](../examples/lote_01.yaml). O kit P3-D usa
-[`../examples/lote_03_kit.yaml`](../examples/lote_03_kit.yaml) (`spec@2`).
+[`../examples/lote_03_kit.yaml`](../examples/lote_03_kit.yaml) (`spec@2`), e criaturas/montarias v0.7
+usam [`../examples/lote_12_creatures_mounts.yaml`](../examples/lote_12_creatures_mounts.yaml) (`spec@5`).
 
-Cada revisão é superset aditivo da anterior (`spec@4` é o contrato corrente; `@1`–`@3` continuam
+Cada revisão é superset aditivo da anterior (`spec@5` é o contrato corrente; `@1`–`@4` continuam
 aceitos na leitura e o validador seleciona o schema pelo campo `schema`): `spec@2` adiciona `parte`,
-`spec@3` adiciona `modular`, e `spec@4` adiciona `estilo` por item, `retopologia`,
-`quadriflow_faces` e `modo_rig_roblox` (além de suportar `requisicao`, `qualidade`, `pose_guard`,
-`extrudir_2d`, `template_humanoide`, `makehuman_cabelo`, `cor_cabelo`, `macro`, `skinned` e kit de
-armadura modular).
+`spec@3` adiciona `modular`, `spec@4` adiciona `estilo` por item, `retopologia`, `quadriflow_faces` e
+`modo_rig_roblox`, e `spec@5` adiciona criaturas/montarias (`criatura_quadrupede`, `criatura_alada`,
+`montaria`), novas partes (`mochila`, `orbe`, `sela`, `asas`), `material_procedural`,
+`suavizacao_normais`, `provider_conceito`, `clipes` e `sockets`.
 
 ### Raiz
 
 | Campo | Tipo | Obrig. | Regra |
 |---|---|---|---|
-| `schema` | string | sim | `forge3d/spec@1` \| `spec@2` \| `spec@3` \| `spec@4` |
+| `schema` | string | sim | `forge3d/spec@1` \| `spec@2` \| `spec@3` \| `spec@4` \| `spec@5` |
 | `projeto` | string | sim | slug `^[a-z][a-z0-9_-]*$` |
 | `perfil` | string | sim | `godot4` \| `roblox-r15` \| caminho para YAML de perfil |
 | `destino_exportacao` | string | sim | sob allowlist (D23); `~` é expandido; recusa `/mnt/*` e UNC |
@@ -50,21 +51,26 @@ nunca aparece em manifesto publicado (I14).
 | Campo | Tipo | Obrig. | Regra |
 |---|---|---|---|
 | `id` | string | sim | `^[a-z][a-z0-9_]*(\.[a-z0-9_]+){1,4}$`, único, **estável** (mudar `id` = asset novo) |
-| `tipo` | string | sim | `prop_estatico` \| `prop_equipavel` \| `personagem_humanoide` \| `criatura` \| `modulo_cenario` \| `textura` \| `mapa_setor` |
+| `tipo` | string | sim | `prop_estatico` \| `prop_equipavel` \| `personagem_humanoide` \| `criatura` \| `criatura_quadrupede` \| `criatura_alada` \| `montaria` \| `modulo_cenario` \| `textura` \| `mapa_setor` |
 | `rota` | string | não | `blocky` \| `import` \| `mesh` \| `modular`. Default derivado de `estilo_global` |
 | `prompt` | string | cond. | obrigatório em `blocky`/`mesh`; ≤ 2.000 caracteres |
 | `altura_metros` | number | cond. | obrigatório exceto `textura`/`mapa_setor`; faixa `0.05–10.0` |
 | `pivot` | string | não | `empunhadura` \| `base` \| `centro` \| `origem` \| `topo`; resolvido por regra no perfil |
 | `limite_triangulos` | integer | não | `50–50.000`; default por `tipo` no perfil |
 | `material` | string | não | `opaque` \| `alpha_clip` \| `transparent` \| `pbr`; default `opaque` |
+| `material_procedural` | string | não | `@5`: `pele_humana` \| `escamas_dragao` \| `aco_forjado` \| `ouro_ornamentado` \| `couro_gasto` \| `cristal_arcano` \| `pedra_musgo` \| `tecido_nobre` \| `madeira_ancestral` \| `energia_espectral` |
+| `suavizacao_normais` | objeto | não | `@5`: `{modo, angulo_graus, weighted_normals, corrective_smooth, soldar_componentes_organicos}` |
+| `provider_conceito` | string | não | `@5`: `auto` \| `sd15` \| `gemini` \| `higgsfield` |
 | `colisao` | string | não | `none` \| `box` \| `convex` \| `ucx`; default do perfil por `tipo` |
 | `lod` | integer[] | não | percentuais **decrescentes**, começando em `100`; default `[100]` |
 | `seed` | integer | cond. | **obrigatório** em `rota: mesh`; opcional nas demais |
-| `auto_rig` | boolean | não | default `false`; exige `tipo` humanoide/criatura |
-| `esqueleto` | string | não | `godot-humanoid@1` \| `r15@1`; default do perfil |
-| `animacoes_base` | string[] | não | clipes procedurais embutidos no `.glb` (`idle`, `walk`, `run`, `jump`, `attack`, `block`, `hit`, `death`; D66/G10); exige `auto_rig: true` |
+| `auto_rig` | boolean | não | default `false`; exige `tipo` humanoide/criatura/montaria |
+| `esqueleto` | string | não | `godot-humanoid@1` \| `r15@1` \| `quadruped@1` \| `winged_mount@1`; default do perfil por `tipo` |
+| `animacoes_base` | string[] | não | clipes procedurais embutidos no `.glb` (até 8; D66/G10); exige `auto_rig: true` |
+| `clipes` | string[] | não | `@5`: subconjunto dos 17 clipes procedurais biomecânicos (`idle`, `walk`, `run`, `jump`, `attack`, `slash_combo`, `cast`, `block`, `hit`, `death`, `ride_idle`, `ride_fly`, `gallop`, `wing_flap`, `glide`, `bite`, `roar`) |
+| `sockets` | string[] | não | `@5`: `Hand.R`, `Hand.L`, `Back`, `Head`, `Shoulder.L`, `Shoulder.R`, `MountSeat` |
 | `origem` | string | cond. | obrigatório em `rota: import`; na `mesh` é a imagem de concept (PNG/JPEG/WebP) |
-| `parte` | string | não | `corpo` \| `capa` \| `arma` \| `cabelo` \| `elmo` \| `ombreiras` \| `peitoral` \| `luvas` \| `calcas` \| `botas` \| `escudo` (`blocky` ou `mesh`, B11–B13) |
+| `parte` | string | não | `corpo` \| `capa` \| `arma` \| `cabelo` \| `elmo` \| `ombreiras` \| `peitoral` \| `luvas` \| `calcas` \| `botas` \| `escudo` \| `mochila` \| `orbe` \| `sela` \| `asas` (`blocky` ou `mesh`, B11–B13) |
 | `tags` | string[] | não | `^[a-z0-9][a-z0-9_-]*$`, ≤ 8, sem nome de franquia (I14) |
 
 ### Regras de negócio (além do schema)
@@ -85,26 +91,30 @@ nunca aparece em manifesto publicado (I14).
 | B12 | `parte` de vestuário/armadura exige `personagem_humanoide`; `arma`/`escudo` exige `prop_equipavel` | erro |
 | B13 | `parte: capa` e acessórios rígidos exigem `auto_rig: false` (salvo `skinned: true` em armadura) | erro |
 
-## 3. `manifest@1`/`@2`/`@3`/`@4` — a saída
+## 3. `manifest@1`..`manifest@5` — a saída
 
 Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o Forge3D instalado.
-`@2` acrescenta `unidades_export` (D62), `@3` acrescenta `animacoes` (D67), e `@4` é o contrato
-corrente (aditivo: papéis `orm`/`roughness`/`metallic`/`manifesto` e metadados PBR/QC V2); `@1`–`@3`
-continuam aceitos na leitura.
+`@2` acrescenta `unidades_export` (D62), `@3` acrescenta `animacoes` (D67), `@4` acrescenta papéis
+`orm`/`roughness`/`metallic`/`manifesto` e metadados PBR/QC V2, e `@5` é o contrato corrente
+(aditivo: `orientacao_export`, `sockets` locais de osso, `sombreamento` e rigs de criaturas/montarias);
+`@1`–`@4` continuam aceitos na leitura.
 
 | Campo | Tipo | Conteúdo |
 |---|---|---|
-| `schema` | string | `forge3d/manifest@1` (legado) · `@2` (unidades) · `@3` (animação) · `@4` (corrente) |
+| `schema` | string | `forge3d/manifest@1`..`@4` (legados) · `@5` (corrente) |
 | `asset_id` / `projeto` / `perfil` / `rota` | string | identidade, alvo e técnica de geração |
 | `tags` | string[] | rótulos do item; consultáveis por `forge3d query --tag` |
 | `spec_hash` | string | `sha256:` do spec canônico que originou o asset |
 | `pipeline_version` | string | versão do Forge3D (git describe) — entra na chave de cache |
 | `determinism` | string | `D1` \| `D2` \| `D3` |
 | `providers` | objeto | `geometry` e `texture`: `{name, version, license, seed}` |
-| `geometry` | objeto | `triangulos`, `vertices`, `bbox_m[3]` (**sempre em metros**), `materiais` |
+| `geometry` | objeto | `triangulos`, `vertices`, `bbox_m[3]` (**sempre em metros**), `materiais`, `tangentes?`, `uv_lightmap?` |
 | `unidades_export` | objeto | `@2`+: `{metros_por_unidade, escala_saida}` — a unidade do arquivo |
+| `orientacao_export` | objeto | `@5`+: `{frente_gltf, cima_gltf, direita_gltf, det_matriz}` (`-Z`, `+Y`, `+X`, `1`) |
+| `sockets` | objeto[] | `@5`+: `{nome, osso, posicao_local, rotacao_quat_wxyz, frente_local}` |
+| `sombreamento` | objeto | `@5`+: `{smooth_normals, angulo_graus, weighted_normals, quadriflow_aplicado}` |
 | `animacoes` | objeto[] | `@3`+: `{nome, duracao_s, ossos}` — clipes embutidos no glb (vazio se não há) |
-| `rig` | objeto\|null | `{esqueleto, ossos, modo_rig_roblox?}` |
+| `rig` | objeto\|null | `{esqueleto, ossos, modo_rig_roblox?}` (`godot-humanoid@1`, `r15@1`, `quadruped@1`, `winged_mount@1`) |
 | `anexo` | objeto\|null | `{parte, osso, attachment_roblox, skinned?}` — peças modulares e armaduras (D88) |
 | `lod` | objeto[] | `{nivel, triangulos, arquivo}` |
 | `colisao` | objeto | `{tipo, partes, arquivo}` |
@@ -117,7 +127,8 @@ continuam aceitos na leitura.
 Schema completo: [`../schemas/manifest.v1.schema.json`](../schemas/manifest.v1.schema.json) ·
 [`../schemas/manifest.v2.schema.json`](../schemas/manifest.v2.schema.json) ·
 [`../schemas/manifest.v3.schema.json`](../schemas/manifest.v3.schema.json) ·
-[`../schemas/manifest.v4.schema.json`](../schemas/manifest.v4.schema.json);
+[`../schemas/manifest.v4.schema.json`](../schemas/manifest.v4.schema.json) ·
+[`../schemas/manifest.v5.schema.json`](../schemas/manifest.v5.schema.json);
 exemplos: [`../examples/manifest.exemplo.json`](../examples/manifest.exemplo.json) e
 [`../examples/manifest.exemplo.v2.json`](../examples/manifest.exemplo.v2.json).
 
@@ -261,8 +272,17 @@ default **2,4 m** (pé-direito) quando a rota é `modular` e o item não declara
 
 Aditivo sobre `spec@3`: `estilo` (`blocky_voxel` \| `lowpoly_lit` \| `stylized_pbr`) por item,
 `retopologia` (`padrao` \| `quadriflow` \| `decimate`), `quadriflow_faces` (`250..50000`) e
-`modo_rig_roblox` (`motor6d` \| `bone`). `forge3d migrate <lote>` reescreve `schema:` até
-`forge3d/spec@4` mantendo comentários e validando o resultado sem inventar valores.
+`modo_rig_roblox` (`motor6d` \| `bone`).
+
+### spec@5 — normais suaves, PBR 3D procedural, criaturas/montarias e sockets (D94–D98)
+
+Aditivo sobre `spec@4`: tipos `criatura_quadrupede`, `criatura_alada` e `montaria`, partes
+`mochila`/`orbe`/`sela`/`asas`, `material_procedural` (10 presets PBR 3D em coordenadas `OBJECT`),
+`suavizacao_normais` (65° orgânico / 38° hard-surface + `soldar_componentes_organicos`),
+`provider_conceito` (`auto`/`sd15`/`gemini`/`higgsfield`), `clipes` (17 clipes 24fps C1) e `sockets`
+locais de osso (`Hand.R`, `Hand.L`, `Back`, `Head`, `Shoulder.L`, `Shoulder.R`, `MountSeat`).
+`forge3d migrate <lote>` reescreve `schema:` até `forge3d/spec@5` mantendo comentários e validando o
+resultado sem inventar valores.
 
 ## 7. Compatibilidade
 

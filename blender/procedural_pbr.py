@@ -150,15 +150,21 @@ PRESETS_PBR: dict[str, dict] = {
         "voronoi_feature": "DISTANCE_TO_EDGE",
         "distorcao": 0.25,
         "escala_eixo": (1.0, 1.0, 1.3),
-        "metallic_min": 0.10,
-        "metallic_max": 0.28,
-        "roughness_min": 0.08,
-        "roughness_max": 0.28,
-        "bump_strength": 0.50,
-        "bump_distance": 0.011,
+        "metallic_min": 0.0,
+        "metallic_max": 0.0,
+        "roughness_min": 0.04,
+        "roughness_max": 0.08,
+        "bump_strength": 0.35,
+        "bump_distance": 0.008,
         "ao_distance": 0.24,
         "peso_crista": 0.68,
         "peso_musgo": 0.0,
+        "transmission": 0.85,
+        "ior": 1.52,
+        "alpha": 0.35,
+        "blend_method": "BLEND",
+        "emission_color": (0.15, 0.85, 1.0, 1.0),
+        "emission_strength": 2.0,
     },
     "pedra_musgo": {
         "cor_base": (0.38, 0.39, 0.36, 1.0),
@@ -423,6 +429,27 @@ def criar_material_procedural(preset: str, nome_mat: str | None = None):
     mr_rough.location = (40, -240)
     nt.links.new(mix_oct.outputs[0], mr_rough.inputs["Value"])
     nt.links.new(mr_rough.outputs["Result"], bsdf.inputs["Roughness"])
+
+    if "Metallic" in bsdf.inputs:
+        bsdf.inputs["Metallic"].default_value = float(
+            0.5 * (cfg.get("metallic_min", 0.0) + cfg.get("metallic_max", 0.0))
+        )
+    if "Roughness" in bsdf.inputs:
+        bsdf.inputs["Roughness"].default_value = float(
+            0.5 * (cfg.get("roughness_min", 0.5) + cfg.get("roughness_max", 0.5))
+        )
+    if cfg.get("blend_method") and hasattr(mat, "blend_method"):
+        mat.blend_method = str(cfg["blend_method"])
+    if "transmission" in cfg and "Transmission Weight" in bsdf.inputs:
+        bsdf.inputs["Transmission Weight"].default_value = float(cfg["transmission"])
+    if "ior" in cfg and "IOR" in bsdf.inputs:
+        bsdf.inputs["IOR"].default_value = float(cfg["ior"])
+    if "alpha" in cfg and "Alpha" in bsdf.inputs:
+        bsdf.inputs["Alpha"].default_value = float(cfg["alpha"])
+    if "emission_color" in cfg and "Emission Color" in bsdf.inputs:
+        bsdf.inputs["Emission Color"].default_value = tuple(cfg["emission_color"])
+    if "emission_strength" in cfg and "Emission Strength" in bsdf.inputs:
+        bsdf.inputs["Emission Strength"].default_value = float(cfg["emission_strength"])
 
     # Bump 3D tangente conectado ao Normal do Principled BSDF
     bump = nt.nodes.new("ShaderNodeBump")

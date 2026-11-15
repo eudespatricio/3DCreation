@@ -547,9 +547,23 @@ static func _copiar_base_material(src: BaseMaterial3D, dst: BaseMaterial3D) -> v
 	dst.emission = src.emission
 	dst.emission_energy_multiplier = src.emission_energy_multiplier
 	dst.emission_texture = src.emission_texture
+	dst.refraction_enabled = src.refraction_enabled
+	dst.refraction_scale = src.refraction_scale
 	dst.uv1_scale = src.uv1_scale
 	dst.uv1_offset = src.uv1_offset
 	dst.texture_filter = src.texture_filter
+
+
+static func _aplicar_fallback_dieletrico(alvo: BaseMaterial3D, ref: BaseMaterial3D) -> void:
+	if ref.metallic_texture != null or ref.roughness_texture != null:
+		return
+	if ref.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED or ref.emission_enabled:
+		return
+	if ref.metallic >= 0.999 and ref.roughness >= 0.999:
+		alvo.metallic = 0.0
+		alvo.roughness = 0.65
+	elif ref.metallic <= 0.05 and ref.roughness >= 0.999:
+		alvo.roughness = 0.65
 
 
 static func _processar_material(
@@ -570,12 +584,7 @@ static func _processar_material(
 			if mat is BaseMaterial3D:
 				var src_bm := mat as BaseMaterial3D
 				_copiar_base_material(src_bm, orm_mat)
-				if src_bm.metallic_texture == null and src_bm.roughness_texture == null:
-					if src_bm.metallic >= 0.999 and src_bm.roughness >= 0.999:
-						orm_mat.metallic = 0.0
-						orm_mat.roughness = 0.65
-					elif src_bm.metallic == 0.0 and src_bm.roughness >= 0.999:
-						orm_mat.roughness = 0.65
+				_aplicar_fallback_dieletrico(orm_mat, src_bm)
 			else:
 				orm_mat.metallic = 0.0
 				orm_mat.roughness = 0.65
@@ -591,13 +600,8 @@ static func _processar_material(
 
 	if resultado is BaseMaterial3D:
 		var bm := resultado as BaseMaterial3D
-		if orm_tex == null and not (bm is ORMMaterial3D):
-			if bm.metallic_texture == null and bm.roughness_texture == null and not criado_novo:
-				if bm.metallic >= 0.999 and bm.roughness >= 0.999:
-					bm.metallic = 0.0
-					bm.roughness = 0.65
-				elif bm.metallic == 0.0 and bm.roughness >= 0.999:
-					bm.roughness = 0.65
+		if orm_tex == null and not (bm is ORMMaterial3D) and not criado_novo:
+			_aplicar_fallback_dieletrico(bm, bm)
 		if bm.normal_texture != null:
 			bm.normal_enabled = true
 		elif normal_tex != null:
@@ -641,12 +645,15 @@ static func _configurar_materiais(
 		for idx in range(surf_count):
 			var override := mi.get_surface_override_material(idx)
 			var alvo_mat: Material = override if override != null else mi.mesh.surface_get_material(idx)
-			var tem_tex_propria := (
-				idx > 0
-				and surf_count > 1
-				and alvo_mat is BaseMaterial3D
-				and (alvo_mat as BaseMaterial3D).albedo_texture != null
-			)
+			var tem_tex_propria := false
+			if surf_count > 1 and alvo_mat is BaseMaterial3D:
+				var abm := alvo_mat as BaseMaterial3D
+				tem_tex_propria = (
+					(idx > 0 and abm.albedo_texture != null)
+					or abm.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+					or abm.emission_enabled
+					or abm.metallic > 0.05
+				)
 			var s_orm := null if tem_tex_propria else orm_tex
 			var s_nm := null if tem_tex_propria else normal_tex
 			var s_bc := null if tem_tex_propria else base_color_tex

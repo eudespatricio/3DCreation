@@ -53,15 +53,15 @@ forge3d allowlist add "$PWD/assets/forge3d"
 
 > `plan` também resolve o destino: sem allowlist ele sai `2` (`FORGE-E-DESTINO`), não só o `run`.
 
-## 4. Escrever o lote (`spec@5`)
+## 4. Escrever o lote (`spec@6`)
 
 Topo obrigatório: `schema`, `projeto`, `perfil`, `destino_exportacao`, `lote`. Item obrigatório:
 `id`, `tipo`. Exemplo mínimo que passa em `validate`:
 
 ```yaml
-schema: forge3d/spec@5
+schema: forge3d/spec@6
 projeto: meu-jogo
-perfil: godot4                 # ou roblox-r15
+perfil: godot4                 # ou godot4-aa | roblox-r15 | roblox-aa-80
 destino_exportacao: /caminho/do/jogo/assets/forge3d
 
 politica:
@@ -94,10 +94,16 @@ Condicionais que o contrato aplica (schema + regras B em `src/forge3d/spec.py`):
 | `parte` | rotas `blocky` ou `mesh` (B11–B13) |
 | `id` | único e no padrão `a.b.c` |
 
-Lote antigo (`spec@1`..`@4`) sobe sem reescrever à mão:
+Lote antigo (`spec@1`..`@5`) sobe sem reescrever à mão:
 
 ```bash
-forge3d migrate lote.yaml --saida lote.v5.yaml   # dry-run sem --saida/--em-lugar
+forge3d migrate lote.yaml --saida lote.v6.yaml   # dry-run sem --saida/--em-lugar
+```
+
+Para projetar o orçamento de cena AA antes de gerar (`Gate G11`: `400k` tris, `400` draw calls, `200 MB` VRAM):
+
+```bash
+forge3d plan lote.yaml --scene-budget --json
 ```
 
 Para geração de imagem conceito em nuvem (`provider_conceito: gemini` ou `higgsfield`), exporte
@@ -145,12 +151,12 @@ Quando nada publicou, vale a causa mais grave (`4 > 2 > 6 > 5 > 3`). `0` só qua
 
 ## 7. O que o jogo lê: o manifesto
 
-`<asset_id>.manifest.json` (`manifest@1`..`@5`; o corrente é `@5`). Campos que o consumidor usa:
+`<asset_id>.manifest.json` (`manifest@1`..`@6`; o corrente é `@6`). Campos que o consumidor usa:
 
 ```json
 {
   "asset_id": "weapon.caixa.demo.01",
-  "schema": "forge3d/manifest@5",
+  "schema": "forge3d/manifest@6",
   "perfil": "godot4",
   "determinism": "D1",
   "unidades_export": { "metros_por_unidade": 1.0, "escala_saida": 1.0 },
@@ -235,9 +241,9 @@ ele acusa em vez de confiar no manifesto antigo.
 
 ## 11. Onde está o contrato
 
-- `schemas/spec.v5.schema.json` (entrada) e `schemas/manifest.v5.schema.json` (saída)
-- `docs/contratos.md` — regras, B1–B25, saída JSON, exit codes, códigos de erro
-- `profiles/godot4.yaml` · `profiles/roblox-r15.yaml` — unidade, eixos, pivô, colisão, tolerâncias
+- `schemas/spec.v6.schema.json` (entrada) e `schemas/manifest.v6.schema.json` (saída)
+- `docs/contratos.md` — regras, B1–B25, Gate G11, saída JSON, exit codes, códigos de erro
+- `profiles/godot4.yaml` · `profiles/godot4-aa.yaml` · `profiles/roblox-r15.yaml` · `profiles/roblox-aa-80.yaml` — unidade, eixos, pivô, colisão, tolerâncias e orçamento AA
 - `docs/perfis-export.md` — o que cada plataforma espera do arquivo
 
 ## 12. Plugar agentes externos via MCP (`stdio`)

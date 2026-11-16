@@ -78,6 +78,28 @@ CATALOGO_TEXTURAS_LOCAIS: tuple[dict[str, Any], ...] = (
         "tags": ["steel", "aco", "forged", "forjado", "blade", "lamina", "sword", "armor", "metal", "pbr"],
         "descricao": "Textura PBR CC0 de aco forjado temperado para laminas de espada e placas de armadura.",
     },
+    {
+        "arquivo": "obsidian_runestone_albedo.png",
+        "asset_id": "pbr.obsidian_runestone_albedo",
+        "nome": "Obsidian Runestone Albedo",
+        "tipo": "pbr_texture",
+        "categoria": "material",
+        "licenca": "CC0-1.0",
+        "origem": "forge3d_procedural_cc0",
+        "tags": ["obsidian", "runestone", "stone", "pedra", "rune", "basalt", "altar", "pbr"],
+        "descricao": "Textura PBR 1024x1024 de obsidiana gravada com runas arcanas para monólitos e altares.",
+    },
+    {
+        "arquivo": "arcane_crystal_albedo.png",
+        "asset_id": "pbr.arcane_crystal_albedo",
+        "nome": "Arcane Crystal Albedo",
+        "tipo": "pbr_texture",
+        "categoria": "material",
+        "licenca": "CC0-1.0",
+        "origem": "forge3d_procedural_cc0",
+        "tags": ["crystal", "cristal", "arcane", "arcano", "gem", "gema", "orb", "magic", "pbr"],
+        "descricao": "Textura PBR 1024x1024 de cristal arcano facetado para nucleos, gemas e cetros.",
+    },
 )
 
 CATALOGO_PECAS_KITBASH_CC0: tuple[dict[str, Any], ...] = (

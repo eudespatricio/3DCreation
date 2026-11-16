@@ -237,12 +237,34 @@ def _executar_worker_blender(job_in_path: Path, job_out_path: Path) -> int:
             usou_smart_fit = False
             if smart_fit_mod is not None and hasattr(smart_fit_mod, "encaixar_contato_bvh"):
                 try:
+                    _aplicar_transformacao_malha(peca_obj)
+                    _aplicar_transformacao_malha(alvo_obj)
+                    mn_a_sf, mx_a_sf = _bbox_mundo(alvo_obj)
+                    mn_p_sf, mx_p_sf = _bbox_mundo(peca_obj)
+                    centro_a_sf = (mn_a_sf + mx_a_sf) * 0.5
+                    centro_p_sf = (mn_p_sf + mx_p_sf) * 0.5
+                    dir_sf = Vector(direcao)
+                    if dir_sf.length <= 1e-6:
+                        dir_sf = Vector((0.0, 0.0, 1.0))
+                    dir_sf.normalize()
+                    alcance = max(
+                        (mx_a_sf - mn_a_sf).length,
+                        (mx_p_sf - mn_p_sf).length,
+                        0.2,
+                    )
+                    pos_inicial = centro_a_sf + dir_sf * (alcance + 0.15)
+                    delta_pre = pos_inicial - centro_p_sf
+                    for v_p in peca_obj.data.vertices:
+                        v_p.co += delta_pre
+                    peca_obj.data.update()
+                    bpy.context.view_layer.update()
                     res_sf = smart_fit_mod.encaixar_contato_bvh(
                         peca_obj,
                         alvo_obj,
-                        direcao=direcao,
+                        direcao=(-dir_sf.x, -dir_sf.y, -dir_sf.z),
                         folga_m=folga_m,
                     )
+                    _aplicar_transformacao_malha(peca_obj)
                     info_snap = res_sf if isinstance(res_sf, dict) else {"metodo": "smart_fit", "folga_m": folga_m}
                     usou_smart_fit = True
                 except Exception:

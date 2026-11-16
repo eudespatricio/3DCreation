@@ -263,8 +263,12 @@ def _extrair_entradas_ledger(rec: object) -> list[tuple[str, str, str]]:
 
     role, base_id = _inferir_role_e_base(rec, logical_id, arquivo)
     saidas = [(logical_id, role, uri)]
+    if role == "OrmPacked":
+        saidas.append((logical_id, "orm", uri))
     if base_id and base_id != logical_id and role:
         saidas.append((base_id, role, uri))
+        if role == "OrmPacked":
+            saidas.append((base_id, "orm", uri))
     return saidas
 
 

@@ -43,6 +43,7 @@ def _args() -> dict:
         "close": False,
         "alto": False,
         "turntable": False,
+        "square": False,
     }
     posicionais: list[str] = []
     i = 0
@@ -64,6 +65,9 @@ def _args() -> dict:
             i += 1
         elif argv[i] == "--turntable":
             opcoes["turntable"] = True
+            i += 1
+        elif argv[i] == "--square":
+            opcoes["square"] = True
             i += 1
         else:
             posicionais.append(argv[i])
@@ -363,7 +367,7 @@ def main() -> int:
         camera(centro, raio, direcao, escala, perspectiva=(nome in vistas_persp))
         arq_vista = f"{saida_base}_{nome}.png"
         configurar_render(arq_vista, opcoes["size"], opcoes["samples"])
-        if nome == "alto":
+        if nome == "alto" or opcoes["square"]:
             # a vista de cima enquadra o footprint inteiro: moldura quadrada, nao retrato
             bpy.context.scene.render.resolution_y = opcoes["size"]
         bpy.ops.render.render(write_still=True)

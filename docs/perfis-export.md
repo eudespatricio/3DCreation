@@ -1,8 +1,8 @@
 # Perfis de export
 
 > Engine não entra no código: entra aqui (D4). Um perfil é dado versionado, não código.
-> Alvos do v0: **Godot 4** e **Roblox (R15/blocky)** — escolha do operador.
-> Fonte executável: [`../profiles/godot4.yaml`](../profiles/godot4.yaml), [`../profiles/roblox-r15.yaml`](../profiles/roblox-r15.yaml).
+> Alvos: **Godot 4** (`godot4`, `godot4-aa`) e **Roblox** (`roblox-r15`, `roblox-aa-80`).
+> Fonte executável: [`../profiles/godot4.yaml`](../profiles/godot4.yaml), [`../profiles/godot4-aa.yaml`](../profiles/godot4-aa.yaml), [`../profiles/roblox-r15.yaml`](../profiles/roblox-r15.yaml), [`../profiles/roblox-aa-80.yaml`](../profiles/roblox-aa-80.yaml).
 
 ## 1. O que um perfil controla
 
@@ -40,10 +40,14 @@ para acontecer com a segunda engine.
 | `material.filtro` | `nearest` | **o glTF não força filtro**; precisa do preset de import no Godot (`[verificar]` na importação) |
 | `validacao` | escala `0.5 %` · pivô `1 mm` · materiais `≤ 8` · bytes `≤ 2048 KB` (`hero`: `≤ 4096 KB`) | consumido pelo QC |
 
-**Export e paridade Godot 4 (`v0.6.0`–`v0.7.0`, D90/D97):** `addons/forge3d/` registra
-`EditorScenePostImportPlugin` zero-click, configura `UCX_` (colisor irmão), `_LOD1`/`_LOD2`, loop em
-clipes cíclicos (`idle`/`walk`/`run`/`ride_idle`/`ride_fly`/`gallop`/`wing_flap`/`glide`), preservação
-de `UV2`, `BoneAttachment3D` com `Socket_<nome>` orientados pelo `manifest@5` e
+**Export e paridade Godot 4 / `godot4-aa` (`v0.6.0`–`v0.9.0`, D90/D97/D105):** `godot4-aa` eleva o
+rig padrão para `godot-humanoid-aa@1` (**56 ossos**: cabeça facial `Jaw` + `Eye.L/R`, osso `Cape` com
+física secundária e 30 falanges articuladas `Thumb1..3`/`Index1..3`/`Middle1..3`/`Ring1..3`/`Little1..3`
+em `.L`/`.R`), `textura_max: 4096` (linear mipmap anisotrópico), `bytes_max_kb: 25600` e `orcamento_cena`
+calibrado a 80 % AA (`400k` tris, `400` draw calls, `200 MB` VRAM). `addons/forge3d/` registra
+`EditorScenePostImportPlugin` zero-click, gera `SkeletonProfileHumanoid` `BoneMap` completo para 23 e 56
+ossos, configura `UCX_` (colisor irmão), `_LOD1`/`_LOD2`, loop em clipes cíclicos, preservação de `UV2`,
+`BoneAttachment3D` com `Socket_<nome>` orientados pelo `manifest@5`/`@6` e
 `PostImport.montar_cavaleiro_em_montaria(montaria, cavaleiro)`. `forge3d sync <origem> --para <alvo> --godot-gd Forge3DAssets.gd`
 copia o destino verificado, gera sidecars `.glb.import` (`import_script/path="res://addons/forge3d/post_import.gd"`
 quando o addon existe) e cria o módulo GDScript tipado.
@@ -65,12 +69,17 @@ quando o addon existe) e cria o módulo GDScript tipado.
 | `lod` | `nenhum` | Roblox tem `RenderFidelity` próprio; LOD exportado é ignorado |
 | `validacao` | escala `1 %` (arredondamento de stud) · pivô por junta `2 mm` · tri/parte `≤ 10.000` · partes `≤ 15` | |
 
-**Export nativo e PBR Roblox (`v0.6.0`–`v0.7.0`, D90/D97):** além do `forge3d export-r15 <lote> --item <id>`
-(`--modo-rig motor6d` por Parts + Motor6D ou `forge3d export-r15 <lote> --item <id> --modo-rig bone`
-com `MeshPart` + 16 Bones), o CLI oferece `forge3d export-surface <origem> --item <id>` (gera `.rbxmx`
-de `SurfaceAppearance` PBR multi-canal), `forge3d export-acessorio <origem> --item <id>` (gera
-`.rbxmx` de `Accessory` + `Handle` `MeshPart` + `Attachment` com `CFrame` ortonormal 3×3 derivada de
-`rotacao_quat_wxyz`), `forge3d export-anim <lote> --item <id> --todos` (24 fps C1 contínuo) e
+**Export nativo e PBR Roblox / `roblox-aa-80` (`v0.6.0`–`v0.9.0`, D90/D97/D104):** `roblox-aa-80`
+calibra cada `MeshPart` em 80 % dos tetos da engine (`triangulos_por_parte_max: 16000` / `ultra: 18000`,
+`bytes_max_kb: 16384`, `materiais_max: 1` preservando GPU instancing, `textura_max: 2048`,
+`exigir_tangents: true` e `orcamento_cena`: `400k` tris, `400` draw calls, `200 MB` VRAM). Além do
+`forge3d export-r15 <lote> --item <id>` (`--modo-rig motor6d` por Parts + Motor6D ou
+`forge3d export-r15 <lote> --item <id> --modo-rig bone` com `MeshPart` + 16 Bones), o CLI oferece
+`forge3d export-surface <origem> --item <id>` (gera `.rbxmx` de `SurfaceAppearance` PBR 4 canais
+`ColorMap`/`NormalMap`/`RoughnessMap`/`MetalnessMap`, isolando `_orm` como `OrmPacked` sem sobrescrever
+`RoughnessMap`), `forge3d export-acessorio <origem> --item <id>` (gera `.rbxmx` de `Accessory` +
+`Handle` `MeshPart` + `Attachment` com `CFrame` ortonormal 3×3 derivada de `rotacao_quat_wxyz`),
+`forge3d export-anim <lote> --item <id> --todos` (24 fps C1 contínuo) e
 `forge3d sync <origem> --para <alvo> --rojo-lua Assets.lua` para integrar os AssetIds ao Rojo
 (`LeftCollarAttachment` em `-X` e `RightCollarAttachment` em `+X`).
 

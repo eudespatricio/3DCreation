@@ -162,8 +162,11 @@ def dividir_quadrantes(img: Image.Image, layout: str = "auto") -> tuple[str, dic
         assert px is not None
         mid_x = w // 2
         mid_y = h // 2
+        hh_auto = max(1, h // 2)
+        h_sem_piso = max(1, int(hh_auto * 0.72))
+        ys_sem_piso = list(range(h_sem_piso)) + list(range(hh_auto, min(h, hh_auto + h_sem_piso)))
 
-        fg_v = sum(1 for y in range(h) if _eh_foreground(px[mid_x, y], bg, usar_alfa)) / float(h)
+        fg_v = sum(1 for y in ys_sem_piso if _eh_foreground(px[mid_x, y], bg, usar_alfa)) / float(len(ys_sem_piso))
         fg_h = sum(1 for x in range(w) if _eh_foreground(px[x, mid_y], bg, usar_alfa)) / float(w)
         if fg_v > 0.12 or fg_h > 0.12:
             return "single", {"front": rgba}

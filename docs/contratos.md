@@ -15,29 +15,34 @@
 | Encoding | UTF-8, LF. JSON de saída com chaves ordenadas e sem espaços variáveis (hash estável) |
 | Relógio | `created_at` em UTC ISO-8601; nunca entra na chave de cache |
 
-## 2. `spec@1`..`spec@5` — a entrada
+## 2. `spec@1`..`spec@6` — a entrada
 
 Exemplo canônico: [`../examples/lote_01.yaml`](../examples/lote_01.yaml). O kit P3-D usa
-[`../examples/lote_03_kit.yaml`](../examples/lote_03_kit.yaml) (`spec@2`), e criaturas/montarias v0.7
-usam [`../examples/lote_12_creatures_mounts.yaml`](../examples/lote_12_creatures_mounts.yaml) (`spec@5`).
+[`../examples/lote_03_kit.yaml`](../examples/lote_03_kit.yaml) (`spec@2`), criaturas/montarias v0.7
+usam [`../examples/lote_12_creatures_mounts.yaml`](../examples/lote_12_creatures_mounts.yaml) (`spec@5`),
+e cenas calibradas a 80 % AA usam [`../examples/lote_13_scene_budget_aa.yaml`](../examples/lote_13_scene_budget_aa.yaml) (`spec@6`).
 
-Cada revisão é superset aditivo da anterior (`spec@5` é o contrato corrente; `@1`–`@4` continuam
+Cada revisão é superset aditivo da anterior (`spec@6` é o contrato corrente; `@1`–`@5` continuam
 aceitos na leitura e o validador seleciona o schema pelo campo `schema`): `spec@2` adiciona `parte`,
 `spec@3` adiciona `modular`, `spec@4` adiciona `estilo` por item, `retopologia`, `quadriflow_faces` e
-`modo_rig_roblox`, e `spec@5` adiciona criaturas/montarias (`criatura_quadrupede`, `criatura_alada`,
+`modo_rig_roblox`, `spec@5` adiciona criaturas/montarias (`criatura_quadrupede`, `criatura_alada`,
 `montaria`), novas partes (`mochila`, `orbe`, `sela`, `asas`), `material_procedural`,
-`suavizacao_normais`, `provider_conceito`, `clipes` e `sockets`.
+`suavizacao_normais`, `provider_conceito`, `clipes` e `sockets`, e `spec@6` adiciona `orcamento_cena`
+(Gate G11), `roblox_render`, `detalhe_alto` (Cycles High→Low), `pbr_zonas`, `smart_fit`, `alpha_cards`,
+`quantidade_cena`, `render_fidelity_roblox`, qualidade `ultra` e o rig `godot-humanoid-aa@1` (56 ossos).
 
 ### Raiz
 
 | Campo | Tipo | Obrig. | Regra |
 |---|---|---|---|
-| `schema` | string | sim | `forge3d/spec@1` \| `spec@2` \| `spec@3` \| `spec@4` \| `spec@5` |
+| `schema` | string | sim | `forge3d/spec@1` \| `spec@2` \| `spec@3` \| `spec@4` \| `spec@5` \| `spec@6` |
 | `projeto` | string | sim | slug `^[a-z][a-z0-9_-]*$` |
-| `perfil` | string | sim | `godot4` \| `roblox-r15` \| caminho para YAML de perfil |
+| `perfil` | string | sim | `godot4` \| `godot4-aa` \| `roblox-r15` \| `roblox-aa-80` \| caminho para YAML de perfil |
 | `destino_exportacao` | string | sim | sob allowlist (D23); `~` é expandido; recusa `/mnt/*` e UNC |
 | `estilo_global` | string | não | `blocky_voxel` \| `lowpoly_lit` \| `stylized_pbr`. Default vem do perfil |
 | `paleta` | string[] | não | 1–16 cores `#rrggbb`; usada pela rota `blocky` |
+| `orcamento_cena` | objeto | não | `@6`: `{triangulos_max, draw_calls_max, vram_mb_max}` (default 80 % AA: `400000`, `400`, `200`) |
+| `roblox_render` | objeto | não | `@6`: `{lighting_technology, render_fidelity_padrao, surface_appearance, strip_embedded_textures_glb}` |
 | `politica` | objeto | não | `falha` (`continuar`\|`abortar`), `custo_max_min` (int), `seed_base` (int) |
 | `lote` | objeto[] | sim | 1..1000 itens |
 
@@ -65,10 +70,16 @@ nunca aparece em manifesto publicado (I14).
 | `lod` | integer[] | não | percentuais **decrescentes**, começando em `100`; default `[100]` |
 | `seed` | integer | cond. | **obrigatório** em `rota: mesh`; opcional nas demais |
 | `auto_rig` | boolean | não | default `false`; exige `tipo` humanoide/criatura/montaria |
-| `esqueleto` | string | não | `godot-humanoid@1` \| `r15@1` \| `quadruped@1` \| `winged_mount@1`; default do perfil por `tipo` |
+| `esqueleto` | string | não | `godot-humanoid@1` \| `godot-humanoid-aa@1` \| `r15@1` \| `quadruped@1` \| `winged_mount@1`; default do perfil por `tipo` |
 | `animacoes_base` | string[] | não | clipes procedurais embutidos no `.glb` (até 8; D66/G10); exige `auto_rig: true` |
-| `clipes` | string[] | não | `@5`: subconjunto dos 17 clipes procedurais biomecânicos (`idle`, `walk`, `run`, `jump`, `attack`, `slash_combo`, `cast`, `block`, `hit`, `death`, `ride_idle`, `ride_fly`, `gallop`, `wing_flap`, `glide`, `bite`, `roar`) |
-| `sockets` | string[] | não | `@5`: `Hand.R`, `Hand.L`, `Back`, `Head`, `Shoulder.L`, `Shoulder.R`, `MountSeat` |
+| `clipes` | string[] | não | `@5`+: subconjunto dos 17 clipes procedurais biomecânicos (`idle`, `walk`, `run`, `jump`, `attack`, `slash_combo`, `cast`, `block`, `hit`, `death`, `ride_idle`, `ride_fly`, `gallop`, `wing_flap`, `glide`, `bite`, `roar`) |
+| `sockets` | string[] | não | `@5`+: `Hand.R`, `Hand.L`, `Back`, `Head`, `Shoulder.L`, `Shoulder.R`, `MountSeat` |
+| `detalhe_alto` | objeto | não | `@6`: `{ativo, subdiv_niveis, chanfro_bevel_m, crease_angulo_graus, ao_cavidade_forca}` (bake Cycles High→Low) |
+| `pbr_zonas` | objeto[] | não | `@6`: zonas `{nome, cor_hex?, uv_faixa?, preset, cor_tinta?, roughness_escala?, metallic_override?, normal_forca?}` |
+| `smart_fit` | objeto | não | `@6`: `{encaixar_contato?, folga_m?, conformar_superficie?, recorte_oculto?, auto_grip?}` (BVH/Laplacian/PCA) |
+| `alpha_cards` | boolean | não | `@6`: permite bordas abertas (`n == 1`) de folhagem/cards em G1 mantendo `arestas_t == 0` |
+| `quantidade_cena` | integer | não | `@6`: instâncias simultâneas previstas na cena (`0..500`, default `1`) para o Gate G11 |
+| `render_fidelity_roblox` | string | não | `@6`: `Precise` \| `Automatic` \| `Performance` |
 | `origem` | string | cond. | obrigatório em `rota: import`; na `mesh` é a imagem de concept (PNG/JPEG/WebP) |
 | `parte` | string | não | `corpo` \| `capa` \| `arma` \| `cabelo` \| `elmo` \| `ombreiras` \| `peitoral` \| `luvas` \| `calcas` \| `botas` \| `escudo` \| `mochila` \| `orbe` \| `sela` \| `asas` (`blocky` ou `mesh`, B11–B13) |
 | `tags` | string[] | não | `^[a-z0-9][a-z0-9_-]*$`, ≤ 8, sem nome de franquia (I14) |
@@ -91,17 +102,18 @@ nunca aparece em manifesto publicado (I14).
 | B12 | `parte` de vestuário/armadura exige `personagem_humanoide`; `arma`/`escudo` exige `prop_equipavel` | erro |
 | B13 | `parte: capa` e acessórios rígidos exigem `auto_rig: false` (salvo `skinned: true` em armadura) | erro |
 
-## 3. `manifest@1`..`manifest@5` — a saída
+## 3. `manifest@1`..`manifest@6` — a saída
 
 Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o Forge3D instalado.
 `@2` acrescenta `unidades_export` (D62), `@3` acrescenta `animacoes` (D67), `@4` acrescenta papéis
-`orm`/`roughness`/`metallic`/`manifesto` e metadados PBR/QC V2, e `@5` é o contrato corrente
-(aditivo: `orientacao_export`, `sockets` locais de osso, `sombreamento` e rigs de criaturas/montarias);
-`@1`–`@4` continuam aceitos na leitura.
+`orm`/`roughness`/`metallic`/`manifesto` e metadados PBR/QC V2, `@5` acrescenta `orientacao_export`,
+`sockets` locais de osso, `sombreamento` e rigs de criaturas/montarias, e `@6` é o contrato corrente
+(aditivo: rig `godot-humanoid-aa@1` 56 ossos, `detalhe_alto`, `pbr_zonas`, `smart_fit`, `alpha_cards`,
+`roblox_render` e suporte ao Gate G11); `@1`–`@5` continuam aceitos na leitura.
 
 | Campo | Tipo | Conteúdo |
 |---|---|---|
-| `schema` | string | `forge3d/manifest@1`..`@4` (legados) · `@5` (corrente) |
+| `schema` | string | `forge3d/manifest@1`..`@5` (legados) · `@6` (corrente) |
 | `asset_id` / `projeto` / `perfil` / `rota` | string | identidade, alvo e técnica de geração |
 | `tags` | string[] | rótulos do item; consultáveis por `forge3d query --tag` |
 | `spec_hash` | string | `sha256:` do spec canônico que originou o asset |
@@ -114,7 +126,7 @@ Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o 
 | `sockets` | objeto[] | `@5`+: `{nome, osso, posicao_local, rotacao_quat_wxyz, frente_local}` |
 | `sombreamento` | objeto | `@5`+: `{smooth_normals, angulo_graus, weighted_normals, quadriflow_aplicado}` |
 | `animacoes` | objeto[] | `@3`+: `{nome, duracao_s, ossos}` — clipes embutidos no glb (vazio se não há) |
-| `rig` | objeto\|null | `{esqueleto, ossos, modo_rig_roblox?}` (`godot-humanoid@1`, `r15@1`, `quadruped@1`, `winged_mount@1`) |
+| `rig` | objeto\|null | `{esqueleto, ossos, modo_rig_roblox?}` (`godot-humanoid@1`, `godot-humanoid-aa@1`, `r15@1`, `quadruped@1`, `winged_mount@1`) |
 | `anexo` | objeto\|null | `{parte, osso, attachment_roblox, skinned?}` — peças modulares e armaduras (D88) |
 | `lod` | objeto[] | `{nivel, triangulos, arquivo}` |
 | `colisao` | objeto | `{tipo, partes, arquivo}` |
@@ -128,9 +140,11 @@ Schema completo: [`../schemas/manifest.v1.schema.json`](../schemas/manifest.v1.s
 [`../schemas/manifest.v2.schema.json`](../schemas/manifest.v2.schema.json) ·
 [`../schemas/manifest.v3.schema.json`](../schemas/manifest.v3.schema.json) ·
 [`../schemas/manifest.v4.schema.json`](../schemas/manifest.v4.schema.json) ·
-[`../schemas/manifest.v5.schema.json`](../schemas/manifest.v5.schema.json);
-exemplos: [`../examples/manifest.exemplo.json`](../examples/manifest.exemplo.json) e
-[`../examples/manifest.exemplo.v2.json`](../examples/manifest.exemplo.v2.json).
+[`../schemas/manifest.v5.schema.json`](../schemas/manifest.v5.schema.json) ·
+[`../schemas/manifest.v6.schema.json`](../schemas/manifest.v6.schema.json);
+exemplos: [`../examples/manifest.exemplo.json`](../examples/manifest.exemplo.json),
+[`../examples/manifest.exemplo.v2.json`](../examples/manifest.exemplo.v2.json) e
+[`../examples/manifest.exemplo.v6.json`](../examples/manifest.exemplo.v6.json).
 
 ### 3.1 `unidades_export` (manifest@2, D62)
 
@@ -243,6 +257,7 @@ publicou ou veio do cache.
 | `FORGE-E-RECURSO` | VRAM, lock, disco, timeout de recurso | 6 |
 | `FORGE-E-BPY` | falha no script Blender (2 tentativas) | 5 |
 | `FORGE-E-QC` | gate G1–G10 reprovado | 3 |
+| `FORGE-E-QC-SCENE` | gate G11 (`orcamento_cena`: triângulos, draw calls ou VRAM da cena) reprovado | 3 |
 | `FORGE-E-UPLOAD` | upload Open Cloud recusado/falhou (key, creator, HTTP) | 5 |
 | `FORGE-E-MANIFEST` | manifesto ausente, inválido ou hash divergente | 3 |
 | `FORGE-E-INTERNO` | bug do Forge3D | 4 |
@@ -281,8 +296,17 @@ Aditivo sobre `spec@4`: tipos `criatura_quadrupede`, `criatura_alada` e `montari
 `suavizacao_normais` (65° orgânico / 38° hard-surface + `soldar_componentes_organicos`),
 `provider_conceito` (`auto`/`sd15`/`gemini`/`higgsfield`), `clipes` (17 clipes 24fps C1) e `sockets`
 locais de osso (`Hand.R`, `Hand.L`, `Back`, `Head`, `Shoulder.L`, `Shoulder.R`, `MountSeat`).
-`forge3d migrate <lote>` reescreve `schema:` até `forge3d/spec@5` mantendo comentários e validando o
-resultado sem inventar valores.
+
+### spec@6 — orçamento de cena AA 80 % (G11), `detalhe_alto`, `pbr_zonas`, `smart_fit` e rig 56 ossos (D103–D106)
+
+Aditivo sobre `spec@5`: perfis `godot4-aa` (`godot-humanoid-aa@1`, 56 ossos) e `roblox-aa-80` (16k tris/parte,
+16 MB GLB), `orcamento_cena` no topo (`triangulos_max`, `draw_calls_max`, `vram_mb_max` auditados antes da
+publicação pelo Gate G11 e estimáveis via `forge3d plan <lote> --scene-budget`), `roblox_render` (`Future`,
+`Precise`, `strip_embedded_textures_glb`), `detalhe_alto` (bake Cycles High→Low com chanfro `use_clamp_overlap`
+e AO de cavidade), `pbr_zonas` (múltiplos presets PBR num único material/SurfaceAppearance), `smart_fit`
+(encaixe BVH com folga `0,0015 m`, conformação Laplaciana, recorte oculto e `auto_grip` PCA), `alpha_cards` e
+`quantidade_cena`. `forge3d migrate <lote>` reescreve `schema:` até `forge3d/spec@6` mantendo comentários e
+validando o resultado sem inventar valores.
 
 ## 7. Compatibilidade
 

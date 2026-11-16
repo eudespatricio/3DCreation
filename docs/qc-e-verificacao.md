@@ -20,16 +20,17 @@ Duas consequências:
 
 | # | Gate | Mede | Como | Padrão de limite | Sev. |
 |---|---|---|---|---|---|
-| **G1** | Geometria sã | arestas não-manifold, faces degeneradas, normais invertidas por componente e anti-facetamento orgânico (`malha_organica_facetada`) | `bpy` + volume assinado + inspeção de normais por vértice em Python puro | `0` não-manifold, `0` degenerada, normais suaves em orgânicos `@5` | erro |
+| **G1** | Geometria sã | arestas não-manifold (ou `arestas_t == 0` quando `alpha_cards: true`), faces degeneradas, normais invertidas por componente e anti-facetamento orgânico (`malha_organica_facetada`) | `bpy` + volume assinado + inspeção de normais por vértice em Python puro | `0` não-manifold, `0` degenerada, normais suaves em orgânicos `@5`+ | erro |
 | **G2** | Escala, pivô e eixos | altura da AABB vs `altura_metros`; pivô vs regra; frente `-Z` (humanoide e focinho de criatura), roll simétrico de braços e `sockets` válidos | leitura do `.glb` (sem Blender) | `≤ 0,5 %`, `≤ 1 mm`, roll simétrico e frente `-Z` | erro |
 | **G3** | UV | `TEXCOORD_0` presente, UV em `[0,1]` (salvo `permitir_tiling`) e área UV 2D não colapsada (`uv_colapsada`) | parse do `.glb` + buffer binário | cobertura `100 %`, área UV > 0 | erro |
-| **G4** | Textura | dimensão POT, `≤ textura_max`, integridade PNG (`CRC32`/`IHDR`/`IEND`), JPEG e WEBP | header/chunks + `PIL.Image` | `≤ 1024`, POT obrigatório | erro |
-| **G5** | Material | nº de materiais, texturas existentes, sem caminho absoluto, `exigir_tangent_normal` (`@4`+) e sombreamento suave em orgânicos | parse do `.glb` + `fsck` de arquivo | `≤ 8` por asset | erro |
-| **G6** | Rig | nº de ossos, nomes contra mapa do perfil (`godot-humanoid@1`, `r15@1`, `quadruped@1`, `winged_mount@1`), root na origem, sem escala e `JOINTS_0`/`WEIGHTS_0` válidos | parse de `skins`/`nodes`/primitivos | `≤ 64` (Godot) / `≤ 24` (R15) | erro |
+| **G4** | Textura | dimensão POT, `≤ textura_max`, integridade PNG (`CRC32`/`IHDR`/`IEND`), JPEG e WEBP | header/chunks + `PIL.Image` | `≤ 1024..4096` (perfil), POT obrigatório | erro |
+| **G5** | Material | nº de materiais, texturas existentes, sem caminho absoluto, `exigir_tangent_normal` (`@4`+) e sombreamento suave em orgânicos | parse do `.glb` + `fsck` de arquivo | `≤ 8` Godot / `1` `roblox-aa-80` | erro |
+| **G6** | Rig | nº de ossos, nomes contra mapa do perfil (`godot-humanoid@1` 23, `godot-humanoid-aa@1` 56, `r15@1` 16, `quadruped@1` 23, `winged_mount@1` 31), root na origem, sem escala e `JOINTS_0`/`WEIGHTS_0` válidos | parse de `skins`/`nodes`/primitivos | `≤ 64` (Godot) / `≤ 24` (R15) | erro |
 | **G7** | Colisão | presença, nº de partes, prefixo `UCX_`, convexidade 1 mm/m e detecção coplanar/degenerada | parse de nodes + análise geométrica | `≤ 15` partes | erro |
 | **G8** | Licença | modelo na allowlist, `uso_comercial: true`, `NOTICE` presente | manifesto + allowlist | obrigatório | erro |
-| **G9** | Orçamento | triângulos vs `limite_triangulos` (`qualidade: hero` elevado), bytes por arquivo e silhueta IoU 128×128 entre LODs | parse do `.glb` + render 2D Pillow | tri `≤` orçamento · `≤ 2048 KB` (`hero`: `≤ 4096 KB`) | erro |
+| **G9** | Orçamento | triângulos vs `limite_triangulos` (`qualidade: hero`/`ultra` elevados), bytes por arquivo e silhueta IoU 128×128 entre LODs | parse do `.glb` + render 2D Pillow | tri `≤` orçamento · bytes `≤` perfil | erro |
 | **G10** | Animação | clipes pedidos (`animacoes_base`/`clipes`) existem, duração > 0,2 s, ≥ 2 ossos em movimento em marchas e fechamento C0 de loop cíclico (`loop_quebrado`) | parse de `animations` do `.glb` | clipe presente · loop fechado (< 0,08 rad / < 0,03 m) | erro |
+| **G11** | Orçamento de cena (`spec@6`) | soma ponderada por `quantidade_cena` de triângulos visíveis, draw calls (com hardware instancing quando `materiais == 1` sem rig) e VRAM única de texturas antes do `publish` (`FORGE-E-QC-SCENE`); estimável antes de gerar via `forge3d plan <lote> --scene-budget` | agregação em staging pós-QC por item | `≤ 400k` tris · `≤ 400` draw calls · `≤ 200 MB` VRAM (default 80 % AA) | erro |
 
 **G1 mede topologia soldada.** O glTF divide vértice em cada costura de UV; sem soldar, todo asset
 importado pareceria ter borda aberta. Efeito colateral: duas peças que compartilham **canto exato**

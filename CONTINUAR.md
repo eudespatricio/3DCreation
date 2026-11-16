@@ -1,12 +1,13 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 15/11/2026 · **P0–P6, C5–C15, Ondas A–D e releases `v0.7.0`/`v0.8.0` fechadas.** Contratos
-correntes `spec@5` e `manifest@5` (D94–D102; `@1`–`@4` compatíveis na leitura). Humanoide multi-camadas 3D
-CC0 vestido (`grip`/`cupped`), equipamentos AA multi-zona + vidro refrativo `KHR_materials_transmission` +
-capa `CLOTH` 35f + 4 albedos PBR 1024px, dragão esmeralda escamoso + rigs `quadruped@1`/`winged_mount@1` com
-17 clipes 24fps C1, plugin Godot zero-click, `visual_qa_critic.py` + Gemini Interactions (`2026-05-20`) e
-TRELLIS MIT opcional. **472 verdes + 1 GPU (skip)** em 473 testes (`473/473` com `FORGE3D_CONCEPT_E2E=1`) ·
-CI com **399 + 73 testes** em 3 jobs (`portoes`, `verificar`, `distribuicao`).
+**Data:** 16/11/2026 · **P0–P6, C5–C15, Ondas A–D e releases `v0.7.0`–`v0.9.0` fechadas.** Contratos
+correntes `spec@6` e `manifest@6` (D94–D107; `@1`–`@5` compatíveis na leitura). Perfis AA (`godot4-aa`
+56 ossos `godot-humanoid-aa@1` + PBR 4K e `roblox-aa-80` 16k tris/parte + `SurfaceAppearance` 4 canais)
+com Gate `G11` de orçamento de cena 80 % AA (`<= 400k` tris, `<= 400` draw calls, `<= 200 MB` VRAM),
+bake Cycles High→Low (`detalhe_alto` + `pbr_zonas`), `smart_fit.py` (BVH/Laplacian/PCA), Vault CC0
+(`vault.py` + `gemini-embedding-2-preview` + `kitbash_composer.py` + `colab_trellis_lora.py`) e 6 albedos
+PBR 1024px. **507 verdes + 1 GPU (skip)** em 508 testes · CI com **429 + 78 testes** em 3 jobs (`portoes`,
+`verificar`, `distribuicao`).
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
 
@@ -39,47 +40,33 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 - **Janela P2/P4 (C12–C15)** — escala declarada no `manifest@2` (D62), hull sobre nuvem de pontos
   (D64), convexidade de 1 mm/m (D65) e 7 destinos/16 manifestos republicados; detalhe em
   `DECISOES.md` §2 e `docs/gaps.md`.
-- **P5-A — animação base (D66/D67)** — `rig.retarget` nos perfis mapeia osso semântico → osso do
-  esqueleto; o `idle` é gerado no `bpy` (5 chaves, 2 s a 24 fps) e embutido no glb; G10 mede
-  **movimento real**; `manifest@3` declara `animacoes`; `tests/test_animacao.py` + e2e do R15 com o
-  clipe; Godot 4.3 headless confirma nos dois esqueletos. `PIPELINE_VERSION` **0.2.7**.
-- **P5-C — LOD (GAP-013/GAP-046/D71)** — `tools/lod_qualidade.py` mede IoU de silhueta
-  (frente/lado), pior faixa vertical e bbox contra o LOD0. O LOD do blocky foi reprovado (decimate:
-  0,76/0,55 e espinhos; ilha: 0,865 global mas faixa 0,654, sem antebraço) e os exemplos deixam de
-  pedir LOD de blocky; a malha gerada passa no prop (bule 0,993/0,994, faixa 0,948) e no personagem
-  (`corpo.02` 0,980/0,987, faixa 0,971). `publicar` agora remove órfão do manifesto antigo.
-- **P5-B — clipe no Roblox (D69)** — `animacao.py` é a definição única; o `export-r15` grava um
-  `KeyframeSequence` (5 chaves, pose completa com as 15 juntas, nome de junta R15) no `.rbxlx`, o
-  `export-anim` gera o `.rbxmx` e o `upload-animation` sobe como `Animation`
-  (**116049702979137**, Approved). **Playback medido no client do Play mode**: a Head anda
-  **0,0949 / 0,0662 studs** em duas execuções. O que destravou foi `Priority=Core` — com `Idle` a track
-  carrega (`Weight=1`, `Length=2.0`) e não aplica; o nome da pose (parte × junta) não era o problema.
-- **GAP-047 — parede cheia no lado fechado (D79)** — a parede cobre o vão inteiro, do topo da placa
-  ao pé-direito, recuada 0,40 m do limite; **sem boolean**: a falha do D75 era parede×pilar, e sem
-  pilar as paredes só se cruzam em volume (G1 **nao_manifold=0**). `PIPELINE_VERSION` **0.3.7**,
-  `modular` **0.2.1**; teste do vão inteiro em `tests/test_modular.py`; `render_preview.py` ganhou
-  `--alto` (vista de cima) e enquadramento por diagonal.
-- **P6 + Doc (D80–D84)** — `forge3d migrate` (`@1..@3` → `@4`), CI com Blender 4.2.0 pinado por sha256
-  (`tools/ci_verify.sh`, `tools/ci_dist.sh`), `tests/test_doc_comandos.py`, `verify --only`,
-  `docs/integracao.md` e orientação por sola (`D84`).
+- **P5 (D66/D67/D69/D71) + GAP-047 (D79)** — `idle` procedural 24 fps embutido no `.glb` e `.rbxlx`
+  (`Priority=Core`, asset `116049702979137` Approved), `tools/lod_qualidade.py` por silhueta (blocky sem
+  LOD; malha gerada aprovada no bule 0,993 e personagem 0,980) e parede cheia no lado fechado (`nao_manifold=0`).
+- **P6 + Doc (D80–D84)** — `forge3d migrate`, CI com Blender 4.2.0 pinado por sha256 (`tools/ci_verify.sh`,
+  `tools/ci_dist.sh`), `tests/test_doc_comandos.py`, `verify --only`, `docs/integracao.md` e orientação por sola.
 - **Ondas A–D (`v0.6.0`, D89–D92) + Eixos (`0.6.1`, D93)** — `spec@4`/`manifest@4`, paridade Godot 4
   (`UV2`, `sync --godot-gd`) e Roblox (`export-r15 --modo-rig bone`, `export-surface`, `export-acessorio`,
   `sync --rojo-lua`), armadura modular manifold, bake PBR 360°, QC V2 e correção de eixos/orientação.
 - **Releases `v0.7.0` (`D94–D98`) e `v0.8.0` (`D99–D102`)** — `spec@5`/`manifest@5`, humanoide 3D CC0
-  vestido multi-camadas (`grip`/`cupped`, sobrancelha alfa-recorte, trama `3.8×`), props AA multi-zona
-  (espada forjada, orbe refrativo `KHR_materials_transmission` + emissivo, mochila anatômica, capa `CLOTH`
-  35f carmesim, escudo curvado e sela), 4 albedos PBR 1024px, dragão esmeralda escamoso 4-patas (`winged_mount@1`,
-  17 clipes 24fps C1), Gemini `/v1beta/interactions` + `visual_qa_critic.py` + TRELLIS MIT e guarda LOD/Godot.
+  vestido (`grip`/`cupped`), props AA multi-zona + vidro refrativo `KHR_materials_transmission` + capa
+  `CLOTH` 35f, dragão esmeralda (`winged_mount@1`, 17 clipes 24fps C1), Gemini Interactions + `visual_qa_critic.py` + TRELLIS MIT.
+- **Release `v0.9.0` (`D103–D107`)** — `spec@6`/`manifest@6`, perfis `godot4-aa` (`godot-humanoid-aa@1` 56 ossos)
+  e `roblox-aa-80` + Gate `G11` (`orcamento_cena` 80 % AA + `plan --scene-budget`), bake Cycles High→Low
+  (`detalhe_alto` + `pbr_zonas`), isolamento `_orm`→`OrmPacked` + strip seguro de GLB, `blender/smart_fit.py`
+  (BVH/Laplacian/PCA), Vault CC0 (`vault.py` + `gemini-embedding-2-preview` + `kitbash_composer.py` +
+  `colab_trellis_lora.py`), 6 albedos PBR 1024px e 3 turntables Cycles 1600×1600 aprovados.
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **472 verdes + 1 GPU (skip)** em **473 testes** (`473/473` verdes com `FORGE3D_CONCEPT_E2E=1`) |
-| CI no GitHub | **399 testes** em `portoes` + **73 testes Blender** em `verificar` (com Godot 4.7.2 headless) + `distribuicao` |
-| Instalação | wheel de **0.8.0** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
-| `forge3d migrate` | `@1..@4`→`@5` textual com comentários intactos; `--saida`/`--em-lugar` |
-| Showcase `v0.8.0` (`v08_showcase`) | 8 itens `manifest@5` (`nao_manifold=0`, `verify` **0 problemas**, `GODOT_VISUAL_QA_OK count=8`): herói `11.892 tris` (`8 mats`, `6 sockets`, `8 clipes`), espada `1.430 tris` (`4 mats`), orbe refrativo `1.860 tris` (`3 mats`), mochila `1.672 tris`, capa `2.016 tris`, escudo `948 tris`, sela `1.200 tris` e dragão alado `15.920 tris` |
+| Suíte | **507 verdes + 1 GPU (skip)** em **508 testes** (`508/508` verdes com `FORGE3D_CONCEPT_E2E=1`) |
+| CI no GitHub | **429 testes** em `portoes` + **78 testes Blender** em `verificar` (com Godot 4.7.2 headless) + `distribuicao` |
+| Instalação | wheel de **0.9.0** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
+| `forge3d migrate` | `@1..@5`→`@6` textual com comentários intactos; `--saida`/`--em-lugar` |
+| AA `v0.9.0` (`v09_aa_godot` / `v09_aa_roblox` / `lote_13`) | `godot4-aa` `5/5` (`hero` 56 ossos `15.872 tris`, `gauntlets` `2.486 tris` `smart_fit`, `GODOT_VISUAL_QA_OK count=5`, G11 `45.108` tris / `7` draw calls / `53,0 MB` VRAM) · `roblox-aa-80` `3/3` (`export-surface` 4 canais, G11 `6.000` tris / `14` draw calls / `34,68 MB` VRAM) · `lote_13` `10/10` · `kitbash` `328 tris` `nao_manifold=0` · 3 turntables Cycles `1600×1600` (`aprovado: true`) |
+| Showcase `v0.8.0` (`v08_showcase`) | 8 itens `manifest@5` (`nao_manifold=0`, `verify` **0 problemas**, `GODOT_VISUAL_QA_OK count=8`): herói `11.892 tris`, espada `1.430 tris`, orbe `1.860 tris`, mochila `1.672 tris`, capa `2.016 tris`, escudo `948 tris`, sela `1.200 tris`, dragão `15.920 tris` |
 | Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **23 destinos** em `manifest@4` `0.6.0`, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
 | Godot 4.3 (headless) | `GODOT_ANIM_OK` no R15 (5 tracks) e no android (7 tracks), movimento **0,0697 rad** |
@@ -117,7 +104,7 @@ silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo**
 **`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
 **`D79` parede cheia no lado fechado** · **`D80` `migrate` textual, sem inventar valor** ·
 **`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado** · **`D83` a P6 é a última fase; o resto é backlog** ·
-**`D84` orientação por contato da sola** · **`D85–D93` sync, qualidade 3D, request contract, armadura modular, ondas A–D e eixos (`v0.6.1`)** · **`D94–D102` releases `v0.7.0`/`v0.8.0` (`spec@5`/`manifest@5`, humanoide 3D CC0 vestido, props AA + vidro refrativo, dragão/montaria, Godot zero-click, Gemini Interactions + `visual_qa_critic` e TRELLIS MIT)**.
+**`D84` orientação por contato da sola** · **`D85–D93` sync, qualidade 3D, request contract, armadura modular, ondas A–D e eixos (`v0.6.1`)** · **`D94–D102` releases `v0.7.0`/`v0.8.0` (`spec@5`/`manifest@5`, humanoide 3D CC0 vestido, props AA + vidro refrativo, dragão/montaria, Godot zero-click, Gemini Interactions + `visual_qa_critic` e TRELLIS MIT)** · **`D103–D107` release `v0.9.0` (`spec@6`/`manifest@6`, perfis `godot4-aa`/`roblox-aa-80` + Gate G11 80 % AA, bake Cycles High→Low `detalhe_alto` + `pbr_zonas`, Smart-Fit BVH + rig 56 ossos `godot-humanoid-aa@1`, Vault CC0 + `gemini-embedding-2` + kitbash + TRELLIS LoRA)**.
 
 ## Aberto
 
@@ -147,9 +134,9 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 472 verdes + 1 GPU
-bash tools/ci.sh                          # 399 testes + ruff + mypy + contexto + P0 (job `portoes`)
-bash tools/ci_verify.sh                   # 73 testes Blender + pipeline real + verify + Godot QA (job `verificar`)
+python -m pytest                          # 507 verdes + 1 GPU
+bash tools/ci.sh                          # 429 testes + ruff + mypy + contexto + P0 (job `portoes`)
+bash tools/ci_verify.sh                   # 78 testes Blender + pipeline real + verify + Godot QA (job `verificar`)
 bash tools/ci_dist.sh                     # wheel em venv limpo (job `distribuicao`)
 bash tools/check-contexto.sh
 python tools/check-p0.py
@@ -193,8 +180,8 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 
 ## Como retomar
 
-> Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P6 + Ondas A–D + `v0.8.0`
-> fechadas (`spec@5`/`manifest@5`, `@1`–`@4` compatíveis), showcase Godot 4.7.2 + R15 `.rbxlx` verdes, CI
-> verde em 3 jobs (`portoes`, `verificar`, `distribuicao`) e wheel instalável (D81/D89–D102).
-> Próximo: operar num projeto de jogo e medir custo por asset. Não reabra D3–D102 sem fato novo.
+> Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P6 + Ondas A–D + `v0.9.0`
+> fechadas (`spec@6`/`manifest@6`, `@1`–`@5` compatíveis), showcases `godot4-aa` (56 ossos) + `roblox-aa-80`
+> + G11 verdes, CI verde em 3 jobs (`portoes`, `verificar`, `distribuicao`) e wheel instalável (D81/D89–D107).
+> Próximo: operar num projeto de jogo e medir custo por asset. Não reabra D3–D107 sem fato novo.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

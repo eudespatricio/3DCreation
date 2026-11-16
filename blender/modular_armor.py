@@ -591,6 +591,12 @@ _TEXTURA_POR_ZONA = {
     "bronze": "bronze_filigree_albedo.png",
     "ouro": "bronze_filigree_albedo.png",
     "clasp": "bronze_filigree_albedo.png",
+    "obsidian": "obsidian_runestone_albedo.png",
+    "runestone": "obsidian_runestone_albedo.png",
+    "pedra": "obsidian_runestone_albedo.png",
+    "crystal": "arcane_crystal_albedo.png",
+    "cristal": "arcane_crystal_albedo.png",
+    "arcane": "arcane_crystal_albedo.png",
 }
 
 

@@ -56,24 +56,25 @@ PRESETS_PBR: dict[str, dict] = {
         "peso_musgo": 0.0,
     },
     "escamas_dragao": {
-        "cor_base": (0.14, 0.38, 0.22, 1.0),
-        "cor_secundaria": (0.24, 0.54, 0.30, 1.0),
-        "cor_cavidade": (0.05, 0.10, 0.07, 1.0),
-        "cor_crista": (0.42, 0.72, 0.38, 1.0),
-        "escala_macro": 5.0,
-        "escala_micro": 22.0,
-        "escala_voronoi": 18.0,
+        "cor_base": (0.018, 0.088, 0.048, 1.0),
+        "cor_secundaria": (0.036, 0.145, 0.068, 1.0),
+        "cor_cavidade": (0.005, 0.015, 0.010, 1.0),
+        "cor_crista": (0.12, 0.25, 0.11, 1.0),
+        "escala_macro": 5.5,
+        "escala_micro": 26.0,
+        "escala_voronoi": 24.0,
         "voronoi_feature": "DISTANCE_TO_EDGE",
-        "distorcao": 0.55,
-        "escala_eixo": (1.0, 1.0, 1.15),
-        "metallic_min": 0.05,
-        "metallic_max": 0.36,
-        "roughness_min": 0.26,
-        "roughness_max": 0.72,
-        "bump_strength": 0.58,
-        "bump_distance": 0.012,
-        "ao_distance": 0.22,
-        "peso_crista": 0.52,
+        "voronoi_map_range": (0.02, 0.18),
+        "distorcao": 0.48,
+        "escala_eixo": (1.0, 1.0, 1.18),
+        "metallic_min": 0.06,
+        "metallic_max": 0.34,
+        "roughness_min": 0.24,
+        "roughness_max": 0.68,
+        "bump_strength": 0.78,
+        "bump_distance": 0.018,
+        "ao_distance": 0.24,
+        "peso_crista": 0.56,
         "peso_musgo": 0.0,
     },
     "aco_forjado": {
@@ -329,6 +330,17 @@ def criar_material_procedural(preset: str, nome_mat: str | None = None):
         if "Distance" in voronoi.outputs
         else voronoi.outputs[0]
     )
+    if "voronoi_map_range" in cfg:
+        vmin, vmax = cfg["voronoi_map_range"]
+        mr_vor = nt.nodes.new("ShaderNodeMapRange")
+        mr_vor.clamp = True
+        mr_vor.inputs["From Min"].default_value = float(vmin)
+        mr_vor.inputs["From Max"].default_value = float(vmax)
+        mr_vor.inputs["To Min"].default_value = 0.0
+        mr_vor.inputs["To Max"].default_value = 1.0
+        mr_vor.location = (-540, -380)
+        nt.links.new(vor_out, mr_vor.inputs["Value"])
+        vor_out = mr_vor.outputs["Result"]
 
     # Combina macro + micro + voronoi em campo de altura/mascara [0..1]
     mix_oct = nt.nodes.new("ShaderNodeMix")
@@ -340,7 +352,7 @@ def criar_material_procedural(preset: str, nome_mat: str | None = None):
 
     mix_altura = nt.nodes.new("ShaderNodeMix")
     mix_altura.data_type = "FLOAT"
-    mix_altura.inputs["Factor"].default_value = 0.45
+    mix_altura.inputs["Factor"].default_value = 0.62 if "voronoi_map_range" in cfg else 0.45
     mix_altura.name = "Forge3D_HeightField"
     mix_altura.location = (-300, -140)
     nt.links.new(mix_oct.outputs[0], mix_altura.inputs[2])

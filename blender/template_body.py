@@ -853,6 +853,9 @@ def _preparar_textura_e_material_cabelo(
     cor_hex: str = "",
     material_modo: str = "alpha_clip",
     png_nome: str = "baseColor.png",
+    alpha_cutoff: float = 0.5,
+    fallback_tex_path: str | None = None,
+    mat_nome: str | None = None,
 ) -> str:
     """Redimensiona difusa POT, aplica tintura/bleed sem halo branco e cria material glTF."""
     img_orig = None
@@ -864,6 +867,8 @@ def _preparar_textura_e_material_cabelo(
                     break
         if img_orig is not None:
             break
+    if img_orig is None and fallback_tex_path and os.path.isfile(fallback_tex_path):
+        img_orig = bpy.data.images.load(fallback_tex_path, check_existing=True)
     if img_orig is None:
         raise RuntimeError(f"cabelo MakeHuman '{estilo}' sem textura difusa")
 
@@ -922,7 +927,7 @@ def _preparar_textura_e_material_cabelo(
     sc.render.image_settings.color_mode = ant_mode
     img.pack()
 
-    mat = bpy.data.materials.new(f"makehuman_cabelo_{estilo}")
+    mat = bpy.data.materials.new(mat_nome or f"makehuman_cabelo_{estilo}")
     mat.use_nodes = True
     mat.use_backface_culling = True
     nt = mat.node_tree
@@ -932,14 +937,15 @@ def _preparar_textura_e_material_cabelo(
     nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
     usar_clip = (material_modo == "alpha_clip") or (tem_alfa and material_modo != "opaque")
     if usar_clip:
+        limiar_a = float(alpha_cutoff)
         mat.blend_method = "CLIP"
         if hasattr(mat, "surface_render_method"):
             mat.surface_render_method = "DITHERED"
         if hasattr(mat, "alpha_threshold"):
-            mat.alpha_threshold = 0.5
+            mat.alpha_threshold = limiar_a
         cut = nt.nodes.new("ShaderNodeMath")
         cut.operation = "GREATER_THAN"
-        cut.inputs[1].default_value = 0.5
+        cut.inputs[1].default_value = limiar_a
         nt.links.new(tex.outputs["Alpha"], cut.inputs[0])
         nt.links.new(cut.outputs["Value"], bsdf.inputs["Alpha"])
     if "Roughness" in bsdf.inputs:
@@ -1256,6 +1262,7 @@ def _criar_material_pbr(
     specular: float = 0.32,
     tex_path: str | None = None,
     tint_strength: float = 0.0,
+    uv_scale: float = 1.0,
 ):
     """Cria material Principled BSDF com textura opcional (empacotada para glTF) e fallback limpo."""
     mat = bpy.data.materials.new(nome)
@@ -1276,18 +1283,56 @@ def _criar_material_pbr(
     if tex_path and os.path.isfile(tex_path):
         img = bpy.data.images.load(tex_path, check_existing=True)
         if tint_strength > 0.01:
-            copia = img.copy()
-            copia.name = f"{nome}_tex"
-            px = list(copia.pixels)
+            src_work = img.copy()
+            if int(src_work.size[0]) > 512 or int(src_work.size[1]) > 512:
+                src_work.scale(min(int(src_work.size[0]), 512), min(int(src_work.size[1]), 512))
+            w_im, h_im = int(src_work.size[0]), int(src_work.size[1])
+            px = list(src_work.pixels)
+            bpy.data.images.remove(src_work)
+            n_px = max(1, len(px) // 4)
+            avg_lum = max(
+                0.05,
+                sum(0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2] for i in range(0, len(px), 4))
+                / float(n_px),
+            )
             tr, tg, tb = cor_srgb
             s = float(tint_strength)
             for k in range(0, len(px), 4):
-                px[k] = max(0.0, min(1.0, px[k] * (1.0 - s + s * tr * 1.45)))
-                px[k + 1] = max(0.0, min(1.0, px[k + 1] * (1.0 - s + s * tg * 1.45)))
-                px[k + 2] = max(0.0, min(1.0, px[k + 2] * (1.0 - s + s * tb * 1.45)))
-            copia.pixels[:] = px
-            copia.pack()
-            img = copia
+                lum = 0.2126 * px[k] + 0.7152 * px[k + 1] + 0.0722 * px[k + 2]
+                rel = max(0.35, min(1.55, lum / avg_lum))
+                cr = min(1.0, tr * (0.28 + 0.72 * rel))
+                cg = min(1.0, tg * (0.28 + 0.72 * rel))
+                cb = min(1.0, tb * (0.28 + 0.72 * rel))
+                px[k] = max(0.0, min(1.0, px[k] * (1.0 - s) + cr * s))
+                px[k + 1] = max(0.0, min(1.0, px[k + 1] * (1.0 - s) + cg * s))
+                px[k + 2] = max(0.0, min(1.0, px[k + 2] * (1.0 - s) + cb * s))
+                px[k + 3] = 1.0
+            novo_im = bpy.data.images.new(name=f"_tmp_{nome}_tex", width=w_im, height=h_im, alpha=True)
+            novo_im.pixels.foreach_set(px)
+            import tempfile
+
+            fd_t, tmp_png = tempfile.mkstemp(prefix="f3d_body_tint_", suffix=".png")
+            os.close(fd_t)
+            try:
+                sc = bpy.context.scene
+                ant_cm = sc.render.image_settings.color_mode
+                sc.render.image_settings.color_mode = "RGBA"
+                novo_im.filepath_raw = tmp_png
+                novo_im.file_format = "PNG"
+                novo_im.save()
+                sc.render.image_settings.color_mode = ant_cm
+                bpy.data.images.remove(novo_im)
+                carregada = bpy.data.images.load(tmp_png)
+                carregada.name = f"{nome}_tex"
+                try:
+                    carregada.colorspace_settings.name = "sRGB"
+                except Exception:
+                    pass
+                carregada.pack()
+                img = carregada
+            finally:
+                if os.path.exists(tmp_png):
+                    os.unlink(tmp_png)
         else:
             try:
                 img.pack()
@@ -1295,6 +1340,13 @@ def _criar_material_pbr(
                 pass
         tex_node = nt.nodes.new("ShaderNodeTexImage")
         tex_node.image = img
+        if abs(float(uv_scale) - 1.0) > 1e-4:
+            tc_node = nt.nodes.new("ShaderNodeTexCoord")
+            mp_node = nt.nodes.new("ShaderNodeMapping")
+            sc_v = float(uv_scale)
+            mp_node.inputs["Scale"].default_value = (sc_v, sc_v, sc_v)
+            nt.links.new(tc_node.outputs["UV"], mp_node.inputs["Vector"])
+            nt.links.new(mp_node.outputs["Vector"], tex_node.inputs["Vector"])
         nt.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
     return mat
 
@@ -1383,7 +1435,7 @@ def _preparar_camada_mhclo_manifold(
         _limpar_nao_manifold_aberto(camada_obj)
 
     mod = camada_obj.modifiers.new("Solidify", "SOLIDIFY")
-    mod.thickness = max(0.004, float(thickness))
+    mod.thickness = max(0.0006, float(thickness))
     mod.offset = 1.0
     mod.use_rim = True
     mod.use_rim_only = False
@@ -1515,7 +1567,7 @@ def _construir_sobreposicoes_medievais_3d(
         tun_out.append(ring_o)
     _adicionar_tubo_contornado_manifold(bm, uv_layer, tun_in, tun_out, mat_idx_tunic)
 
-    # 2. Cinto de couro pespontado na cintura (espessura 6.5 mm, separacao >= 14 mm sobre pele)
+    # 2. Cinto de couro pespontado na cintura (folga externa ampla +0.011 m sobre traje e tunica)
     z_belt_lo = z_min + 0.525 * h
     z_belt_hi = z_min + 0.562 * h
     cx_b, cy_b, rx_b, ry_b = _raios_elipticos_fatia(
@@ -1529,15 +1581,15 @@ def _construir_sobreposicoes_medievais_3d(
         for s in range(n_seg_t):
             ang = (2.0 * math.pi * s) / float(n_seg_t)
             ca, sa = math.cos(ang), math.sin(ang)
-            ri.append(Vector((cx_b + (rx_b + 0.0145) * ca, cy_b + (ry_b + 0.0145) * sa, zc)))
-            ro.append(Vector((cx_b + (rx_b + 0.0210) * ca, cy_b + (ry_b + 0.0210) * sa, zc)))
+            ri.append(Vector((cx_b + (rx_b + 0.0255) * ca, cy_b + (ry_b + 0.0255) * sa, zc)))
+            ro.append(Vector((cx_b + (rx_b + 0.0320) * ca, cy_b + (ry_b + 0.0320) * sa, zc)))
         belt_in.append(ri)
         belt_out.append(ro)
     _adicionar_tubo_contornado_manifold(bm, uv_layer, belt_in, belt_out, mat_idx_leather)
 
     # 3. Fivela frontal de latao/bronze (em -Y no espaco MPFB pre-exportacao -> +Y_bl apos Z=pi)
     z_bm = 0.5 * (z_belt_lo + z_belt_hi)
-    y_frente = cy_b - (ry_b + 0.0225)
+    y_frente = cy_b - (ry_b + 0.0335)
     f_in: list[list[Vector]] = []
     f_out: list[list[Vector]] = []
     for dy_i, dy_o in ((0.002, -0.006), (-0.002, -0.011)):
@@ -1626,12 +1678,18 @@ def _construir_sobreposicoes_medievais_3d(
                     br_out.append(ro_ring)
                 _adicionar_tubo_contornado_manifold(bm, uv_layer, br_in, br_out, mat_idx_leather)
 
-    # 5. Canos/punhos dobrados de botas de couro nas canelas (esquerdo e direito)
+    # 5. Canos/punhos dobrados de botas de couro nas canelas (iniciando em zf=0.045 junto ao sapato)
     n_seg_leg = 12
     for sinal_x in (-1.0, 1.0):
         boot_in: list[list[Vector]] = []
         boot_out: list[list[Vector]] = []
-        for zf, cuff_extra in ((0.085, 0.0055), (0.155, 0.0060), (0.215, 0.0085), (0.245, 0.0105)):
+        for zf, cuff_extra in (
+            (0.045, 0.011),
+            (0.095, 0.012),
+            (0.155, 0.014),
+            (0.210, 0.016),
+            (0.250, 0.019),
+        ):
             zc = z_min + zf * h
             fatia_l = [
                 p
@@ -1979,8 +2037,8 @@ def vestir_e_texturizar_camadas_cc0(
     tex_leather = os.path.join(dir_pbr, "leather_saddle_albedo.png")
     tex_metal = os.path.join(dir_pbr, "bronze_filigree_albedo.png")
 
-    cor_tunica = _hex_to_rgb_srgb(str(job_ef.get("cor") or "")) or (0.24, 0.34, 0.52)
-    cor_cabelo_srgb = _hex_to_rgb_srgb(str(job_ef.get("cor_cabelo") or "")) or (0.22, 0.14, 0.09)
+    cor_tunica = _hex_to_rgb_srgb(str(job_ef.get("cor") or "")) or (_hex_to_rgb_srgb("#23334A") or (0.137, 0.200, 0.290))
+    cor_calca = _hex_to_rgb_srgb("#24211F") or (0.141, 0.129, 0.122)
 
     mat_skin = _criar_material_pbr(
         "skin", (0.78, 0.58, 0.46), roughness=0.62, metallic=0.0, specular=0.32, tex_path=tex_base_path
@@ -1990,9 +2048,20 @@ def vestir_e_texturizar_camadas_cc0(
         cor_tunica,
         roughness=0.78,
         metallic=0.0,
-        specular=0.22,
+        specular=0.20,
         tex_path=tex_tunic if os.path.isfile(tex_tunic) else None,
-        tint_strength=0.45,
+        tint_strength=0.78,
+        uv_scale=3.8,
+    )
+    mat_trousers = _criar_material_pbr(
+        "trousers",
+        cor_calca,
+        roughness=0.85,
+        metallic=0.0,
+        specular=0.14,
+        tex_path=tex_tunic if os.path.isfile(tex_tunic) else None,
+        tint_strength=0.88,
+        uv_scale=3.8,
     )
     mat_leather = _criar_material_pbr(
         "leather",
@@ -2001,7 +2070,8 @@ def vestir_e_texturizar_camadas_cc0(
         metallic=0.04,
         specular=0.28,
         tex_path=tex_leather if os.path.isfile(tex_leather) else None,
-        tint_strength=0.30,
+        tint_strength=0.35,
+        uv_scale=2.4,
     )
     mat_metal = _criar_material_pbr(
         "metal",
@@ -2011,9 +2081,6 @@ def vestir_e_texturizar_camadas_cc0(
         specular=0.50,
         tex_path=tex_metal if os.path.isfile(tex_metal) else None,
         tint_strength=0.20,
-    )
-    mat_hair_brow = _criar_material_pbr(
-        "hair", cor_cabelo_srgb, roughness=0.82, metallic=0.0, specular=0.10
     )
 
     tex_eyes = None
@@ -2057,11 +2124,26 @@ def vestir_e_texturizar_camadas_cc0(
         nomes_camadas.append("eyes/low-poly")
 
     if brow_obj is not None:
+        brow_png_fb = None
+        if brow_path:
+            cand_bp = os.path.join(os.path.dirname(brow_path), "eyebrow001.png")
+            if os.path.isfile(cand_bp):
+                brow_png_fb = cand_bp
         topo_b = _preparar_camada_mhclo_manifold(
-            brow_obj, target_tris=360, thickness=0.0042, offset_normal=0.0022
+            brow_obj, target_tris=360, thickness=0.0008, offset_normal=0.0009
         )
-        brow_obj.data.materials.clear()
-        brow_obj.data.materials.append(mat_hair_brow)
+        _preparar_textura_e_material_cabelo(
+            brow_obj,
+            "eyebrow001",
+            saida,
+            min(tam, 512),
+            cor_hex="#261810",
+            material_modo="alpha_clip",
+            png_nome="brow_baseColor.png",
+            alpha_cutoff=0.45,
+            fallback_tex_path=brow_png_fb,
+            mat_nome="brow",
+        )
         for p in brow_obj.data.polygons:
             p.material_index = 0
         camadas_join.append(brow_obj)
@@ -2070,13 +2152,48 @@ def vestir_e_texturizar_camadas_cc0(
 
     if not corpo_nu:
         if suit_obj is not None:
+            # Apara a barra interna da calca dentro da bota (z < 0.21*h) e recolhe 0.78 radial ate 0.255*h
+            b_zs = [v.co.z for v in obj.data.vertices]
+            bz_min = min(b_zs)
+            bh = max(0.5, max(b_zs) - bz_min)
+            z_trim_bota = bz_min + 0.205 * bh
+            z_corte_bota = bz_min + 0.258 * bh
+            z_corte_cinto = bz_min + 0.600 * bh
+
+            bm_suit = bmesh.new()
+            bm_suit.from_mesh(suit_obj.data)
+            faces_boot = [f for f in bm_suit.faces if f.calc_center_median().z < z_trim_bota]
+            if faces_boot:
+                bmesh.ops.delete(bm_suit, geom=faces_boot, context="FACES")
+                soltos_s = [v for v in bm_suit.verts if not v.link_faces]
+                if soltos_s:
+                    bmesh.ops.delete(bm_suit, geom=soltos_s, context="VERTS")
+            pernas_pts_l = [v.co for v in obj.data.vertices if v.co.x >= 0.01 * bh and v.co.z <= z_corte_bota + 0.03]
+            pernas_pts_r = [v.co for v in obj.data.vertices if v.co.x <= -0.01 * bh and v.co.z <= z_corte_bota + 0.03]
+            for sv in bm_suit.verts:
+                if sv.co.z < z_corte_bota:
+                    ref_leg = pernas_pts_l if sv.co.x >= 0.0 else pernas_pts_r
+                    fat = [p for p in ref_leg if abs(p.z - sv.co.z) <= 0.025 * bh]
+                    if fat:
+                        cxl = 0.5 * (min(p.x for p in fat) + max(p.x for p in fat))
+                        cyl = 0.5 * (min(p.y for p in fat) + max(p.y for p in fat))
+                    else:
+                        cxl = (0.068 * bh) if sv.co.x >= 0.0 else (-0.068 * bh)
+                        cyl = 0.0
+                    sv.co.x = cxl + (sv.co.x - cxl) * 0.78
+                    sv.co.y = cyl + (sv.co.y - cyl) * 0.78
+            bm_suit.to_mesh(suit_obj.data)
+            bm_suit.free()
+            suit_obj.data.update()
+
             topo_s = _preparar_camada_mhclo_manifold(
-                suit_obj, target_tris=1350, thickness=0.0045, offset_normal=0.0025
+                suit_obj, target_tris=1350, thickness=0.0040, offset_normal=0.0018
             )
             suit_obj.data.materials.clear()
             suit_obj.data.materials.append(mat_tunic)
+            suit_obj.data.materials.append(mat_trousers)
             for p in suit_obj.data.polygons:
-                p.material_index = 0
+                p.material_index = 1 if p.center.z < z_corte_cinto else 0
             camadas_join.append(suit_obj)
             tris_extras += topo_s["triangulos"]
             nomes_camadas.append("clothes/suit")

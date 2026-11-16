@@ -1820,9 +1820,9 @@ def extrair_sockets(
         elif nome_socket == "Hand.L":
             vetor_mao = osso.tail_local - osso.head_local
             escala_mao = max(vetor_mao.length, 0.05) / 0.10
-            # Centro acima da palma em concha (orbe): ~0.45*(tail-head) + offset palmar/superior (+Y_bl/+Z_bl)
-            delta_bl = vetor_mao * 0.45 + (
-                m_bone_3x3 @ Vector((-0.004 * escala_mao, 0.0, 0.022 * escala_mao))
+            # Centro proximo da palma em concha (orbe): ~0.38*(tail-head) + offset palmar compacto
+            delta_bl = vetor_mao * 0.38 + (
+                m_bone_3x3 @ Vector((-0.003 * escala_mao, 0.0, 0.014 * escala_mao))
             )
         elif nome_socket == "Back":
             meio_osso = (osso.head_local + osso.tail_local) * 0.5

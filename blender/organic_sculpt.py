@@ -472,36 +472,51 @@ def _construir_bm_criatura_anatomica(*, com_asas: bool = True) -> bmesh.types.BM
     ]
     _adicionar_tubo_anatomico(bm, cauda, lados=16)
 
-    # Cristas dorsais ao longo do pescoco e coluna
-    for y_sp, z_sp, h_sp, r_sp in (
-        (0.80, 1.24, 0.11, 0.035),
-        (0.68, 1.09, 0.11, 0.038),
-        (0.54, 0.97, 0.10, 0.040),
-        (0.34, 1.04, 0.09, 0.040),
-        (-0.22, 0.93, 0.08, 0.036),
-        (-0.46, 0.94, 0.08, 0.034),
-        (-0.74, 0.79, 0.07, 0.030),
-        (-1.02, 0.73, 0.06, 0.028),
+    # Placas/cristas dorsais marcadas ao longo do cranio, pescoco, dorso e cauda (com vão de sela em Y=0.04..0.28)
+    for y_sp, z_sp, h_sp, r_x, r_z in (
+        (1.22, 1.33, 0.08, 0.028, 0.046),  # Crista rostral / nasal
+        (0.88, 1.31, 0.19, 0.036, 0.068),  # Crista nucal alta
+        (0.75, 1.17, 0.21, 0.038, 0.072),  # Pescoco superior
+        (0.61, 1.03, 0.20, 0.040, 0.072),  # Pescoco medio
+        (0.45, 0.96, 0.17, 0.040, 0.068),  # Cernelha anterior (frente da sela)
+        (-0.08, 0.93, 0.15, 0.038, 0.064), # Lombar (atras da sela)
+        (-0.28, 0.92, 0.17, 0.038, 0.066), # Dorso posterior
+        (-0.48, 0.91, 0.16, 0.036, 0.062), # Sacral
+        (-0.72, 0.78, 0.14, 0.032, 0.056), # Base caudal
+        (-0.98, 0.72, 0.13, 0.030, 0.052), # Cauda media
+        (-1.24, 0.67, 0.11, 0.026, 0.046), # Cauda posterior
+        (-1.48, 0.64, 0.09, 0.024, 0.040), # Antes do leme caudal
     ):
         _adicionar_tubo_anatomico(
             bm,
             [
-                (0.0, y_sp + 0.02, z_sp - 0.03, r_sp, r_sp * 1.3),
-                (0.0, y_sp - 0.03, z_sp + h_sp * 0.6, r_sp * 0.65, r_sp * 0.9),
-                (0.0, y_sp - 0.07, z_sp + h_sp, r_sp * 0.25, r_sp * 0.35),
+                (0.0, y_sp + 0.04, z_sp - 0.04, r_x, r_z),
+                (0.0, y_sp - 0.03, z_sp + h_sp * 0.58, r_x * 0.80, r_z * 0.85),
+                (0.0, y_sp - 0.09, z_sp + h_sp, max(0.022, r_x * 0.52), max(0.028, r_z * 0.55)),
             ],
             lados=10,
         )
 
-    # 3. Membros simetricos (esquerdo +X, direito -X): chifres, 4 patas articuladas no chao e asas
+    # 3. Membros simetricos (esquerdo +X, direito -X): cristas orbitais pronunciadas, chifres, 4 patas e asas
     for sx in (1.0, -1.0):
-        # Crista supraorbital
+        # Arcada supraorbital / sobrancelha reptiliana proeminente + zigomatico
         _adicionar_tubo_anatomico(
             bm,
             [
-                (sx * 0.09, 1.12, 1.36, 0.04, 0.035),
-                (sx * 0.12, 1.00, 1.39, 0.045, 0.04),
-                (sx * 0.11, 0.90, 1.37, 0.04, 0.035),
+                (sx * 0.075, 1.22, 1.35, 0.046, 0.044),
+                (sx * 0.128, 1.08, 1.40, 0.062, 0.056),
+                (sx * 0.138, 0.96, 1.41, 0.058, 0.052),
+                (sx * 0.118, 0.87, 1.38, 0.046, 0.044),
+            ],
+            lados=12,
+        )
+        # Borda orbital inferior / maca do rosto escamosa
+        _adicionar_tubo_anatomico(
+            bm,
+            [
+                (sx * 0.105, 1.18, 1.26, 0.040, 0.036),
+                (sx * 0.132, 1.05, 1.27, 0.046, 0.040),
+                (sx * 0.125, 0.94, 1.28, 0.042, 0.038),
             ],
             lados=10,
         )
@@ -710,8 +725,8 @@ def gerar_criatura_anatomica(job: dict) -> dict:
             tipo == "criatura_alada" or esqueleto == "winged_mount@1",
         )
     )
-    voxel_ratio = float(job.get("voxel_ratio", 1.0 / 115.0))
-    iteracoes_smooth = int(job.get("iteracoes_smooth", 3))
+    voxel_ratio = float(job.get("voxel_ratio", 1.0 / 138.0))
+    iteracoes_smooth = int(job.get("iteracoes_smooth", 2))
 
     bm = _construir_bm_criatura_anatomica(com_asas=com_asas)
     mesh = bpy.data.meshes.new("CriaturaAnatomicaMesh")

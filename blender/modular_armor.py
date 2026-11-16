@@ -570,7 +570,66 @@ def _vincular_micro_relevo_bsdf(
     nt.links.new(bmp.outputs["Normal"], normal_inp)
 
 
-def _vincular_textura_base_color(nt, bsdf, img) -> None:
+def _tingir_textura_preservando_trama(
+    src_img,
+    nome: str,
+    cor_srgb: tuple[float, float, float],
+    forca: float = 0.88,
+):
+    """Tinge textura em nova imagem GENERATED (para .pack() nao reler PNG original do disco)."""
+    src_work = src_img.copy()
+    if int(src_work.size[0]) > 512 or int(src_work.size[1]) > 512:
+        src_work.scale(min(int(src_work.size[0]), 512), min(int(src_work.size[1]), 512))
+    w, h = int(src_work.size[0]), int(src_work.size[1])
+    px = list(src_work.pixels)
+    bpy.data.images.remove(src_work)
+    n_px = max(1, len(px) // 4)
+    avg_lum = max(
+        0.05,
+        sum(0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2] for i in range(0, len(px), 4))
+        / float(n_px),
+    )
+    tr, tg, tb = cor_srgb
+    s = float(forca)
+    for k in range(0, len(px), 4):
+        lum = 0.2126 * px[k] + 0.7152 * px[k + 1] + 0.0722 * px[k + 2]
+        rel = max(0.38, min(1.55, lum / avg_lum))
+        cr = min(1.0, tr * (0.26 + 0.74 * rel))
+        cg = min(1.0, tg * (0.26 + 0.74 * rel))
+        cb = min(1.0, tb * (0.26 + 0.74 * rel))
+        px[k] = max(0.0, min(1.0, px[k] * (1.0 - s) + cr * s))
+        px[k + 1] = max(0.0, min(1.0, px[k + 1] * (1.0 - s) + cg * s))
+        px[k + 2] = max(0.0, min(1.0, px[k + 2] * (1.0 - s) + cb * s))
+        px[k + 3] = 1.0
+    novo = bpy.data.images.new(name=f"_tmp_{nome}", width=w, height=h, alpha=True)
+    novo.pixels.foreach_set(px)
+    import tempfile
+
+    fd_t, tmp_png = tempfile.mkstemp(prefix="f3d_tint_", suffix=".png")
+    os.close(fd_t)
+    try:
+        sc = bpy.context.scene
+        ant_cm = sc.render.image_settings.color_mode
+        sc.render.image_settings.color_mode = "RGBA"
+        novo.filepath_raw = tmp_png
+        novo.file_format = "PNG"
+        novo.save()
+        sc.render.image_settings.color_mode = ant_cm
+        bpy.data.images.remove(novo)
+        carregada = bpy.data.images.load(tmp_png)
+        carregada.name = nome
+        try:
+            carregada.colorspace_settings.name = "sRGB"
+        except Exception:
+            pass
+        carregada.pack()
+    finally:
+        if os.path.exists(tmp_png):
+            os.unlink(tmp_png)
+    return carregada
+
+
+def _vincular_textura_base_color(nt, bsdf, img, uv_scale: float = 1.0) -> None:
     """Conecta ``img`` ao ``Base Color`` reutilizando ou criando ``ShaderNodeTexImage``."""
     bc_inp = bsdf.inputs.get("Base Color")
     if bc_inp is None:
@@ -580,6 +639,23 @@ def _vincular_textura_base_color(nt, bsdf, img) -> None:
         tex_node = nt.nodes.new("ShaderNodeTexImage")
         tex_node.location = (-360, 220)
     tex_node.image = img
+    if abs(float(uv_scale) - 1.0) > 1e-4:
+        mp_node = next((n for n in nt.nodes if n.type == "MAPPING"), None)
+        tc_node = next((n for n in nt.nodes if n.type == "TEX_COORD" and n.location[1] > 0), None)
+        if tc_node is None:
+            tc_node = nt.nodes.new("ShaderNodeTexCoord")
+            tc_node.location = (-780, 220)
+        if mp_node is None:
+            mp_node = nt.nodes.new("ShaderNodeMapping")
+            mp_node.location = (-580, 220)
+        sc_v = float(uv_scale)
+        mp_node.inputs["Scale"].default_value = (sc_v, sc_v, sc_v)
+        for lk in list(mp_node.inputs["Vector"].links):
+            nt.links.remove(lk)
+        for lk in list(tex_node.inputs["Vector"].links):
+            nt.links.remove(lk)
+        nt.links.new(tc_node.outputs["UV"], mp_node.inputs["Vector"])
+        nt.links.new(mp_node.outputs["Vector"], tex_node.inputs["Vector"])
     for lk in list(bc_inp.links):
         nt.links.remove(lk)
     nt.links.new(tex_node.outputs["Color"], bc_inp)
@@ -603,6 +679,8 @@ def _criar_material_pbr_zona(
     noise_scale: float = 42.0,
     backface_culling: bool = True,
     zona_tag: str = "",
+    uv_scale: float = 1.0,
+    tint_srgb: tuple[float, float, float] | None = None,
 ):
     """Constroi material PBR por zona usando textura local quando existir e fallback procedural."""
     mat = bpy.data.materials.new(name=nome)
@@ -614,6 +692,8 @@ def _criar_material_pbr_zona(
         mat["forge3d_zona_pbr"] = zona_tag
     if textura_arquivo:
         mat["forge3d_textura_local"] = textura_arquivo
+    if abs(float(uv_scale) - 1.0) > 1e-4:
+        mat["forge3d_uv_scale"] = float(uv_scale)
 
     nt = mat.node_tree
     nt.nodes.clear()
@@ -644,11 +724,16 @@ def _criar_material_pbr_zona(
     if transmission <= 0.0 and emission_strength <= 0.0:
         img_local = _carregar_textura_pbr_local(textura_arquivo or "")
         if img_local is not None:
-            _vincular_textura_base_color(nt, bsdf, img_local)
+            if tint_srgb is not None:
+                img_use = _tingir_textura_preservando_trama(img_local, f"Tinted_{nome}", tint_srgb)
+                mat["forge3d_ja_tingido"] = True
+            else:
+                img_use = img_local
+            _vincular_textura_base_color(nt, bsdf, img_use, uv_scale=uv_scale)
         else:
             acc = accent_color[:3] if accent_color else None
             img_proc = _criar_imagem_tinta(f"ZoneTex_{nome}", base_color[:3], acc)
-            _vincular_textura_base_color(nt, bsdf, img_proc)
+            _vincular_textura_base_color(nt, bsdf, img_proc, uv_scale=uv_scale)
         _vincular_micro_relevo_bsdf(nt, bsdf, bump_strength, noise_scale)
 
     return mat
@@ -683,11 +768,14 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
             es = bsdf.inputs.get("Emission Strength")
             if (tw and tw.default_value > 0.0) or (es and es.default_value > 0.0):
                 continue
+            if hasattr(mat, "get") and mat.get("forge3d_ja_tingido"):
+                continue
             arq_tex = _inferir_arquivo_textura_slot(mat)
             if arq_tex:
                 img_local = _carregar_textura_pbr_local(arq_tex)
                 if img_local is not None:
-                    _vincular_textura_base_color(mat.node_tree, bsdf, img_local)
+                    sc_uv = float(mat.get("forge3d_uv_scale", 1.0)) if hasattr(mat, "get") else 1.0
+                    _vincular_textura_base_color(mat.node_tree, bsdf, img_local, uv_scale=sc_uv)
                     _vincular_micro_relevo_bsdf(mat.node_tree, bsdf, 0.14, 42.0)
         return
 
@@ -1204,14 +1292,16 @@ def _criar_mochila_procedural(nome: str = "MochilaModular") -> "bpy.types.Object
     )
     mat_linho = _criar_material_pbr_zona(
         "Pack_LinenBedroll",
-        (0.56, 0.50, 0.39, 1.0),
+        (0.62, 0.55, 0.44, 1.0),
         metallic=0.0,
         roughness=0.84,
         textura_arquivo="linen_tunic_albedo.png",
-        accent_color=(0.38, 0.32, 0.24, 1.0),
+        accent_color=(0.44, 0.38, 0.28, 1.0),
         bump_strength=0.24,
         noise_scale=64.0,
         zona_tag="tecido_linho",
+        uv_scale=3.2,
+        tint_srgb=(0.64, 0.57, 0.45),
     )
     mat_latao = _criar_material_pbr_zona(
         "Pack_BrassHardware",
@@ -1372,15 +1462,15 @@ def _criar_mochila_procedural(nome: str = "MochilaModular") -> "bpy.types.Object
             ponto_topo=(lado * 0.158, -0.095, -0.118),
         )
 
-    # 6. Duas alcas anatomicas sobre as claviculas (+Y_bl) voltando sob os bracos + cinta esternal
+    # 6. Duas alcas anatomicas rentes aos ombros e claviculas (+Y_bl) + cinta esternal
     for lado in (-1.0, 1.0):
         _adicionar_tubo_curva_bm(
             bm,
             [
-                (lado * 0.095, -0.015, 0.005),
-                (lado * 0.112, 0.038, 0.088),
-                (lado * 0.125, 0.115, 0.106),
-                (lado * 0.118, 0.175, 0.032),
+                (lado * 0.092, -0.015, -0.014),
+                (lado * 0.104, 0.036, 0.038),
+                (lado * 0.108, 0.102, 0.052),
+                (lado * 0.110, 0.162, 0.004),
                 (lado * 0.102, 0.188, -0.068),
                 (lado * 0.132, 0.138, -0.168),
                 (lado * 0.168, 0.032, -0.242),
@@ -1416,10 +1506,10 @@ def _criar_mochila_procedural(nome: str = "MochilaModular") -> "bpy.types.Object
 
 
 def _criar_capa_procedural(nome: str = "CapaSimuladaModular") -> "bpy.types.Object":
-    """Cria capa com simulacao real de tecido CLOTH sobre proxy de torso e fechos metalicos."""
+    """Cria capa de la carmesim com colarinho em U sobre os ombros, pregas profundas e fechos."""
     mat_tecido = _criar_material_pbr_zona(
         "Cape_WovenCloth",
-        (0.36, 0.09, 0.12, 1.0),
+        (0.361, 0.094, 0.125, 1.0),
         metallic=0.0,
         roughness=0.84,
         textura_arquivo="linen_tunic_albedo.png",
@@ -1427,6 +1517,8 @@ def _criar_capa_procedural(nome: str = "CapaSimuladaModular") -> "bpy.types.Obje
         bump_strength=0.22,
         noise_scale=58.0,
         zona_tag="tecido_capa",
+        uv_scale=3.5,
+        tint_srgb=(0.361, 0.094, 0.125),
     )
     mat_fecho = _criar_material_pbr_zona(
         "Cape_GoldClasp",
@@ -1451,38 +1543,40 @@ def _criar_capa_procedural(nome: str = "CapaSimuladaModular") -> "bpy.types.Obje
     bpy.ops.object.transform_apply(scale=True)
     proxy.modifiers.new(name="TorsoCollision", type="COLLISION")
 
-    # Malha curvada nos ombros com pregas iniciais suaves para estimular dobras na simulacao
+    # Malha com colarinho em U abracando ombros/claviculas e pregas profundas
     bpy.ops.mesh.primitive_grid_add(x_subdivisions=18, y_subdivisions=24, size=1.0)
     capa = bpy.context.active_object
     capa.name = nome
     for v in capa.data.vertices:
         u = v.co.x * 2.0  # -1..+1
         t = 0.5 - v.co.y  # 0 no colarinho (+Z), 1 na barra (-Z)
-        largura_x = 0.205 + 0.135 * t
+        largura_x = 0.195 + 0.175 * t
         x = u * largura_x
-        pregas = 0.012 * (0.25 + 0.75 * t) * math.cos(5.0 * math.pi * u)
-        abraco_ombro = 0.055 * (1.0 - t) * (u * u)
-        queda_z = 0.020 - 0.86 * t - 0.025 * (1.0 - t) * (u * u)
-        y = -0.020 - 0.105 * t + abraco_ombro - pregas
+        pregas = 0.028 * (0.15 + 0.85 * t) * math.cos(5.0 * math.pi * u)
+        u_col = max(0.0, (0.24 - t) / 0.24)
+        abraco_u_clavicula = 0.125 * u_col * (abs(u) ** 1.6)
+        abraco_ombro = 0.058 * (1.0 - t) * (u * u) + abraco_u_clavicula
+        queda_z = 0.024 - 0.86 * t - 0.030 * (1.0 - t) * (u * u) - 0.018 * u_col * (abs(u) ** 2.0)
+        y = -0.028 - 0.105 * t + abraco_ombro - pregas
         v.co = Vector((x, y, queda_z))
 
     vg_pin = capa.vertex_groups.new(name="PinCollar")
     for v in capa.data.vertices:
-        if v.co.z > -0.035:
-            peso = 1.0 if v.co.z > -0.01 else 0.75
+        if v.co.z > -0.045:
+            peso = 1.0 if v.co.z > -0.015 else 0.72
             vg_pin.add([v.index], peso, "REPLACE")
 
     mc = capa.modifiers.new(name="Cloth", type="CLOTH")
     mc.settings.vertex_group_mass = "PinCollar"
-    mc.settings.quality = 5
-    mc.settings.mass = 0.45
-    mc.settings.tension_stiffness = 16.0
-    mc.settings.bending_stiffness = 1.2
-    mc.settings.air_damping = 1.2
+    mc.settings.quality = 6
+    mc.settings.mass = 0.42
+    mc.settings.tension_stiffness = 14.0
+    mc.settings.bending_stiffness = 0.30
+    mc.settings.air_damping = 1.15
     mc.collision_settings.use_collision = True
     mc.collision_settings.distance_min = 0.008
 
-    for f in range(1, 26):
+    for f in range(1, 36):
         cena.frame_set(f)
 
     bpy.context.view_layer.objects.active = capa
@@ -1496,17 +1590,17 @@ def _criar_capa_procedural(nome: str = "CapaSimuladaModular") -> "bpy.types.Obje
     ms.use_rim = True
     bpy.ops.object.modifier_apply(modifier="SolidifyCloth")
 
-    # Adiciona 2 fechos metalicos nos ombros sobre a malha simulada e fecha BMesh manifold
+    # Adiciona 2 fechos metalicos sobre as pontas claviculares do colarinho em U
     bm = bmesh.new()
     bm.from_mesh(capa.data)
     for f in bm.faces:
         f.material_index = 0
-    for sx in (-0.145, 0.145):
+    for sx in (-0.155, 0.155):
         _adicionar_gema_octaedrica_bm(
             bm,
-            (sx, 0.014, 0.008),
-            (0.024, 0.012, 0.024),
-            rot_euler=(math.radians(15.0), 0.0, sx * -1.4),
+            (sx, 0.115, 0.004),
+            (0.026, 0.013, 0.024),
+            rot_euler=(math.radians(18.0), 0.0, sx * -1.2),
             mat_idx=1,
         )
     capa.data.materials.clear()
@@ -1550,11 +1644,11 @@ def _criar_orbe_arcano_procedural(nome: str = "OrbeArcanoModular") -> "bpy.types
     """Cria orbe astrolabio de mao: nucleo estrelado emissivo, vidro refrativo e 2 aneis de ouro."""
     mat_nucleo = _criar_material_pbr_zona(
         "Orb_ArcaneCore",
-        (0.40, 0.95, 1.0, 1.0),
+        (0.094, 0.784, 1.0, 1.0),
         metallic=0.0,
-        roughness=0.12,
-        emission_color=(0.15, 0.85, 1.0, 1.0),
-        emission_strength=5.0,
+        roughness=0.14,
+        emission_color=(0.010, 0.575, 1.0, 1.0),
+        emission_strength=2.6,
         zona_tag="nucleo_emissivo",
     )
     mat_vidro = _criar_material_pbr_zona(
@@ -1644,22 +1738,23 @@ def _criar_espada_arcana_procedural(nome: str = "EspadaArcanaModular") -> "bpy.t
     )
     mat_aco = _criar_material_pbr_zona(
         "Sword_ForgedSteel",
-        (0.76, 0.80, 0.85, 1.0),
-        metallic=0.95,
-        roughness=0.18,
+        (0.76, 0.80, 0.86, 1.0),
+        metallic=0.92,
+        roughness=0.28,
         textura_arquivo="steel_forged_albedo.png",
-        accent_color=(0.56, 0.61, 0.68, 1.0),
+        accent_color=(0.62, 0.67, 0.74, 1.0),
         bump_strength=0.07,
         noise_scale=48.0,
         zona_tag="aco_forjado",
+        tint_srgb=(0.76, 0.80, 0.86),
     )
     mat_gema = _criar_material_pbr_zona(
         "Sword_ArcaneGem",
-        (0.35, 0.92, 1.0, 1.0),
+        (0.094, 0.784, 1.0, 1.0),
         metallic=0.0,
         roughness=0.10,
-        emission_color=(0.15, 0.85, 1.0, 1.0),
-        emission_strength=4.5,
+        emission_color=(0.010, 0.575, 1.0, 1.0),
+        emission_strength=2.6,
         zona_tag="gema_arcana",
     )
 

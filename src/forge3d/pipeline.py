@@ -23,6 +23,7 @@ from . import (
     profiles,
     providers,
     publish,
+    qc,
     spec,
 )
 from .canonical import canon, sha256_arquivo, sha256_bytes
@@ -98,6 +99,12 @@ def _pos_processar(item: dict, perfil: dict, bruto, run_id: str) -> dict:
         "provider_conceito",
         "template_humanoide",
         "sockets",
+        "detalhe_alto",
+        "pbr_zonas",
+        "quantidade_cena",
+        "render_fidelity_roblox",
+        "alpha_cards",
+        "smart_fit",
     ):
         if chave_opt in item:
             job[chave_opt] = item[chave_opt]
@@ -124,6 +131,7 @@ def _executar_item(
     run_id: str,
     publicar_arquivos: bool,
     no_cache: bool = False,
+    adiar_publicacao: bool = False,
 ) -> dict:
     from . import qc as qc_mod
 
@@ -208,7 +216,7 @@ def _executar_item(
     )
 
     artefatos: list[dict] = []
-    if publicar_arquivos:
+    if publicar_arquivos and not adiar_publicacao:
         artefatos = publish.publicar(origem, destino, manifesto, run_id)
 
     saida_item: dict = {
@@ -221,14 +229,71 @@ def _executar_item(
         "trabalho_executado": entrada_cache is None,
         "triangulos": relatorio_qc["medidas"]["triangulos"],
         "artefatos": artefatos,
-        "manifesto": f"{item['id']}.manifest.json" if publicar_arquivos else None,
-        "manifesto_doc": manifesto if publicar_arquivos else None,
+        "manifesto": f"{item['id']}.manifest.json" if (publicar_arquivos and not adiar_publicacao) else None,
+        "manifesto_doc": manifesto if (publicar_arquivos and not adiar_publicacao) else None,
     }
+    if adiar_publicacao:
+        saida_item["_staging"] = {
+            "origem": origem,
+            "manifesto": manifesto,
+            "resultado": resultado,
+            "relatorio_qc": relatorio_qc,
+            "eh_cache_hit": entrada_cache is not None,
+        }
     for chave_meta in ("orientacao_export", "sockets", "sombreamento"):
         valor_meta = resultado.get(chave_meta)
         if valor_meta:
             saida_item[chave_meta] = valor_meta
     return saida_item
+
+
+def _medir_item_g11(item: dict, staging: dict) -> dict:
+    """Extrai metricas reais do item staged para avaliacao do Gate G11."""
+    iid = str(item["id"])
+    origem: Path = staging["origem"]
+    resultado: dict = staging["resultado"]
+    relatorio_qc: dict = staging["relatorio_qc"]
+    manifesto: dict = staging["manifesto"]
+
+    texturas: list[dict] = []
+    for arq in resultado.get("arquivos", []):
+        papel = str(arq.get("papel") or "")
+        if papel not in qc.PAPEIS_TEXTURA:
+            continue
+        p_tex = origem / str(arq.get("caminho") or "")
+        px = 1024
+        if p_tex.is_file():
+            dims = qc._validar_bytes_imagem(p_tex.read_bytes())
+            if dims:
+                px = max(dims)
+        canais = 1 if papel in ("roughness", "metallic") else 4
+        texturas.append({"id": f"{iid}:{arq['caminho']}", "px": px, "canais": canais})
+
+    g4 = next((g for g in relatorio_qc.get("gates", []) if g.get("id") == "G4"), None)
+    for idx, emb in enumerate(((g4 or {}).get("medido") or {}).get("embutidas") or []):
+        px_list = emb.get("px")
+        if isinstance(px_list, list) and px_list:
+            texturas.append({"id": f"{iid}:emb:{idx}", "px": max(int(x) for x in px_list), "canais": 4})
+
+    eh_pbr = (
+        item.get("material") == "pbr"
+        or bool(item.get("pbr_zonas"))
+        or bool(item.get("material_procedural"))
+    )
+    skinned = (
+        bool(item.get("auto_rig"))
+        or bool(item.get("skinned"))
+        or bool((manifesto.get("anexo") or {}).get("skinned"))
+    )
+    return {
+        "id": iid,
+        "tris": int(relatorio_qc["medidas"]["triangulos"]),
+        "quantidade_cena": int(item.get("quantidade_cena", 1)),
+        "mesh_key": str(item.get("mesh_key") or iid),
+        "material_key": f"pbr:{iid}" if eh_pbr else "palette_padrao",
+        "skinned": skinned,
+        "texturas": texturas,
+    }
 
 
 # ---------------------------------------------------------------- lote
@@ -241,6 +306,7 @@ def executar(
     publicar_arquivos: bool = True,
     no_cache: bool = False,
     clean_dest: bool = False,
+    scene_budget: bool = False,
 ) -> tuple[dict, int]:
     doc = spec.carregar_arquivo(caminho)
     spec_doc, perfil, avisos = spec.preparar(doc)
@@ -253,6 +319,7 @@ def executar(
     isolamento = req.get("isolamento", "padrao")
     ignorar_cache = no_cache or (isolamento == "estrito")
     deve_limpar = clean_dest or bool(req.get("limpar_destino", False))
+    aplicar_g11 = ("orcamento_cena" in spec_doc) or (spec_doc.get("schema") == "forge3d/spec@6")
 
     tarefas = plan.montar(
         spec_doc,
@@ -294,6 +361,8 @@ def executar(
 
     if plano_apenas:
         relatorio["tarefas"] = tarefas
+        if scene_budget or aplicar_g11:
+            relatorio["orcamento_cena"] = plan.estimar_orcamento_cena(spec_doc, perfil)
         relatorio["exit"] = EXIT_OK
         return relatorio, EXIT_OK
 
@@ -337,11 +406,9 @@ def executar(
                 run_id=run_id,
                 publicar_arquivos=publicar_arquivos,
                 no_cache=ignorar_cache,
+                adiar_publicacao=True,
             )
             relatorio["itens"].append(saida)
-            relatorio["artifacts"].extend(saida["artefatos"])
-            if saida.get("manifesto_doc"):
-                manifestos_publicados.append(saida["manifesto_doc"])
             codigos.append(EXIT_OK)
         except ForgeError as exc:
             estado = _estado_por_codigo(exc.codigo)
@@ -370,7 +437,50 @@ def executar(
             )
             codigos.append(EXIT_AMBIENTE)
 
-    codigo_saida = _agregar(codigos, relatorio["itens"])
+    # Gate G11 (orcamento_cena) avalia ANTES de publicar qualquer arquivo no destino (I3 + I5).
+    g11_falhou = False
+    staged_itens = [s for s in relatorio["itens"] if "_staging" in s]
+    if aplicar_g11 and staged_itens:
+        itens_medidos_g11 = [
+            _medir_item_g11(por_id[s["id"]], s["_staging"]) for s in staged_itens
+        ]
+        rel_g11 = qc.verificar_g11_orcamento_cena(
+            itens_medidos_g11,
+            limite_cena=profiles.orcamento_cena_perfil(perfil, spec_doc),
+        )
+        relatorio["orcamento_cena"] = rel_g11
+        if rel_g11["status"] == "falhou":
+            g11_falhou = True
+            for s in staged_itens:
+                s.pop("_staging", None)
+                s["estado"] = "reprovado"
+                s["qc"] = "reprovado"
+                s["codigo"] = "FORGE-E-QC-SCENE"
+                s["razao"] = "Gate G11 reprovou orcamento_cena"
+                s["artefatos"] = []
+                s["manifesto"] = None
+                s["manifesto_doc"] = None
+            relatorio["erro"] = {
+                "codigo": "FORGE-E-QC-SCENE",
+                "mensagem": "Gate G11 reprovou orcamento_cena",
+                "detalhes": rel_g11,
+            }
+            codigos = [EXIT_QC]
+
+    if not g11_falhou:
+        for s in staged_itens:
+            staging = s.pop("_staging")
+            if publicar_arquivos:
+                artefatos = publish.publicar(
+                    staging["origem"], destino, staging["manifesto"], run_id
+                )
+                s["artefatos"] = artefatos
+                s["manifesto"] = f"{s['id']}.manifest.json"
+                s["manifesto_doc"] = staging["manifesto"]
+                relatorio["artifacts"].extend(artefatos)
+                manifestos_publicados.append(staging["manifesto"])
+
+    codigo_saida = EXIT_QC if g11_falhou else _agregar(codigos, relatorio["itens"])
     relatorio["exit"] = codigo_saida
     relatorio["resumo"] = _resumo(relatorio["itens"], resumo_plano)
 

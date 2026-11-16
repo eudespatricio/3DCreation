@@ -211,14 +211,15 @@ def test_limite_tri_hero_e_default_no_spec_preparar():
 
     assert profiles.limite_tri_hero(godot, "personagem_humanoide") == 12000
     assert profiles.limite_tri_hero(godot, "criatura") == 12000
-    assert profiles.limite_tri_hero(godot, "prop_equipavel") == 800
-    assert profiles.limite_tri_hero(godot, "prop_estatico") == 1500
+    assert profiles.limite_tri_hero(godot, "prop_equipavel") == 2500
+    assert profiles.limite_tri_hero(godot, "prop_estatico") == 6000
 
-    assert profiles.limite_tri_hero(roblox, "personagem_humanoide") == 10000
-    assert profiles.limite_tri_hero(roblox, "criatura") == 10000
-    assert profiles.limite_tri_hero(roblox, "prop_equipavel") == 800
+    assert profiles.limite_tri_hero(roblox, "personagem_humanoide") == 14000
+    assert profiles.limite_tri_hero(roblox, "criatura") == 14000
+    assert profiles.limite_tri_hero(roblox, "prop_equipavel") == 3500
+    assert profiles.limite_tri_hero(roblox, "prop_estatico") == 10000
 
-    # Caso limite: orcamento base maior que 10000 em roblox-r15 ainda respeita G9 10000
+    # Caso limite: orcamento base maior que 10000 em roblox-r15 sem bloco hero ainda respeita teto legado 10000
     roblox_alto = {"perfil": "roblox-r15", "orcamento_triangulos": {"personagem_humanoide": 15000}}
     assert profiles.limite_tri_hero(roblox_alto, "personagem_humanoide") == 10000
     godot_alto = {"perfil": "godot4", "orcamento_triangulos": {"personagem_humanoide": 15000}}
@@ -229,7 +230,7 @@ def test_limite_tri_hero_e_default_no_spec_preparar():
     assert hero_godot["lote"][0]["limite_triangulos"] == 12000
 
     hero_r15, _, _ = spec.preparar(_doc_spec(perfil="roblox-r15", item_extra={"qualidade": "hero"}))
-    assert hero_r15["lote"][0]["limite_triangulos"] == 10000
+    assert hero_r15["lote"][0]["limite_triangulos"] == 14000
 
     hero_arma, _, _ = spec.preparar(
         _doc_spec(
@@ -237,7 +238,7 @@ def test_limite_tri_hero_e_default_no_spec_preparar():
             item_extra={"tipo": "prop_equipavel", "parte": "arma", "qualidade": "hero"},
         )
     )
-    assert hero_arma["lote"][0]["limite_triangulos"] == 800
+    assert hero_arma["lote"][0]["limite_triangulos"] == 2500
 
     hero_explicito, _, _ = spec.preparar(
         _doc_spec(perfil="godot4", item_extra={"qualidade": "hero", "limite_triangulos": 7500})

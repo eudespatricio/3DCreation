@@ -1,0 +1,181 @@
+# Exemplo de lote spec@6 calibrado para ~80% AA (Gate G11: <= 400k tris, <= 400 draw calls, <= 200 MB VRAM)
+schema: forge3d/spec@6
+projeto: citadel_aa_demo
+perfil: roblox-aa-80
+destino_exportacao: ~/.local/state/forge3d/saida/scene_budget_aa
+estilo_global: blocky_voxel
+
+orcamento_cena:
+  triangulos_max: 400000
+  draw_calls_max: 400
+  vram_mb_max: 200
+
+roblox_render:
+  lighting_technology: Future
+  render_fidelity_padrao: Precise
+  surface_appearance: true
+  strip_embedded_textures_glb: true
+
+politica:
+  falha: continuar
+  custo_max_min: 10
+  seed_base: 20261116
+
+lote:
+  - id: citadel.gatehouse.01
+    tipo: modulo_cenario
+    rota: blocky
+    altura_metros: 5.0
+    pivot: base
+    qualidade: ultra
+    limite_triangulos: 16000
+    material: pbr
+    quantidade_cena: 1
+    render_fidelity_roblox: Precise
+    detalhe_alto:
+      ativo: true
+      subdiv_niveis: 2
+      chanfro_bevel_m: 0.012
+      crease_angulo_graus: 40
+      ao_cavidade_forca: 0.40
+    pbr_zonas:
+      - nome: pedra_citadela
+        cor_hex: "#5C6066"
+        preset: pedra_musgo
+      - nome: aco_portao
+        cor_hex: "#3A3F46"
+        preset: aco_forjado
+        metallic_override: 0.85
+      - nome: brasao_dourado
+        cor_hex: "#F59E0B"
+        preset: ouro_ornamentado
+        metallic_override: 0.90
+    suavizacao_normais:
+      modo: hard_surface
+      angulo_graus: 46
+      weighted_normals: true
+
+  - id: citadel.bastion_wall.01
+    tipo: modulo_cenario
+    rota: blocky
+    altura_metros: 4.5
+    pivot: base
+    qualidade: hero
+    limite_triangulos: 14000
+    material: pbr
+    material_procedural: pedra_musgo
+    quantidade_cena: 4
+    render_fidelity_roblox: Precise
+
+  - id: boss.obsidian_warden.01
+    tipo: personagem_humanoide
+    rota: blocky
+    altura_metros: 2.6
+    pivot: base
+    qualidade: hero
+    limite_triangulos: 14000
+    auto_rig: true
+    material: pbr
+    material_procedural: aco_forjado
+    quantidade_cena: 1
+    render_fidelity_roblox: Precise
+    detalhe_alto:
+      ativo: true
+      subdiv_niveis: 2
+      chanfro_bevel_m: 0.01
+      ao_cavidade_forca: 0.45
+
+  - id: trap.arc_turret.01
+    tipo: prop_estatico
+    rota: blocky
+    altura_metros: 1.25
+    pivot: base
+    qualidade: hero
+    limite_triangulos: 5000
+    material: pbr
+    quantidade_cena: 6
+    pbr_zonas:
+      - nome: base_pedra
+        cor_hex: "#34383E"
+        preset: pedra_musgo
+      - nome: nucleo_arcano
+        cor_hex: "#59A6E6"
+        preset: cristal_arcano
+        roughness_escala: 0.55
+
+  - id: prop.pine_foliage.01
+    tipo: prop_estatico
+    rota: blocky
+    altura_metros: 2.2
+    pivot: base
+    qualidade: standard
+    limite_triangulos: 2400
+    material: pbr
+    material_procedural: madeira_ancestral
+    alpha_cards: true
+    quantidade_cena: 24
+    render_fidelity_roblox: Automatic
+
+  - id: prop.basalt_cluster.01
+    tipo: prop_estatico
+    rota: blocky
+    altura_metros: 1.1
+    pivot: base
+    qualidade: standard
+    limite_triangulos: 2000
+    material: pbr
+    material_procedural: pedra_musgo
+    quantidade_cena: 18
+
+  - id: prop.iron_brazier.01
+    tipo: prop_estatico
+    rota: blocky
+    altura_metros: 0.9
+    pivot: base
+    qualidade: standard
+    limite_triangulos: 1600
+    material: pbr
+    material_procedural: aco_forjado
+    quantidade_cena: 12
+
+  - id: horde.stalker.01
+    tipo: criatura
+    rota: blocky
+    altura_metros: 1.0
+    pivot: base
+    qualidade: standard
+    limite_triangulos: 2400
+    material: pbr
+    material_procedural: escamas_dragao
+    quantidade_cena: 40
+
+  - id: horde.wyvern.01
+    tipo: criatura_alada
+    rota: blocky
+    altura_metros: 1.15
+    pivot: base
+    qualidade: standard
+    limite_triangulos: 3200
+    material: pbr
+    material_procedural: escamas_dragao
+    quantidade_cena: 6
+
+  - id: weapon.runeblade.01
+    tipo: prop_equipavel
+    parte: arma
+    rota: blocky
+    altura_metros: 1.2
+    pivot: empunhadura
+    qualidade: hero
+    limite_triangulos: 3200
+    material: pbr
+    quantidade_cena: 2
+    smart_fit:
+      auto_grip: true
+    pbr_zonas:
+      - nome: lamina
+        cor_hex: "#9AA5B4"
+        preset: aco_forjado
+      - nome: pomo
+        cor_hex: "#D4AF37"
+        preset: ouro_ornamentado

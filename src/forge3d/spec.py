@@ -92,15 +92,21 @@ CAMPOS_CANONICOS_ITEM = (
     "retopologia",
     "quadriflow_faces",
     "modo_rig_roblox",
+    "detalhe_alto",
+    "pbr_zonas",
+    "render_fidelity_roblox",
+    "alpha_cards",
+    "smart_fit",
 )
 
-#: contratos de entrada aceitos. spec@2..@5 sao supersets retrocompativeis de spec@1.
+#: contratos de entrada aceitos. spec@2..@6 sao supersets retrocompativeis de spec@1.
 SPEC_SCHEMAS = {
     "forge3d/spec@1": "spec.v1.schema.json",
     "forge3d/spec@2": "spec.v2.schema.json",
     "forge3d/spec@3": "spec.v3.schema.json",
     "forge3d/spec@4": "spec.v4.schema.json",
     "forge3d/spec@5": "spec.v5.schema.json",
+    "forge3d/spec@6": "spec.v6.schema.json",
 }
 _SPEC_SCHEMA_CACHE: dict[str, dict] = {}
 
@@ -206,10 +212,9 @@ def _resolver_defaults(doc: dict, perfil: dict, avisos: list[dict]) -> None:
             item["paleta"] = list(paleta_lote)
         item.setdefault("pivot", profiles.pivot_padrao(perfil, tipo))
         if "limite_triangulos" not in item:
-            if item.get("qualidade") == "hero":
-                item["limite_triangulos"] = profiles.limite_tri_hero(perfil, tipo)
-            else:
-                item["limite_triangulos"] = profiles.limite_tri_padrao(perfil, tipo)
+            item["limite_triangulos"] = profiles.limite_tri_qualidade(
+                perfil, tipo, item.get("qualidade", "standard")
+            )
         eh_mh_cabelo = bool(
             item.get("makehuman_cabelo")
             or str(item.get("origem") or "").strip().startswith("makehuman://")

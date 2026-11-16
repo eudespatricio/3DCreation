@@ -38,11 +38,13 @@ for rel in (
     "schemas/spec.v3.schema.json",
     "schemas/spec.v4.schema.json",
     "schemas/spec.v5.schema.json",
+    "schemas/spec.v6.schema.json",
     "schemas/manifest.v1.schema.json",
     "schemas/manifest.v2.schema.json",
     "schemas/manifest.v3.schema.json",
     "schemas/manifest.v4.schema.json",
     "schemas/manifest.v5.schema.json",
+    "schemas/manifest.v6.schema.json",
 ):
     try:
         s = json.loads((ROOT / rel).read_text(encoding="utf-8"))
@@ -65,6 +67,7 @@ LOTES = (
     ("examples/lote_10_modular.yaml", "schemas/spec.v3.schema.json", "spec@3"),
     ("examples/lote_11_hero_armor_set.yaml", "schemas/spec.v4.schema.json", "spec@4"),
     ("examples/lote_12_creatures_mounts.yaml", "schemas/spec.v5.schema.json", "spec@5"),
+    ("examples/lote_13_scene_budget_aa.yaml", "schemas/spec.v6.schema.json", "spec@6"),
 )
 for rel, schema_rel, rotulo in LOTES:
     try:
@@ -143,6 +146,7 @@ for rel_man, rel_schema, rotulo in (
     ("examples/manifest.exemplo.v3.json", "schemas/manifest.v3.schema.json", "manifest@3"),
     ("examples/manifest.exemplo.v4.json", "schemas/manifest.v4.schema.json", "manifest@4"),
     ("examples/manifest.exemplo.v5.json", "schemas/manifest.v5.schema.json", "manifest@5"),
+    ("examples/manifest.exemplo.v6.json", "schemas/manifest.v6.schema.json", "manifest@6"),
 ):
     try:
         man = json.loads((ROOT / rel_man).read_text(encoding="utf-8"))
@@ -157,7 +161,12 @@ for rel_man, rel_schema, rotulo in (
         fail(f"{rel_man}: {e}")
 
 print("== perfis yaml ==")
-for rel in ("profiles/godot4.yaml", "profiles/roblox-r15.yaml"):
+for rel in (
+    "profiles/godot4.yaml",
+    "profiles/godot4-aa.yaml",
+    "profiles/roblox-r15.yaml",
+    "profiles/roblox-aa-80.yaml",
+):
     try:
         p = yaml.safe_load((ROOT / rel).read_text(encoding="utf-8"))
         assert p["schema"] == "forge3d/profile@1", "schema do perfil"

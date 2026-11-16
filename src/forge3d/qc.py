@@ -12,13 +12,14 @@ import json
 import math
 import struct
 import zlib
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
 
 from .errors import ForgeError, erro_qc
-from .profiles import FRACAO_EMPUNHADURA, esqueleto_para_item
+from .profiles import FRACAO_EMPUNHADURA, ORCAMENTO_CENA_PADRAO, esqueleto_para_item
 
 __all__ = [
     "ler_glb",
@@ -27,6 +28,7 @@ __all__ = [
     "topologia",
     "convexidade",
     "verificar",
+    "verificar_g11_orcamento_cena",
     "GATES",
     "PAPEIS_TEXTURA",
     "LIMIAR_SCORE_FRENTE",
@@ -34,7 +36,7 @@ __all__ = [
 
 LIMIAR_SCORE_FRENTE = 0.035
 
-GATES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10")
+GATES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11")
 PAPEIS_TEXTURA = (
     "textura",
     "basecolor",
@@ -512,8 +514,12 @@ def topologia(gltf: dict, binario: bytes) -> dict:
         if not cavidade:
             invertidas += 1
 
+    bordas_abertas = sum(1 for n in arestas.values() if n == 1)
+    arestas_t = sum(1 for n in arestas.values() if n > 2)
     return {
-        "nao_manifold": sum(1 for n in arestas.values() if n != 2),
+        "nao_manifold": bordas_abertas + arestas_t,
+        "bordas_abertas": bordas_abertas,
+        "arestas_t": arestas_t,
         "degeneradas": degeneradas,
         "invertidas": invertidas,
         "vertices": len(mapa),
@@ -1322,11 +1328,14 @@ def _g2_orientacao(
                     _marcar("rig_de_costas")
                     _marcar("criatura_de_costas")
 
+        esq_perfil = str(
+            (perfil.get("rig") or {}).get("esqueleto_padrao")
+            or (perfil.get("rig") or {}).get("padrao")
+            or ""
+        )
+        esq_item = str(item.get("esqueleto") or "")
         eh_humanoid_godot = (
-            (
-                (perfil.get("rig") or {}).get("padrao") == "godot-humanoid@1"
-                or item.get("esqueleto") == "godot-humanoid@1"
-            )
+            (esq_item.startswith("godot-humanoid") or (not esq_item and esq_perfil.startswith("godot-humanoid")))
             and not eh_criatura_ou_montaria
         )
         if eh_humanoid_godot:
@@ -1553,25 +1562,46 @@ def verificar(
     malha_facetada = bool(fac_info.get("facetada", False))
 
     # G1 geometria sa — mede o GLB real em Python puro tambem no `run`, sem confiar so em medidas
+    permite_alpha_cards = bool(item.get("alpha_cards"))
     topo = (
         topologia(gltf, binario)
         if gltf.get("meshes")
-        else {"nao_manifold": 0, "degeneradas": 0, "invertidas": 0}
+        else {
+            "nao_manifold": 0,
+            "bordas_abertas": 0,
+            "arestas_t": 0,
+            "degeneradas": 0,
+            "invertidas": 0,
+        }
     )
-    nao_manifold = max(int(medidas.get("nao_manifold", 0)), int(topo["nao_manifold"]))
-    degeneradas = max(int(medidas.get("degeneradas", 0)), int(topo["degeneradas"]))
+    nao_manifold = max(int(medidas.get("nao_manifold", 0)), int(topo.get("nao_manifold", 0)))
+    bordas_abertas = int(topo.get("bordas_abertas", 0))
+    arestas_t = max(
+        int(medidas.get("arestas_t", 0)),
+        int(topo.get("arestas_t", max(0, int(topo.get("nao_manifold", 0)) - bordas_abertas))),
+    )
+    degeneradas = max(int(medidas.get("degeneradas", 0)), int(topo.get("degeneradas", 0)))
     invertidas = int(topo.get("invertidas", 0))
+    malha_manifold_ok = (
+        arestas_t <= int(v["nao_manifold_max"])
+        if permite_alpha_cards
+        else nao_manifold <= int(v["nao_manifold_max"])
+    )
     g1_ok = (
-        nao_manifold <= int(v["nao_manifold_max"])
+        malha_manifold_ok
         and degeneradas <= int(v["faces_degeneradas_max"])
         and invertidas == 0
         and not malha_facetada
     )
     medido_g1: dict = {
         "nao_manifold": nao_manifold,
+        "bordas_abertas": bordas_abertas,
+        "arestas_t": arestas_t,
         "degeneradas": degeneradas,
         "invertidas": invertidas,
     }
+    if permite_alpha_cards:
+        medido_g1["alpha_cards"] = True
     if checar_facetamento:
         medido_g1["fracao_facetada"] = fac_info["fracao_facetada"]
         medido_g1["malha_organica_facetada"] = malha_facetada
@@ -1695,7 +1725,7 @@ def verificar(
 
     # G4 textura (mede PNG/JPEG/WEBP irmaos E imagens embutidas no GLB)
     textura_max = int(perfil["material"]["textura_max"])
-    if item.get("qualidade") == "hero":
+    if item.get("qualidade") in ("hero", "ultra"):
         textura_max = max(textura_max, 2048)
     texturas = [a for a in arquivos if a.get("papel") in PAPEIS_TEXTURA]
     detalhes_tex = []
@@ -1895,9 +1925,12 @@ def verificar(
 
     # G9 orcamento (inclui limites por parte/primitiva e validacao de LODs quando existirem)
     limite_tri = int(item["limite_triangulos"])
+    qualidade_item = str(item.get("qualidade") or "standard").strip().lower()
     bytes_max_kb = int(v["bytes_max_kb"])
-    if item.get("qualidade") == "hero":
+    if qualidade_item == "hero":
         bytes_max_kb = max(bytes_max_kb, 4096)
+    elif qualidade_item == "ultra":
+        bytes_max_kb = max(bytes_max_kb, 16384)
     bytes_max = bytes_max_kb * 1024
     maiores = []
     for arq in arquivos:
@@ -1906,7 +1939,11 @@ def verificar(
         if tamanho > bytes_max:
             maiores.append({"arquivo": arq["caminho"], "bytes": tamanho})
     partes_max = v.get("partes_max")
-    tri_parte_max = v.get("triangulos_por_parte_max")
+    tri_parte_max = (
+        v.get("triangulos_por_parte_max_ultra")
+        if qualidade_item == "ultra" and v.get("triangulos_por_parte_max_ultra") is not None
+        else v.get("triangulos_por_parte_max")
+    )
     prim_tris = info.get("prim_tris") or []
     partes_ok = True if (partes_max is None or not gltf.get("meshes")) else info["primitivas"] <= int(partes_max)
     tri_parte_ok = (
@@ -1937,8 +1974,17 @@ def verificar(
                 lods_ok = False
                 detalhes_lods.append({"arquivo": arq_lod["caminho"], "ok": False})
                 continue
+            bordas_lod = int(topo_lod.get("bordas_abertas", 0))
+            arestas_t_lod = int(
+                topo_lod.get("arestas_t", max(0, int(topo_lod.get("nao_manifold", 0)) - bordas_lod))
+            )
+            lod_manifold_ok = (
+                arestas_t_lod <= int(v["nao_manifold_max"])
+                if permite_alpha_cards
+                else int(topo_lod["nao_manifold"]) <= int(v["nao_manifold_max"])
+            )
             topo_lod_ok = (
-                int(topo_lod["nao_manifold"]) <= int(v["nao_manifold_max"])
+                lod_manifold_ok
                 and int(topo_lod.get("degeneradas", 0)) <= int(v["faces_degeneradas_max"])
                 and int(topo_lod.get("invertidas", 0)) == 0
             )
@@ -2049,4 +2095,97 @@ def verificar(
             "tangentes": bool(info.get("tangentes", False)),
             "uv_lightmap": bool(info.get("uv_lightmap", False)),
         },
+    }
+
+
+def _vram_mapa_mb(px: int, canais: int) -> float:
+    """Estimativa de VRAM GPU por textura (ASTC/BC7 RGB=1B/px, BC4 grayscale=0.5B/px + mipmap 1.333x)."""
+    bytes_por_px = 1.0 if canais >= 3 else 0.5
+    return (float(px) * float(px) * bytes_por_px * 1.3333) / (1024.0 * 1024.0)
+
+
+def verificar_g11_orcamento_cena(
+    itens_medidos: Sequence[Mapping[str, Any]],
+    limite_cena: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Gate G11: valida se a composicao simultanea de cena cabe no orcamento AA (tris, draw calls, VRAM)."""
+    cfg = dict(ORCAMENTO_CENA_PADRAO)
+    if isinstance(limite_cena, Mapping):
+        for k, val in limite_cena.items():
+            if val is not None:
+                cfg[k] = val
+        if limite_cena.get("triangulos_max") is not None:
+            cfg["triangulos_cena_max"] = int(limite_cena["triangulos_max"])
+        if limite_cena.get("draw_calls_max") is not None:
+            cfg["draw_calls_cena_max"] = int(limite_cena["draw_calls_max"])
+        if limite_cena.get("vram_mb_max") is not None:
+            cfg["vram_texturas_mb_max"] = float(limite_cena["vram_mb_max"])
+
+    teto_tris = int(cfg["triangulos_cena_max"])
+    teto_dc = int(cfg["draw_calls_cena_max"])
+    teto_vram = float(cfg["vram_texturas_mb_max"])
+    ref_tris = max(1, int(cfg.get("capacidade_referencia_tris", 500_000)))
+
+    tris_cena = 0
+    instancing_batches: set[tuple[str, str]] = set()
+    draw_calls_nao_instanciados = 0
+    texturas_unicas: dict[str, float] = {}
+    resumo_itens: list[dict[str, Any]] = []
+
+    for it in itens_medidos:
+        iid = str(it.get("id") or "?")
+        tris_unit = max(0, int(it.get("tris") or 0))
+        qtd = max(0, int(it.get("quantidade_cena", 1)))
+        if qtd == 0:
+            continue
+
+        tris_sub = tris_unit * qtd
+        tris_cena += tris_sub
+
+        skinned = bool(it.get("skinned", False))
+        mesh_key = str(it.get("mesh_key") or iid)
+        mat_key = str(it.get("material_key") or "palette_padrao")
+        if skinned:
+            draw_calls_nao_instanciados += qtd
+        else:
+            instancing_batches.add((mesh_key, mat_key))
+
+        for tex in it.get("texturas") or ():
+            tid = str(tex.get("id") or "")
+            px = int(tex.get("px") or 1024)
+            canais = int(tex.get("canais") or 4)
+            if tid and tid not in texturas_unicas:
+                texturas_unicas[tid] = _vram_mapa_mb(px, canais)
+
+        resumo_itens.append({"id": iid, "tris_unit": tris_unit, "qtd": qtd, "tris_cena": tris_sub})
+
+    draw_calls_total = len(instancing_batches) + draw_calls_nao_instanciados
+    vram_total_mb = round(sum(texturas_unicas.values()), 2)
+    aprovado = (
+        tris_cena <= teto_tris
+        and draw_calls_total <= teto_dc
+        and vram_total_mb <= teto_vram
+    )
+    ocupacao_ref_pct = round((tris_cena / float(ref_tris)) * 100.0, 2)
+    ocupacao_teto_pct = round((tris_cena / float(max(1, teto_tris))) * 100.0, 2)
+
+    return {
+        "id": "G11",
+        "status": "ok" if aprovado else "falhou",
+        "medido": {
+            "triangulos_cena": tris_cena,
+            "ocupacao_500k_pct": ocupacao_ref_pct,
+            "ocupacao_teto_80_pct": ocupacao_teto_pct,
+            "draw_calls_estimados": draw_calls_total,
+            "lotes_instanciados": len(instancing_batches),
+            "vram_texturas_mb": vram_total_mb,
+            "texturas_unicas": len(texturas_unicas),
+            "itens": resumo_itens,
+        },
+        "limite": {
+            "triangulos_cena_max": teto_tris,
+            "draw_calls_cena_max": teto_dc,
+            "vram_texturas_mb_max": teto_vram,
+        },
+        "codigo": None if aprovado else "FORGE-E-QC-SCENE",
     }

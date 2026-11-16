@@ -1,0 +1,810 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge3d.local/schemas/spec.v6.schema.json",
+  "title": "forge3d/spec@6",
+  "description": "spec@6 = spec@5 + orcamento_cena (Gate G11), roblox_render, qualidade ultra, alpha_cards, detalhe_alto, pbr_zonas, quantidade_cena, render_fidelity_roblox, smart_fit e esqueleto godot-humanoid-aa@1. Aditivo: todo documento spec@5 continua valido.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projeto",
+    "perfil",
+    "destino_exportacao",
+    "lote"
+  ],
+  "properties": {
+    "schema": {
+      "const": "forge3d/spec@6"
+    },
+    "projeto": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "maxLength": 64,
+      "description": "slug do projeto de jogo consumidor"
+    },
+    "perfil": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "godot4 | godot4-aa | roblox-r15 | roblox-aa-80 | caminho para YAML de perfil"
+    },
+    "destino_exportacao": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "destino sob allowlist; /mnt/* e UNC sao recusados (I12, I13)"
+    },
+    "estilo_global": {
+      "description": "default de estilo. Aliases legados (docs/contratos.md) sao normalizados pelo carregador ANTES da validacao (FORGE-W-ALIAS, D19): o schema so aceita o valor canonico.",
+      "enum": [
+        "blocky_voxel",
+        "lowpoly_lit",
+        "stylized_pbr"
+      ]
+    },
+    "paleta": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "pattern": "^#[0-9a-fA-F]{6}$"
+      }
+    },
+    "politica": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "falha": {
+          "enum": [
+            "continuar",
+            "abortar"
+          ]
+        },
+        "custo_max_min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "seed_base": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "requisicao": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "isolamento": {
+          "enum": [
+            "padrao",
+            "estrito"
+          ]
+        },
+        "limpar_destino": {
+          "type": "boolean"
+        },
+        "base_externa": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "origem",
+            "sha256"
+          ],
+          "properties": {
+            "tipo": {
+              "enum": [
+                "prop_estatico",
+                "prop_equipavel",
+                "personagem_humanoide",
+                "criatura",
+                "criatura_quadrupede",
+                "criatura_alada",
+                "montaria",
+                "modulo_cenario",
+                "textura",
+                "mapa_setor"
+              ]
+            },
+            "origem": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+            },
+            "prompt": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            }
+          }
+        }
+      }
+    },
+    "lote": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    },
+    "orcamento_cena": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Metas usadas pelo Gate G11 e por `forge3d plan --scene-budget` (default AA 80%: 400k tris, 400 draw calls, 200 MB VRAM).",
+      "properties": {
+        "triangulos_max": {
+          "type": "integer",
+          "minimum": 10000,
+          "maximum": 1000000,
+          "default": 400000
+        },
+        "draw_calls_max": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 2000,
+          "default": 400
+        },
+        "vram_mb_max": {
+          "type": "number",
+          "minimum": 16,
+          "maximum": 1024,
+          "default": 200
+        }
+      }
+    },
+    "roblox_render": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Metadados opcionais propagados para export-surface, export-rbxmx e manifesto Luau.",
+      "properties": {
+        "lighting_technology": {
+          "enum": [
+            "Future",
+            "ShadowMap",
+            "Voxel",
+            "Compatibility"
+          ],
+          "default": "Future"
+        },
+        "render_fidelity_padrao": {
+          "enum": [
+            "Precise",
+            "Automatic",
+            "Performance"
+          ],
+          "default": "Precise"
+        },
+        "surface_appearance": {
+          "type": "boolean",
+          "default": true
+        },
+        "strip_embedded_textures_glb": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove imagens embutidas no GLB de upload quando usar SurfaceAppearance externa via Open Cloud, preservando TEXCOORD_0 e TANGENT."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tipo"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$",
+          "maxLength": 80,
+          "description": "identidade estavel; mudar o id significa asset novo"
+        },
+        "tipo": {
+          "enum": [
+            "prop_estatico",
+            "prop_equipavel",
+            "personagem_humanoide",
+            "criatura",
+            "criatura_quadrupede",
+            "criatura_alada",
+            "montaria",
+            "modulo_cenario",
+            "textura",
+            "mapa_setor"
+          ]
+        },
+        "rota": {
+          "enum": [
+            "blocky",
+            "import",
+            "mesh",
+            "modular"
+          ]
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "altura_metros": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10.0
+        },
+        "pivot": {
+          "enum": [
+            "empunhadura",
+            "base",
+            "centro",
+            "origem",
+            "topo"
+          ]
+        },
+        "limite_triangulos": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 50000,
+          "description": "Validado no QC (G9) contra validacao.triangulos_por_parte_max (16000 padrao / 18000 ultra no perfil roblox-aa-80)."
+        },
+        "material": {
+          "enum": [
+            "opaque",
+            "alpha_clip",
+            "transparent",
+            "pbr"
+          ]
+        },
+        "material_procedural": {
+          "enum": [
+            "pele_humana",
+            "escamas_dragao",
+            "aco_forjado",
+            "ouro_ornamentado",
+            "couro_gasto",
+            "cristal_arcano",
+            "pedra_musgo",
+            "tecido_nobre",
+            "madeira_ancestral",
+            "energia_espectral"
+          ],
+          "description": "preset procedural de material PBR"
+        },
+        "suavizacao_normais": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "modo": {
+              "enum": [
+                "auto",
+                "organico",
+                "hard_surface"
+              ]
+            },
+            "angulo_graus": {
+              "type": "number",
+              "minimum": 15,
+              "maximum": 85
+            },
+            "weighted_normals": {
+              "type": "boolean"
+            },
+            "corrective_smooth": {
+              "type": "boolean"
+            },
+            "soldar_componentes_organicos": {
+              "type": "boolean"
+            }
+          },
+          "description": "controles de suavizacao de normais e solda organica"
+        },
+        "provider_conceito": {
+          "enum": [
+            "auto",
+            "sd15",
+            "gemini",
+            "higgsfield"
+          ],
+          "description": "provider de geracao de imagem conceito"
+        },
+        "colisao": {
+          "enum": [
+            "none",
+            "box",
+            "convex",
+            "ucx"
+          ]
+        },
+        "lod": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 100
+          },
+          "description": "percentuais decrescentes; primeiro elemento deve ser 100 (B4)"
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "auto_rig": {
+          "type": "boolean"
+        },
+        "esqueleto": {
+          "type": "string",
+          "pattern": "^(godot-humanoid|godot-humanoid-aa|r15|quadruped|winged_mount)@[0-9]+$"
+        },
+        "animacoes_base": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": "reservado (D14): preenchido gera FORGE-W-ANIM, nunca erro"
+        },
+        "clipes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "idle",
+              "walk",
+              "run",
+              "jump",
+              "attack",
+              "slash_combo",
+              "cast",
+              "block",
+              "hit",
+              "death",
+              "ride_idle",
+              "ride_fly",
+              "gallop",
+              "wing_flap",
+              "glide",
+              "bite",
+              "roar"
+            ]
+          },
+          "description": "clipes de animacao solicitados para personagem, criatura ou montaria"
+        },
+        "sockets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "Hand.R",
+              "Hand.L",
+              "Back",
+              "Head",
+              "Shoulder.L",
+              "Shoulder.R",
+              "MountSeat"
+            ]
+          },
+          "description": "sockets de anexo e montaria exportados no glb e declarados no manifesto"
+        },
+        "origem": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          }
+        },
+        "paleta": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "description": "sobrepoe a paleta do lote para este item, na ordem de papeis do tipo"
+        },
+        "parte": {
+          "enum": [
+            "corpo",
+            "capa",
+            "arma",
+            "cabelo",
+            "elmo",
+            "ombreiras",
+            "peitoral",
+            "luvas",
+            "calcas",
+            "calças",
+            "botas",
+            "escudo",
+            "mochila",
+            "orbe",
+            "sela",
+            "asas"
+          ],
+          "description": "peca de kit (B11: rota blocky ou mesh; B12: tipo por peca; B13: peca estatica ou skinned)"
+        },
+        "skinned": {
+          "type": "boolean",
+          "description": "se verdadeiro, armadura/roupa recebe deformacao por esqueleto compartilhado em vez de socket estatico"
+        },
+        "template_humanoide": {
+          "type": "boolean",
+          "description": "usa malha base MPFB2 (CC0) com projecao frontal da foto para personagem_humanoide"
+        },
+        "makehuman_cabelo": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_/-]{0,63}$",
+          "description": "estilo de cabelo CC0 do MakeHuman/MPFB2 (ex: long01, bob01, ponytail01, short01)"
+        },
+        "cor_cabelo": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "tintura opcional (#RRGGBB) aplicada a textura do cabelo MakeHuman"
+        },
+        "macro": {
+          "type": "object",
+          "description": "parametros macro MPFB2 opcionais compartilhados entre corpo e cabelo modular"
+        },
+        "modular": {
+          "type": "object",
+          "description": "Rota modular: grade de setores e catalogo de modulos (D74/D75)",
+          "additionalProperties": false,
+          "required": [
+            "grade",
+            "modulos"
+          ],
+          "properties": {
+            "grade": {
+              "type": "array",
+              "description": "colunas x linhas da dungeon, em setores",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32
+              }
+            },
+            "modulos": {
+              "type": "array",
+              "description": "modulos do catalogo que podem ser sorteados pelo WFC",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              }
+            },
+            "setor": {
+              "type": "array",
+              "description": "setor exportado por este item (x, y); default 0,0",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "tamanho_modulo": {
+              "type": "number",
+              "description": "lado do modulo em metros (default 4,0)",
+              "exclusiveMinimum": 0,
+              "maximum": 64
+            }
+          }
+        },
+        "qualidade": {
+          "enum": [
+            "standard",
+            "hero",
+            "ultra"
+          ],
+          "description": "standard (5k..8k), hero (10k..14k) ou ultra (16k/parte — 80% do teto 20k Roblox)"
+        },
+        "pose_guard": {
+          "enum": [
+            "off",
+            "auto",
+            "repose"
+          ],
+          "description": "guarda de pose de entrada para autorig"
+        },
+        "extrudir_2d": {
+          "type": "boolean",
+          "description": "ativa extrusao 2D para silhuetas planas"
+        },
+        "estilo": {
+          "enum": [
+            "blocky_voxel",
+            "lowpoly_lit",
+            "stylized_pbr"
+          ],
+          "description": "sobrescreve estilo_global para este item (blocky_voxel, lowpoly_lit, stylized_pbr)"
+        },
+        "retopologia": {
+          "enum": [
+            "padrao",
+            "quadriflow",
+            "decimate"
+          ],
+          "description": "estrategia opcional de retopologia em malhas de IA/mesh"
+        },
+        "quadriflow_faces": {
+          "type": "integer",
+          "minimum": 250,
+          "maximum": 50000,
+          "description": "alvo opcional de faces para remesh quadriflow"
+        },
+        "modo_rig_roblox": {
+          "enum": [
+            "motor6d",
+            "bone"
+          ],
+          "description": "modo de rig R15 no Roblox Studio (motor6d padrao por pecas ou Bone skinning unico)"
+        },
+        "alpha_cards": {
+          "type": "boolean",
+          "default": false,
+          "description": "Permite bordas abertas (n == 1) de alpha cards na malha visual em G1/G9 mantendo arestas_t == 0."
+        },
+        "detalhe_alto": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Ativa bake High->Low real em Cycles sobre uma copia subdividida/chanfrada da malha original antes da exportacao do GLB low.",
+          "properties": {
+            "ativo": {
+              "type": "boolean",
+              "default": true
+            },
+            "subdiv_niveis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3,
+              "default": 2
+            },
+            "chanfro_bevel_m": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 0.05,
+              "default": 0.008,
+              "description": "Sempre aplicado com use_clamp_overlap=true na copia High."
+            },
+            "crease_angulo_graus": {
+              "type": "number",
+              "minimum": 15.0,
+              "maximum": 85.0,
+              "default": 38.0
+            },
+            "ao_cavidade_forca": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "default": 0.35,
+              "description": "Intensidade de Ambient Occlusion e desgaste nas quinas/cavidades no ColorMap."
+            }
+          }
+        },
+        "pbr_zonas": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "description": "Mapeia celulas de paleta / cores hex / materiais de origem para presets procedural_pbr dentro de um unico material PBR.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "preset"
+            ],
+            "properties": {
+              "nome": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48
+              },
+              "cor_hex": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              "uv_faixa": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "items": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 1.0
+                }
+              },
+              "preset": {
+                "enum": [
+                  "pele_humana",
+                  "escamas_dragao",
+                  "aco_forjado",
+                  "ouro_ornamentado",
+                  "couro_gasto",
+                  "cristal_arcano",
+                  "pedra_musgo",
+                  "tecido_nobre",
+                  "madeira_ancestral",
+                  "energia_espectral"
+                ]
+              },
+              "cor_tinta": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              "roughness_escala": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 2.0,
+                "default": 1.0
+              },
+              "metallic_override": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0
+              },
+              "normal_forca": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 2.0,
+                "default": 1.0
+              }
+            }
+          }
+        },
+        "quantidade_cena": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 500,
+          "default": 1,
+          "description": "Numero maximo simultaneo esperado em cena para calculo do Gate G11."
+        },
+        "render_fidelity_roblox": {
+          "enum": [
+            "Precise",
+            "Automatic",
+            "Performance"
+          ],
+          "default": "Precise"
+        },
+        "smart_fit": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Configuracao opcional de encaixe BVH / conformacao / recorte interno / auto-grip."
+        }
+      },
+      "allOf": [
+        {
+          "description": "B2: rota mesh exige seed e prompt",
+          "if": {
+            "required": [
+              "rota"
+            ],
+            "properties": {
+              "rota": {
+                "const": "mesh"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "seed",
+              "prompt"
+            ]
+          }
+        },
+        {
+          "description": "B3: rota import exige origem",
+          "if": {
+            "required": [
+              "rota"
+            ],
+            "properties": {
+              "rota": {
+                "const": "import"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "origem"
+            ]
+          }
+        },
+        {
+          "description": "B4: altura_metros obrigatoria exceto textura e mapa_setor",
+          "if": {
+            "required": [
+              "tipo"
+            ],
+            "properties": {
+              "tipo": {
+                "enum": [
+                  "textura",
+                  "mapa_setor"
+                ]
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "altura_metros"
+            ]
+          }
+        },
+        {
+          "description": "B6: auto_rig so em humanoide, criatura ou montaria",
+          "if": {
+            "required": [
+              "auto_rig"
+            ],
+            "properties": {
+              "auto_rig": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "tipo": {
+                "enum": [
+                  "personagem_humanoide",
+                  "criatura",
+                  "criatura_quadrupede",
+                  "criatura_alada",
+                  "montaria"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "description": "B11: 'parte' so nas rotas blocky ou mesh",
+          "if": {
+            "required": [
+              "parte"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rota": {
+                "enum": [
+                  "blocky",
+                  "mesh"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

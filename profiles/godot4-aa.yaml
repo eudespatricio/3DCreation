@@ -1,0 +1,362 @@
+# Perfil de export — Godot 4 AA (rig 56 ossos godot-humanoid-aa@1 + PBR 4K)
+schema: forge3d/profile@1
+perfil: godot4-aa
+versao: 1
+
+formato: [glb]
+
+unidades:
+  escala_saida: 1.0
+  metros_por_unidade: 1.0
+
+eixos:
+  up: "+Y"
+  frente: "-Z"
+
+aplicar_transforms: true
+
+pivot:
+  prop_estatico: base
+  prop_equipavel: empunhadura
+  personagem_humanoide: base
+  criatura: base
+  criatura_quadrupede: base
+  criatura_alada: base
+  montaria: base
+  modulo_cenario: base
+  mapa_setor: centro
+
+colisao:
+  modo: convex_hull_por_peca
+  prefixo: "UCX_"
+  max_partes: 8
+  dentro_da_aabb: true
+
+lod:
+  sufixos: ["_LOD0", "_LOD1", "_LOD2"]
+  preservar_materiais: true
+  distancia_m: 25.0
+
+rig:
+  esqueleto_padrao: "godot-humanoid-aa@1"
+  max_ossos: 64
+  retarget:
+    "godot-humanoid-aa@1":
+      quadril: Hips
+      coluna: Spine
+      tronco: Chest
+      pescoco: Neck
+      cabeca: Head
+      mandibula: Jaw
+      olho_e: Eye.L
+      olho_d: Eye.R
+      capa: Cape
+      ombro_e: Shoulder.L
+      ombro_d: Shoulder.R
+      braco_e: UpperArm.L
+      braco_d: UpperArm.R
+      antebraco_e: LowerArm.L
+      antebraco_d: LowerArm.R
+      mao_e: Hand.L
+      mao_d: Hand.R
+      perna_e: UpperLeg.L
+      perna_d: UpperLeg.R
+      canela_e: LowerLeg.L
+      canela_d: LowerLeg.R
+      pe_e: Foot.L
+      pe_d: Foot.R
+      dedo_pe_e: Toe.L
+      dedo_pe_d: Toe.R
+      polegar_1_e: Thumb1.L
+      polegar_2_e: Thumb2.L
+      polegar_3_e: Thumb3.L
+      indicador_1_e: Index1.L
+      indicador_2_e: Index2.L
+      indicador_3_e: Index3.L
+      medio_1_e: Middle1.L
+      medio_2_e: Middle2.L
+      medio_3_e: Middle3.L
+      anelar_1_e: Ring1.L
+      anelar_2_e: Ring2.L
+      anelar_3_e: Ring3.L
+      mindinho_1_e: Little1.L
+      mindinho_2_e: Little2.L
+      mindinho_3_e: Little3.L
+      polegar_1_d: Thumb1.R
+      polegar_2_d: Thumb2.R
+      polegar_3_d: Thumb3.R
+      indicador_1_d: Index1.R
+      indicador_2_d: Index2.R
+      indicador_3_d: Index3.R
+      medio_1_d: Middle1.R
+      medio_2_d: Middle2.R
+      medio_3_d: Middle3.R
+      anelar_1_d: Ring1.R
+      anelar_2_d: Ring2.R
+      anelar_3_d: Ring3.R
+      mindinho_1_d: Little1.R
+      mindinho_2_d: Little2.R
+      mindinho_3_d: Little3.R
+    "godot-humanoid@1":
+      quadril: Hips
+      tronco: Chest
+      coluna: Spine1
+      cabeca: Head
+      ombro_e: Shoulder.L
+      ombro_d: Shoulder.R
+      braco_e: UpperArm.L
+      braco_d: UpperArm.R
+      antebraco_e: LowerArm.L
+      antebraco_d: LowerArm.R
+      perna_e: UpperLeg.L
+      perna_d: UpperLeg.R
+      canela_e: LowerLeg.L
+      canela_d: LowerLeg.R
+      pe_e: Foot.L
+      pe_d: Foot.R
+    "quadruped@1":
+      quadril: Hips
+      coluna: Spine
+      tronco: Chest
+      pescoco: Neck
+      cabeca: Head
+      mandibula: Jaw
+      cauda_1: Tail1
+      cauda_2: Tail2
+      cauda_3: Tail3
+      pata_dianteira_e: FrontUpperLeg.L
+      canela_dianteira_e: FrontLowerLeg.L
+      pe_dianteiro_e: FrontFoot.L
+      pata_dianteira_d: FrontUpperLeg.R
+      canela_dianteira_d: FrontLowerLeg.R
+      pe_dianteiro_d: FrontFoot.R
+      pata_traseira_e: BackUpperLeg.L
+      canela_traseira_e: BackLowerLeg.L
+      pe_traseiro_e: BackFoot.L
+      pata_traseira_d: BackUpperLeg.R
+      canela_traseira_d: BackLowerLeg.R
+      pe_traseiro_d: BackFoot.R
+      sela: MountSeat
+    "winged_mount@1":
+      quadril: Hips
+      coluna: Spine
+      tronco: Chest
+      pescoco: Neck
+      cabeca: Head
+      mandibula: Jaw
+      cauda_1: Tail1
+      cauda_2: Tail2
+      cauda_3: Tail3
+      pata_dianteira_e: FrontUpperLeg.L
+      canela_dianteira_e: FrontLowerLeg.L
+      pe_dianteiro_e: FrontFoot.L
+      pata_dianteira_d: FrontUpperLeg.R
+      canela_dianteira_d: FrontLowerLeg.R
+      pe_dianteiro_d: FrontFoot.R
+      pata_traseira_e: BackUpperLeg.L
+      canela_traseira_e: BackLowerLeg.L
+      pe_traseiro_e: BackFoot.L
+      pata_traseira_d: BackUpperLeg.R
+      canela_traseira_d: BackLowerLeg.R
+      pe_traseiro_d: BackFoot.R
+      asa_ombro_e: WingShoulder.L
+      asa_braco_e: WingArm.L
+      asa_antebraco_e: WingForearm.L
+      asa_ponta_e: WingTip.L
+      asa_ombro_d: WingShoulder.R
+      asa_braco_d: WingArm.R
+      asa_antebraco_d: WingForearm.R
+      asa_ponta_d: WingTip.R
+      sela: MountSeat
+  mapas:
+    "godot-humanoid-aa@1":
+      - Root
+      - Hips
+      - Spine
+      - Chest
+      - Neck
+      - Head
+      - Jaw
+      - Eye.L
+      - Eye.R
+      - Cape
+      - Shoulder.L
+      - UpperArm.L
+      - LowerArm.L
+      - Hand.L
+      - Shoulder.R
+      - UpperArm.R
+      - LowerArm.R
+      - Hand.R
+      - Thumb1.L
+      - Thumb2.L
+      - Thumb3.L
+      - Index1.L
+      - Index2.L
+      - Index3.L
+      - Middle1.L
+      - Middle2.L
+      - Middle3.L
+      - Ring1.L
+      - Ring2.L
+      - Ring3.L
+      - Little1.L
+      - Little2.L
+      - Little3.L
+      - Thumb1.R
+      - Thumb2.R
+      - Thumb3.R
+      - Index1.R
+      - Index2.R
+      - Index3.R
+      - Middle1.R
+      - Middle2.R
+      - Middle3.R
+      - Ring1.R
+      - Ring2.R
+      - Ring3.R
+      - Little1.R
+      - Little2.R
+      - Little3.R
+      - UpperLeg.L
+      - LowerLeg.L
+      - Foot.L
+      - Toe.L
+      - UpperLeg.R
+      - LowerLeg.R
+      - Foot.R
+      - Toe.R
+    "godot-humanoid@1":
+      - Root
+      - Hips
+      - Spine
+      - Spine1
+      - Chest
+      - Neck
+      - Head
+      - Shoulder.L
+      - UpperArm.L
+      - LowerArm.L
+      - Hand.L
+      - Shoulder.R
+      - UpperArm.R
+      - LowerArm.R
+      - Hand.R
+      - UpperLeg.L
+      - LowerLeg.L
+      - Foot.L
+      - Toe.L
+      - UpperLeg.R
+      - LowerLeg.R
+      - Foot.R
+      - Toe.R
+    "quadruped@1":
+      - Root
+      - Hips
+      - Spine
+      - Chest
+      - Neck
+      - Head
+      - Jaw
+      - Tail1
+      - Tail2
+      - Tail3
+      - FrontUpperLeg.L
+      - FrontLowerLeg.L
+      - FrontFoot.L
+      - FrontUpperLeg.R
+      - FrontLowerLeg.R
+      - FrontFoot.R
+      - BackUpperLeg.L
+      - BackLowerLeg.L
+      - BackFoot.L
+      - BackUpperLeg.R
+      - BackLowerLeg.R
+      - BackFoot.R
+      - MountSeat
+    "winged_mount@1":
+      - Root
+      - Hips
+      - Spine
+      - Chest
+      - Neck
+      - Head
+      - Jaw
+      - Tail1
+      - Tail2
+      - Tail3
+      - FrontUpperLeg.L
+      - FrontLowerLeg.L
+      - FrontFoot.L
+      - FrontUpperLeg.R
+      - FrontLowerLeg.R
+      - FrontFoot.R
+      - BackUpperLeg.L
+      - BackLowerLeg.L
+      - BackFoot.L
+      - BackUpperLeg.R
+      - BackLowerLeg.R
+      - BackFoot.R
+      - WingShoulder.L
+      - WingArm.L
+      - WingForearm.L
+      - WingTip.L
+      - WingShoulder.R
+      - WingArm.R
+      - WingForearm.R
+      - WingTip.R
+      - MountSeat
+
+material:
+  modelo: metallic-roughness
+  textura_max: 4096
+  pot: true
+  filtro: linear_mipmap_anisotropic
+
+validacao:
+  escala_delta_pct: 0.5
+  pivo_delta_mm: 1.0
+  materiais_max: 8
+  bytes_max_kb: 25600
+  nao_manifold_max: 0
+  faces_degeneradas_max: 0
+
+orcamento_triangulos:
+  prop_estatico: 5000
+  prop_equipavel: 2500
+  personagem_humanoide: 10000
+  criatura: 10000
+  criatura_quadrupede: 10000
+  criatura_alada: 12000
+  montaria: 10000
+  modulo_cenario: 8000
+  mapa_setor: 40000
+
+orcamento_triangulos_hero:
+  prop_estatico: 10000
+  prop_equipavel: 4000
+  personagem_humanoide: 16000
+  criatura: 16000
+  criatura_quadrupede: 16000
+  criatura_alada: 18000
+  montaria: 16000
+  modulo_cenario: 14000
+  mapa_setor: 80000
+
+orcamento_triangulos_ultra:
+  prop_estatico: 20000
+  prop_equipavel: 6000
+  personagem_humanoide: 28000
+  criatura: 28000
+  criatura_quadrupede: 28000
+  criatura_alada: 32000
+  montaria: 28000
+  modulo_cenario: 24000
+  mapa_setor: 120000
+
+orcamento_cena:
+  capacidade_referencia_tris: 500000
+  fator_alvo: 0.80
+  triangulos_cena_max: 400000
+  draw_calls_cena_max: 400
+  vram_texturas_mb_max: 200

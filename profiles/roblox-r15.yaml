@@ -1,31 +1,28 @@
-# Perfil de export — Roblox (R15 / blocky)
-# Consumido por forge3d (P2). Toda linha marcada [verificar] depende de teste real no Studio (U1-U4).
+# Perfil de export — Roblox (R15 / Retrocompativel v3 · Calibrado ate 80% AA)
+# Evolui o perfil roblox-r15 v2 preservando spec@1..@5, destravando Hero/Ultra
+# e removendo o gargalo legado de 1500 tris em props e 4096 KB em bakes PBR.
 schema: forge3d/profile@1
 perfil: roblox-r15
-versao: 2
+versao: 3
 
-formato: [glb, rbxlx]
+formato: [glb, rbxlx, rbxmx]
 
 unidades:
-  # D62: a geracao mede em metros; a exportacao multiplica a escala final por `escala_saida`.
-  escala_saida: 3.5714           # [medido 11/11/2026] 1/0,28: o importador do Studio usa
-                                 # 1 unidade glTF = 1 stud, entao o glb sai em studs
-  metros_por_unidade: 0.28       # unidade do arquivo exportado (glb em studs); vai ao
-                                 # manifest@2 em unidades_export e e o reciproco de escala_saida
-  metros_por_stud: 0.28          # [medido 11/11/2026] regua do .rbxlx (16 Parts; extensao
-                                 # vertical de 6,6071 studs, igual ao package — D68)
+  escala_saida: 3.5714
+  metros_por_unidade: 0.28
+  metros_por_stud: 0.28
   arredondar_studs: 0.001
 
 eixos:
   up: "+Y"
   frente: "-Z"
 
-aplicar_transforms: true         # MeshPart com escala aplicada quebra Motor6D
+aplicar_transforms: true
 
 pivot:
   prop_estatico: base
   prop_equipavel: empunhadura
-  personagem_humanoide: base    # objeto na base; membros usam os 16 bone heads R15 (D47)
+  personagem_humanoide: base
   criatura: base
   criatura_quadrupede: base
   criatura_alada: base
@@ -36,16 +33,15 @@ pivot:
 colisao:
   modo: hull_por_parte
   max_partes: 15
-  uma_por_parte: true            # [verificar] U2: colisor separado nao vem como tal
+  uma_por_parte: true
 
 lod:
-  habilitado: false              # Roblox tem RenderFidelity proprio
+  habilitado: false
 
 rig:
   esqueleto_padrao: "r15@1"
   max_ossos: 24
   raiz: HumanoidRootPart
-  # D66: retarget da animacao base — osso semantico -> nome da parte R15.
   retarget:
     "r15@1":
       quadril: LowerTorso
@@ -84,29 +80,63 @@ rig:
       - RightFoot
 
 material:
-  modelo: texture                # [medido 11/11/2026] U2: glTF nao trouxe SurfaceAppearance;
-                                 # o MeshPart importado tem so TextureID
-  textura_max: 1024
+  modelo: surface_appearance
+  textura_max: 2048
+  normal_max: 1024
+  normal_max_ultra: 2048
+  canais_pbr: [ColorMap, NormalMap, RoughnessMap, MetalnessMap]
+  espaco_normal: opengl_pos_y
+  exigir_tangents: true
   pot: true
-  filtro: linear                 # pixel art na Roblox e limitada; nao prometer nearest
+  filtro: linear
 
 validacao:
-  escala_delta_pct: 1.0          # arredondamento de stud tolera mais
+  escala_delta_pct: 1.0
   pivo_delta_mm: 2.0
   materiais_max: 1
-  bytes_max_kb: 4096
+  bytes_max_kb: 16384            # evita downscale para 256/128px quando ha mapas PBR 1k/2k
   nao_manifold_max: 0
   faces_degeneradas_max: 0
   partes_max: 15
-  triangulos_por_parte_max: 10000
+  triangulos_por_parte_max: 16000
+  triangulos_por_parte_max_ultra: 18000
 
 orcamento_triangulos:
-  prop_estatico: 1500
-  prop_equipavel: 800
-  personagem_humanoide: 6000
-  criatura: 6000
-  criatura_quadrupede: 6000
-  criatura_alada: 8000
-  montaria: 6000
-  modulo_cenario: 2000
-  mapa_setor: 20000
+  prop_estatico: 4500
+  prop_equipavel: 2000
+  personagem_humanoide: 8000
+  criatura: 8000
+  criatura_quadrupede: 8000
+  criatura_alada: 10000
+  montaria: 8000
+  modulo_cenario: 7000
+  mapa_setor: 35000
+
+orcamento_triangulos_hero:
+  prop_estatico: 10000
+  prop_equipavel: 3500
+  personagem_humanoide: 14000
+  criatura: 14000
+  criatura_quadrupede: 14000
+  criatura_alada: 15000
+  montaria: 14000
+  modulo_cenario: 14000
+  mapa_setor: 80000
+
+orcamento_triangulos_ultra:
+  prop_estatico: 16000
+  prop_equipavel: 4000
+  personagem_humanoide: 16000
+  criatura: 16000
+  criatura_quadrupede: 16000
+  criatura_alada: 16000
+  montaria: 16000
+  modulo_cenario: 16000
+  mapa_setor: 120000
+
+orcamento_cena:
+  capacidade_referencia_tris: 500000
+  fator_alvo: 0.80
+  triangulos_cena_max: 400000
+  draw_calls_cena_max: 400
+  vram_texturas_mb_max: 200

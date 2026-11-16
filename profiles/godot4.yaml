@@ -1,8 +1,8 @@
-# Perfil de export — Godot 4
-# Consumido por forge3d (P1). Nao e codigo: mudar aqui muda o QC, nada mais.
+# Perfil de export — Godot 4 (v2 · AA Ready)
+# Consumido por forge3d. Nao e codigo: mudar aqui muda o QC, nada mais.
 schema: forge3d/profile@1
 perfil: godot4
-versao: 1
+versao: 2
 
 formato: [glb]
 
@@ -42,7 +42,7 @@ rig:
   esqueleto_padrao: "godot-humanoid@1"
   max_ossos: 64
   # D66: retarget da animacao base — osso semantico -> nome do osso neste esqueleto.
-  # O mesmo clipe e materializado nos dois esqueletos por esta tabela, nunca por nome igual.
+  # O mesmo clipe e materializado nos esqueletos por esta tabela, nunca por nome igual.
   retarget:
     "godot-humanoid@1":
       quadril: Hips
@@ -61,6 +61,62 @@ rig:
       canela_d: LowerLeg.R
       pe_e: Foot.L
       pe_d: Foot.R
+    "godot-humanoid-aa@1":
+      quadril: Hips
+      coluna: Spine
+      tronco: Chest
+      pescoco: Neck
+      cabeca: Head
+      mandibula: Jaw
+      olho_e: Eye.L
+      olho_d: Eye.R
+      capa: Cape
+      ombro_e: Shoulder.L
+      ombro_d: Shoulder.R
+      braco_e: UpperArm.L
+      braco_d: UpperArm.R
+      antebraco_e: LowerArm.L
+      antebraco_d: LowerArm.R
+      mao_e: Hand.L
+      mao_d: Hand.R
+      perna_e: UpperLeg.L
+      perna_d: UpperLeg.R
+      canela_e: LowerLeg.L
+      canela_d: LowerLeg.R
+      pe_e: Foot.L
+      pe_d: Foot.R
+      dedo_pe_e: Toe.L
+      dedo_pe_d: Toe.R
+      polegar_1_e: Thumb1.L
+      polegar_2_e: Thumb2.L
+      polegar_3_e: Thumb3.L
+      indicador_1_e: Index1.L
+      indicador_2_e: Index2.L
+      indicador_3_e: Index3.L
+      medio_1_e: Middle1.L
+      medio_2_e: Middle2.L
+      medio_3_e: Middle3.L
+      anelar_1_e: Ring1.L
+      anelar_2_e: Ring2.L
+      anelar_3_e: Ring3.L
+      mindinho_1_e: Little1.L
+      mindinho_2_e: Little2.L
+      mindinho_3_e: Little3.L
+      polegar_1_d: Thumb1.R
+      polegar_2_d: Thumb2.R
+      polegar_3_d: Thumb3.R
+      indicador_1_d: Index1.R
+      indicador_2_d: Index2.R
+      indicador_3_d: Index3.R
+      medio_1_d: Middle1.R
+      medio_2_d: Middle2.R
+      medio_3_d: Middle3.R
+      anelar_1_d: Ring1.R
+      anelar_2_d: Ring2.R
+      anelar_3_d: Ring3.R
+      mindinho_1_d: Little1.R
+      mindinho_2_d: Little2.R
+      mindinho_3_d: Little3.R
     "quadruped@1":
       quadril: Hips
       coluna: Spine
@@ -140,6 +196,63 @@ rig:
       - LowerLeg.R
       - Foot.R
       - Toe.R
+    "godot-humanoid-aa@1":
+      - Root
+      - Hips
+      - Spine
+      - Chest
+      - Neck
+      - Head
+      - Jaw
+      - Eye.L
+      - Eye.R
+      - Cape
+      - Shoulder.L
+      - UpperArm.L
+      - LowerArm.L
+      - Hand.L
+      - Shoulder.R
+      - UpperArm.R
+      - LowerArm.R
+      - Hand.R
+      - Thumb1.L
+      - Thumb2.L
+      - Thumb3.L
+      - Index1.L
+      - Index2.L
+      - Index3.L
+      - Middle1.L
+      - Middle2.L
+      - Middle3.L
+      - Ring1.L
+      - Ring2.L
+      - Ring3.L
+      - Little1.L
+      - Little2.L
+      - Little3.L
+      - Thumb1.R
+      - Thumb2.R
+      - Thumb3.R
+      - Index1.R
+      - Index2.R
+      - Index3.R
+      - Middle1.R
+      - Middle2.R
+      - Middle3.R
+      - Ring1.R
+      - Ring2.R
+      - Ring3.R
+      - Little1.R
+      - Little2.R
+      - Little3.R
+      - UpperLeg.L
+      - LowerLeg.L
+      - Foot.L
+      - Toe.L
+      - UpperLeg.R
+      - LowerLeg.R
+      - Foot.R
+      - Toe.R
     "quadruped@1":
       - Root
       - Hips
@@ -199,15 +312,15 @@ rig:
 
 material:
   modelo: metallic-roughness
-  textura_max: 1024
+  textura_max: 4096
   pot: true
-  filtro: nearest                # [verificar] U3: glTF nao forca filtro; depende do preset de import
+  filtro: linear_mipmap_anisotropic
 
 validacao:
   escala_delta_pct: 0.5
   pivo_delta_mm: 1.0
   materiais_max: 8
-  bytes_max_kb: 2048
+  bytes_max_kb: 25600
   nao_manifold_max: 0
   faces_degeneradas_max: 0
 
@@ -221,3 +334,32 @@ orcamento_triangulos:
   montaria: 8000
   modulo_cenario: 2000
   mapa_setor: 20000
+
+orcamento_triangulos_hero:
+  prop_estatico: 6000
+  prop_equipavel: 2500
+  personagem_humanoide: 12000
+  criatura: 12000
+  criatura_quadrupede: 14000
+  criatura_alada: 16000
+  montaria: 14000
+  modulo_cenario: 8000
+  mapa_setor: 40000
+
+orcamento_triangulos_ultra:
+  prop_estatico: 16000
+  prop_equipavel: 5000
+  personagem_humanoide: 24000
+  criatura: 24000
+  criatura_quadrupede: 28000
+  criatura_alada: 32000
+  montaria: 28000
+  modulo_cenario: 16000
+  mapa_setor: 80000
+
+orcamento_cena:
+  capacidade_referencia_tris: 500000
+  fator_alvo: 0.80
+  triangulos_cena_max: 400000
+  draw_calls_cena_max: 400
+  vram_texturas_mb_max: 200

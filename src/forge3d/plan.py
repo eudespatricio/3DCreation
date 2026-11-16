@@ -6,12 +6,12 @@ quanto vem do cache" sem gastar recurso. E o que roda no CI de pull request.
 
 from __future__ import annotations
 
-from . import __version__, providers
+from . import __version__, profiles, providers, qc
 from .canonical import chave_cache
 from .errors import ForgeError
 from .spec import resolver_item
 
-__all__ = ["montar", "perfil_resolvido"]
+__all__ = ["estimar_orcamento_cena", "montar", "perfil_resolvido", "resumo"]
 
 
 def perfil_resolvido(perfil: dict) -> dict:
@@ -109,3 +109,48 @@ def resumo(tarefas: list[dict]) -> dict:
         "segundos_estimados": round(segundos, 1),
         "vram_pico_mb": vram,
     }
+
+
+def estimar_orcamento_cena(spec_doc: dict, perfil: dict) -> dict:
+    """Estima o orcamento de cena (Gate G11: tris, draw calls, VRAM) sem executar Blender/GPU."""
+    tex_max_perfil = int(((perfil.get("material") or {}).get("textura_max") or 1024))
+    itens_medidos: list[dict] = []
+    for item in spec_doc.get("lote") or []:
+        iid = str(item.get("id") or "?")
+        tipo = str(item.get("tipo") or "prop_estatico")
+        qualidade = str(item.get("qualidade") or "standard").strip().lower()
+        tris = int(
+            item.get("limite_triangulos")
+            or profiles.limite_tri_qualidade(perfil, tipo, qualidade)
+        )
+        qtd = int(item.get("quantidade_cena", 1))
+        skinned = bool(item.get("auto_rig")) or bool(item.get("skinned"))
+        eh_pbr = (
+            item.get("material") == "pbr"
+            or bool(item.get("pbr_zonas"))
+            or bool(item.get("material_procedural"))
+        )
+        px_base = min(tex_max_perfil, 2048 if qualidade in ("hero", "ultra") else 1024)
+        px_sub = min(tex_max_perfil, 2048 if qualidade == "ultra" else 1024)
+        if eh_pbr:
+            texturas = [
+                {"id": f"{iid}:color", "px": px_base, "canais": 4},
+                {"id": f"{iid}:normal", "px": px_sub, "canais": 3},
+                {"id": f"{iid}:roughness", "px": px_sub, "canais": 1},
+                {"id": f"{iid}:metallic", "px": px_sub, "canais": 1},
+            ]
+        else:
+            texturas = [{"id": f"{iid}:albedo", "px": min(px_base, 1024), "canais": 4}]
+        itens_medidos.append(
+            {
+                "id": iid,
+                "tris": tris,
+                "quantidade_cena": qtd,
+                "mesh_key": str(item.get("mesh_key") or iid),
+                "material_key": f"pbr:{iid}" if eh_pbr else "palette_padrao",
+                "skinned": skinned,
+                "texturas": texturas,
+            }
+        )
+    limite = profiles.orcamento_cena_perfil(perfil, spec_doc)
+    return qc.verificar_g11_orcamento_cena(itens_medidos, limite_cena=limite)

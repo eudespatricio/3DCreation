@@ -1,0 +1,257 @@
+# Perfil de export — Roblox AA (~80% da capacidade GPU/Engine 2025/2026)
+# Referencia de plataforma (hard caps vs alvo 80%):
+#   - MeshPart hard cap = 20.000 tris          -> alvo 80% = 16.000 tris/parte (ultra landmark: 18.000)
+#   - Open Cloud Model max = 20 MB             -> alvo 80% = 16.384 KB (16 MB) por GLB
+#   - Cena mobile 60 FPS segura = 500.000 tris -> alvo 80% = 400.000 tris visiveis
+#   - Draw calls mobile seguros = 500          -> alvo 80% = 400 draw calls visiveis
+#   - VRAM texturas 3D mobile = 250 MB         -> alvo 80% = 200 MB
+schema: forge3d/profile@1
+perfil: roblox-aa-80
+versao: 1
+
+formato: [glb, rbxlx, rbxmx]
+
+unidades:
+  # 1/0.28: importador do Studio trata 1 unidade glTF = 1 stud
+  escala_saida: 3.5714
+  metros_por_unidade: 0.28
+  metros_por_stud: 0.28
+  arredondar_studs: 0.001
+
+eixos:
+  up: "+Y"
+  frente: "-Z"
+
+aplicar_transforms: true
+
+pivot:
+  prop_estatico: base
+  prop_equipavel: empunhadura
+  personagem_humanoide: base
+  criatura: base
+  criatura_quadrupede: base
+  criatura_alada: base
+  montaria: base
+  modulo_cenario: base
+  mapa_setor: centro
+
+colisao:
+  modo: box
+  max_partes: 15
+  uma_por_parte: true
+
+lod:
+  habilitado: false              # Roblox usa Mesh Streaming + RenderFidelity (Precise em herois)
+
+rig:
+  esqueleto_padrao: "r15@1"
+  max_ossos: 64
+  raiz: HumanoidRootPart
+  retarget:
+    "r15@1":
+      quadril: LowerTorso
+      tronco: UpperTorso
+      coluna: UpperTorso
+      cabeca: Head
+      ombro_e: LeftUpperArm
+      ombro_d: RightUpperArm
+      braco_e: LeftUpperArm
+      braco_d: RightUpperArm
+      antebraco_e: LeftLowerArm
+      antebraco_d: RightLowerArm
+      perna_e: LeftUpperLeg
+      perna_d: RightUpperLeg
+      canela_e: LeftLowerLeg
+      canela_d: RightLowerLeg
+      pe_e: LeftFoot
+      pe_d: RightFoot
+    "quadruped@1":
+      quadril: Hips
+      coluna: Spine
+      tronco: Chest
+      pescoco: Neck
+      cabeca: Head
+      mandibula: Jaw
+      cauda_1: Tail1
+      cauda_2: Tail2
+      cauda_3: Tail3
+      pata_dianteira_e: FrontUpperLeg.L
+      canela_dianteira_e: FrontLowerLeg.L
+      pe_dianteiro_e: FrontFoot.L
+      pata_dianteira_d: FrontUpperLeg.R
+      canela_dianteira_d: FrontLowerLeg.R
+      pe_dianteiro_d: FrontFoot.R
+      pata_traseira_e: BackUpperLeg.L
+      canela_traseira_e: BackLowerLeg.L
+      pe_traseiro_e: BackFoot.L
+      pata_traseira_d: BackUpperLeg.R
+      canela_traseira_d: BackLowerLeg.R
+      pe_traseiro_d: BackFoot.R
+      sela: MountSeat
+    "winged_mount@1":
+      quadril: Hips
+      coluna: Spine
+      tronco: Chest
+      pescoco: Neck
+      cabeca: Head
+      mandibula: Jaw
+      cauda_1: Tail1
+      cauda_2: Tail2
+      cauda_3: Tail3
+      pata_dianteira_e: FrontUpperLeg.L
+      canela_dianteira_e: FrontLowerLeg.L
+      pe_dianteiro_e: FrontFoot.L
+      pata_dianteira_d: FrontUpperLeg.R
+      canela_dianteira_d: FrontLowerLeg.R
+      pe_dianteiro_d: FrontFoot.R
+      pata_traseira_e: BackUpperLeg.L
+      canela_traseira_e: BackLowerLeg.L
+      pe_traseiro_e: BackFoot.L
+      pata_traseira_d: BackUpperLeg.R
+      canela_traseira_d: BackLowerLeg.R
+      pe_traseiro_d: BackFoot.R
+      asa_ombro_e: WingShoulder.L
+      asa_braco_e: WingArm.L
+      asa_antebraco_e: WingForearm.L
+      asa_ponta_e: WingTip.L
+      asa_ombro_d: WingShoulder.R
+      asa_braco_d: WingArm.R
+      asa_antebraco_d: WingForearm.R
+      asa_ponta_d: WingTip.R
+      sela: MountSeat
+  mapas:
+    "r15@1":
+      - HumanoidRootPart
+      - Head
+      - UpperTorso
+      - LowerTorso
+      - LeftUpperArm
+      - LeftLowerArm
+      - LeftHand
+      - RightUpperArm
+      - RightLowerArm
+      - RightHand
+      - LeftUpperLeg
+      - LeftLowerLeg
+      - LeftFoot
+      - RightUpperLeg
+      - RightLowerLeg
+      - RightFoot
+    "quadruped@1":
+      - Root
+      - Hips
+      - Spine
+      - Chest
+      - Neck
+      - Head
+      - Jaw
+      - Tail1
+      - Tail2
+      - Tail3
+      - FrontUpperLeg.L
+      - FrontLowerLeg.L
+      - FrontFoot.L
+      - FrontUpperLeg.R
+      - FrontLowerLeg.R
+      - FrontFoot.R
+      - BackUpperLeg.L
+      - BackLowerLeg.L
+      - BackFoot.L
+      - BackUpperLeg.R
+      - BackLowerLeg.R
+      - BackFoot.R
+      - MountSeat
+    "winged_mount@1":
+      - Root
+      - Hips
+      - Spine
+      - Chest
+      - Neck
+      - Head
+      - Jaw
+      - Tail1
+      - Tail2
+      - Tail3
+      - FrontUpperLeg.L
+      - FrontLowerLeg.L
+      - FrontFoot.L
+      - FrontUpperLeg.R
+      - FrontLowerLeg.R
+      - FrontFoot.R
+      - BackUpperLeg.L
+      - BackLowerLeg.L
+      - BackFoot.L
+      - BackUpperLeg.R
+      - BackLowerLeg.R
+      - BackFoot.R
+      - WingShoulder.L
+      - WingArm.L
+      - WingForearm.L
+      - WingTip.L
+      - WingShoulder.R
+      - WingArm.R
+      - WingForearm.R
+      - WingTip.R
+      - MountSeat
+
+material:
+  modelo: surface_appearance     # fallback automatico para TextureID quando nao houver mapas PBR
+  textura_max: 2048
+  normal_max: 1024
+  normal_max_ultra: 2048
+  canais_pbr: [ColorMap, NormalMap, RoughnessMap, MetalnessMap]
+  espaco_normal: opengl_pos_y
+  exigir_tangents: true
+  pot: true
+  filtro: linear
+
+validacao:
+  escala_delta_pct: 1.0
+  pivo_delta_mm: 2.0
+  materiais_max: 1               # 1 SurfaceAppearance por MeshPart -> preserva GPU instancing
+  bytes_max_kb: 16384            # 80% do teto de 20 MB da Open Cloud Assets API
+  nao_manifold_max: 0
+  faces_degeneradas_max: 0
+  partes_max: 15
+  triangulos_por_parte_max: 16000
+  triangulos_por_parte_max_ultra: 18000
+
+orcamento_triangulos:
+  prop_estatico: 5000
+  prop_equipavel: 2500
+  personagem_humanoide: 8000
+  criatura: 8000
+  criatura_quadrupede: 8000
+  criatura_alada: 10000
+  montaria: 8000
+  modulo_cenario: 8000
+  mapa_setor: 40000
+
+orcamento_triangulos_hero:
+  prop_estatico: 10000
+  prop_equipavel: 3500
+  personagem_humanoide: 14000
+  criatura: 14000
+  criatura_quadrupede: 14000
+  criatura_alada: 15000
+  montaria: 14000
+  modulo_cenario: 14000
+  mapa_setor: 80000
+
+orcamento_triangulos_ultra:
+  prop_estatico: 16000
+  prop_equipavel: 4000           # teto UGC/acessorio Roblox Marketplace
+  personagem_humanoide: 16000
+  criatura: 16000
+  criatura_quadrupede: 16000
+  criatura_alada: 16000
+  montaria: 16000
+  modulo_cenario: 16000
+  mapa_setor: 120000
+
+orcamento_cena:
+  capacidade_referencia_tris: 500000
+  fator_alvo: 0.80
+  triangulos_cena_max: 400000
+  draw_calls_cena_max: 400
+  vram_texturas_mb_max: 200

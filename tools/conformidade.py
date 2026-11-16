@@ -43,7 +43,7 @@ RE_CAMINHO_PROIBIDO = re.compile(
 
 # I15: nome de projeto de jogo nao entra no pipeline (o projeto e consumidor, nao preset)
 RE_PROJETO = re.compile(
-    r"gamezero|game-zero|gameone|game-one|sylveria|jogo-roblox|jogo_roblox|jogoroblox",
+    r"gamezero|game-zero|gameone|game-one|sylveria|jogo-roblox|jogo_roblox|jogoroblox|muralha",
     re.IGNORECASE,
 )
 
@@ -120,7 +120,7 @@ def verificar_conformidade(raiz: Path) -> list[str]:
                 continue
 
     # (e) nome de projeto de jogo e caminho /home fixo em src/ e nos contratos
-    dirs_projeto = ["src", "profiles", "examples", "schemas"]
+    dirs_projeto = ["src", "blender", "profiles", "examples", "schemas"]
     for d_nome in dirs_projeto:
         dir_path = raiz / d_nome
         for arq in _arquivos_no_diretorio(dir_path):

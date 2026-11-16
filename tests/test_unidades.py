@@ -114,28 +114,28 @@ def _manifesto(perfil: dict, escala: float = 1.0) -> dict:
 
 def test_manifesto_roblox_declara_unidades_export_em_studs():
     man = _manifesto(ROBLOX, ESCALA_STUD)
-    assert man["schema"] == "forge3d/manifest@5"
+    assert man["schema"] == "forge3d/manifest@6"
     assert man["unidades_export"] == {
         "metros_por_unidade": METROS_POR_STUD,
         "escala_saida": ESCALA_STUD,
     }
     # bbox_m continua em metros: o consumidor converte pela unidade declarada
     assert man["geometry"]["bbox_m"] == [0.52, 1.85, 0.4]
-    jsonschema.validate(man, _schema("5"))
+    jsonschema.validate(man, _schema("6"))
 
 
 def test_manifesto_godot_fica_em_metros():
     man = _manifesto(GODOT, 1.0)
-    assert man["schema"] == "forge3d/manifest@5"
+    assert man["schema"] == "forge3d/manifest@6"
     assert man["unidades_export"] == {"metros_por_unidade": 1.0, "escala_saida": 1.0}
-    jsonschema.validate(man, _schema("5"))
+    jsonschema.validate(man, _schema("6"))
 
 
 def test_manifesto_v3_sem_unidades_export_reprova():
     man = _manifesto(ROBLOX, ESCALA_STUD)
     man.pop("unidades_export")
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(man, _schema("5"))
+        jsonschema.validate(man, _schema("6"))
 
 
 # ------------------------------------------------------------------ G2

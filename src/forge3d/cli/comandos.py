@@ -36,7 +36,7 @@ def construir_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="diagnostico do ambiente")
     d.add_argument("--json", action="store_true")
 
-    v = sub.add_parser("validate", help="valida o lote contra spec@1..@5 + regras de negocio")
+    v = sub.add_parser("validate", help="valida o lote contra spec@1..@6 + regras de negocio")
     v.add_argument("lote")
     v.add_argument("--json", action="store_true")
 
@@ -49,6 +49,12 @@ def construir_parser() -> argparse.ArgumentParser:
         dest="no_cache",
         action="store_true",
         help="ignora cache e projeta custo de geracao completa",
+    )
+    pl.add_argument(
+        "--scene-budget",
+        dest="scene_budget",
+        action="store_true",
+        help="estima orcamento de cena (Gate G11: tris, draw calls, VRAM)",
     )
 
     r = sub.add_parser("run", help="executa, verifica QC e publica")
@@ -84,7 +90,7 @@ def construir_parser() -> argparse.ArgumentParser:
     q.add_argument("--json", action="store_true")
 
     mi = sub.add_parser(
-        "migrate", help="sobe um lote para o contrato corrente (spec@5), sem inventar valor"
+        "migrate", help="sobe um lote para o contrato corrente (spec@6), sem inventar valor"
     )
     mi.add_argument("lote")
     mi.add_argument("--saida", help="grava o lote migrado neste arquivo")
@@ -304,7 +310,10 @@ def _validate(args) -> int:
 
 def _plan(args) -> int:
     relatorio, codigo = pipeline.executar(
-        args.lote, plano_apenas=True, no_cache=getattr(args, "no_cache", False)
+        args.lote,
+        plano_apenas=True,
+        no_cache=getattr(args, "no_cache", False),
+        scene_budget=getattr(args, "scene_budget", False),
     )
     if args.json:
         _json(relatorio)
@@ -691,6 +700,17 @@ def _imprimir_plano(relatorio: dict) -> None:
         else:
             marca, extra = "executar", f"{tarefa['rota']}  ~{estimativa}s"
         print(f"  [{marca:<9}] {tarefa['id']:<30} {extra}")
+    orc = relatorio.get("orcamento_cena")
+    if isinstance(orc, dict):
+        med = orc.get("medido") or {}
+        lim = orc.get("limite") or {}
+        print(
+            f"orcamento_cena [{orc.get('status')}]: "
+            f"{med.get('triangulos_cena')}/{lim.get('triangulos_cena_max')} tris "
+            f"({med.get('ocupacao_500k_pct')}% de 500k), "
+            f"{med.get('draw_calls_estimados')}/{lim.get('draw_calls_cena_max')} draw calls, "
+            f"{med.get('vram_texturas_mb')}/{lim.get('vram_texturas_mb_max')} MB VRAM"
+        )
 
 
 def _imprimir_run(relatorio: dict) -> None:

@@ -1,4 +1,4 @@
-"""Migracao de lote entre versoes do contrato (`spec@1`..`@4` -> `spec@5`).
+"""Migracao de lote entre versoes do contrato (`spec@1`..`@5` -> `spec@6`).
 
 Regra da fase P6: a migracao sobe a versao e canonicaliza alias. Nao inventa valor — lote que o
 contrato novo recusa continua recusado, com o motivo do B1-B17.
@@ -33,12 +33,12 @@ def _modular_antigo(tmp_path: Path) -> Path:
 def test_lote_01_migra_do_spec_1_para_o_corrente():
     plano = migrate.planejar(EXEMPLOS / "lote_01.yaml")
     assert plano["de"] == "forge3d/spec@1"
-    assert plano["para"] == "forge3d/spec@5"
+    assert plano["para"] == "forge3d/spec@6"
     assert plano["valido"], plano["erros"]
     assert plano["mudancas"] == [
-        {"campo": "schema", "de": "forge3d/spec@1", "para": "forge3d/spec@5"}
+        {"campo": "schema", "de": "forge3d/spec@1", "para": "forge3d/spec@6"}
     ]
-    assert "schema: forge3d/spec@5" in plano["texto"]
+    assert "schema: forge3d/spec@6" in plano["texto"]
 
 
 def test_migracao_preserva_comentarios_e_campo_do_spec_2():
@@ -50,9 +50,19 @@ def test_migracao_preserva_comentarios_e_campo_do_spec_2():
 
 
 def test_lote_no_contrato_corrente_nao_muda():
-    plano = migrate.planejar(EXEMPLOS / "lote_12_creatures_mounts.yaml")
+    plano = migrate.planejar(EXEMPLOS / "lote_13_scene_budget_aa.yaml")
     assert plano["mudancas"] == []
-    assert plano["de"] == plano["para"] == "forge3d/spec@5"
+    assert plano["de"] == plano["para"] == "forge3d/spec@6"
+
+
+def test_lote_spec_5_migra_para_spec_6():
+    plano = migrate.planejar(EXEMPLOS / "lote_12_creatures_mounts.yaml")
+    assert plano["de"] == "forge3d/spec@5"
+    assert plano["para"] == "forge3d/spec@6"
+    assert plano["valido"], plano["erros"]
+    assert plano["mudancas"] == [
+        {"campo": "schema", "de": "forge3d/spec@5", "para": "forge3d/spec@6"}
+    ]
 
 
 def test_alias_legado_e_canonicalizado(tmp_path):
@@ -81,7 +91,7 @@ def test_gravar_saida_gera_lote_aceito_pelo_contrato(tmp_path):
     destino = tmp_path / "lote.v3.yaml"
     escrito = migrate.gravar(plano, saida=destino)
     assert escrito == destino and destino.is_file()
-    assert yaml.safe_load(destino.read_text(encoding="utf-8"))["schema"] == "forge3d/spec@5"
+    assert yaml.safe_load(destino.read_text(encoding="utf-8"))["schema"] == "forge3d/spec@6"
     spec.preparar(spec.carregar_arquivo(destino))  # schema + B1-B22
 
 
@@ -90,7 +100,7 @@ def test_em_lugar_sobrescreve_o_proprio_lote(tmp_path):
     copia.write_text((EXEMPLOS / "lote_01.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     plano = migrate.planejar(copia)
     migrate.gravar(plano, em_lugar=True)
-    assert "schema: forge3d/spec@5" in copia.read_text(encoding="utf-8")
+    assert "schema: forge3d/spec@6" in copia.read_text(encoding="utf-8")
 
 
 def test_recusa_sobrescrever_o_original_sem_em_lugar(tmp_path):
@@ -108,7 +118,7 @@ def test_cli_migrate_json_grava_e_reporta(tmp_path, capsys):
     relatorio = json.loads(capsys.readouterr().out)
     assert relatorio["comando"] == "migrate"
     assert relatorio["de"] == "forge3d/spec@1"
-    assert relatorio["para"] == "forge3d/spec@5"
+    assert relatorio["para"] == "forge3d/spec@6"
     assert relatorio["escrito"] == str(destino)
     assert relatorio["valido"] is True
 

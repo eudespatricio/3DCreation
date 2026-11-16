@@ -118,7 +118,7 @@ def montar_manifesto(
     run_id: str,
     created_at: str | None = None,
 ) -> dict:
-    """Monta o dicionario canonico de manifesto@3 a partir de item, resultado e QC."""
+    """Monta o dicionario canonico de manifesto@6 a partir de item, resultado e QC."""
     arquivos = [
         {
             "caminho": arq["caminho"],
@@ -216,7 +216,7 @@ def montar_manifesto(
     sombreamento = resultado.get("sombreamento") or medidas.get("sombreamento")
 
     return {
-        "schema": "forge3d/manifest@5",
+        "schema": "forge3d/manifest@6",
         "asset_id": item["id"],
         "projeto": spec_doc["projeto"],
         "perfil": perfil_nome,
@@ -225,6 +225,29 @@ def montar_manifesto(
         "spec_hash": spec_hash,
         "pipeline_version": __version__,
         "determinism": resultado.get("determinism", provider["determinism"]),
+        **({"qualidade": str(item["qualidade"])} if item.get("qualidade") else {}),
+        **({"alpha_cards": bool(item["alpha_cards"])} if "alpha_cards" in item else {}),
+        **({"quantidade_cena": int(item["quantidade_cena"])} if "quantidade_cena" in item else {}),
+        **(
+            {"orcamento_cena": dict(spec_doc["orcamento_cena"])}
+            if isinstance(spec_doc.get("orcamento_cena"), dict)
+            else {}
+        ),
+        **(
+            {"pbr_zonas": list(item["pbr_zonas"])}
+            if isinstance(item.get("pbr_zonas"), list) and item["pbr_zonas"]
+            else {}
+        ),
+        **(
+            {"detalhe_alto": dict(item["detalhe_alto"])}
+            if isinstance(item.get("detalhe_alto"), dict)
+            else {}
+        ),
+        **(
+            {"smart_fit": dict(item["smart_fit"])}
+            if isinstance(item.get("smart_fit"), dict)
+            else {}
+        ),
         "providers": providers,
         "geometry": {
             "triangulos": int(medidas["triangulos"]),

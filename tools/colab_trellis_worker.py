@@ -48,18 +48,21 @@ def _slug_item(stem: str) -> str:
     return limpo or "asset"
 
 
-def gerar_yaml_spec_v5(
+def gerar_yaml_spec(
     entradas: list[dict[str, Any]],
     *,
+    schema_version: int = 5,
     perfil: str = "godot4",
     tipo: str = "personagem_humanoide",
     altura_metros: float = 1.8,
     destino_exportacao: str = "~/.local/state/forge3d/saida/trellis",
     projeto: str = "trellis_colab",
+    qualidade: str = "standard",
 ) -> str:
-    """Constroi documento ``forge3d/spec@5`` valido com ``requisicao.base_externa``."""
+    """Constroi documento ``forge3d/spec@5`` ou ``forge3d/spec@6`` valido com ``requisicao.base_externa``."""
+    ver = 6 if int(schema_version) == 6 else 5
     linhas: list[str] = [
-        'schema: "forge3d/spec@5"',
+        f'schema: "forge3d/spec@{ver}"',
         f'projeto: "{projeto}"',
         f'perfil: "{perfil}"',
         f'destino_exportacao: "{destino_exportacao}"',
@@ -89,7 +92,53 @@ def gerar_yaml_spec_v5(
                 '    estilo: "stylized_pbr"',
             ]
         )
+        if ver == 6 and qualidade and qualidade != "standard":
+            linhas.append(f'    qualidade: "{qualidade}"')
     return "\n".join(linhas) + "\n"
+
+
+def gerar_yaml_spec_v5(
+    entradas: list[dict[str, Any]],
+    *,
+    perfil: str = "godot4",
+    tipo: str = "personagem_humanoide",
+    altura_metros: float = 1.8,
+    destino_exportacao: str = "~/.local/state/forge3d/saida/trellis",
+    projeto: str = "trellis_colab",
+) -> str:
+    """Constroi documento ``forge3d/spec@5`` valido com ``requisicao.base_externa``."""
+    return gerar_yaml_spec(
+        entradas,
+        schema_version=5,
+        perfil=perfil,
+        tipo=tipo,
+        altura_metros=altura_metros,
+        destino_exportacao=destino_exportacao,
+        projeto=projeto,
+    )
+
+
+def gerar_yaml_spec_v6(
+    entradas: list[dict[str, Any]],
+    *,
+    perfil: str = "godot4-aa",
+    tipo: str = "personagem_humanoide",
+    altura_metros: float = 1.8,
+    destino_exportacao: str = "~/.local/state/forge3d/saida/trellis",
+    projeto: str = "trellis_colab",
+    qualidade: str = "hero",
+) -> str:
+    """Constroi documento ``forge3d/spec@6`` valido com ``requisicao.base_externa``."""
+    return gerar_yaml_spec(
+        entradas,
+        schema_version=6,
+        perfil=perfil,
+        tipo=tipo,
+        altura_metros=altura_metros,
+        destino_exportacao=destino_exportacao,
+        projeto=projeto,
+        qualidade=qualidade,
+    )
 
 
 def carregar_pipeline_trellis(modelo: str) -> Any:
@@ -162,11 +211,11 @@ def processar_pasta(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Batch JeffreyXiang/TRELLIS (MIT) para Google Colab AI Ultra -> GLB + spec@5"
+        description="Batch JeffreyXiang/TRELLIS (MIT) para Google Colab AI Ultra -> GLB + spec@5/spec@6"
     )
     parser.add_argument("--input-dir", type=Path, required=True, help="Pasta com imagens PNG")
     parser.add_argument("--output-dir", type=Path, required=True, help="Pasta de saida dos GLBs")
-    parser.add_argument("--yaml-out", type=Path, default=None, help="Arquivo YAML spec@5 de saida")
+    parser.add_argument("--yaml-out", type=Path, default=None, help="Arquivo YAML spec de saida")
     parser.add_argument("--model", default=MODELO_TRELLIS_PADRAO, help="Checkpoint HuggingFace TRELLIS")
     parser.add_argument("--seed", type=int, default=1, help="Seed inicial deterministica")
     parser.add_argument("--simplify", type=float, default=0.95, help="Taxa de simplificacao da malha")
@@ -174,6 +223,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--perfil", default="godot4", help="Perfil Forge3D alvo no snippet YAML")
     parser.add_argument("--tipo", default="personagem_humanoide", help="Tipo Forge3D no snippet YAML")
     parser.add_argument("--altura", type=float, default=1.8, help="Altura em metros no snippet YAML")
+    parser.add_argument(
+        "--schema-version",
+        type=int,
+        choices=(5, 6),
+        default=6,
+        help="Versao do schema YAML emitido (5 ou 6, padrao: 6)",
+    )
+    parser.add_argument(
+        "--qualidade",
+        default="standard",
+        choices=("standard", "hero", "ultra"),
+        help="Tier de qualidade no spec@6",
+    )
     args = parser.parse_args(argv)
 
     entradas = processar_pasta(
@@ -184,16 +246,18 @@ def main(argv: list[str] | None = None) -> int:
         simplify=args.simplify,
         texture_size=args.texture_size,
     )
-    yaml_txt = gerar_yaml_spec_v5(
+    yaml_txt = gerar_yaml_spec(
         entradas,
+        schema_version=args.schema_version,
         perfil=args.perfil,
         tipo=args.tipo,
         altura_metros=args.altura,
+        qualidade=args.qualidade,
     )
     if args.yaml_out is not None:
         args.yaml_out.parent.mkdir(parents=True, exist_ok=True)
         args.yaml_out.write_text(yaml_txt, encoding="utf-8")
-        print(f"SPEC_V5_OK {args.yaml_out} ({len(entradas)} ativos)")
+        print(f"SPEC_V{args.schema_version}_OK {args.yaml_out} ({len(entradas)} ativos)")
     else:
         sys.stdout.write(yaml_txt)
     return 0

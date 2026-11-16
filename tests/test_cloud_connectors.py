@@ -34,6 +34,7 @@ def test_cloud_ai_usa_apenas_stdlib_d26():
         "base64",
         "hashlib",
         "json",
+        "math",
         "os",
         "pathlib",
         "re",
@@ -55,6 +56,12 @@ def test_licencas_comerciais_gemini_e_higgsfield_registradas():
     cloud_ai.registrar_licencas_cloud()
     assert "gemini" in LICENCAS
     assert LICENCAS["gemini"]["uso_comercial"] is True
+    assert "gemini_embedding" in LICENCAS
+    assert LICENCAS["gemini_embedding"]["uso_comercial"] is True
+    assert "gemini_kitbash" in LICENCAS
+    assert LICENCAS["gemini_kitbash"]["uso_comercial"] is True
+    assert cloud_ai._LICENCAS_CLOUD["gemini_embedding"]["uso_comercial"] is True
+    assert cloud_ai._LICENCAS_CLOUD["gemini_kitbash"]["uso_comercial"] is True
     assert "higgsfield" in LICENCAS
     assert LICENCAS["higgsfield"]["uso_comercial"] is True
     assert "trellis" in LICENCAS
@@ -604,3 +611,12 @@ def test_colab_trellis_worker_gera_spec_v5_valido(tmp_path):
     spec_doc, _perfil, _avisos = spec.preparar(doc)
     assert spec_doc["schema"] == "forge3d/spec@5"
     assert spec_doc["requisicao"]["base_externa"]["sha256"] == digest
+
+    yaml_str_v6 = tw.gerar_yaml_spec(
+        [{"stem": "paladin", "glb_rel": str(glb), "sha256": digest, "seed": 42}],
+        schema_version=6,
+        qualidade="hero",
+    )
+    doc_v6 = yaml.safe_load(yaml_str_v6)
+    assert doc_v6["schema"] == "forge3d/spec@6"
+    assert doc_v6["lote"][0]["qualidade"] == "hero"

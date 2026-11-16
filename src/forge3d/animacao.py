@@ -651,6 +651,127 @@ _DEFINICOES_CRIATURA = {
 }
 
 
+_CHAVES_DEDOS_CASCATA: tuple[tuple[str, float, float], ...] = (
+    ("polegar", 0.65, 0.0),
+    ("thumb", 0.65, 0.0),
+    ("indicador", 0.90, 0.04),
+    ("index", 0.90, 0.04),
+    ("medio", 1.00, 0.08),
+    ("middle", 1.00, 0.08),
+    ("anelar", 1.08, 0.12),
+    ("ring", 1.08, 0.12),
+    ("mindinho", 1.15, 0.16),
+    ("little", 1.15, 0.16),
+)
+
+_CAPA_HARMONICA: dict[str, tuple[float, float, float, float]] = {
+    "idle": (1.8, 0.20, 1.0, 2.5),
+    "walk": (5.5, 0.35, 2.0, 8.0),
+    "run": (8.5, 0.35, 2.0, 16.0),
+    "ride_idle": (2.4, 0.25, 1.0, 6.0),
+    "ride_fly": (9.0, 0.25, 2.0, 18.0),
+}
+
+_CAPA_BALISTICA: dict[str, tuple[float, ...]] = {
+    "jump": (0.0, -4.0, 14.0, 22.0, 26.0, 18.0, 8.0, 3.0, 0.0),
+    "attack": (0.0, -6.0, -10.0, 14.0, 18.0, 12.0, 5.0, 2.0, 0.0),
+    "slash_combo": (0.0, -6.0, 12.0, -8.0, 16.0, 12.0, -6.0, 8.0, 0.0),
+    "cast": (0.0, 5.0, 10.0, 14.0, 8.0, 18.0, 12.0, 5.0, 0.0),
+    "block": (0.0, 4.0, 7.0, 8.0, 8.0, 7.0, 5.0, 2.0, 0.0),
+    "hit": (0.0, 10.0, 16.0, 12.0, 7.0, 4.0, 2.0, 1.0, 0.0),
+    "death": (0.0, 4.0, 12.0, 18.0, 14.0, 8.0, 4.0, 2.0, 2.0),
+}
+
+_MANDIBULA_BALISTICA: dict[str, tuple[float, ...]] = {
+    "jump": (0.0, -1.5, -3.0, -4.5, -4.0, -2.5, -1.5, -0.5, 0.0),
+    "attack": (0.0, -2.0, -5.0, -8.0, -6.0, -3.5, -1.5, -0.5, 0.0),
+    "slash_combo": (0.0, -2.5, -6.0, -4.0, -7.0, -5.0, -8.0, -3.0, 0.0),
+    "cast": (0.0, -2.0, -4.5, -6.5, -5.0, -8.0, -5.5, -2.0, 0.0),
+    "block": (0.0, -1.5, -3.5, -4.0, -4.0, -3.5, -2.0, -1.0, 0.0),
+    "hit": (0.0, -4.0, -9.0, -7.0, -4.5, -2.5, -1.0, -0.5, 0.0),
+    "death": (0.0, -2.0, -6.0, -10.0, -12.0, -12.0, -10.0, -10.0, -10.0),
+}
+
+
+def _motores_secundarios_aa(
+    mapa: dict[str, str],
+    nome: str,
+    modo: str,
+    motores_base: tuple,
+) -> tuple:
+    """Sintetiza movimento secundario C1 para capa, mandibula e falanges quando no retarget."""
+    presentes_base = {m[0] for m in motores_base}
+    extras: list[tuple] = []
+
+    if "capa" in mapa and "capa" not in presentes_base:
+        if modo == "harmonica":
+            amp, defas, cyc, off = _CAPA_HARMONICA.get(nome, (2.5, 0.25, 1.0, 4.0))
+            extras.append(("capa", amp, defas, "X", cyc, off))
+        else:
+            vals = _CAPA_BALISTICA.get(nome, (0.0, 4.0, 10.0, 12.0, 8.0, 4.0, 2.0, 1.0, 0.0))
+            extras.append(("capa", "X", vals))
+
+    if "mandibula" in mapa and "mandibula" not in presentes_base:
+        if modo == "harmonica":
+            amp = -1.2 if nome in ("walk", "run", "ride_fly") else -0.8
+            cyc = 2.0 if nome in ("walk", "run", "ride_fly") else 1.0
+            extras.append(("mandibula", amp, 0.18, "X", cyc, amp))
+        else:
+            vals = _MANDIBULA_BALISTICA.get(nome, (0.0, -1.5, -4.0, -5.0, -3.5, -2.0, -1.0, -0.5, 0.0))
+            extras.append(("mandibula", "X", vals))
+
+    if "pescoco" in mapa and "pescoco" not in presentes_base:
+        if modo == "harmonica":
+            if nome in ("walk", "run", "ride_fly"):
+                extras.append(("pescoco", 1.8 if nome == "walk" else 2.8, 0.25, "Y", 2.0, 0.0))
+            else:
+                extras.append(("pescoco", -0.8, 0.12, "X", 1.0, 0.0))
+        else:
+            extras.append(("pescoco", "X", (0.0, 3.0, -2.0, 2.0, 3.0, 2.0, -1.0, 1.0, 0.0)))
+
+    for sem_mao, defas_m in (("mao_e", 0.35), ("mao_d", 0.85)):
+        if sem_mao in mapa and sem_mao not in presentes_base:
+            if modo == "harmonica":
+                amp_m = 4.5 if nome in ("walk", "run") else 1.8
+                cyc_m = 2.0 if nome in ("walk", "run") else 1.0
+                extras.append((sem_mao, amp_m, defas_m, "X", cyc_m, 0.0))
+            else:
+                extras.append((sem_mao, "X", (0.0, 4.0, 8.0, 10.0, 8.0, 5.0, 3.0, 1.0, 0.0)))
+
+    for sem_pe, defas_p in (("dedo_pe_e", 0.30), ("dedo_pe_d", 0.80)):
+        if sem_pe in mapa and sem_pe not in presentes_base:
+            if modo == "harmonica":
+                amp_p = 8.0 if nome in ("walk", "run") else 1.5
+                cyc_p = 2.0 if nome in ("walk", "run") else 1.0
+                extras.append((sem_pe, amp_p, defas_p, "X", cyc_p, 0.0))
+            else:
+                extras.append((sem_pe, "X", (0.0, 10.0, -14.0, -10.0, -6.0, -8.0, 12.0, 4.0, 0.0)))
+
+    # Falanges / dedos (suporta prefixos PT/EN + sufixos e/d/l/r)
+    for lado_suf, phase_lado in (("e", 0.25), ("d", 0.75), ("l", 0.25), ("r", 0.75)):
+        for dedo_pref, esc, defas_d in _CHAVES_DEDOS_CASCATA:
+            for seg in (1, 2, 3):
+                for chave_cand in (f"{dedo_pref}_{seg}_{lado_suf}", f"{dedo_pref}{seg}_{lado_suf}"):
+                    if chave_cand in mapa and chave_cand not in presentes_base:
+                        if modo == "harmonica":
+                            base_off = (26.0 if nome in ("ride_idle", "ride_fly") else 18.0) * esc
+                            amp_d = (4.5 if nome in ("walk", "run", "ride_fly") else 2.2) * esc
+                            cyc_d = 2.0 if nome in ("walk", "run") else 1.0
+                            extras.append((chave_cand, amp_d, (phase_lado + defas_d) % 1.0, "X", cyc_d, base_off))
+                        else:
+                            b0 = round(16.0 * esc, 3)
+                            p1 = round(38.0 * esc, 3)
+                            p2 = round(48.0 * esc, 3)
+                            vals_d = (b0, p1 * 0.75, p1, p2, p2 * 0.9, p1 * 0.8, b0 * 1.2, b0 * 1.05, b0)
+                            if nome == "death":
+                                vals_d = (b0, b0 * 1.2, p1, p1, b0 * 1.4, b0 * 1.2, b0, b0, b0)
+                            extras.append((chave_cand, "X", vals_d))
+
+    if not extras:
+        return motores_base
+    return tuple(motores_base) + tuple(extras)
+
+
 def _resolver_mapa_clipe(perfil: dict, esqueleto: str, nome: str) -> tuple[dict[str, str], bool]:
     """Resolve tabela de retarget e indica se o alvo e esqueleto de criatura/montaria."""
     mapa = profiles.retarget(perfil, esqueleto)
@@ -689,6 +810,7 @@ def clipes(perfil: dict, esqueleto: str, pedidos: list[str] | None) -> list[dict
         if espec is None:
             continue
         modo, segundos, n_segs, motores, bob_amp, bob_off, lat_amp, cyc_b = espec
+        motores_ef = motores if eh_criatura else _motores_secundarios_aa(mapa, nome, modo, motores)
         total = int(round(segundos * FPS))
         fracoes = _fracoes_24fps(total, n_segs)
         if modo == "balistica":
@@ -699,7 +821,7 @@ def clipes(perfil: dict, esqueleto: str, pedidos: list[str] | None) -> list[dict
             )
             chaves = _chaves_balisticas(
                 mapa,
-                motores,
+                motores_ef,
                 fracoes,
                 total,
                 bob_z=bob_z,
@@ -707,7 +829,7 @@ def clipes(perfil: dict, esqueleto: str, pedidos: list[str] | None) -> list[dict
         else:
             chaves = _chaves_harmonicas(
                 mapa,
-                motores,
+                motores_ef,
                 fracoes,
                 total,
                 bob_amp_z=bob_amp,

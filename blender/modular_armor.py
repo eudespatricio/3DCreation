@@ -34,8 +34,9 @@ if _DIR not in sys.path:
 
 try:
     import autorig
+    import smart_fit
 except ImportError:
-    from blender import autorig
+    from blender import autorig, smart_fit
 
 MACRO_PADRAO = {
     "gender": 0.0,
@@ -85,8 +86,11 @@ _OSSOS_R15_PADRAO: dict[str, str] = {
     "corpo": "HumanoidRootPart",
 }
 
+_OSSOS_AA_PADRAO: dict[str, str] = dict(_OSSOS_SOCKET_PADRAO, capa="Cape")
+
 _OSSOS_POR_ESQUELETO: dict[str, dict[str, str]] = {
     "godot-humanoid@1": _OSSOS_SOCKET_PADRAO,
+    "godot-humanoid-aa@1": _OSSOS_AA_PADRAO,
     "r15@1": _OSSOS_R15_PADRAO,
 }
 
@@ -256,8 +260,13 @@ def _criar_armadura(ossos: list[dict], nome: str = "Armature") -> "bpy.types.Obj
     return obj
 
 
-def _transferir_pesos_esqueleto(body_obj, cloth_obj, rig_obj) -> None:
-    """Aplica DATA_TRANSFER do corpo base de 23 ossos para a peca de armadura e limpa grupos estranhos."""
+def _transferir_pesos_esqueleto(
+    body_obj,
+    cloth_obj,
+    rig_obj,
+    parte: str = "",
+) -> None:
+    """Aplica DATA_TRANSFER do corpo base (23 ou 56 ossos) para a peca e garante pesos limpos."""
     mod = cloth_obj.modifiers.new(name="DATA_TRANSFER", type="DATA_TRANSFER")
     mod.object = body_obj
     mod.use_vert_data = True
@@ -270,11 +279,72 @@ def _transferir_pesos_esqueleto(body_obj, cloth_obj, rig_obj) -> None:
     bpy.ops.object.datalayout_transfer(modifier="DATA_TRANSFER")
     bpy.ops.object.modifier_apply(modifier="DATA_TRANSFER")
 
-    # Filtra grupos: mantem apenas os 23 ossos do esqueleto padrao
+    # Filtra grupos: mantem apenas os ossos validos do esqueleto de referencia
     ossos_validos = {b.name for b in rig_obj.data.bones}
     for vg in list(cloth_obj.vertex_groups):
         if vg.name not in ossos_validos:
             cloth_obj.vertex_groups.remove(vg)
+
+    # Garante todos os grupos nao-raiz e refina luvas/manoplas nas falanges (56 ossos)
+    raizes = getattr(autorig, "_RAIZES", {"Root", "HumanoidRootPart"})
+    ossos_dedos = getattr(autorig, "_OSSOS_DEDOS", set())
+    tem_dedos = any(b.name in ossos_dedos for b in rig_obj.data.bones)
+    vgs_por_nome = {vg.name: vg for vg in cloth_obj.vertex_groups}
+    for b in rig_obj.data.bones:
+        if b.name not in raizes and b.name not in vgs_por_nome:
+            vgs_por_nome[b.name] = cloth_obj.vertex_groups.new(name=b.name)
+
+    segmentos_ossos = [
+        (b.name, b.head_local.copy(), b.tail_local.copy())
+        for b in rig_obj.data.bones
+        if b.name not in raizes
+    ]
+    segmentos_mao_dedos: dict[str, list[tuple[str, Vector, Vector]]] = {}
+    if tem_dedos:
+        for lado in ("L", "R"):
+            alvos_l = [
+                (b.name, b.head_local.copy(), b.tail_local.copy())
+                for b in rig_obj.data.bones
+                if b.name == f"Hand.{lado}" or (b.name in ossos_dedos and b.name.endswith(f".{lado}"))
+            ]
+            if alvos_l:
+                segmentos_mao_dedos[f"Hand.{lado}"] = alvos_l
+
+    idx_para_nome = {vg.index: vg.name for vg in cloth_obj.vertex_groups}
+    for v in cloth_obj.data.vertices:
+        pesos_v = [(idx_para_nome[g.group], float(g.weight)) for g in v.groups if g.group in idx_para_nome and g.weight > 1e-6]
+        if not pesos_v and segmentos_ossos:
+            cands = sorted(
+                ((autorig._dist_ponto_segmento(v.co, h_b, t_b), n_b) for n_b, h_b, t_b in segmentos_ossos),
+                key=lambda item: item[0],
+            )[:4]
+            inv_w = [(1.0 / ((d + 0.005) ** 4), n_b) for d, n_b in cands]
+            for n_b, w_b in autorig._normalizar_top4(inv_w):
+                vgs_por_nome[n_b].add([v.index], w_b, "REPLACE")
+        elif parte in ("luvas", "manoplas") and tem_dedos:
+            for hand_n, segs_mao in segmentos_mao_dedos.items():
+                w_h = sum(w for n, w in pesos_v if n == hand_n)
+                if w_h < 0.05:
+                    continue
+                hand_bone = rig_obj.data.bones.get(hand_n)
+                if hand_bone is None:
+                    continue
+                hand_dir = (hand_bone.tail_local - hand_bone.head_local)
+                if hand_dir.length > 1e-4 and (v.co - hand_bone.head_local).dot(hand_dir.normalized()) < 0.35 * hand_dir.length:
+                    continue
+                inv_f = [
+                    (1.0 / ((autorig._dist_ponto_segmento(v.co, hb, tb) + (0.012 if nb == hand_n else 0.0025)) ** 5), nb)
+                    for nb, hb, tb in segs_mao
+                ]
+                dist_f = autorig._normalizar_top4(inv_f)
+                mistura = [(w, n) for n, w in pesos_v if n != hand_n]
+                for nb, wb in dist_f:
+                    mistura.append((w_h * wb, nb))
+                for vg in list(cloth_obj.vertex_groups):
+                    if any(g.group == vg.index for g in v.groups):
+                        vg.remove([v.index])
+                for nb, wb in autorig._normalizar_top4(mistura):
+                    vgs_por_nome[nb].add([v.index], wb, "REPLACE")
 
     autorig._normalizar_grupos_e_mapear(cloth_obj)
 
@@ -2323,12 +2393,55 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
         _aplicar_suavizacao_modular(cloth, float(angulo_pos))
     _aplicar_estilo_visual(cloth, job)
 
+    sf_cfg = job.get("smart_fit")
+    smart_fit_res: dict[str, Any] = {}
+    grip_info: dict[str, Any] | None = None
+    if parte == "arma" or (isinstance(sf_cfg, dict) and sf_cfg.get("auto_grip")):
+        if smart_fit.HAS_BPY:
+            frac_cabo = tuple(sf_cfg.get("fracao_cabo") or (0.05, 0.35)) if isinstance(sf_cfg, dict) else (0.05, 0.35)
+            grip_info = smart_fit.auto_grip_cilindrico(
+                cloth, fracao_cabo=(float(frac_cabo[0]), float(frac_cabo[1]))
+            )
+
+    if sf_cfg and smart_fit.HAS_BPY and human is not None:
+        sf_dict = sf_cfg if isinstance(sf_cfg, dict) else {}
+        folga_m = float(sf_dict.get("folga_m") or smart_fit.FOLGA_CONTATO_PADRAO_M)
+        if sf_cfg is True or sf_dict.get("encaixar_contato", True):
+            smart_fit_res["encaixar_contato"] = smart_fit.encaixar_contato_bvh(
+                cloth,
+                human,
+                direcao=sf_dict.get("direcao"),
+                folga_m=folga_m,
+            )
+            _aplicar_transformes(cloth)
+        if sf_dict.get("conformar_anatomico"):
+            smart_fit_res["conformar_anatomico"] = smart_fit.conformar_anatomico(
+                cloth,
+                human,
+                folga_m=folga_m,
+                usar_surface_deform=bool(sf_dict.get("usar_surface_deform", True)),
+            )
+            _limpar_malha_manifold(cloth)
+        if sf_dict.get("recortar_oclusao"):
+            smart_fit_res["recortar_oclusao"] = smart_fit.recortar_oclusao_interna(
+                human,
+                [cloth],
+                dist_max_m=float(sf_dict.get("dist_max_m", 0.035)),
+                limiar_cobertura=float(sf_dict.get("limiar_cobertura", 0.85)),
+            )
+
     if skinned and rig_obj is not None and human is not None:
         _aplicar_transformes(rig_obj)
-        _transferir_pesos_esqueleto(human, cloth, rig_obj)
+        _transferir_pesos_esqueleto(human, cloth, rig_obj, parte=parte)
+        if isinstance(sf_cfg, dict) and sf_cfg.get("conformar_punho") and smart_fit.HAS_BPY:
+            smart_fit_res["conformar_punho"] = smart_fit.conformar_punho_ao_cabo(
+                rig_obj,
+                lado=str(sf_cfg.get("lado") or "R"),
+                grip_info=sf_cfg.get("grip_info") or grip_info,
+            )
         bpy.data.objects.remove(human, do_unlink=True)
         rig_obj.location = Vector((0.0, 0.0, 0.0))
-        rig_obj.scale = Vector((1.0, 1.0, 0.0) if False else (1.0, 1.0, 1.0))
+        rig_obj.scale = Vector((1.0, 1.0, 1.0))
         cloth.location = Vector((0.0, 0.0, 0.0))
         cloth.scale = Vector((1.0, 1.0, 1.0))
     else:
@@ -2362,13 +2475,14 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
     bpy.ops.export_scene.gltf(**export_kwargs)
 
     escala_preservada = bool(skinned and float(job.get("altura_metros", 1.72)) >= 1.2)
-    relatorio = {
+    relatorio: dict[str, Any] = {
         "ok": True,
         "armadura_modular": True,
         "parte": parte,
         "skinned": skinned,
         "escala_preservada": escala_preservada,
         "esqueleto": esqueleto if skinned else None,
+        "ossos": len(rig_obj.data.bones) if (skinned and rig_obj is not None) else 0,
         "osso": osso_alvo,
         "mhclo": mhclo_path,
         "triangulos": tris_final,
@@ -2376,6 +2490,10 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
         "bbox_m": bbox_m,
         "arquivo": nome_glb,
     }
+    if grip_info is not None:
+        relatorio["grip_cilindrico"] = grip_info
+    if smart_fit_res:
+        relatorio["smart_fit"] = smart_fit_res
 
     caminho_rel = os.path.join(saida, "relatorio.json")
     with open(caminho_rel, "w", encoding="utf-8") as f:

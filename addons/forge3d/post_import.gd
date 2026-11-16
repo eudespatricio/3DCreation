@@ -700,33 +700,94 @@ static func _configurar_animacoes(scene: Node) -> void:
 					anim.loop_mode = modos[nome]
 
 
-static func criar_bone_map_humanoid() -> BoneMap:
+static func criar_bone_map_humanoid(esqueleto: String = "") -> BoneMap:
 	var bone_map := BoneMap.new()
 	bone_map.profile = SkeletonProfileHumanoid.new()
-	var pares := {
-		"Hips": "Hips",
-		"Spine": "Spine",
-		"Chest": "Spine1",
-		"UpperChest": "Chest",
-		"Neck": "Neck",
-		"Head": "Head",
-		"LeftShoulder": "Shoulder.L",
-		"LeftUpperArm": "UpperArm.L",
-		"LeftLowerArm": "LowerArm.L",
-		"LeftHand": "Hand.L",
-		"RightShoulder": "Shoulder.R",
-		"RightUpperArm": "UpperArm.R",
-		"RightLowerArm": "LowerArm.R",
-		"RightHand": "Hand.R",
-		"LeftUpperLeg": "UpperLeg.L",
-		"LeftLowerLeg": "LowerLeg.L",
-		"LeftFoot": "Foot.L",
-		"LeftToes": "Toe.L",
-		"RightUpperLeg": "UpperLeg.R",
-		"RightLowerLeg": "LowerLeg.R",
-		"RightFoot": "Foot.R",
-		"RightToes": "Toe.R",
-	}
+	var esq := esqueleto.strip_edges().to_lower()
+	var pares := {}
+	if esq == "godot-humanoid-aa@1":
+		pares = {
+			"Root": "Root",
+			"Hips": "Hips",
+			"Spine": "Spine",
+			"Chest": "Chest",
+			"Neck": "Neck",
+			"Head": "Head",
+			"LeftEye": "Eye.L",
+			"RightEye": "Eye.R",
+			"Jaw": "Jaw",
+			"LeftShoulder": "Shoulder.L",
+			"LeftUpperArm": "UpperArm.L",
+			"LeftLowerArm": "LowerArm.L",
+			"LeftHand": "Hand.L",
+			"LeftThumbMetacarpal": "Thumb1.L",
+			"LeftThumbProximal": "Thumb2.L",
+			"LeftThumbDistal": "Thumb3.L",
+			"LeftIndexProximal": "Index1.L",
+			"LeftIndexIntermediate": "Index2.L",
+			"LeftIndexDistal": "Index3.L",
+			"LeftMiddleProximal": "Middle1.L",
+			"LeftMiddleIntermediate": "Middle2.L",
+			"LeftMiddleDistal": "Middle3.L",
+			"LeftRingProximal": "Ring1.L",
+			"LeftRingIntermediate": "Ring2.L",
+			"LeftRingDistal": "Ring3.L",
+			"LeftLittleProximal": "Little1.L",
+			"LeftLittleIntermediate": "Little2.L",
+			"LeftLittleDistal": "Little3.L",
+			"RightShoulder": "Shoulder.R",
+			"RightUpperArm": "UpperArm.R",
+			"RightLowerArm": "LowerArm.R",
+			"RightHand": "Hand.R",
+			"RightThumbMetacarpal": "Thumb1.R",
+			"RightThumbProximal": "Thumb2.R",
+			"RightThumbDistal": "Thumb3.R",
+			"RightIndexProximal": "Index1.R",
+			"RightIndexIntermediate": "Index2.R",
+			"RightIndexDistal": "Index3.R",
+			"RightMiddleProximal": "Middle1.R",
+			"RightMiddleIntermediate": "Middle2.R",
+			"RightMiddleDistal": "Middle3.R",
+			"RightRingProximal": "Ring1.R",
+			"RightRingIntermediate": "Ring2.R",
+			"RightRingDistal": "Ring3.R",
+			"RightLittleProximal": "Little1.R",
+			"RightLittleIntermediate": "Little2.R",
+			"RightLittleDistal": "Little3.R",
+			"LeftUpperLeg": "UpperLeg.L",
+			"LeftLowerLeg": "LowerLeg.L",
+			"LeftFoot": "Foot.L",
+			"LeftToes": "Toe.L",
+			"RightUpperLeg": "UpperLeg.R",
+			"RightLowerLeg": "LowerLeg.R",
+			"RightFoot": "Foot.R",
+			"RightToes": "Toe.R",
+		}
+	else:
+		pares = {
+			"Hips": "Hips",
+			"Spine": "Spine",
+			"Chest": "Spine1",
+			"UpperChest": "Chest",
+			"Neck": "Neck",
+			"Head": "Head",
+			"LeftShoulder": "Shoulder.L",
+			"LeftUpperArm": "UpperArm.L",
+			"LeftLowerArm": "LowerArm.L",
+			"LeftHand": "Hand.L",
+			"RightShoulder": "Shoulder.R",
+			"RightUpperArm": "UpperArm.R",
+			"RightLowerArm": "LowerArm.R",
+			"RightHand": "Hand.R",
+			"LeftUpperLeg": "UpperLeg.L",
+			"LeftLowerLeg": "LowerLeg.L",
+			"LeftFoot": "Foot.L",
+			"LeftToes": "Toe.L",
+			"RightUpperLeg": "UpperLeg.R",
+			"RightLowerLeg": "LowerLeg.R",
+			"RightFoot": "Foot.R",
+			"RightToes": "Toe.R",
+		}
 	for prof_name in pares.keys():
 		bone_map.set_skeleton_bone_name(prof_name, pares[prof_name])
 	return bone_map
@@ -747,7 +808,7 @@ static func _aplicar_bone_map(scene: Node, manifesto: Dictionary) -> void:
 	if not _eh_esqueleto_humanoide(esq):
 		scene.set_meta("forge3d_bone_map_skipped", esq)
 		return
-	scene.set_meta("forge3d_bone_map", criar_bone_map_humanoid())
+	scene.set_meta("forge3d_bone_map", criar_bone_map_humanoid(esq))
 
 
 static func _nome_marker_socket(chave: String) -> String:

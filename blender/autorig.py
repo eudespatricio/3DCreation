@@ -16,6 +16,8 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 __all__ = [
+    "ESQUELETOS_SUPORTADOS",
+    "OSSOS_GODOT_HUMANOID_AA",
     "auto_rigar_humanoide",
     "auto_rigar_por_tipo",
     "extrair_sockets",
@@ -23,9 +25,53 @@ __all__ = [
     "estimar_marcos",
 ]
 
-ESQUELETOS_SUPORTADOS = ("godot-humanoid@1", "r15@1", "quadruped@1", "winged_mount@1")
-_ESQUELETOS_HUMANOS = ("godot-humanoid@1", "r15@1")
+ESQUELETOS_SUPORTADOS = (
+    "godot-humanoid@1",
+    "godot-humanoid-aa@1",
+    "r15@1",
+    "quadruped@1",
+    "winged_mount@1",
+)
+_ESQUELETOS_HUMANOS = ("godot-humanoid@1", "godot-humanoid-aa@1", "r15@1")
 _ESQUELETOS_CRIATURA = ("quadruped@1", "winged_mount@1")
+_DEDOS_NOMES = ("Thumb", "Index", "Middle", "Ring", "Little")
+_OSSOS_DEDOS_L = {f"{d}{n}.L" for d in _DEDOS_NOMES for n in (1, 2, 3)}
+_OSSOS_DEDOS_R = {f"{d}{n}.R" for d in _DEDOS_NOMES for n in (1, 2, 3)}
+_OSSOS_DEDOS = _OSSOS_DEDOS_L | _OSSOS_DEDOS_R
+_OSSOS_FACE_AA = {"Jaw", "Eye.L", "Eye.R"}
+_OSSOS_CAPA_AA = {"Cape"}
+_OSSOS_AA_EXTRAS = _OSSOS_DEDOS | _OSSOS_FACE_AA | _OSSOS_CAPA_AA
+
+OSSOS_GODOT_HUMANOID_AA: tuple[str, ...] = (
+    "Root",
+    "Hips",
+    "Spine",
+    "Chest",
+    "Neck",
+    "Head",
+    "Jaw",
+    "Eye.L",
+    "Eye.R",
+    "Cape",
+    "Shoulder.L",
+    "UpperArm.L",
+    "LowerArm.L",
+    "Hand.L",
+    "Shoulder.R",
+    "UpperArm.R",
+    "LowerArm.R",
+    "Hand.R",
+    *(f"{d}{n}.L" for d in _DEDOS_NOMES for n in (1, 2, 3)),
+    *(f"{d}{n}.R" for d in _DEDOS_NOMES for n in (1, 2, 3)),
+    "UpperLeg.L",
+    "LowerLeg.L",
+    "Foot.L",
+    "Toe.L",
+    "UpperLeg.R",
+    "LowerLeg.R",
+    "Foot.R",
+    "Toe.R",
+)
 _RAIZES = {"Root", "HumanoidRootPart"}
 _OSSOS_ASA = {
     "WingShoulder.L",
@@ -528,6 +574,71 @@ def _osso(nome: str, pai: str | None, cabeca, cauda, min_len: float) -> dict:
     return {"nome": nome, "pai": pai, "cabeca": tuple(h), "cauda": tuple(t)}
 
 
+def _quadro_mao(wrist: Vector, tip: Vector, h: float, sinal: float) -> tuple[Vector, Vector, Vector, float]:
+    """Calcula base ortonormal anatomica da mao: (u_hand, u_thumb, u_palm, len_hand)."""
+    vec = Vector(tip) - Vector(wrist)
+    len_hand = max(vec.length, 0.052 * h)
+    u_hand = vec.normalized() if vec.length > 1e-4 else Vector((sinal, 0.0, -0.25)).normalized()
+    frente_y = Vector((0.0, 1.0, 0.0))
+    u_thumb = frente_y - u_hand * frente_y.dot(u_hand)
+    if u_thumb.length < 1e-4:
+        u_thumb = Vector((0.0, 0.0, 1.0)).cross(u_hand)
+    u_thumb.normalize()
+    u_palm = (-sinal * u_hand.cross(u_thumb)).normalized()
+    return u_hand, u_thumb, u_palm, len_hand
+
+
+def _ossos_dedos_mao(
+    lado: str,
+    wrist: Vector,
+    tip: Vector,
+    h: float,
+    ml: float,
+) -> list[dict]:
+    """Constroi os 15 ossos de falanges (Thumb..Little x 1..3) para uma mao."""
+    sinal = 1.0 if lado == "L" else -1.0
+    u_hand, u_thumb, u_palm, len_hand = _quadro_mao(wrist, tip, h, sinal)
+    palm_w = max(0.020 * h, 0.44 * len_hand)
+    knuckle_t = 0.48 * len_hand
+    finger_len_base = max(0.52 * len_hand, 0.032 * h)
+    min_f = max(0.004 * h, ml * 0.4)
+
+    ossos: list[dict] = []
+    # Polegar (3 segmentos orientados na borda anterior/palmar da mao)
+    thumb_dir = (0.64 * u_hand + 0.66 * u_thumb + 0.28 * u_palm).normalized()
+    t0 = Vector(wrist) + u_hand * (0.18 * len_hand) + u_thumb * (0.44 * palm_w) + u_palm * (0.12 * palm_w)
+    thumb_segs = (0.28 * finger_len_base, 0.24 * finger_len_base, 0.20 * finger_len_base)
+    pai_t = f"Hand.{lado}"
+    cur_t = t0
+    for idx, seg_len in enumerate(thumb_segs, 1):
+        nxt_t = cur_t + thumb_dir * max(seg_len, min_f)
+        nome_t = f"Thumb{idx}.{lado}"
+        ossos.append(_osso(nome_t, pai_t, cur_t, nxt_t, min_f))
+        pai_t = nome_t
+        cur_t = nxt_t
+
+    # Indicador, Medio, Anelar, Mindinho
+    specs_dedos = (
+        ("Index", 0.30, 0.94),
+        ("Middle", 0.08, 1.00),
+        ("Ring", -0.14, 0.92),
+        ("Little", -0.36, 0.76),
+    )
+    fracs = (0.42, 0.32, 0.26)
+    for nome_dedo, lat_f, esc_len in specs_dedos:
+        base_d = Vector(wrist) + u_hand * knuckle_t + u_thumb * (lat_f * palm_w)
+        comp_d = finger_len_base * esc_len
+        pai_d = f"Hand.{lado}"
+        cur_d = base_d
+        for idx, f_seg in enumerate(fracs, 1):
+            nxt_d = cur_d + u_hand * max(comp_d * f_seg, min_f)
+            nome_f = f"{nome_dedo}{idx}.{lado}"
+            ossos.append(_osso(nome_f, pai_d, cur_d, nxt_d, min_f))
+            pai_d = nome_f
+            cur_d = nxt_d
+    return ossos
+
+
 def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
     z0 = m["z_min"]
     h = m["altura"]
@@ -562,6 +673,47 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
             _osso("Foot.R", "LowerLeg.R", (m["leg_x_R"], cy, m["ankle_z"]), (m["leg_x_R"], cy + m["foot_y"], z0 + 0.02 * h), ml),
             _osso("Toe.R", "Foot.R", (m["leg_x_R"], cy + m["foot_y"], z0 + 0.02 * h), (m["leg_x_R"], cy + m["toe_y"], z0 + 0.012 * h), ml),
         ]
+    if esqueleto == "godot-humanoid-aa@1":
+        head_h = max(m["head_top_z"] - m["neck_z"], 0.10 * h)
+        torso_hw = float(m.get("torso_hw", 0.10 * h))
+        cape_y = cy - max(0.055 * h, 0.55 * torso_hw)
+        u_h_l, _, _, len_h_l = _quadro_mao(bL["wrist"], bL["tip"], h, 1.0)
+        u_h_r, _, _, len_h_r = _quadro_mao(bR["wrist"], bR["tip"], h, -1.0)
+        hand_tail_l = Vector(bL["wrist"]) + u_h_l * (0.50 * len_h_l)
+        hand_tail_r = Vector(bR["wrist"]) + u_h_r * (0.50 * len_h_r)
+        ossos_aa = [
+            _osso("Root", None, (0.0, 0.0, z0), (0.0, 0.0, z0 + 0.05 * h), ml),
+            _osso("Hips", "Root", (0.0, cy, m["hip_z"]), (0.0, cy, m["spine_z"]), ml),
+            _osso("Spine", "Hips", (0.0, cy, m["spine_z"]), (0.0, cy, m["chest_z"]), ml),
+            _osso("Chest", "Spine", (0.0, cy, m["chest_z"]), (0.0, cy, m["chest_top_z"]), ml),
+            _osso("Neck", "Chest", (0.0, cy, m["chest_top_z"]), (0.0, cy, m["neck_z"]), ml),
+            _osso("Head", "Neck", (0.0, cy, m["neck_z"]), (0.0, cy, m["head_top_z"]), ml),
+            _osso("Jaw", "Head", (0.0, cy + 0.022 * h, m["neck_z"] + 0.18 * head_h), (0.0, cy + 0.070 * h, m["neck_z"] + 0.06 * head_h), ml),
+            _osso("Eye.L", "Head", (0.020 * h, cy + 0.052 * h, m["neck_z"] + 0.56 * head_h), (0.020 * h, cy + 0.082 * h, m["neck_z"] + 0.56 * head_h), ml),
+            _osso("Eye.R", "Head", (-0.020 * h, cy + 0.052 * h, m["neck_z"] + 0.56 * head_h), (-0.020 * h, cy + 0.082 * h, m["neck_z"] + 0.56 * head_h), ml),
+            _osso("Cape", "Chest", (0.0, cape_y, m["chest_top_z"] - 0.02 * h), (0.0, cape_y - 0.03 * h, m["hip_z"] - 0.04 * h), ml),
+            _osso("Shoulder.L", "Chest", (bL["clav_x"], cy, bL["shoulder"].z), bL["shoulder"], ml),
+            _osso("UpperArm.L", "Shoulder.L", bL["shoulder"], bL["elbow"], ml),
+            _osso("LowerArm.L", "UpperArm.L", bL["elbow"], bL["wrist"], ml),
+            _osso("Hand.L", "LowerArm.L", bL["wrist"], hand_tail_l, ml),
+            _osso("Shoulder.R", "Chest", (bR["clav_x"], cy, bR["shoulder"].z), bR["shoulder"], ml),
+            _osso("UpperArm.R", "Shoulder.R", bR["shoulder"], bR["elbow"], ml),
+            _osso("LowerArm.R", "UpperArm.R", bR["elbow"], bR["wrist"], ml),
+            _osso("Hand.R", "LowerArm.R", bR["wrist"], hand_tail_r, ml),
+        ]
+        ossos_aa.extend(_ossos_dedos_mao("L", bL["wrist"], bL["tip"], h, ml))
+        ossos_aa.extend(_ossos_dedos_mao("R", bR["wrist"], bR["tip"], h, ml))
+        ossos_aa.extend([
+            _osso("UpperLeg.L", "Hips", (m["leg_x_L"], cy, max(m["leg_top_z"] + 0.02 * h, m["hip_z"] - 0.015 * h)), (m["leg_x_L"], cy, m["knee_z"]), ml),
+            _osso("LowerLeg.L", "UpperLeg.L", (m["leg_x_L"], cy, m["knee_z"]), (m["leg_x_L"], cy, m["ankle_z"]), ml),
+            _osso("Foot.L", "LowerLeg.L", (m["leg_x_L"], cy, m["ankle_z"]), (m["leg_x_L"], cy + m["foot_y"], z0 + 0.02 * h), ml),
+            _osso("Toe.L", "Foot.L", (m["leg_x_L"], cy + m["foot_y"], z0 + 0.02 * h), (m["leg_x_L"], cy + m["toe_y"], z0 + 0.012 * h), ml),
+            _osso("UpperLeg.R", "Hips", (m["leg_x_R"], cy, max(m["leg_top_z"] + 0.02 * h, m["hip_z"] - 0.015 * h)), (m["leg_x_R"], cy, m["knee_z"]), ml),
+            _osso("LowerLeg.R", "UpperLeg.R", (m["leg_x_R"], cy, m["knee_z"]), (m["leg_x_R"], cy, m["ankle_z"]), ml),
+            _osso("Foot.R", "LowerLeg.R", (m["leg_x_R"], cy, m["ankle_z"]), (m["leg_x_R"], cy + m["foot_y"], z0 + 0.02 * h), ml),
+            _osso("Toe.R", "Foot.R", (m["leg_x_R"], cy + m["foot_y"], z0 + 0.02 * h), (m["leg_x_R"], cy + m["toe_y"], z0 + 0.012 * h), ml),
+        ])
+        return ossos_aa
     if esqueleto == "r15@1":
         hip_leg_z = max(m["leg_top_z"] + 0.02 * h, m["hip_z"] - 0.015 * h)
         return [
@@ -633,9 +785,32 @@ def _alinhar_roll_ossos(rig_obj) -> None:
 
     ossos_eixo_criatura = _OSSOS_ASA | _OSSOS_PATA | _OSSOS_CAUDA
     e_rig_criatura = any(eb.name in ossos_eixo_criatura or eb.name == "MountSeat" for eb in edit_bones)
+    alvos_aa: dict[str, Vector] = {}
+    for lado, sinal in (("L", 1.0), ("R", -1.0)):
+        hand_eb = edit_bones.get(f"Hand.{lado}")
+        if hand_eb is not None:
+            u_h = hand_eb.y_axis.normalized()
+            frente_y = Vector((0.0, 1.0, 0.0))
+            u_t = frente_y - u_h * frente_y.dot(u_h)
+            if u_t.length < 1e-4:
+                u_t = Vector((0.0, 0.0, 1.0)).cross(u_h)
+            u_t.normalize()
+            u_p = (-sinal * u_h.cross(u_t)).normalized()
+            u_p_thumb = (0.55 * u_p - 0.80 * u_t).normalized()
+            for dedo in _DEDOS_NOMES:
+                alvo_d = u_p_thumb if dedo == "Thumb" else u_p
+                for idx in (1, 2, 3):
+                    alvos_aa[f"{dedo}{idx}.{lado}"] = alvo_d
+
     for eb in edit_bones:
         if eb.name in alvos_braco:
             eb.align_roll(alvos_braco[eb.name])
+        elif eb.name in alvos_aa:
+            eb.align_roll(alvos_aa[eb.name])
+        elif eb.name in ("Eye.L", "Eye.R", "Jaw"):
+            eb.align_roll(cima)
+        elif eb.name == "Cape":
+            eb.align_roll(Vector((0.0, -1.0, 0.0)))
         elif eb.name in _OSSOS_BRACO or eb.name in _OSSOS_PERNA or eb.name in ossos_eixo_criatura:
             alvo = cima if abs(eb.y_axis.y) > 0.85 else frente
             eb.align_roll(alvo)
@@ -1424,6 +1599,149 @@ def _osso_acessorio_ilha(
     return melhor["nome"]
 
 
+def _refinar_pesos_aa_56(
+    obj,
+    ossos: list[dict],
+    m: dict,
+    coords: list[Vector],
+    coords_xyz: list[tuple[float, float, float]],
+    ilhas: list[list[int]],
+    pesos_por_vertice: dict[int, list[tuple[str, float]]],
+) -> None:
+    """Distribui pesos para falanges (30 ossos), olhos, mandibula e capa no rig godot-humanoid-aa@1."""
+    ossos_por_nome = {o["nome"]: o for o in ossos}
+    h = float(m["altura"])
+    cy = float(m["cy"])
+    n_total = len(coords)
+
+    # 1. Capa (material 'cape'/'capa' ou ilha dorsal desconexa atras do torax)
+    if "Cape" in ossos_por_nome:
+        cape_slots = {
+            idx
+            for idx, mat in enumerate(obj.data.materials)
+            if mat is not None and any(k in str(mat.name).lower() for k in ("cape", "capa"))
+        }
+        verts_capa: set[int] = set()
+        if cape_slots:
+            for poly in obj.data.polygons:
+                if poly.material_index in cape_slots:
+                    verts_capa.update(poly.vertices)
+        for idx_ilha, ilha in enumerate(ilhas):
+            if idx_ilha == 0:
+                continue
+            ys = [coords_xyz[vi][1] for vi in ilha]
+            zs = [coords_xyz[vi][2] for vi in ilha]
+            xs = [coords_xyz[vi][0] for vi in ilha]
+            if (
+                max(ys) < cy - 0.02 * h
+                and min(zs) < m["chest_z"]
+                and max(zs) >= m["chest_z"] - 0.03 * h
+                and max(xs) < 0.35 * h
+                and min(xs) > -0.35 * h
+            ):
+                verts_capa.update(ilha)
+        for vi in verts_capa:
+            vz = coords_xyz[vi][2]
+            if vz >= m["chest_top_z"] - 0.03 * h and "Chest" in ossos_por_nome:
+                pesos_por_vertice[vi] = [("Cape", 0.65), ("Chest", 0.35)]
+            else:
+                pesos_por_vertice[vi] = [("Cape", 1.0)]
+
+    # 2. Olhos (Eye.L / Eye.R por slot 'eye'/'eyes' ou ilhas orbitais)
+    verts_olho: set[int] = set()
+    if "Eye.L" in ossos_por_nome and "Eye.R" in ossos_por_nome:
+        eye_slots = {
+            idx
+            for idx, mat in enumerate(obj.data.materials)
+            if mat is not None and str(mat.name).lower().startswith("eye")
+        }
+        if eye_slots:
+            for poly in obj.data.polygons:
+                if poly.material_index in eye_slots:
+                    for vi in poly.vertices:
+                        verts_olho.add(vi)
+                        alvo_e = "Eye.L" if coords_xyz[vi][0] >= 0.0 else "Eye.R"
+                        pesos_por_vertice[vi] = [(alvo_e, 1.0)]
+        eye_l_h = Vector(ossos_por_nome["Eye.L"]["cabeca"])
+        eye_r_h = Vector(ossos_por_nome["Eye.R"]["cabeca"])
+        for idx_ilha, ilha in enumerate(ilhas):
+            if idx_ilha == 0 or len(ilha) >= 0.08 * n_total:
+                continue
+            c_i = _centroide([coords[vi] for vi in ilha], Vector((0.0, 0.0, 0.0)))
+            if (c_i - eye_l_h).length <= 0.035 * h:
+                for vi in ilha:
+                    verts_olho.add(vi)
+                    pesos_por_vertice[vi] = [("Eye.L", 1.0)]
+            elif (c_i - eye_r_h).length <= 0.035 * h:
+                for vi in ilha:
+                    verts_olho.add(vi)
+                    pesos_por_vertice[vi] = [("Eye.R", 1.0)]
+
+    # 3. Mandibula (Jaw: regiao antero-inferior da cabeca)
+    if "Jaw" in ossos_por_nome:
+        jaw_h = Vector(ossos_por_nome["Jaw"]["cabeca"])
+        jaw_t = Vector(ossos_por_nome["Jaw"]["cauda"])
+        head_h = max(m["head_top_z"] - m["neck_z"], 0.10 * h)
+        z_j_lo = m["neck_z"] + 0.02 * head_h
+        z_j_hi = m["neck_z"] + 0.40 * head_h
+        raio_jaw = 0.055 * h
+        for vi in range(n_total):
+            if vi in verts_olho:
+                continue
+            vx, vy, vz = coords_xyz[vi]
+            if vy <= cy + 0.015 * h or vz < z_j_lo or vz > z_j_hi or abs(vx) > 0.058 * h:
+                continue
+            cur = pesos_por_vertice.get(vi) or []
+            w_head = sum(w for n, w in cur if n == "Head")
+            if w_head < 0.15:
+                continue
+            d_jaw = _dist_ponto_segmento(coords[vi], jaw_h, jaw_t)
+            if d_jaw >= raio_jaw:
+                continue
+            alpha = _clamped(0.85 * (1.0 - d_jaw / raio_jaw), 0.0, 0.80)
+            novos_w = [(w, n) for n, w in cur if n != "Head"]
+            novos_w.append((w_head * (1.0 - alpha), "Head"))
+            novos_w.append((w_head * alpha, "Jaw"))
+            pesos_por_vertice[vi] = _normalizar_top4(novos_w)
+
+    # 4. Falanges das maos (30 ossos: Thumb1..Little3 x L/R)
+    eps_f = max(0.0025 * h, 1e-4)
+    for lado, sinal in (("L", 1.0), ("R", -1.0)):
+        hand_name = f"Hand.{lado}"
+        hand_osso = ossos_por_nome.get(hand_name)
+        dedos_lado = [ossos_por_nome[f"{d}{idx}.{lado}"] for d in _DEDOS_NOMES for idx in (1, 2, 3) if f"{d}{idx}.{lado}" in ossos_por_nome]
+        if hand_osso is None or not dedos_lado:
+            continue
+        wrist = Vector(m[f"braco_{lado}"]["wrist"])
+        tip = Vector(m[f"braco_{lado}"]["tip"])
+        u_hand, _u_thumb, _u_palm, len_hand = _quadro_mao(wrist, tip, h, sinal)
+        hand_head = Vector(hand_osso["cabeca"])
+        hand_tail = Vector(hand_osso["cauda"])
+        thumb1_h = Vector(ossos_por_nome[f"Thumb1.{lado}"]["cabeca"])
+        thumb3_t = Vector(ossos_por_nome[f"Thumb3.{lado}"]["cauda"])
+
+        for vi in range(n_total):
+            cur = pesos_por_vertice.get(vi) or []
+            w_hand = sum(w for n, w in cur if n == hand_name)
+            if w_hand < 0.05:
+                continue
+            v = coords[vi]
+            t_along = (v - wrist).dot(u_hand) / max(len_hand, 1e-5)
+            d_thumb_zone = _dist_ponto_segmento(v, thumb1_h, thumb3_t)
+            if t_along < 0.22 and d_thumb_zone > 0.032 * h:
+                continue
+            d_palm = _dist_ponto_segmento(v, hand_head, hand_tail) + (0.014 * h if t_along > 0.48 else 0.0)
+            cands_w: list[tuple[float, str]] = [(1.0 / ((d_palm + eps_f) ** 5), hand_name)]
+            for fo in dedos_lado:
+                df = _dist_ponto_segmento(v, Vector(fo["cabeca"]), Vector(fo["cauda"]))
+                cands_w.append((1.0 / ((df + eps_f) ** 5), fo["nome"]))
+            dist_mao = _normalizar_top4(cands_w)
+            mistura = [(w, n) for n, w in cur if n != hand_name]
+            for n_sub, w_sub in dist_mao:
+                mistura.append((w_hand * w_sub, n_sub))
+            pesos_por_vertice[vi] = _normalizar_top4(mistura)
+
+
 def _atribuir_pesos_inverso(
     obj,
     ossos: list[dict],
@@ -1440,6 +1758,21 @@ def _atribuir_pesos_inverso(
             continue
         vg = obj.vertex_groups.get(o["nome"]) or obj.vertex_groups.new(name=o["nome"])
         grupos_obj[o["nome"]] = vg
+
+    eh_aa = any(o["nome"] in _OSSOS_AA_EXTRAS for o in ossos)
+    if eh_aa:
+        base_ossos = []
+        for o in ossos:
+            if o["nome"] in _OSSOS_AA_EXTRAS:
+                continue
+            if o["nome"] == "Hand.L":
+                base_ossos.append(dict(o, cauda=tuple(m["braco_L"]["tip"])))
+            elif o["nome"] == "Hand.R":
+                base_ossos.append(dict(o, cauda=tuple(m["braco_R"]["tip"])))
+            else:
+                base_ossos.append(o)
+    else:
+        base_ossos = ossos
 
     bm = bmesh.new()
     try:
@@ -1459,13 +1792,13 @@ def _atribuir_pesos_inverso(
     coords_xyz = [(v.x, v.y, v.z) for v in coords]
 
     h = m["altura"]
-    tem_neck = any(o["nome"] == "Neck" for o in ossos)
+    tem_neck = any(o["nome"] == "Neck" for o in base_ossos)
     lim_anat = _limites_anatomicos(m, tem_neck=tem_neck)
     tem_ilha_principal = len(ilhas[0]) > 0.40 * n_total
     globais_min: dict[str, float] | None = None
     if len(ilhas) > 1 and not tem_ilha_principal:
         globais_min = {}
-        for o in ossos:
+        for o in base_ossos:
             nome = o["nome"]
             if nome in _RAIZES:
                 continue
@@ -1481,7 +1814,7 @@ def _atribuir_pesos_inverso(
                 globais_min[nome] = d_best
 
     pesos_por_vertice: dict[int, list[tuple[str, float]]] = {}
-    ossos_por_nome = {o["nome"]: o for o in ossos}
+    ossos_por_nome = {o["nome"]: o for o in base_ossos}
     hands_pos = [
         (hn, Vector(ossos_por_nome[hn]["cabeca"]))
         for hn in ("Hand.L", "Hand.R", "LeftHand", "RightHand")
@@ -1522,7 +1855,7 @@ def _atribuir_pesos_inverso(
             e_acessorio = diag < 0.18 * h
 
         calculados = None if e_acessorio else _pesos_ilha_geodesicos(
-            ilha, adj, coords, coords_xyz, ossos, m, bracos_baixos, globais_min=globais_min
+            ilha, adj, coords, coords_xyz, base_ossos, m, bracos_baixos, globais_min=globais_min
         )
         if calculados is not None:
             pesos_por_vertice.update(calculados)
@@ -1540,14 +1873,14 @@ def _atribuir_pesos_inverso(
                         melhor_d2 = d2
                         melhor_vb = vb
                 pesos_por_vertice[vi] = list(
-                    pesos_por_vertice.get(melhor_vb, [(ossos[0]["nome"], 1.0)])
+                    pesos_por_vertice.get(melhor_vb, [(base_ossos[0]["nome"], 1.0)])
                 )
         else:
             osso_unico = arma_mao_osso or _osso_acessorio_ilha(
                 ilha,
                 coords,
                 coords_xyz,
-                ossos,
+                base_ossos,
                 m,
                 bracos_baixos,
                 ilhas[0] if tem_ilha_principal and idx_ilha > 0 else None,
@@ -1601,7 +1934,7 @@ def _atribuir_pesos_inverso(
     _suavizar_aneis_juntas(
         adj,
         pesos_por_vertice,
-        ossos,
+        base_ossos,
         permitido_fn=_perm_humano,
         passos=2,
         alpha=0.32,
@@ -1626,6 +1959,9 @@ def _atribuir_pesos_inverso(
         }
         for vi in verts_cabelo:
             pesos_por_vertice[vi] = [("Head", 1.0)]
+
+    if eh_aa:
+        _refinar_pesos_aa_56(obj, ossos, m, coords, coords_xyz, ilhas, pesos_por_vertice)
 
     alvo = indices if indices is not None else range(n_total)
     for vi in alvo:
@@ -1812,16 +2148,22 @@ def extrair_sockets(
         delta_bl = Vector((0.0, 0.0, 0.0))
         if nome_socket == "Hand.R":
             vetor_mao = osso.tail_local - osso.head_local
-            escala_mao = max(vetor_mao.length, 0.05) / 0.10
-            # Centro do tunel de empunhadura (punho fechado): ~0.42*(tail-head) + offset palmar (+Y_bl/-Z_bl)
-            delta_bl = vetor_mao * 0.42 + (
+            tem_dedos_r = "Thumb1.R" in ossos
+            fator_r = 0.84 if tem_dedos_r else 0.42
+            comp_ref_r = vetor_mao.length * (2.0 if tem_dedos_r else 1.0)
+            escala_mao = max(comp_ref_r, 0.05) / 0.10
+            # Centro do tunel de empunhadura (punho fechado): ~0.42*(mao_total) + offset palmar (+Y_bl/-Z_bl)
+            delta_bl = vetor_mao * fator_r + (
                 m_bone_3x3 @ Vector((0.004 * escala_mao, 0.0, 0.015 * escala_mao))
             )
         elif nome_socket == "Hand.L":
             vetor_mao = osso.tail_local - osso.head_local
-            escala_mao = max(vetor_mao.length, 0.05) / 0.10
-            # Centro proximo da palma em concha (orbe): ~0.38*(tail-head) + offset palmar compacto
-            delta_bl = vetor_mao * 0.38 + (
+            tem_dedos_l = "Thumb1.L" in ossos
+            fator_l = 0.76 if tem_dedos_l else 0.38
+            comp_ref_l = vetor_mao.length * (2.0 if tem_dedos_l else 1.0)
+            escala_mao = max(comp_ref_l, 0.05) / 0.10
+            # Centro proximo da palma em concha (orbe): ~0.38*(mao_total) + offset palmar compacto
+            delta_bl = vetor_mao * fator_l + (
                 m_bone_3x3 @ Vector((-0.003 * escala_mao, 0.0, 0.014 * escala_mao))
             )
         elif nome_socket == "Back":

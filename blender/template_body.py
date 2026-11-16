@@ -1889,11 +1889,15 @@ def vestir_e_texturizar_camadas_cc0(
     if macro:
         macro_ef.update(macro)
     job_ef = job or {}
+    esqueleto = str(job_ef.get("esqueleto") or "").strip()
+    eh_aa = esqueleto == "godot-humanoid-aa@1"
     corpo_nu = bool(job_ef.get("corpo_nu") is True)
     limite_total = int(job_ef.get("limite_triangulos") or 12000)
     materiais_max = int(job_ef.get("materiais_max") or 8)
-    pose_mao_r = str(job_ef.get("pose_mao_r") or "grip").strip()
-    pose_mao_l = str(job_ef.get("pose_mao_l") or "cupped").strip()
+    pose_mao_r_default = "open" if eh_aa else "grip"
+    pose_mao_l_default = "open" if eh_aa else "cupped"
+    pose_mao_r = str(job_ef.get("pose_mao_r") or pose_mao_r_default).strip()
+    pose_mao_l = str(job_ef.get("pose_mao_l") or pose_mao_l_default).strip()
 
     extraido_dir = _garantir_pacote_mpfb_extraido()
     HumanService, _ = _mpfb()
@@ -1996,7 +2000,7 @@ def vestir_e_texturizar_camadas_cc0(
         compensar_rotacao_z=True,
     )
     malhas_rigadas = [m for m in (obj, eyes_obj, brow_obj, suit_obj, shoes_obj, hair_obj) if m is not None]
-    if not bool(job_ef.get("rig", False)):
+    if not bool(job_ef.get("rig", False)) or eh_aa:
         _assar_pose_em_malhas(malhas_rigadas, rig)
 
     # 3. Coloca corpo e camadas auxiliares no espaco em metros (escala 1.0 aplicada, pre-rotacao Z=pi)
@@ -2269,6 +2273,21 @@ def vestir_e_texturizar_camadas_cc0(
         while getattr(m_obj.data, "color_attributes", None) and len(m_obj.data.color_attributes) > 0:
             m_obj.data.color_attributes.remove(m_obj.data.color_attributes[0])
 
+    oclusao_info: dict | None = None
+    if camadas_join and (
+        bool(job_ef.get("recortar_oclusao"))
+        or bool((job_ef.get("smart_fit") or {}).get("recortar_oclusao"))
+    ):
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import smart_fit as _sf  # noqa: E402
+
+            coberturas = [c for c in camadas_join if c is not eyes_obj and c is not brow_obj and c is not hair_obj]
+            if coberturas:
+                oclusao_info = _sf.recortar_oclusao_interna(obj, coberturas)
+        except Exception:
+            oclusao_info = None
+
     if camadas_join:
         bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
@@ -2284,6 +2303,11 @@ def vestir_e_texturizar_camadas_cc0(
     rel_camadas = {
         "modo_textura": "camadas_cc0_3d",
         "projetar_foto_2d": False,
+        "esqueleto": esqueleto or "godot-humanoid@1",
+        "articulacao_dedos_5": bool(eh_aa or info_maos),
+        "olhos_3d": eyes_obj is not None,
+        "mandibula_pronta": True,
+        "capa_pronta": True,
         "corpo_nu": corpo_nu,
         "skin_origem": skin_origem,
         "pacote_cc0_extraido": bool(extraido_dir),
@@ -2292,19 +2316,29 @@ def vestir_e_texturizar_camadas_cc0(
         "maos": info_maos,
         "topologia": topo_final,
     }
+    if oclusao_info is not None:
+        rel_camadas["oclusao_cortada"] = oclusao_info
     if info_cabelo:
         rel_camadas["cabelo"] = {"estilo": estilo_cabelo, **info_cabelo}
     return tex_base_path, rel_camadas
 
 
-def exportar(obj, rig, saida: str, manter_rig: bool, nome_glb: str = "template_body.glb") -> str:
+def exportar(
+    obj,
+    rig,
+    saida: str,
+    manter_rig: bool,
+    nome_glb: str = "template_body.glb",
+    ja_rotacionado: bool = False,
+) -> str:
     if rig is not None:
         for pb in rig.pose.bones:
             pb.matrix_basis = Matrix.Identity(4)
         bpy.context.view_layer.update()
     bpy.ops.object.select_all(action="DESELECT")
     if manter_rig and rig is not None:
-        rig.rotation_euler.z = math.pi
+        if not ja_rotacionado:
+            rig.rotation_euler.z = math.pi
         rig.select_set(True)
         obj.select_set(True)
         for filho in rig.children:
@@ -2323,7 +2357,8 @@ def exportar(obj, rig, saida: str, manter_rig: bool, nome_glb: str = "template_b
         obj.vertex_groups.clear()
         if rig is not None:
             bpy.data.objects.remove(rig, do_unlink=True)
-        obj.rotation_euler.z = math.pi
+        if not ja_rotacionado:
+            obj.rotation_euler.z = math.pi
         bpy.context.view_layer.objects.active = obj
         obj.select_set(True)
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
@@ -2420,7 +2455,33 @@ def main() -> int:
             estilo_cabelo=estilo,
         )
         info_cabeca = _info_cabeca(obj)
-        glb = exportar(obj, rig, saida, bool(job.get("rig", False)))
+        esqueleto_req = str(job.get("esqueleto") or "").strip()
+        manter_rig = bool(job.get("rig", False))
+        ossos_export = 0
+        if manter_rig and esqueleto_req == "godot-humanoid-aa@1":
+            for mod in list(obj.modifiers):
+                if mod.type == "ARMATURE":
+                    obj.modifiers.remove(mod)
+            mw = obj.matrix_world.copy()
+            obj.parent = None
+            obj.matrix_world = mw
+            obj.vertex_groups.clear()
+            if rig is not None:
+                bpy.data.objects.remove(rig, do_unlink=True)
+            obj.rotation_euler.z = math.pi
+            bpy.ops.object.select_all(action="DESELECT")
+            bpy.context.view_layer.objects.active = obj
+            obj.select_set(True)
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import autorig as _ar  # noqa: E402
+            import postprocess as _pp  # noqa: E402
+
+            rig_aa, _grupos_aa = _ar.auto_rigar_humanoide(obj, "godot-humanoid-aa@1", _pp.criar_armadura)
+            ossos_export = len(rig_aa.data.bones)
+            glb = exportar(obj, rig_aa, saida, True, ja_rotacionado=True)
+        else:
+            glb = exportar(obj, rig, saida, manter_rig)
         topo_rel = info_camadas.get("topologia") or {}
         rel = {
             "glb": glb,
@@ -2438,6 +2499,9 @@ def main() -> int:
             "camadas_cc0": info_camadas,
             "maos": info_camadas.get("maos") or {},
         }
+        if ossos_export:
+            rel["esqueleto"] = esqueleto_req
+            rel["ossos"] = ossos_export
         if info_camadas.get("cabelo"):
             rel["cabelo"] = info_camadas["cabelo"]
         json.dump(rel, open(os.path.join(saida, "relatorio.json"), "w"), indent=2)

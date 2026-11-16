@@ -1522,9 +1522,13 @@ def _construir_sobreposicoes_medievais_3d(
     mat_idx_leather: int,
     mat_idx_metal: int,
     rig=None,
+    suit_obj=None,
 ):
     """Cria camadas 3D contornadas (tunica/jerkin, cinto com fivela de latao, braceletes e botas)."""
     pts = [v.co.copy() for v in body_obj.data.vertices]
+    pts_ref_torso = list(pts)
+    if suit_obj is not None and getattr(suit_obj, "data", None) is not None:
+        pts_ref_torso.extend(v.co.copy() for v in suit_obj.data.vertices)
     z_min = min(p.z for p in pts)
     z_max = max(p.z for p in pts)
     h = max(0.5, z_max - z_min)
@@ -1533,27 +1537,27 @@ def _construir_sobreposicoes_medievais_3d(
     uv_layer = bm.loops.layers.uv.new("UVMap")
 
     def _raios_elipticos_fatia(za: float, zb: float, x_lim: float, padrao_rx: float, padrao_ry: float):
-        fatia = [p for p in pts if za <= p.z <= zb and abs(p.x) <= x_lim]
+        fatia = [p for p in pts_ref_torso if za <= p.z <= zb and abs(p.x) <= x_lim]
         if len(fatia) < 6:
             return 0.0, 0.0, padrao_rx, padrao_ry
         cx = 0.0
         cy = 0.5 * (min(p.y for p in fatia) + max(p.y for p in fatia))
-        rx = min(padrao_rx * 1.12, max(padrao_rx * 0.75, max(abs(p.x - cx) for p in fatia)))
-        ry = min(padrao_ry * 1.18, max(padrao_ry * 0.75, max(abs(p.y - cy) for p in fatia)))
+        rx = min(0.132 * h, max(padrao_rx * 0.75, max(abs(p.x - cx) for p in fatia)))
+        ry = min(0.105 * h, max(padrao_ry * 0.75, max(abs(p.y - cy) for p in fatia)))
         return cx, cy, rx, ry
 
-    # 1. Tunica / Jerkin medieval contornado abaixo da axila (evita capturar bracos em A-pose)
-    z_fracs_tunica = (0.46, 0.51, 0.56, 0.62, 0.67)
+    # 1. Tunica / Jerkin medieval contornado iniciando em zf=0.50 (dentro do cinto, nunca na virilha)
+    z_fracs_tunica = (0.50, 0.54, 0.58, 0.63, 0.67)
     n_seg_t = 16
     tun_in: list[list[Vector]] = []
     tun_out: list[list[Vector]] = []
     for zf in z_fracs_tunica:
         zc = z_min + zf * h
         cx, cy, rx, ry = _raios_elipticos_fatia(
-            zc - 0.022 * h, zc + 0.022 * h, 0.098 * h, 0.096 * h, 0.072 * h
+            zc - 0.020 * h, zc + 0.020 * h, 0.118 * h, 0.098 * h, 0.074 * h
         )
-        flare = 0.010 if zf <= 0.50 else 0.0065
-        thick = 0.0055
+        flare = 0.0045
+        thick = 0.0050
         ring_i = []
         ring_o = []
         for s in range(n_seg_t):
@@ -1567,11 +1571,11 @@ def _construir_sobreposicoes_medievais_3d(
         tun_out.append(ring_o)
     _adicionar_tubo_contornado_manifold(bm, uv_layer, tun_in, tun_out, mat_idx_tunic)
 
-    # 2. Cinto de couro pespontado na cintura (folga externa ampla +0.011 m sobre traje e tunica)
-    z_belt_lo = z_min + 0.525 * h
-    z_belt_hi = z_min + 0.562 * h
+    # 2. Cinto de couro pespontado em superelipse (cobre 100% os cantos diagonais do quadril sem expor pele)
+    z_belt_lo = z_min + 0.476 * h
+    z_belt_hi = z_min + 0.526 * h
     cx_b, cy_b, rx_b, ry_b = _raios_elipticos_fatia(
-        z_belt_lo, z_belt_hi, 0.098 * h, 0.096 * h, 0.072 * h
+        z_belt_lo, z_belt_hi, 0.126 * h, 0.104 * h, 0.078 * h
     )
     belt_in: list[list[Vector]] = []
     belt_out: list[list[Vector]] = []
@@ -1581,15 +1585,17 @@ def _construir_sobreposicoes_medievais_3d(
         for s in range(n_seg_t):
             ang = (2.0 * math.pi * s) / float(n_seg_t)
             ca, sa = math.cos(ang), math.sin(ang)
-            ri.append(Vector((cx_b + (rx_b + 0.0255) * ca, cy_b + (ry_b + 0.0255) * sa, zc)))
-            ro.append(Vector((cx_b + (rx_b + 0.0320) * ca, cy_b + (ry_b + 0.0320) * sa, zc)))
+            sup_b = (abs(ca) ** 2.3 + abs(sa) ** 2.3) ** (-1.0 / 2.3)
+            ux_b, uy_b = ca * sup_b, sa * sup_b
+            ri.append(Vector((cx_b + (rx_b + 0.0155) * ux_b, cy_b + (ry_b + 0.0155) * uy_b, zc)))
+            ro.append(Vector((cx_b + (rx_b + 0.0225) * ux_b, cy_b + (ry_b + 0.0225) * uy_b, zc)))
         belt_in.append(ri)
         belt_out.append(ro)
     _adicionar_tubo_contornado_manifold(bm, uv_layer, belt_in, belt_out, mat_idx_leather)
 
     # 3. Fivela frontal de latao/bronze (em -Y no espaco MPFB pre-exportacao -> +Y_bl apos Z=pi)
     z_bm = 0.5 * (z_belt_lo + z_belt_hi)
-    y_frente = cy_b - (ry_b + 0.0335)
+    y_frente = cy_b - (ry_b + 0.0240)
     f_in: list[list[Vector]] = []
     f_out: list[list[Vector]] = []
     for dy_i, dy_o in ((0.002, -0.006), (-0.002, -0.011)):
@@ -2152,13 +2158,13 @@ def vestir_e_texturizar_camadas_cc0(
 
     if not corpo_nu:
         if suit_obj is not None:
-            # Apara a barra interna da calca dentro da bota (z < 0.21*h) e recolhe 0.78 radial ate 0.255*h
+            # Apara barra da calca bem fundo dentro da bota (< 0.14*h) e recolhe 0.78 radial ate 0.250*h
             b_zs = [v.co.z for v in obj.data.vertices]
             bz_min = min(b_zs)
             bh = max(0.5, max(b_zs) - bz_min)
-            z_trim_bota = bz_min + 0.205 * bh
-            z_corte_bota = bz_min + 0.258 * bh
-            z_corte_cinto = bz_min + 0.600 * bh
+            z_trim_bota = bz_min + 0.140 * bh
+            z_corte_bota = bz_min + 0.250 * bh
+            z_corte_cinto = bz_min + 0.500 * bh
 
             bm_suit = bmesh.new()
             bm_suit.from_mesh(suit_obj.data)
@@ -2180,8 +2186,11 @@ def vestir_e_texturizar_camadas_cc0(
                     else:
                         cxl = (0.068 * bh) if sv.co.x >= 0.0 else (-0.068 * bh)
                         cyl = 0.0
-                    sv.co.x = cxl + (sv.co.x - cxl) * 0.78
-                    sv.co.y = cyl + (sv.co.y - cyl) * 0.78
+                    # Afunda 0.78 dentro da bota mas abre suavemente para 0.94 na boca da bota (0.25*h)
+                    t_rim = max(0.0, min(1.0, (sv.co.z - (bz_min + 0.19 * bh)) / (0.06 * bh)))
+                    fator_r = 0.78 + 0.16 * t_rim
+                    sv.co.x = cxl + (sv.co.x - cxl) * fator_r
+                    sv.co.y = cyl + (sv.co.y - cyl) * fator_r
             bm_suit.to_mesh(suit_obj.data)
             bm_suit.free()
             suit_obj.data.update()
@@ -2210,7 +2219,7 @@ def vestir_e_texturizar_camadas_cc0(
             tris_extras += topo_sh["triangulos"]
             nomes_camadas.append("clothes/shoes")
 
-        ov_obj = _construir_sobreposicoes_medievais_3d(obj, 0, 1, 2, rig=rig)
+        ov_obj = _construir_sobreposicoes_medievais_3d(obj, 0, 1, 2, rig=rig, suit_obj=suit_obj)
         mats_poly = [int(p.material_index) for p in ov_obj.data.polygons]
         ov_obj.data.materials.clear()
         ov_obj.data.materials.append(mat_tunic)

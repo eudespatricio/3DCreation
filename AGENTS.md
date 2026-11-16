@@ -60,7 +60,7 @@ forge3d plan     examples/lote_01.yaml  # plano sem GPU, sem escrita
 forge3d run      examples/lote_01.yaml  # executa + QC + publish
 forge3d verify   <destino>              # portão de CI
 bash tools/check-contexto.sh            # tetos de MAPA/AGENTS/INVARIANTES/CONTINUAR/CONSELHOS
-python -m pytest                        # suíte completa (457 verdes + 1 GPU skip)
+python -m pytest                        # suíte completa (472 verdes + 1 GPU skip)
 bash tools/ci.sh                        # o que o GitHub roda: testes + contexto + P0
 ```
 

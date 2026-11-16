@@ -169,7 +169,7 @@ python tools/conformidade.py; echo "exit=$?"
 Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparecer em `DECISOES.md`
 (ledger de fato medido) e em `pendencias.md` (ação do operador), não nos contratos.
 
-## Estado da automação (v0.7.0, 15/11/2026)
+## Estado da automação (v0.8.0, 15/11/2026)
 
 | Invariante | Como está (medido em 15/11/2026) |
 |---|---|

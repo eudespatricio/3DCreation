@@ -647,6 +647,10 @@ def test_plugin_captura_path_sem_scene_file_path(tmp_path: Path) -> None:
     manifest = tmp_path / f"{asset_id}.manifest.json"
     _criar_glb_rigged(glb, asset_id, escala=1.0, com_animacoes=False)
     _escrever_manifesto(manifest, asset_id, com_lod1=False, com_colisor=False)
+    man_data = json.loads(manifest.read_text(encoding="utf-8"))
+    man_data["rota"] = "blocky"
+    man_data["material"] = {"filtro": "nearest"}
+    manifest.write_text(json.dumps(man_data, indent=1), encoding="utf-8")
 
     plugin_src = PLUGIN_GD.read_text(encoding="utf-8")
     assert "_get_import_options" in plugin_src
@@ -746,6 +750,10 @@ def test_post_import_orm_normal_e_filtro_nearest(tmp_path: Path) -> None:
     Image.new("RGB", (32, 32), (128, 128, 255)).save(tmp_path / f"{asset_id}_normal.png")
     Image.new("RGB", (32, 32), (255, 180, 64)).save(tmp_path / f"{asset_id}_orm.png")
     _escrever_manifesto(manifest, asset_id, com_lod1=False, com_colisor=False)
+    man_data = json.loads(manifest.read_text(encoding="utf-8"))
+    man_data["rota"] = "blocky"
+    man_data["material"] = {"filtro": "nearest"}
+    manifest.write_text(json.dumps(man_data, indent=1), encoding="utf-8")
 
     corpo_gd = """
 \tvar meshes := cena.find_children("*", "MeshInstance3D", true, false)
@@ -979,6 +987,44 @@ func _initialize() -> void:
     assert mapeados.get("RightToes") == "Toe.R", mapeados
     invalidos = {k: v for k, v in mapeados.items() if v not in ossos_validos}
     assert not invalidos, f"Ossos inexistentes em godot-humanoid@1: {invalidos}"
+
+
+def test_bone_map_humanoid_aa_56_ossos(tmp_path: Path) -> None:
+    godot = _exigir_godot()
+    script = tmp_path / "check_bonemap_aa.gd"
+    script.write_text(
+        f"""extends SceneTree
+const PostImport := preload({str(POST_IMPORT_GD)!r})
+
+func _initialize() -> void:
+\tvar bm := PostImport.criar_bone_map_humanoid("godot-humanoid-aa@1")
+\tvar prof := bm.profile
+\tfor i in range(prof.bone_size):
+\t\tvar pname := prof.get_bone_name(i)
+\t\tvar sname := bm.get_skeleton_bone_name(pname)
+\t\tif sname != "":
+\t\t\tprint("MAP ", pname, "=", sname)
+\tquit(0)
+""",
+        encoding="utf-8",
+    )
+    proc = _rodar_godot(godot, ["--script", str(script)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    mapeados = {}
+    for linha in proc.stdout.splitlines():
+        if linha.startswith("MAP "):
+            k, v = linha[4:].split("=", 1)
+            mapeados[k] = v
+    assert mapeados.get("Root") == "Root", mapeados
+    assert mapeados.get("Spine") == "Spine", mapeados
+    assert mapeados.get("Chest") == "Chest", mapeados
+    assert "UpperChest" not in mapeados
+    assert mapeados.get("Jaw") == "Jaw", mapeados
+    assert mapeados.get("LeftEye") == "Eye.L", mapeados
+    assert mapeados.get("RightEye") == "Eye.R", mapeados
+    assert mapeados.get("LeftThumbMetacarpal") == "Thumb1.L", mapeados
+    assert mapeados.get("RightLittleDistal") == "Little3.R", mapeados
+    assert len(mapeados) == 55
 
 
 def test_montar_character_body_orienta_arma_escudo_e_ombreira(tmp_path: Path) -> None:

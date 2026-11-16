@@ -271,7 +271,7 @@ def unir_malhas() -> "bpy.types.Object":
     return bpy.context.view_layer.objects.active
 
 
-def _remover_ilhas_de_uma_face(bm) -> int:
+def _remover_ilhas_de_uma_face(bm, *, permitir_bordas_abertas: bool = False) -> int:
     """Ilha de uma face minuscula (sobra de decimate) vira borda aberta no G1."""
     vistos = set()
     remover = []
@@ -289,8 +289,10 @@ def _remover_ilhas_de_uma_face(bm) -> int:
                     if vizinha.index not in vistos:
                         vistos.add(vizinha.index)
                         pilha.append(vizinha)
-        # qualquer ilha de uma face e sobra: nao e geometria de asset
-        if len(componente) == 1:
+        # qualquer ilha de uma face e sobra (exceto card valido quando permitir_bordas_abertas=True)
+        if len(componente) == 1 and (
+            not permitir_bordas_abertas or componente[0].calc_area() < 1e-6
+        ):
             remover.append(componente[0])
     if remover:
         bmesh.ops.delete(bm, geom=remover, context="FACES")
@@ -385,16 +387,16 @@ def _fechar_ciclos_borda_fan(bm) -> int:
     return criadas
 
 
-def _preencher_bordas_e_triangular(bm) -> int:
+def _preencher_bordas_e_triangular(bm, *, permitir_bordas_abertas: bool = False) -> int:
     """Fecha bordas abertas (holes_fill + fallback fan), remove ilhas e triangula."""
     bordas = [e for e in bm.edges if len(e.link_faces) == 1]
-    if bordas:
+    if bordas and not permitir_bordas_abertas:
         bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
         if any(len(e.link_faces) == 1 for e in bm.edges):
             _fechar_ciclos_borda_fan(bm)
-        _remover_ilhas_de_uma_face(bm)
+        _remover_ilhas_de_uma_face(bm, permitir_bordas_abertas=permitir_bordas_abertas)
     bmesh.ops.triangulate(bm, faces=list(bm.faces))
-    return len(bordas)
+    return 0 if permitir_bordas_abertas else len(bordas)
 
 
 def _colapsar_faces_degeneradas(bm, area_min: float = 1e-12) -> int:
@@ -417,7 +419,7 @@ def _colapsar_faces_degeneradas(bm, area_min: float = 1e-12) -> int:
     return colapsadas
 
 
-def reparar_malha(obj) -> dict:
+def reparar_malha(obj, permitir_bordas_abertas: bool = False) -> dict:
     """Solda, remove ilha solta e fecha buraco antes do export."""
     antes = (len(obj.data.vertices), len(obj.data.polygons))
     obj.data.validate(verbose=False)
@@ -435,8 +437,10 @@ def reparar_malha(obj) -> dict:
     soltos = [v for v in bm.verts if not v.link_faces]
     if soltos:
         bmesh.ops.delete(bm, geom=soltos, context="VERTS")
-    ilhas = _remover_ilhas_de_uma_face(bm)
-    bordas_iniciais = _preencher_bordas_e_triangular(bm)
+    ilhas = _remover_ilhas_de_uma_face(bm, permitir_bordas_abertas=permitir_bordas_abertas)
+    bordas_iniciais = _preencher_bordas_e_triangular(
+        bm, permitir_bordas_abertas=permitir_bordas_abertas
+    )
     for _ in range(3):
         vistos_faces: set[frozenset] = set()
         dups = []
@@ -457,8 +461,10 @@ def reparar_malha(obj) -> dict:
                     excedentes_nm.add(f)
         if excedentes_nm:
             bmesh.ops.delete(bm, geom=list(excedentes_nm), context="FACES")
-        _remover_ilhas_de_uma_face(bm)
-        bordas_pos = _preencher_bordas_e_triangular(bm)
+        _remover_ilhas_de_uma_face(bm, permitir_bordas_abertas=permitir_bordas_abertas)
+        bordas_pos = _preencher_bordas_e_triangular(
+            bm, permitir_bordas_abertas=permitir_bordas_abertas
+        )
         if not dups and not excedentes_nm and bordas_pos == 0:
             break
     _colapsar_faces_degeneradas(bm, area_min=1e-12)
@@ -1241,16 +1247,23 @@ def malha_triangulada(obj) -> int:
     return sum(max(len(p.vertices) - 2, 0) for p in obj.data.polygons)
 
 
-def medir_geometria(obj) -> dict:
+def medir_geometria(obj, *, permitir_bordas_abertas: bool = False) -> dict:
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     # glTF divide vertice em cada costura de UV/normal: solda apenas duplicatas exatas (1e-7),
     # sem esconder fendas de 3e-6..9e-6 apos reducao de escala.
     bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-7)
-    nao_manifold = sum(1 for e in bm.edges if len(e.link_faces) != 2)
+    bordas_abertas = sum(1 for e in bm.edges if len(e.link_faces) == 1)
+    arestas_t = sum(1 for e in bm.edges if len(e.link_faces) > 2)
+    nao_manifold = arestas_t if permitir_bordas_abertas else (bordas_abertas + arestas_t)
     degeneradas = sum(1 for f in bm.faces if f.calc_area() < 1e-12)
     bm.free()
-    return {"nao_manifold": nao_manifold, "degeneradas": degeneradas}
+    return {
+        "nao_manifold": nao_manifold,
+        "bordas_abertas": bordas_abertas,
+        "arestas_t": arestas_t,
+        "degeneradas": degeneradas,
+    }
 
 
 # ------------------------------------------------------------------ LOD / colisor
@@ -1447,11 +1460,20 @@ def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
                 xs_n = [vv.co.x for vv in nuvem.verts]
                 ys_n = [vv.co.y for vv in nuvem.verts]
                 zs_n = [vv.co.z for vv in nuvem.verts]
-                diag_n = math.sqrt(
-                    (max(xs_n) - min(xs_n)) ** 2
-                    + (max(ys_n) - min(ys_n)) ** 2
-                    + (max(zs_n) - min(zs_n)) ** 2
-                )
+                dx_n = max(xs_n) - min(xs_n)
+                dy_n = max(ys_n) - min(ys_n)
+                dz_n = max(zs_n) - min(zs_n)
+                diag_n = math.sqrt(dx_n * dx_n + dy_n * dy_n + dz_n * dz_n)
+                esp_min = max(0.01, diag_n * 0.02)
+                pts_orig = [vv.co.copy() for vv in nuvem.verts]
+                for idx_ax, span_ax in enumerate((dx_n, dy_n, dz_n)):
+                    if span_ax < 1e-4:
+                        off = Vector((0.0, 0.0, 0.0))
+                        off[idx_ax] = esp_min * 0.5
+                        for p0 in pts_orig:
+                            nuvem.verts.new(p0 + off)
+                            nuvem.verts.new(p0 - off)
+                nuvem.verts.ensure_lookup_table()
                 dist_solda = (
                     max(0.015, min(0.06, diag_n * 0.025))
                     if len(nuvem.verts) > 64
@@ -1618,6 +1640,18 @@ def processar(job: dict) -> dict:
     texturas_geradas: list[dict] = []
     nome_base = str(job["nome_base"])
     qualidade_item = str(item.get("qualidade") or "").strip().lower()
+    alpha_cards_ativo = bool(item.get("alpha_cards") or job.get("alpha_cards"))
+    detalhe_alto_cfg = (
+        job.get("detalhe_alto") or item.get("detalhe_alto") or bruto.get("detalhe_alto")
+    )
+    pbr_zonas_cfg = job.get("pbr_zonas") or item.get("pbr_zonas") or bruto.get("pbr_zonas")
+    textura_max_perfil = int(
+        (perfil.get("material") or {}).get("textura_max")
+        or (perfil.get("validacao") or {}).get("textura_max")
+        or 0
+    )
+    if qualidade_item in ("hero", "ultra") and textura_max_perfil > 0:
+        textura_max_perfil = max(textura_max_perfil, 2048)
     cfg_suav = _resolver_config_suavizacao(job, bruto)
     smooth_normals_aplicado = False
     angulo_smooth_final = 0.0
@@ -1659,11 +1693,15 @@ def processar(job: dict) -> dict:
             "modo": modo,
             "triangulos_iniciais": malha_triangulada(obj),
         }
-        info_gerada["reparo_inicial"] = reparar_malha(obj)
+        info_gerada["reparo_inicial"] = reparar_malha(
+            obj, permitir_bordas_abertas=alpha_cards_ativo
+        )
         limite_tris = int(item["limite_triangulos"])
         if malha_triangulada(obj) > limite_tris:
             decimar(obj, limite_tris)
-            info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
+            info_gerada["reparo_pos_decimate"] = reparar_malha(
+                obj, permitir_bordas_abertas=alpha_cards_ativo
+            )
         angulo_smooth_final = float(cfg_suav["angulo_graus"])
         info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth_final)
         smooth_normals_aplicado = True
@@ -1673,7 +1711,11 @@ def processar(job: dict) -> dict:
         met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
         rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
         if met_hint or rough_hint:
-            px_ext = int(bruto.get("textura_px") or TEX_PX_GERADA)
+            px_ext, _ = bake_pbr.px_bake_recomendado(
+                qualidade_item,
+                bruto.get("textura_px"),
+                teto_perfil=textura_max_perfil or None,
+            )
             res_hints = bake_pbr.aplicar_hints_orm_em_material(
                 obj,
                 saida_dir,
@@ -1696,7 +1738,9 @@ def processar(job: dict) -> dict:
             grupos = {vg.name: vg for vg in obj.vertex_groups}
         if bruto.get("canonicalizar"):
             info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
-        info_gerada["reparo_inicial"] = reparar_malha(obj)
+        info_gerada["reparo_inicial"] = reparar_malha(
+            obj, permitir_bordas_abertas=alpha_cards_ativo
+        )
 
         mat_proc = str(
             job.get("material_procedural")
@@ -1731,14 +1775,19 @@ def processar(job: dict) -> dict:
             info_solda = organic_sculpt.soldar_componentes_organicos(obj)
             info_gerada["soldagem_organica"] = info_solda
             if info_solda.get("soldado"):
-                info_gerada["reparo_pos_solda"] = reparar_malha(obj)
+                info_gerada["reparo_pos_solda"] = reparar_malha(
+                    obj, permitir_bordas_abertas=alpha_cards_ativo
+                )
 
         proteger = bool(bruto.get("proteger_decimate", False)) or cfg_suav["eh_organico"]
         angulo_smooth = float(cfg_suav["angulo_graus"])
         angulo_smooth_final = angulo_smooth
         limite_tris = int(item["limite_triangulos"])
-        px_padrao = (1024 if mat_proc else 2048) if qualidade_item == "hero" else TEX_PX_GERADA
-        px = int(bruto.get("textura_px") or px_padrao)
+        px, px_sub = bake_pbr.px_bake_recomendado(
+            qualidade_item,
+            bruto.get("textura_px"),
+            teto_perfil=textura_max_perfil or None,
+        )
 
         def _reduzir_low(alvo_o, lim_t: int) -> int:
             nonlocal quadriflow_aplicado
@@ -1758,10 +1807,25 @@ def processar(job: dict) -> dict:
                 )
             return malha_triangulada(alvo_o)
 
-        usar_bake_high_low = bool(obj.data.color_attributes) or bool(mat_proc) or (
-            retopologia_pedida == "quadriflow"
-            and bool(obj.data.uv_layers)
-            and bool(obj.data.materials)
+        eh_template_ou_armadura = (
+            bruto.get("arquivo") == "template_body.glb" or bool(bruto.get("armadura_modular"))
+        )
+        item_bake_check = dict(item)
+        if mat_proc:
+            item_bake_check["material_procedural"] = mat_proc
+        if detalhe_alto_cfg:
+            item_bake_check["detalhe_alto"] = detalhe_alto_cfg
+        if pbr_zonas_cfg:
+            item_bake_check["pbr_zonas"] = pbr_zonas_cfg
+        if retopologia_pedida:
+            item_bake_check["retopologia"] = retopologia_pedida
+        if eh_template_ou_armadura and not (mat_proc or pbr_zonas_cfg or detalhe_alto_cfg):
+            item_bake_check.pop("material", None)
+        usar_bake_high_low = bake_pbr.deve_ativar_bake_high_low(
+            item_bake_check,
+            tem_cor_vertice=bool(obj.data.color_attributes),
+            tem_uv=bool(obj.data.uv_layers),
+            tem_materiais=bool(obj.data.materials),
         )
         if usar_bake_high_low:
             origem_tex = _resolver_opcional_bruto(bruto_dir, bruto.get("origem_textura"))
@@ -1773,7 +1837,7 @@ def processar(job: dict) -> dict:
                 nome_base,
                 px,
                 limite_tris,
-                reparar_malha,
+                lambda o: reparar_malha(o, permitir_bordas_abertas=alpha_cards_ativo),
                 _reduzir_low,
                 lambda o, a=angulo_smooth: suavizar_por_angulo(o, angulo_graus=a),
                 desdobrar_uv,
@@ -1783,7 +1847,17 @@ def processar(job: dict) -> dict:
                 proteger_superficie=proteger,
                 perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
                 material_procedural=mat_proc or None,
-                permitir_sem_cor_vertice=bool(mat_proc or retopologia_pedida == "quadriflow"),
+                permitir_sem_cor_vertice=bool(
+                    mat_proc
+                    or pbr_zonas_cfg
+                    or detalhe_alto_cfg
+                    or str(item_bake_check.get("material") or "").strip().lower() == "pbr"
+                    or retopologia_pedida == "quadriflow"
+                ),
+                detalhe_alto=detalhe_alto_cfg if isinstance(detalhe_alto_cfg, dict) else None,
+                pbr_zonas=list(pbr_zonas_cfg) if isinstance(pbr_zonas_cfg, list) else None,
+                px_sub=px_sub,
+                qualidade=qualidade_item or None,
             )
             bake_meta = res_bake["bake"]
             info_gerada["triangulos_antes_decimate"] = bake_meta["triangulos_high"]
@@ -1813,13 +1887,17 @@ def processar(job: dict) -> dict:
                     desdobrar_uv(obj)
             if malha_triangulada(obj) > limite_tris:
                 decimar(obj, limite_tris, proteger_cabeca_maos=proteger)
-                info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
+                info_gerada["reparo_pos_decimate"] = reparar_malha(
+                    obj, permitir_bordas_abertas=alpha_cards_ativo
+                )
                 if cfg_suav["corrective_smooth"] and malha_triangulada(obj) >= 120:
                     info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
                         obj, iteracoes=2, fator=0.35
                     )
             elif bruto.get("armadura_modular"):
-                info_gerada["reparo_pos_decimate"] = reparar_malha(obj)
+                info_gerada["reparo_pos_decimate"] = reparar_malha(
+                    obj, permitir_bordas_abertas=alpha_cards_ativo
+                )
             info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth)
             smooth_normals_aplicado = True
             if (
@@ -1902,19 +1980,36 @@ def processar(job: dict) -> dict:
     if rig_obj is not None:
         transformar_armadura(rig_obj, escala, -pivo)
 
-    geom_pos_escala = medir_geometria(obj)
+    geom_pos_escala = medir_geometria(obj, permitir_bordas_abertas=alpha_cards_ativo)
     if (
         geom_pos_escala["nao_manifold"] > 0
         or geom_pos_escala["degeneradas"] > 0
         or escala < 0.999
     ):
-        info_gerada["reparo_pos_escala"] = reparar_malha(obj)
+        info_gerada["reparo_pos_escala"] = reparar_malha(
+            obj, permitir_bordas_abertas=alpha_cards_ativo
+        )
         if smooth_normals_aplicado:
             info_gerada["smooth_pos_escala"] = suavizar_por_angulo(
                 obj, angulo_graus=angulo_smooth_final
             )
             if weighted_normals_aplicado and rig_obj is None:
                 aplicar_weighted_normal(obj)
+
+    smart_fit_cfg = job.get("smart_fit") or item.get("smart_fit") or bruto.get("smart_fit")
+    if smart_fit_cfg:
+        try:
+            import smart_fit  # type: ignore[import-not-found]
+
+            fn_sf = getattr(smart_fit, "aplicar_smart_fit_job", None)
+            if callable(fn_sf):
+                job_sf = dict(job)
+                job_sf.setdefault("smart_fit", smart_fit_cfg)
+                info_sf = fn_sf(obj, job_sf, corpo_obj=None, rig_obj=rig_obj)
+                if isinstance(info_sf, dict):
+                    info_gerada["smart_fit"] = info_sf
+        except ImportError:
+            info_gerada["smart_fit"] = {"aplicado": False, "motivo": "modulo_ausente"}
 
     if rig_obj is not None and grupos:
         if obj.parent is not rig_obj:
@@ -1980,16 +2075,8 @@ def processar(job: dict) -> dict:
         medidas_base["sockets"] = sockets_extraidos
     if rig_obj is not None and esqueleto_efetivo:
         medidas_base["esqueleto"] = esqueleto_efetivo
-    medidas_base.update(medir_geometria(obj))
+    medidas_base.update(medir_geometria(obj, permitir_bordas_abertas=alpha_cards_ativo))
 
-    qualidade_item = str(item.get("qualidade") or "").strip().lower()
-    textura_max_perfil = int(
-        (perfil.get("material") or {}).get("textura_max")
-        or (perfil.get("validacao") or {}).get("textura_max")
-        or 0
-    )
-    if qualidade_item == "hero" and textura_max_perfil > 0:
-        textura_max_perfil = max(textura_max_perfil, 2048)
     if textura_max_perfil > 0:
         _enquadrar_texturas_no_teto(textura_max_perfil)
 
@@ -2013,7 +2100,7 @@ def processar(job: dict) -> dict:
                 pct,
                 blocky=(bruto["schema"] == "forge3d/bruto-blocky@1"),
             )
-            reparar_malha(alvo_obj)
+            reparar_malha(alvo_obj, permitir_bordas_abertas=alpha_cards_ativo)
             if smooth_normals_aplicado:
                 suavizar_por_angulo(alvo_obj, angulo_graus=angulo_smooth_final)
             medidas_base.setdefault("lod_modo", {})[str(nivel)] = info_lod
@@ -2029,7 +2116,7 @@ def processar(job: dict) -> dict:
             export_tangents=usar_tangents,
         )
         bytes_max_kb = int((perfil.get("validacao") or {}).get("bytes_max_kb") or 0)
-        if qualidade_item == "hero" and bytes_max_kb > 0:
+        if qualidade_item in ("hero", "ultra") and bytes_max_kb > 0:
             bytes_max_kb = max(bytes_max_kb, 4096)
         if nivel == 0 and bytes_max_kb > 0:
             if texturas_geradas:
@@ -2109,6 +2196,12 @@ def processar(job: dict) -> dict:
 
     if info_gerada:
         medidas_base["gerada"] = info_gerada
+    if isinstance(detalhe_alto_cfg, dict) and detalhe_alto_cfg:
+        medidas_base["detalhe_alto"] = dict(detalhe_alto_cfg)
+    if isinstance(pbr_zonas_cfg, list) and pbr_zonas_cfg:
+        medidas_base["pbr_zonas"] = list(pbr_zonas_cfg)
+    if isinstance(info_gerada.get("smart_fit"), dict) and info_gerada["smart_fit"]:
+        medidas_base["smart_fit"] = dict(info_gerada["smart_fit"])
     medidas_base["partes_colisao"] = len(colisores)
     medidas_base["esqueleto"] = esqueleto_efetivo if rig_obj is not None else None
     medidas_base["lod"] = [{"nivel": a["nivel"], "triangulos": a["triangulos"]} for a in arquivos if a["papel"] in ("mesh", "lod")]
@@ -2124,6 +2217,12 @@ def processar(job: dict) -> dict:
     }
     if sockets_extraidos:
         resultado["sockets"] = sockets_extraidos
+    if isinstance(medidas_base.get("detalhe_alto"), dict):
+        resultado["detalhe_alto"] = medidas_base["detalhe_alto"]
+    if isinstance(medidas_base.get("pbr_zonas"), list):
+        resultado["pbr_zonas"] = medidas_base["pbr_zonas"]
+    if isinstance(medidas_base.get("smart_fit"), dict):
+        resultado["smart_fit"] = medidas_base["smart_fit"]
     if bruto.get("concept"):
         # proveniencia do estagio text-to-image; o manifest grava em providers.texture
         resultado["concept"] = bruto["concept"]

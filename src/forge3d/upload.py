@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import struct
 import time
 import urllib.error
 import urllib.parse
@@ -16,6 +17,7 @@ import urllib.request
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from . import paths
 from .errors import erro_recurso, erro_upload
@@ -46,6 +48,8 @@ __all__ = [
     "chave_api",
     "executar",
     "formatar_rbxassetid",
+    "inferir_papel_textura_roblox",
+    "remover_imagens_embutidas_glb",
     "resolver_ledger",
 ]
 
@@ -54,15 +58,125 @@ _SUFIXOS_PBR_CANAL = (
     ("_basecolor", "ColorMap"),
     ("_albedo", "ColorMap"),
     ("_colormap", "ColorMap"),
-    ("_normal", "NormalMap"),
     ("_normalmap", "NormalMap"),
-    ("_roughness", "RoughnessMap"),
+    ("_normal", "NormalMap"),
     ("_roughnessmap", "RoughnessMap"),
-    ("_orm", "RoughnessMap"),
+    ("_roughness", "RoughnessMap"),
+    ("_orm", "OrmPacked"),
+    ("_metalnessmap", "MetalnessMap"),
     ("_metalness", "MetalnessMap"),
     ("_metallic", "MetalnessMap"),
-    ("_metalnessmap", "MetalnessMap"),
 )
+
+_GLB_MAGIC = 0x46546C67
+_CHUNK_JSON = 0x4E4F534A
+_CHUNK_BIN = 0x004E4942
+
+
+def inferir_papel_textura_roblox(
+    caminho: str | Path,
+    papel_manifesto: str | None = None,
+) -> str | None:
+    """Resolve o canal Roblox de uma textura PBR sem mapear ``_orm`` para ``RoughnessMap``."""
+    p_low = str(papel_manifesto or "").strip().lower()
+    if p_low in ("orm", "ormpacked"):
+        return "OrmPacked"
+    aliases_estritos = {
+        "textura": "ColorMap",
+        "basecolor": "ColorMap",
+        "albedo": "ColorMap",
+        "colormap": "ColorMap",
+        "color_map": "ColorMap",
+        "normal": "NormalMap",
+        "normalmap": "NormalMap",
+        "normal_map": "NormalMap",
+        "roughness": "RoughnessMap",
+        "roughnessmap": "RoughnessMap",
+        "roughness_map": "RoughnessMap",
+        "metallic": "MetalnessMap",
+        "metalness": "MetalnessMap",
+        "metalnessmap": "MetalnessMap",
+        "metalness_map": "MetalnessMap",
+    }
+    if p_low in aliases_estritos and p_low != "textura":
+        return aliases_estritos[p_low]
+
+    nome = str(caminho or "").replace("\\", "/").rsplit("/", 1)[-1]
+    stem = nome.rsplit(".", 1)[0].lower()
+    if stem.endswith("_orm") or stem == "orm":
+        return "OrmPacked"
+    for sufixo, canal in _SUFIXOS_PBR_CANAL:
+        if stem.endswith(sufixo) or stem == sufixo.lstrip("_"):
+            return canal
+    return aliases_estritos.get(p_low)
+
+
+def remover_imagens_embutidas_glb(glb_bytes: bytes) -> tuple[bytes, dict[str, Any]]:
+    """Remove imagens PNG/JPEG embutidas do GLB em memoria mantendo UVs, Tangents e geometria."""
+    if len(glb_bytes) < 12:
+        raise ValueError("GLB truncado (< 12 bytes)")
+    magic, versao, _tam = struct.unpack_from("<III", glb_bytes, 0)
+    if magic != _GLB_MAGIC:
+        raise ValueError("Arquivo nao possui cabecalho glTF binary (GLB)")
+
+    offset = 12
+    json_raw: bytes | None = None
+    bin_raw = b""
+    outros_chunks: list[tuple[int, bytes]] = []
+    while offset + 8 <= len(glb_bytes):
+        tam_chunk, tipo_chunk = struct.unpack_from("<II", glb_bytes, offset)
+        offset += 8
+        dados = glb_bytes[offset : offset + tam_chunk]
+        offset += tam_chunk
+        if tipo_chunk == _CHUNK_JSON and json_raw is None:
+            json_raw = dados
+        elif tipo_chunk == _CHUNK_BIN and not bin_raw:
+            bin_raw = dados
+        else:
+            outros_chunks.append((tipo_chunk, dados))
+
+    if json_raw is None:
+        raise ValueError("GLB sem chunk JSON")
+
+    gltf = json.loads(json_raw.decode("utf-8"))
+    imgs_removidas = len(gltf.get("images") or [])
+    texs_removidas = len(gltf.get("textures") or [])
+    gltf.pop("images", None)
+    gltf.pop("textures", None)
+    gltf.pop("samplers", None)
+
+    for mat in gltf.get("materials") or []:
+        pbr = mat.get("pbrMetallicRoughness")
+        if isinstance(pbr, dict):
+            pbr.pop("baseColorTexture", None)
+            pbr.pop("metallicRoughnessTexture", None)
+        for campo in ("normalTexture", "occlusionTexture", "emissiveTexture"):
+            mat.pop(campo, None)
+
+    json_bytes = json.dumps(gltf, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    pad_json = (4 - (len(json_bytes) % 4)) % 4
+    json_bytes_padded = json_bytes + (b" " * pad_json)
+
+    chunks: list[tuple[int, bytes]] = [(_CHUNK_JSON, json_bytes_padded)]
+    if bin_raw:
+        pad_bin = (4 - (len(bin_raw) % 4)) % 4
+        chunks.append((_CHUNK_BIN, bin_raw + (b"\x00" * pad_bin)))
+    for tc, dc in outros_chunks:
+        pad_o = (4 - (len(dc) % 4)) % 4
+        chunks.append((tc, dc + (b"\x00" * pad_o)))
+
+    total_bytes = 12 + sum(8 + len(d) for _, d in chunks)
+    saida = bytearray(struct.pack("<III", magic, versao, total_bytes))
+    for tc, dc in chunks:
+        saida.extend(struct.pack("<II", len(dc), tc))
+        saida.extend(dc)
+
+    return bytes(saida), {
+        "imagens_removidas": imgs_removidas,
+        "texturas_removidas": texs_removidas,
+        "bytes_antes": len(glb_bytes),
+        "bytes_depois": len(saida),
+    }
 
 
 def formatar_rbxassetid(valor: str | int) -> str:
@@ -77,6 +191,8 @@ def formatar_rbxassetid(valor: str | int) -> str:
 
 def _inferir_role_e_base(rec: Mapping, logical_id: str, arquivo: str) -> tuple[str, str | None]:
     role = str(rec.get("role") or rec.get("papel") or rec.get("canal") or "").strip()
+    if role.lower() == "orm":
+        role = "OrmPacked"
     base_id: str | None = None
     nome_arq = Path(arquivo).name.lower() if arquivo else ""
     id_low = logical_id.lower()
@@ -229,14 +345,21 @@ def _criador(creator_id: str | None, creator_type: str | None) -> dict:
     return {chave: str(creator_id)}
 
 
-def _multipart(request_json: str, arquivo: Path, content_type: str) -> tuple[str, bytes]:
+def _multipart(
+    request_json: str,
+    arquivo: Path,
+    content_type: str,
+    *,
+    conteudo_bytes: bytes | None = None,
+) -> tuple[str, bytes]:
     boundary = "----forge3d" + uuid.uuid4().hex
+    payload = arquivo.read_bytes() if conteudo_bytes is None else conteudo_bytes
     partes = [
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"request\"\r\n\r\n".encode(),
         request_json.encode("utf-8"),
         b"\r\n",
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"fileContent\"; filename=\"{arquivo.name}\"\r\nContent-Type: {content_type}\r\n\r\n".encode(),
-        arquivo.read_bytes(),
+        payload,
         f"\r\n--{boundary}--\r\n".encode(),
     ]
     return boundary, b"".join(partes)
@@ -297,6 +420,7 @@ def executar(
     dry_run: bool = False,
     intervalo: float = 2.0,
     max_espera: float = 300.0,
+    strip_embedded_textures: bool = False,
 ) -> dict:
     caminho = Path(arquivo).expanduser()
     if not caminho.is_file():
@@ -320,11 +444,20 @@ def executar(
     if intervalo <= 0 or max_espera <= 0:
         raise erro_upload("intervalo e max-espera precisam ser > 0")
 
+    payload_bytes: bytes | None = None
+    strip_info: dict[str, Any] | None = None
+    if strip_embedded_textures and asset_type == "Model" and caminho.suffix.lower() == ".glb":
+        try:
+            payload_bytes, strip_info = remover_imagens_embutidas_glb(caminho.read_bytes())
+        except ValueError as exc:
+            raise erro_upload(f"falha ao remover texturas embutidas do GLB: {exc}") from exc
+
+    bytes_envio = len(payload_bytes) if payload_bytes is not None else caminho.stat().st_size
     creator = _criador(creator_id, creator_type)
     nome = nome or caminho.stem
     padrao = {
         "Model": "Modelo gerado pelo Forge3D (R15/blocky).",
-        "Image": "Textura gerada pelo Forge3D.",
+        "Image": "Textura gerado pelo Forge3D.",
         "Decal": "Textura gerada pelo Forge3D.",
         "Animation": "Animacao gerada pelo Forge3D (clipe base).",
     }
@@ -344,12 +477,12 @@ def executar(
         raise erro_upload(f"URL Open Cloud exige https:// (recebido: {base})")
     url = f"{base}/assets/v1/assets"
     if dry_run:
-        return {
+        res_dry: dict[str, Any] = {
             "ok": True,
             "dry_run": True,
             "url": url,
             "arquivo": str(caminho),
-            "bytes": caminho.stat().st_size,
+            "bytes": bytes_envio,
             "content_type": content_type,
             "asset_type": asset_type,
             "creator": creator,
@@ -357,10 +490,18 @@ def executar(
             "request": request,
             "key_presente": bool(chave_api(exigir=False)),
         }
+        if strip_info is not None:
+            res_dry["strip_embedded_textures"] = strip_info
+        return res_dry
 
     key = key or chave_api()
     assert key is not None
-    boundary, corpo = _multipart(request_json, caminho, content_type)
+    boundary, corpo = _multipart(
+        request_json,
+        caminho,
+        content_type,
+        conteudo_bytes=payload_bytes,
+    )
     resposta = _http(url, key, corpo, f"multipart/form-data; boundary={boundary}")
     operacao = str(resposta.get("path") or "")
     if not operacao.startswith("operations/"):
@@ -384,15 +525,18 @@ def executar(
     asset_id = asset.get("assetId")
     if not asset_id:
         raise erro_upload(f"operation sem assetId: {op}")
-    return {
+    res_ok: dict[str, Any] = {
         "ok": True,
         "dry_run": False,
         "asset_id": str(asset_id),
         "operation": op_id,
         "moderation": mod_state,
-        "bytes": caminho.stat().st_size,
+        "bytes": bytes_envio,
         "asset_type": asset_type,
         "nome": nome,
         "creator": creator,
         "url": url,
     }
+    if strip_info is not None:
+        res_ok["strip_embedded_textures"] = strip_info
+    return res_ok

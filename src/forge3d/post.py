@@ -17,7 +17,7 @@ from .errors import ForgeError, erro_ambiente, erro_bpy
 
 __all__ = ["binario", "versao", "script", "executar", "preflight", "PIPELINE_VERSION"]
 
-PIPELINE_VERSION = "0.8.0"
+PIPELINE_VERSION = "0.9.0"
 VERSAO_MIN = (4, 2)
 VERSAO_MAX = (4, 3)
 
@@ -74,7 +74,7 @@ def preflight() -> tuple[bool, str]:
 
 
 def _preparar_job(job: dict) -> dict:
-    """Encaminha campos opcionais spec@5 de ``job['item']`` sem alterar payloads legados."""
+    """Encaminha campos opcionais spec@5/spec@6 de ``job['item']`` sem alterar payloads legados."""
     preparado = dict(job)
     item = preparado.get("item")
     if isinstance(item, dict):
@@ -84,19 +84,40 @@ def _preparar_job(job: dict) -> dict:
             "provider_conceito",
             "template_humanoide",
             "sockets",
+            "detalhe_alto",
+            "pbr_zonas",
+            "quantidade_cena",
+            "render_fidelity_roblox",
+            "alpha_cards",
+            "smart_fit",
+            "roblox_render",
         ):
             if chave in item and chave not in preparado:
                 preparado[chave] = item[chave]
         if "clipes" in item and "clipes_pedidos" not in preparado:
             preparado["clipes_pedidos"] = list(item["clipes"])
+    lote_spec = preparado.get("lote_spec") or preparado.get("spec")
+    if (
+        isinstance(lote_spec, dict)
+        and "roblox_render" in lote_spec
+        and "roblox_render" not in preparado
+    ):
+        preparado["roblox_render"] = lote_spec["roblox_render"]
     return preparado
 
 
 def _extrair_metadados_v5(resultado: dict) -> dict:
-    """Promove metadados opcionais spec@5 de ``resultado``/``medidas`` quando presentes."""
+    """Promove metadados opcionais spec@5/spec@6 de ``resultado``/``medidas`` quando presentes."""
     medidas_raw = resultado.get("medidas")
     medidas: dict = medidas_raw if isinstance(medidas_raw, dict) else {}
-    for chave in ("orientacao_export", "sockets", "sombreamento"):
+    for chave in (
+        "orientacao_export",
+        "sockets",
+        "sombreamento",
+        "detalhe_alto",
+        "pbr_zonas",
+        "smart_fit",
+    ):
         valor = resultado.get(chave)
         if valor is None and chave in medidas:
             valor = medidas.get(chave)

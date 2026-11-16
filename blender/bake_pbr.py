@@ -10,10 +10,160 @@ import math
 import os
 from array import array
 
-import bmesh
-import bpy
-from mathutils import Vector
-from mathutils.bvhtree import BVHTree
+try:
+    import bmesh
+    import bpy
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+except ImportError:  # pragma: no cover - permite import puro em testes fora do Blender
+    bmesh = None  # type: ignore[assignment]
+    bpy = None  # type: ignore[assignment]
+    Vector = None  # type: ignore[assignment,misc]
+    BVHTree = None  # type: ignore[assignment,misc]
+
+
+def px_bake_recomendado(
+    qualidade: str,
+    solicitado: int | None = None,
+    teto_perfil: int | None = None,
+) -> tuple[int, int]:
+    """Calcula ``(px_basecolor, px_submapas)`` para 1K/2K/4K sem rebaixar 1K para 512px."""
+    q = str(qualidade or "standard").strip().lower()
+    permite_4k = (teto_perfil is not None and int(teto_perfil) >= 4096) or (
+        solicitado is not None
+        and int(solicitado) >= 4096
+        and (teto_perfil is None or int(teto_perfil) >= 4096)
+    )
+    teto_max = 4096 if permite_4k else 2048
+    if teto_perfil is not None and int(teto_perfil) > 0:
+        teto_max = max(64, min(teto_max, int(teto_perfil)))
+
+    if solicitado is not None and int(solicitado) > 0:
+        px = max(64, min(int(solicitado), teto_max))
+    elif q == "ultra" and teto_perfil is not None and int(teto_perfil) >= 4096:
+        px = 4096
+    elif q in ("hero", "ultra"):
+        px = min(2048, teto_max)
+    else:
+        px = min(1024, teto_max)
+
+    if px >= 4096:
+        px_sub = 4096 if q == "ultra" else 2048
+    elif px >= 2048:
+        px_sub = 2048 if q == "ultra" else 1024
+    elif px >= 1024:
+        px_sub = 1024
+    else:
+        px_sub = max(64, px)
+    return px, px_sub
+
+
+def deve_ativar_bake_high_low(
+    item: dict,
+    *,
+    tem_cor_vertice: bool,
+    tem_uv: bool,
+    tem_materiais: bool,
+) -> bool:
+    """Dispara bake Cycles PBR sempre que material=pbr, detalhe_alto, pbr_zonas ou procedural existir."""
+    if not isinstance(item, dict):
+        return bool(tem_cor_vertice)
+    if tem_cor_vertice or bool(item.get("material_procedural")) or bool(item.get("pbr_zonas")):
+        return True
+    if str(item.get("material") or "").strip().lower() == "pbr" and (tem_uv or tem_materiais):
+        return True
+    det = item.get("detalhe_alto")
+    if isinstance(det, dict) and det.get("ativo", True) and (tem_uv or tem_materiais):
+        return True
+    retopologia = str(item.get("retopologia") or "padrao").strip().lower()
+    return retopologia == "quadriflow" and tem_uv and tem_materiais
+
+
+def preparar_high_mesh_detalhe_alto(high_obj, cfg: dict | None) -> dict:
+    """Enriquece ``high_obj`` no Blender com crease + Bevel seguro + Subsurf antes do bake Cycles."""
+    if not isinstance(cfg, dict) or not cfg.get("ativo", True):
+        return {"aplicado": False}
+    if high_obj is None or getattr(high_obj, "data", None) is None:
+        return {"aplicado": False}
+
+    chanfro = max(0.0, min(0.05, float(cfg.get("chanfro_bevel_m", 0.008))))
+    subdiv = max(0, min(3, int(cfg.get("subdiv_niveis", 2))))
+    crease_deg = max(15.0, min(85.0, float(cfg.get("crease_angulo_graus", 38.0))))
+    crease_rad = math.radians(crease_deg)
+
+    tris_inicial = _contar_triangulos(high_obj)
+    if tris_inicial > 80_000:
+        subdiv = min(subdiv, 1)
+
+    bm = bmesh.new()
+    bm.from_mesh(high_obj.data)
+    crease_layer = bm.edges.layers.float.get("crease_edge") or bm.edges.layers.float.new("crease_edge")
+    vivas = 0
+    for edge in bm.edges:
+        if len(edge.link_faces) == 2:
+            ang = edge.link_faces[0].normal.angle(edge.link_faces[1].normal, 0.0)
+            if ang >= crease_rad:
+                edge[crease_layer] = 0.85
+                vivas += 1
+        elif len(edge.link_faces) == 1:
+            edge[crease_layer] = 1.0
+    bm.to_mesh(high_obj.data)
+    bm.free()
+    high_obj.data.update()
+
+    bpy.ops.object.select_all(action="DESELECT")
+    high_obj.select_set(True)
+    bpy.context.view_layer.objects.active = high_obj
+
+    if chanfro > 0.0:
+        mod_bev = high_obj.modifiers.new("forge3d_high_bevel", "BEVEL")
+        mod_bev.offset_type = "OFFSET"
+        mod_bev.width = chanfro
+        mod_bev.segments = 2
+        mod_bev.limit_method = "ANGLE"
+        mod_bev.angle_limit = crease_rad
+        mod_bev.use_clamp_overlap = True
+        if hasattr(mod_bev, "harden_normals"):
+            mod_bev.harden_normals = False
+        bpy.ops.object.modifier_apply(modifier=mod_bev.name)
+
+    if subdiv > 0:
+        mod_sub = high_obj.modifiers.new("forge3d_high_subdiv", "SUBSURF")
+        mod_sub.levels = subdiv
+        mod_sub.render_levels = subdiv
+        mod_sub.use_creases = True
+        bpy.ops.object.modifier_apply(modifier=mod_sub.name)
+
+    tris_final = _contar_triangulos(high_obj)
+    return {
+        "aplicado": True,
+        "arestas_marcadas": vivas,
+        "chanfro_m": chanfro,
+        "subdiv_niveis": subdiv,
+        "tris_high_inicial": tris_inicial,
+        "tris_high_enriquecido": tris_final,
+    }
+
+
+def construir_shader_pbr_zonas_blender(
+    nome_mat: str,
+    zonas: list[dict],
+    *,
+    presets_pbr: dict | None = None,
+    img_paleta=None,
+    nome_cor_vertice: str | None = None,
+    ao_cavidade_forca: float = 0.35,
+):
+    """Encaminha construcao do grafo multi-zona Cycles para ``procedural_pbr``."""
+    proc_mod = __import__("procedural_pbr")
+    return proc_mod.construir_shader_pbr_zonas_blender(
+        nome_mat,
+        zonas,
+        presets_pbr=presets_pbr,
+        img_paleta=img_paleta,
+        nome_cor_vertice=nome_cor_vertice,
+        ao_cavidade_forca=ao_cavidade_forca,
+    )
 
 
 def _contar_triangulos(obj) -> int:
@@ -859,6 +1009,10 @@ def executar_bake_high_low(
     perfil_nome: str | None = None,
     material_procedural: str | None = None,
     permitir_sem_cor_vertice: bool = False,
+    detalhe_alto: dict | None = None,
+    pbr_zonas: list[dict] | None = None,
+    px_sub: int | None = None,
+    qualidade: str | None = None,
 ) -> dict:
     """Executa bake PBR High->Low (BaseColor, Normal, ORM) e atribui material glTF PBR em ``obj``."""
     tem_cor_vertice = bool(
@@ -866,24 +1020,45 @@ def executar_bake_high_low(
     )
     preset_proc = str(material_procedural or "").strip().lower()
     tem_procedural = bool(preset_proc)
+    tem_zonas = bool(pbr_zonas)
+    tem_detalhe_alto = bool(isinstance(detalhe_alto, dict) and detalhe_alto.get("ativo", True))
     tem_mat_uv = bool(
-        permitir_sem_cor_vertice
+        (permitir_sem_cor_vertice or tem_zonas or tem_detalhe_alto)
         and obj is not None
         and obj.data is not None
-        and len(obj.data.uv_layers) > 0
+        and (
+            len(obj.data.uv_layers) > 0
+            or len(obj.data.materials) > 0
+            or tem_zonas
+            or tem_detalhe_alto
+        )
     )
     if obj is None or obj.data is None or (
-        not tem_cor_vertice and not tem_procedural and not tem_mat_uv
+        not tem_cor_vertice and not tem_procedural and not tem_zonas and not tem_mat_uv
     ):
         raise RuntimeError("malha sem atributo de cor por vertice para assar PBR")
 
     os.makedirs(saida_dir, exist_ok=True)
-    px = max(64, min(int(px), 2048))
-    px_sub = min(px, 1024 if px >= 2048 else 512)
+    px = max(64, min(int(px), 4096))
+    if px_sub is not None and int(px_sub) > 0:
+        px_sub = max(64, min(int(px_sub), px))
+        if px >= 1024 and px_sub < 1024:
+            px_sub = 1024
+    else:
+        q_low = str(qualidade or "").strip().lower()
+        if px >= 4096:
+            px_sub = 4096 if q_low == "ultra" else 2048
+        elif px >= 2048:
+            px_sub = 2048 if q_low == "ultra" else 1024
+        elif px >= 1024:
+            px_sub = 1024
+        else:
+            px_sub = px
 
     if (
         len(obj.data.materials) > 1
         and not tem_cor_vertice
+        and not tem_zonas
         and not str(perfil_nome or "").startswith("roblox")
     ):
         tris_high = _contar_triangulos(obj)
@@ -939,6 +1114,8 @@ def executar_bake_high_low(
         nome_cor = (
             ativo_cor.name if ativo_cor is not None else obj.data.color_attributes[0].name
         )
+    elif tem_zonas:
+        nome_cor = f"pbr_zonas:{len(pbr_zonas or [])}"
     elif tem_procedural:
         nome_cor = f"procedural:{preset_proc}"
     else:
@@ -961,13 +1138,17 @@ def executar_bake_high_low(
     img_met = None
     img_rough = None
     img_hints_tmp = None
+    info_detalhe_alto: dict = {"aplicado": False}
     cena = bpy.context.scene
 
     # Guarda estado de render/cor para restaurar ao sair (evita side-effects na cena).
     estado_anterior = _capturar_estado_cena(cena)
 
     try:
-        if proteger_superficie and tris_high >= 4000:
+        if tem_detalhe_alto:
+            info_detalhe_alto = preparar_high_mesh_detalhe_alto(high_obj, detalhe_alto)
+            tris_high = int(info_detalhe_alto.get("tris_high_enriquecido") or _contar_triangulos(high_obj))
+        if proteger_superficie and tris_high >= 4000 and not tem_detalhe_alto:
             _suavizar_high_taubin(high_obj, iteracoes=3, fator=0.45)
         suavizar_fn(high_obj)
 
@@ -983,7 +1164,7 @@ def executar_bake_high_low(
                 img_rough.colorspace_settings.name = "Non-Color"
 
         nome_visivel = None
-        if img_origem is not None or img_met is not None or img_rough is not None:
+        if not tem_zonas and (img_origem is not None or img_met is not None or img_rough is not None):
             min_v, max_v = _calcular_bbox_mundo(high_obj)
             cam_obj, cam_data = _criar_camera_ortografica_frontal(
                 f"{nome_base}_cam_proj_tmp", min_v, max_v, colecao
@@ -1002,6 +1183,8 @@ def executar_bake_high_low(
         info_uv = uv_fn(obj)
         if not obj.data.uv_layers:
             raise RuntimeError("malha low-poly sem camada UV apos uv_fn")
+        if tem_zonas and not high_obj.data.uv_layers:
+            uv_fn(high_obj)
         tris_low = _contar_triangulos(obj)
 
         bpy.context.view_layer.update()
@@ -1014,10 +1197,30 @@ def executar_bake_high_low(
             max_ray_dist = max(0.025, 0.06 * diag)
 
         proc_mod = None
+        usar_emit_proc = False
         met_escalar_orig = 0.0
         rough_escalar_orig: float | None = None
-        if tem_procedural:
+        if tem_zonas:
             proc_mod = __import__("procedural_pbr")
+            usar_emit_proc = True
+            ao_forca = float(
+                (detalhe_alto or {}).get("ao_cavidade_forca", 0.35)
+                if isinstance(detalhe_alto, dict)
+                else 0.35
+            )
+            high_mat = proc_mod.construir_shader_pbr_zonas_blender(
+                f"{nome_base}_high_zonas_tmp",
+                list(pbr_zonas or []),
+                presets_pbr=proc_mod.PRESETS_PBR,
+                img_paleta=img_origem,
+                nome_cor_vertice=nome_cor if tem_cor_vertice else None,
+                ao_cavidade_forca=ao_forca,
+            )
+            high_obj.data.materials.clear()
+            high_obj.data.materials.append(high_mat)
+        elif tem_procedural:
+            proc_mod = __import__("procedural_pbr")
+            usar_emit_proc = True
             high_mat = proc_mod.criar_material_procedural(
                 preset_proc, nome_mat=f"{nome_base}_high_proc_tmp"
             )
@@ -1063,8 +1266,8 @@ def executar_bake_high_low(
         obj.data.materials.append(low_bake_mat)
 
         dispositivo_cycles = _configurar_dispositivo_cycles(cena, preferir_gpu=True)
-        samples_bake = 8 if (tem_procedural or permitir_sem_cor_vertice) else 1
-        samples_ao = 8 if (tem_procedural or permitir_sem_cor_vertice) else 4
+        samples_bake = 8 if (usar_emit_proc or permitir_sem_cor_vertice) else 1
+        samples_ao = 8 if (usar_emit_proc or permitir_sem_cor_vertice) else 4
         cena.cycles.use_denoising = False
         cena.render.bake.use_selected_to_active = True
         cena.render.bake.use_cage = False
@@ -1085,7 +1288,7 @@ def executar_bake_high_low(
         cena.cycles.samples = samples_bake
         cena.render.bake.margin = max(4, px // 128)
         _selecionar_high_para_low(high_obj, obj)
-        if tem_procedural and proc_mod is not None:
+        if usar_emit_proc and proc_mod is not None:
             proc_mod.configurar_saida_albedo_emit(high_mat)
             _executar_bake_seguro(cena, type="EMIT")
             proc_mod.configurar_saida_pbr_bsdf(high_mat)
@@ -1123,7 +1326,7 @@ def executar_bake_high_low(
         _selecionar_high_para_low(high_obj, obj)
         _executar_bake_seguro(cena, type="NORMAL")
         _corrigir_normais_invertidas(img_nm_tmp, px_sub)
-        if not tem_procedural:
+        if not usar_emit_proc:
             _adicionar_detalhe_sobel_normal(img_nm_tmp, img_bc, px_sub, px)
         img_nm = _salvar_e_recarregar_png(img_nm_tmp, path_nm, "Non-Color", cena)
 
@@ -1143,7 +1346,7 @@ def executar_bake_high_low(
         _selecionar_high_para_low(high_obj, obj)
         _executar_bake_seguro(cena, type="AO")
 
-        if tem_procedural and proc_mod is not None:
+        if usar_emit_proc and proc_mod is not None:
             proc_mod.configurar_saida_orm_hints_emit(high_mat)
             img_hints_tmp = bpy.data.images.new(
                 f"{nome_base}_hints_tmp", width=px_sub, height=px_sub, alpha=False
@@ -1188,14 +1391,15 @@ def executar_bake_high_low(
             f"{nome_base}_orm_tmp",
             px_sub,
             img_hints=img_hints_tmp,
-            piso_dieletrico_rough=0.68 if (proteger_superficie and not tem_procedural) else 0.0,
+            piso_dieletrico_rough=0.68 if (proteger_superficie and not usar_emit_proc) else 0.0,
             metallic_base=met_escalar_orig,
             roughness_base=rough_escalar_orig,
         )
         bpy.data.images.remove(img_ao_tmp)
+        canais_separados = _extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
         extras_roblox = (
-            _extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
-            if str(perfil_nome or "").startswith("roblox")
+            canais_separados
+            if (str(perfil_nome or "").startswith("roblox") or tem_zonas or tem_detalhe_alto)
             else []
         )
         img_orm = _salvar_e_recarregar_png(img_orm_tmp, path_orm, "Non-Color", cena)
@@ -1249,6 +1453,8 @@ def executar_bake_high_low(
             "orm_px": px_sub,
             "cor_atributo": nome_cor,
             "material_procedural": preset_proc or None,
+            "pbr_zonas": len(pbr_zonas) if tem_zonas else 0,
+            "detalhe_alto": info_detalhe_alto,
             "dispositivo_cycles": dispositivo_cycles,
             "samples": samples_bake,
             "bbox_diag": round(diag, 6),
@@ -1259,8 +1465,8 @@ def executar_bake_high_low(
             "smooth": info_smooth,
             "uv": info_uv,
             "origem_textura_aplicada": bool(img_origem is not None),
-            "metallic_hint_aplicado": bool(img_met is not None or tem_procedural),
-            "roughness_hint_aplicado": bool(img_rough is not None or tem_procedural),
+            "metallic_hint_aplicado": bool(img_met is not None or usar_emit_proc),
+            "roughness_hint_aplicado": bool(img_rough is not None or usar_emit_proc),
             "png_bytes": bytes_bc,
             "baseColor_bytes": bytes_bc,
             "normal_bytes": bytes_nm,
@@ -1293,7 +1499,7 @@ def aplicar_hints_orm_em_material(
         return None
 
     os.makedirs(saida_dir, exist_ok=True)
-    px_sub = max(64, min(int(px), 512))
+    px_sub = max(64, min(int(px), 1024 if int(px) >= 1024 else int(px)))
     cena = bpy.context.scene
     estado_anterior = _capturar_estado_cena(cena)
 

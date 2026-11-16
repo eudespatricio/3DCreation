@@ -184,8 +184,8 @@ print("BAKE_PBR_TEST_OK")
 
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["textura_px"] == 1024
-    assert meta["normal_px"] == 512
-    assert meta["orm_px"] == 512
+    assert meta["normal_px"] == 1024
+    assert meta["orm_px"] == 1024
     assert meta["bake"]["triangulos_high"] == 12000
     assert meta["bake"]["triangulos_low"] <= 6000
     assert meta["bake"]["cage_extrusion"] == pytest.approx(
@@ -207,14 +207,14 @@ print("BAKE_PBR_TEST_OK")
         assert all(hi > lo + 20 for lo, hi in extrema_bc), extrema_bc
 
     with Image.open(saida / papeis["normal"]) as im_nm:
-        assert im_nm.size == (512, 512)
+        assert im_nm.size == (1024, 1024)
         assert im_nm.mode == "RGB"
         r_ext, g_ext, b_ext = im_nm.getextrema()
         assert r_ext[1] > r_ext[0] + 10 and g_ext[1] > g_ext[0] + 10
         assert b_ext[1] >= 250
 
     with Image.open(saida / papeis["orm"]) as im_orm:
-        assert im_orm.size == (512, 512)
+        assert im_orm.size == (1024, 1024)
         assert im_orm.mode == "RGB"
         r_ext, g_ext, b_ext = im_orm.getextrema()
         assert r_ext[1] > 100

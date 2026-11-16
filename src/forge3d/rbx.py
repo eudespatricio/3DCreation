@@ -27,11 +27,20 @@ __all__ = [
     "exportar_acessorio_rbxmx",
     "exportar_animacao",
     "exportar_animacoes",
+    "exportar_manifesto_luau_pbr",
+    "exportar_meshpart_pbr_rbxmx",
     "exportar_r15",
     "exportar_surface_appearance",
+    "gerar_manifesto_luau_pbr",
+    "gerar_rbxmx_meshpart_pbr",
+    "inferir_papel_textura_roblox",
     "ler_place",
+    "remover_imagens_embutidas_glb",
     "surface_appearance_xml",
 ]
+
+inferir_papel_textura_roblox = upload.inferir_papel_textura_roblox
+remover_imagens_embutidas_glb = upload.remover_imagens_embutidas_glb
 
 #: Parte R15 -> nome da junta (Motor6D) no padrao do Roblox. O Animator casa a Pose pelo nome da
 #: JUNTA, nao da parte: sem este mapa o clipe carrega e nao move nada.
@@ -314,7 +323,6 @@ _ALIASES_SURFACE = {
     "roughnessmap": "RoughnessMap",
     "roughness_map": "RoughnessMap",
     "roughness": "RoughnessMap",
-    "orm": "RoughnessMap",
 }
 
 
@@ -332,7 +340,12 @@ def _normalizar_mapas_pbr(mapas: Mapping[str, str | Path] | None) -> dict[str, s
     return saida
 
 
-def descobrir_texturas_pbr(pasta: str | Path, item_id: str) -> dict[str, str]:
+def descobrir_texturas_pbr(
+    pasta: str | Path,
+    item_id: str,
+    *,
+    permitir_orm_fallback: bool = True,
+) -> dict[str, str]:
     """Descobre arquivos de textura PBR existentes em ``pasta`` para ``item_id``."""
     base = Path(pasta)
     if not base.is_dir():
@@ -340,8 +353,13 @@ def descobrir_texturas_pbr(pasta: str | Path, item_id: str) -> dict[str, str]:
     candidatos = {
         "ColorMap": (f"{item_id}_baseColor.png", f"{item_id}_albedo.png", "baseColor.png"),
         "NormalMap": (f"{item_id}_normal.png", "normal.png"),
-        "RoughnessMap": (f"{item_id}_roughness.png", f"{item_id}_orm.png", "roughness.png", "orm.png"),
-        "MetalnessMap": (f"{item_id}_metalness.png", f"{item_id}_metallic.png", "metalness.png", "metallic.png"),
+        "RoughnessMap": (f"{item_id}_roughness.png", "roughness.png"),
+        "MetalnessMap": (
+            f"{item_id}_metalness.png",
+            f"{item_id}_metallic.png",
+            "metalness.png",
+            "metallic.png",
+        ),
     }
     encontrados: dict[str, str] = {}
     for campo, nomes in candidatos.items():
@@ -349,6 +367,23 @@ def descobrir_texturas_pbr(pasta: str | Path, item_id: str) -> dict[str, str]:
             if (base / nome).is_file():
                 encontrados[campo] = nome
                 break
+
+    if "RoughnessMap" not in encontrados and permitir_orm_fallback:
+        eh_v6 = False
+        if item_id:
+            cand_man = base / f"{item_id}.manifest.json"
+            if cand_man.is_file():
+                try:
+                    man_obj = json.loads(cand_man.read_text(encoding="utf-8"))
+                    schema_str = str(man_obj.get("schema") or "").strip()
+                    eh_v6 = schema_str == "forge3d/manifest@6" or schema_str.endswith("@6")
+                except (OSError, ValueError, AttributeError):
+                    eh_v6 = False
+        if not eh_v6:
+            for nome_orm in (f"{item_id}_orm.png", "orm.png"):
+                if (base / nome_orm).is_file():
+                    encontrados["RoughnessMap"] = nome_orm
+                    break
     return encontrados
 
 
@@ -388,6 +423,10 @@ def _resolver_asset_ids_pbr(
             or combinado.get(campo)
             or por_canal.get(campo)
         )
+        if escolhido is None and campo == "RoughnessMap":
+            stem_uri = Path(uri).stem.lower()
+            if stem_uri.endswith("_orm") or stem_uri == "orm":
+                escolhido = combinado.get("OrmPacked") or combinado.get("orm")
         resultado[campo] = upload.formatar_rbxassetid(escolhido) if escolhido else uri
     return resultado
 
@@ -450,14 +489,7 @@ def surface_appearance_xml(
 
 
 def _canal_por_nome(caminho: str) -> str:
-    nome = Path(caminho).name.lower()
-    if "_normal." in nome or nome == "normal.png":
-        return "NormalMap"
-    if "_orm." in nome or "_roughness." in nome or nome in ("orm.png", "roughness.png"):
-        return "RoughnessMap"
-    if "_metalness." in nome or "_metallic." in nome or nome in ("metalness.png", "metallic.png"):
-        return "MetalnessMap"
-    return "ColorMap"
+    return inferir_papel_textura_roblox(caminho, None) or "ColorMap"
 
 
 def _carregar_manifesto_rbx(
@@ -479,12 +511,15 @@ def _carregar_manifesto_rbx(
             f"{contexto}: item '{pedido}' nao corresponde ao asset_id '{manifest_id}' do manifesto"
         )
     id_efetivo = pedido or manifest_id
+    schema_man = str(dados.get("schema") or "").strip()
+    eh_v6_ou_novo = schema_man == "forge3d/manifest@6" or schema_man.endswith("@6")
 
     mapas: dict[str, str] = {}
     bruto_tex = dados.get("texturas") or dados.get("surface_appearance")
     if isinstance(bruto_tex, Mapping):
         mapas.update(_normalizar_mapas_pbr(bruto_tex))
 
+    orm_fallback: str | None = None
     entradas = dados.get("files") or dados.get("arquivos") or dados.get("arquivos_textura") or []
     if isinstance(entradas, list):
         for arq in entradas:
@@ -494,14 +529,26 @@ def _carregar_manifesto_rbx(
             if not caminho:
                 continue
             papel = str(arq.get("papel") or "").strip().lower()
-            canal = _ALIASES_SURFACE.get(papel)
-            if canal is None and papel == "textura":
-                canal = _canal_por_nome(caminho)
-            if canal and canal not in mapas:
+            canal = inferir_papel_textura_roblox(caminho, papel)
+            if canal == "OrmPacked":
+                orm_fallback = orm_fallback or caminho
+                continue
+            if canal in _CANAL_SURFACE and canal not in mapas:
                 mapas[canal] = caminho
 
-    for canal, caminho in descobrir_texturas_pbr(origem_manifesto.parent, id_efetivo).items():
+    for canal, caminho in descobrir_texturas_pbr(
+        origem_manifesto.parent, id_efetivo, permitir_orm_fallback=False
+    ).items():
         mapas.setdefault(canal, caminho)
+
+    if "RoughnessMap" not in mapas and not eh_v6_ou_novo:
+        if orm_fallback:
+            mapas["RoughnessMap"] = orm_fallback
+        else:
+            for nome_orm in (f"{id_efetivo}_orm.png", "orm.png"):
+                if (origem_manifesto.parent / nome_orm).is_file():
+                    mapas["RoughnessMap"] = nome_orm
+                    break
 
     return dados, mapas, id_efetivo
 
@@ -630,6 +677,361 @@ def _resolver_mesh_uri(
             return upload.formatar_rbxassetid(limpo)
         return limpo
     return mesh_arquivo or ""
+
+
+def gerar_rbxmx_meshpart_pbr(
+    *,
+    nome: str,
+    mesh_id: str,
+    mapas_pbr: Mapping[str, str],
+    render_fidelity: str = "Precise",
+    collision_fidelity: str = "Box",
+    tamanho_studs: tuple[float, float, float] = (4.0, 4.0, 4.0),
+) -> str:
+    """Emite .rbxmx pronto para import no Studio com RenderFidelity + SurfaceAppearance."""
+    rf_map = {"Automatic": 0, "Precise": 1, "Performance": 2}
+    cf_map = {"Default": 0, "Hull": 1, "Box": 2, "PreciseConvexDecomposition": 3}
+    rf_tok = rf_map.get(str(render_fidelity), 1)
+    cf_tok = cf_map.get(str(collision_fidelity), 2)
+
+    mesh_str = str(mesh_id or "").strip()
+    if mesh_str:
+        mesh_uri = (
+            mesh_str
+            if mesh_str.startswith("rbxassetid://") or not mesh_str.isdigit()
+            else f"rbxassetid://{mesh_str}"
+        )
+        mesh_content = f"<url>{escape(mesh_uri)}</url>"
+    else:
+        mesh_content = "<null></null>"
+
+    mapas_norm: dict[str, str] = {}
+    for chave, valor in (mapas_pbr or {}).items():
+        if not valor:
+            continue
+        val_str = str(valor).strip()
+        if not val_str:
+            continue
+        stem_v = Path(val_str).stem.lower()
+        if stem_v.endswith("_orm") or stem_v == "orm":
+            continue
+        canal = inferir_papel_textura_roblox(val_str, str(chave)) or _ALIASES_SURFACE.get(
+            str(chave).strip().lower()
+        )
+        if canal in _CANAL_SURFACE:
+            mapas_norm[canal] = val_str
+
+    def _uri(val: str | None) -> str:
+        if not val:
+            return "<null></null>"
+        limpo = str(val).strip()
+        u = (
+            limpo
+            if limpo.startswith("rbxassetid://") or not limpo.isdigit()
+            else f"rbxassetid://{limpo}"
+        )
+        return f"<url>{escape(u)}</url>"
+
+    xml = "\n".join(
+        [
+            '<roblox version="4">',
+            '  <Item class="MeshPart" referent="RBX0">',
+            "    <Properties>",
+            f'      <string name="Name">{escape(nome)}</string>',
+            '      <bool name="Anchored">true</bool>',
+            f'      <token name="CollisionFidelity">{cf_tok}</token>',
+            f'      <token name="RenderFidelity">{rf_tok}</token>',
+            f'      <Content name="MeshId">{mesh_content}</Content>',
+            f'      <Vector3 name="size"><X>{tamanho_studs[0]:.4f}</X><Y>{tamanho_studs[1]:.4f}</Y><Z>{tamanho_studs[2]:.4f}</Z></Vector3>',
+            "    </Properties>",
+            '    <Item class="SurfaceAppearance" referent="RBX1">',
+            "      <Properties>",
+            '        <string name="Name">SurfaceAppearance</string>',
+            '        <token name="AlphaMode">0</token>',
+            f'        <Content name="ColorMap">{_uri(mapas_norm.get("ColorMap"))}</Content>',
+            f'        <Content name="NormalMap">{_uri(mapas_norm.get("NormalMap"))}</Content>',
+            f'        <Content name="RoughnessMap">{_uri(mapas_norm.get("RoughnessMap"))}</Content>',
+            f'        <Content name="MetalnessMap">{_uri(mapas_norm.get("MetalnessMap"))}</Content>',
+            "      </Properties>",
+            "    </Item>",
+            "  </Item>",
+            "</roblox>",
+        ]
+    )
+    ElementTree.fromstring(xml)
+    return xml
+
+
+def exportar_meshpart_pbr_rbxmx(
+    origem: Mapping[str, Any] | str | Path | None = None,
+    *,
+    item_id: str | None = None,
+    nome: str | None = None,
+    mesh_id: str | None = None,
+    mapas_pbr: Mapping[str, str] | None = None,
+    saida: str | Path | None = None,
+    render_fidelity: str | None = None,
+    collision_fidelity: str = "Box",
+    tamanho_studs: tuple[float, float, float] | None = None,
+    asset_ids: Mapping[str, str] | None = None,
+    ledger: str | Path | bool | None = None,
+    metros_por_stud: float = 0.28,
+) -> dict[str, Any]:
+    """Exporta ``.rbxmx`` com ``MeshPart`` + ``SurfaceAppearance`` (``RenderFidelity`` configuravel)."""
+    manifesto: dict[str, Any] = {}
+    mapas: dict[str, str] = {}
+    mesh_arquivo: str | None = None
+    id_efetivo = (item_id or nome or "").strip()
+
+    if isinstance(origem, Mapping):
+        manifesto = dict(origem)
+        id_efetivo = (
+            id_efetivo or str(manifesto.get("asset_id") or manifesto.get("id") or "").strip()
+        )
+        entradas = (
+            manifesto.get("files")
+            or manifesto.get("arquivos")
+            or manifesto.get("arquivos_textura")
+            or []
+        )
+        if isinstance(entradas, list):
+            for arq in entradas:
+                if not isinstance(arq, Mapping):
+                    continue
+                cam = str(arq.get("caminho") or "").strip()
+                pap = str(arq.get("papel") or "").strip().lower()
+                if pap == "mesh" and not mesh_arquivo:
+                    mesh_arquivo = cam or None
+                canal = inferir_papel_textura_roblox(cam, pap)
+                if canal in _CANAL_SURFACE and canal not in mapas:
+                    mapas[canal] = cam
+    elif isinstance(origem, (str, Path)):
+        caminho = Path(origem).expanduser()
+        if caminho.is_file() and caminho.suffix.lower() == ".json":
+            manifesto, mapas_lidos, id_efetivo = _carregar_manifesto_rbx(
+                caminho, item_id, contexto="export-meshpart-pbr"
+            )
+            for k, v in mapas_lidos.items():
+                if not Path(v).stem.lower().endswith("_orm") and Path(v).stem.lower() != "orm":
+                    mapas[k] = v
+            for arq in manifesto.get("files") or []:
+                if isinstance(arq, Mapping) and str(arq.get("papel") or "").lower() == "mesh":
+                    mesh_arquivo = str(arq.get("caminho") or "").strip() or None
+                    break
+        elif caminho.is_dir():
+            mapas = descobrir_texturas_pbr(caminho, id_efetivo, permitir_orm_fallback=False)
+            if id_efetivo and (caminho / f"{id_efetivo}.glb").is_file():
+                mesh_arquivo = f"{id_efetivo}.glb"
+        elif caminho.is_file():
+            id_efetivo = id_efetivo or caminho.stem
+            mesh_arquivo = caminho.name
+            mapas = descobrir_texturas_pbr(caminho.parent, id_efetivo, permitir_orm_fallback=False)
+        else:
+            raise erro_spec(f"export-meshpart-pbr: origem nao encontrada: {caminho}")
+
+    if mapas_pbr:
+        for k, v in mapas_pbr.items():
+            if not v:
+                continue
+            canal = inferir_papel_textura_roblox(str(v), str(k)) or _ALIASES_SURFACE.get(
+                str(k).strip().lower()
+            )
+            if canal in _CANAL_SURFACE:
+                mapas[canal] = str(v)
+
+    mapas = _resolver_asset_ids_pbr(
+        mapas, asset_ids, item_id=id_efetivo or None, ledger=ledger
+    )
+    mapas = {
+        k: v
+        for k, v in mapas.items()
+        if not (Path(v).stem.lower().endswith("_orm") or Path(v).stem.lower() == "orm")
+    }
+
+    mesh_uri = _resolver_mesh_uri(
+        mesh_id=mesh_id,
+        mesh_arquivo=mesh_arquivo,
+        id_efetivo=id_efetivo,
+        manifesto=manifesto,
+        asset_ids=asset_ids,
+        ledger=ledger,
+    )
+    rf_final = str(
+        render_fidelity
+        or manifesto.get("render_fidelity_roblox")
+        or (manifesto.get("roblox_render") or {}).get("render_fidelity_padrao")
+        or "Precise"
+    )
+    if tamanho_studs is not None:
+        tam = (float(tamanho_studs[0]), float(tamanho_studs[1]), float(tamanho_studs[2]))
+    else:
+        raw_geom = manifesto.get("geometry")
+        bbox = raw_geom.get("bbox_m") if isinstance(raw_geom, Mapping) else None
+        if isinstance(bbox, (list, tuple)) and len(bbox) == 3 and metros_por_stud > 0:
+            tam = (
+                max(0.05, float(bbox[0]) / metros_por_stud),
+                max(0.05, float(bbox[2]) / metros_por_stud),
+                max(0.05, float(bbox[1]) / metros_por_stud),
+            )
+        else:
+            tam = (4.0, 4.0, 4.0)
+
+    nome_final = (nome or id_efetivo or "MeshPart").strip()
+    xml = gerar_rbxmx_meshpart_pbr(
+        nome=nome_final,
+        mesh_id=mesh_uri,
+        mapas_pbr=mapas,
+        render_fidelity=rf_final,
+        collision_fidelity=collision_fidelity,
+        tamanho_studs=tam,
+    ) + "\n"
+    destino_str, tamanho = _escrever_xml_seguro(xml, saida, "export-meshpart-pbr")
+    return {
+        "ok": True,
+        "saida": destino_str,
+        "bytes": tamanho,
+        "nome": nome_final,
+        "mesh_id": mesh_uri,
+        "render_fidelity": rf_final,
+        "collision_fidelity": collision_fidelity,
+        "mapas": mapas,
+        "materiais": 1,
+        "xml": xml,
+    }
+
+
+def gerar_manifesto_luau_pbr(registros: Mapping[str, Mapping[str, Any]]) -> str:
+    """Emite modulo Luau --!strict com MeshId + 4 mapas PBR para consumo direto no Studio."""
+    linhas = [
+        "--!strict",
+        "-- Gerado por forge3d export-pbr-luau (nao editar a mao)",
+        "return table.freeze({",
+    ]
+    campos_luau = (
+        ("meshId", ("meshId", "mesh_id", "MeshId", "mesh")),
+        ("colorMap", ("colorMap", "ColorMap", "color_map", "baseColor")),
+        ("normalMap", ("normalMap", "NormalMap", "normal_map", "normal")),
+        ("roughnessMap", ("roughnessMap", "RoughnessMap", "roughness_map", "roughness")),
+        ("metalnessMap", ("metalnessMap", "MetalnessMap", "metalness_map", "metallic", "metalness")),
+    )
+    for chave in sorted(registros):
+        reg = registros[chave]
+        linhas.append(f"\t[{json.dumps(chave)}] = table.freeze({{")
+        for campo, aliases in campos_luau:
+            val = None
+            for alias in aliases:
+                if reg.get(alias) is not None:
+                    val = reg.get(alias)
+                    break
+            if val is not None and str(val).strip():
+                limpo = str(val).strip()
+                if limpo.startswith("rbxassetid://"):
+                    limpo = limpo[len("rbxassetid://") :].strip()
+                if limpo.isdigit():
+                    linhas.append(f"\t\t{campo} = {int(limpo)},")
+                else:
+                    linhas.append(f"\t\t{campo} = {json.dumps(str(val))},")
+        linhas.append("\t}),")
+    linhas.append("})")
+    return "\n".join(linhas) + "\n"
+
+
+def exportar_manifesto_luau_pbr(
+    fontes: Mapping[str, Mapping[str, Any]] | Sequence[str | Path] | str | Path | None = None,
+    saida: str | Path | None = None,
+    *,
+    ledger: str | Path | bool | None = None,
+) -> dict[str, Any]:
+    """Constroi e opcionalmente grava manifesto Luau PBR a partir de dict, manifestos ou ledger."""
+    registros: dict[str, dict[str, Any]] = {}
+    mapa_canal_luau = {
+        "mesh": "meshId",
+        "model": "meshId",
+        "Model": "meshId",
+        "MeshId": "meshId",
+        "meshId": "meshId",
+        "ColorMap": "colorMap",
+        "colorMap": "colorMap",
+        "NormalMap": "normalMap",
+        "normalMap": "normalMap",
+        "RoughnessMap": "roughnessMap",
+        "roughnessMap": "roughnessMap",
+        "MetalnessMap": "metalnessMap",
+        "metalnessMap": "metalnessMap",
+    }
+
+    def _Aplicar_ledger(cam_l: str | Path | None) -> None:
+        for (aid, role), uri in upload.resolver_ledger(cam_l).items():
+            if not role or role == "OrmPacked" or aid.lower().endswith("_orm"):
+                continue
+            canal = inferir_papel_textura_roblox(aid, role) or role
+            chave_luau = mapa_canal_luau.get(canal) or mapa_canal_luau.get(role)
+            if not chave_luau:
+                continue
+            limpo = uri.removeprefix("rbxassetid://")
+            registros.setdefault(aid, {})[chave_luau] = int(limpo) if limpo.isdigit() else uri
+
+    if isinstance(fontes, Mapping):
+        for k, v in fontes.items():
+            if isinstance(v, Mapping):
+                registros[str(k)] = dict(v)
+    elif fontes is not None:
+        lista_fontes = [fontes] if isinstance(fontes, (str, Path)) else list(fontes)
+        for f in lista_fontes:
+            p = Path(f).expanduser()
+            if p.is_file() and p.suffix.lower() == ".jsonl":
+                _Aplicar_ledger(p)
+            elif p.is_file() and p.suffix.lower() == ".json":
+                man, mapas_m, id_m = _carregar_manifesto_rbx(p, contexto="export-pbr-luau")
+                reg_m = registros.setdefault(id_m, {})
+                rbx_b = man.get("roblox")
+                if isinstance(rbx_b, Mapping) and (rbx_b.get("asset_id") or rbx_b.get("assetId")):
+                    raw_id = str(rbx_b.get("asset_id") or rbx_b.get("assetId")).removeprefix(
+                        "rbxassetid://"
+                    )
+                    reg_m["meshId"] = int(raw_id) if raw_id.isdigit() else raw_id
+                for c_rbx, val_m in mapas_m.items():
+                    if Path(val_m).stem.lower().endswith("_orm"):
+                        continue
+                    c_luau = mapa_canal_luau.get(c_rbx)
+                    if c_luau:
+                        raw_v = str(val_m).removeprefix("rbxassetid://")
+                        reg_m[c_luau] = int(raw_v) if raw_v.isdigit() else val_m
+            elif p.is_dir():
+                for man_p in sorted(p.glob("*.manifest.json")):
+                    man, mapas_m, id_m = _carregar_manifesto_rbx(
+                        man_p, contexto="export-pbr-luau"
+                    )
+                    reg_m = registros.setdefault(id_m, {})
+                    rbx_b = man.get("roblox")
+                    if isinstance(rbx_b, Mapping) and (
+                        rbx_b.get("asset_id") or rbx_b.get("assetId")
+                    ):
+                        raw_id = str(
+                            rbx_b.get("asset_id") or rbx_b.get("assetId")
+                        ).removeprefix("rbxassetid://")
+                        reg_m["meshId"] = int(raw_id) if raw_id.isdigit() else raw_id
+                    for c_rbx, val_m in mapas_m.items():
+                        if Path(val_m).stem.lower().endswith("_orm"):
+                            continue
+                        c_luau = mapa_canal_luau.get(c_rbx)
+                        if c_luau:
+                            raw_v = str(val_m).removeprefix("rbxassetid://")
+                            reg_m[c_luau] = int(raw_v) if raw_v.isdigit() else val_m
+
+    if ledger:
+        _Aplicar_ledger(None if isinstance(ledger, bool) else ledger)
+
+    luau = gerar_manifesto_luau_pbr(registros)
+    destino_str, tamanho = _escrever_xml_seguro(luau, saida, "export-pbr-luau")
+    return {
+        "ok": True,
+        "saida": destino_str,
+        "bytes": tamanho,
+        "total": len(registros),
+        "registros": registros,
+        "luau": luau,
+    }
 
 
 def exportar_acessorio_rbxmx(

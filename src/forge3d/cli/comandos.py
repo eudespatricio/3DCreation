@@ -702,15 +702,22 @@ def _imprimir_plano(relatorio: dict) -> None:
         print(f"  [{marca:<9}] {tarefa['id']:<30} {extra}")
     orc = relatorio.get("orcamento_cena")
     if isinstance(orc, dict):
-        med = orc.get("medido") or {}
         lim = orc.get("limite") or {}
-        print(
-            f"orcamento_cena [{orc.get('status')}]: "
-            f"{med.get('triangulos_cena')}/{lim.get('triangulos_cena_max')} tris "
-            f"({med.get('ocupacao_500k_pct')}% de 500k), "
-            f"{med.get('draw_calls_estimados')}/{lim.get('draw_calls_cena_max')} draw calls, "
-            f"{med.get('vram_texturas_mb')}/{lim.get('vram_texturas_mb_max')} MB VRAM"
-        )
+        est = orc.get("estimativa")
+        teto = orc.get("teto_pior_caso") or orc.get("medido") or {}
+        blocos: list[tuple[str, dict]] = []
+        if isinstance(est, dict):
+            blocos.append(("estimativa", est))
+        blocos.append(("teto_pior_caso", teto))
+        for rotulo, bloco in blocos:
+            status_b = bloco.get("status", orc.get("status"))
+            print(
+                f"orcamento_cena {rotulo} [{status_b}]: "
+                f"{bloco.get('triangulos_cena')}/{lim.get('triangulos_cena_max')} tris "
+                f"({bloco.get('ocupacao_500k_pct')}% de 500k), "
+                f"{bloco.get('draw_calls_estimados')}/{lim.get('draw_calls_cena_max')} draw calls, "
+                f"{bloco.get('vram_texturas_mb')}/{lim.get('vram_texturas_mb_max')} MB VRAM"
+            )
 
 
 def _imprimir_run(relatorio: dict) -> None:

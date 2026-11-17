@@ -95,6 +95,14 @@ def _err_pct(estimado: float, medido: float) -> float:
     return abs(estimado - medido) / max(1e-9, medido) * 100.0
 
 
+def _assert_teto_domina_estimativa(orc: dict) -> None:
+    teto = orc["teto_pior_caso"]
+    est = orc["estimativa"]
+    assert teto["triangulos_cena"] >= est["triangulos_cena"]
+    assert teto["draw_calls_estimados"] >= est["draw_calls_estimados"]
+    assert teto["vram_texturas_mb"] >= est["vram_texturas_mb"]
+
+
 def test_separacao_teto_e_estimativa_e_retrocompatibilidade(capsys):
     lote13 = RAIZ / "examples" / "lote_13_scene_budget_aa.yaml"
     assert main(["plan", str(lote13), "--scene-budget", "--json"]) == 0
@@ -105,8 +113,9 @@ def test_separacao_teto_e_estimativa_e_retrocompatibilidade(capsys):
     assert orc["status"] == "ok"
     assert orc["medido"]["triangulos_cena"] == 350400
     assert orc["teto_pior_caso"]["triangulos_cena"] == 350400
-    assert orc["teto_pior_caso"]["vram_texturas_mb"] == 68.0
+    assert orc["teto_pior_caso"]["vram_texturas_mb"] == 193.33
     assert orc["nao_bloqueante"] is True
+    _assert_teto_domina_estimativa(orc)
 
     # Estimativa calibrada para lote_13 (blocky)
     est = orc["estimativa"]
@@ -123,7 +132,7 @@ def test_cli_texto_exibe_estimativa_e_teto_rotulados(capsys):
     assert "orcamento_cena estimativa [ok]: 15516/400000 tris" in out
     assert "0.08/200.0 MB VRAM" in out
     assert "orcamento_cena teto_pior_caso [ok]: 350400/400000 tris" in out
-    assert "68.0/200.0 MB VRAM" in out
+    assert "193.33/200.0 MB VRAM" in out
 
 
 def test_plan_permanece_nao_bloqueante_mesmo_acima_do_teto(tmp_path, monkeypatch, capsys):
@@ -253,6 +262,7 @@ def test_estimador_por_rota_import_obj_gltf_modular_e_mesh(tmp_path):
     }
 
     orc = plan.estimar_orcamento_cena(spec_doc, perfil)
+    _assert_teto_domina_estimativa(orc)
     por_id = {it["id"]: it for it in orc["estimativa"]["itens"]}
 
     # OBJ com 1 quad -> 2 tris * 3 copias = 6 tris
@@ -283,7 +293,9 @@ def test_regressao_calibracao_tres_lotes_erro_abaixo_50_pct(tmp_path):
     # 1. lote_13 (medido: 15516 tris, 10 dc, 0.08 MB)
     doc_13 = spec.carregar_arquivo(RAIZ / "examples" / "lote_13_scene_budget_aa.yaml")
     s13, p13, _ = spec.preparar(doc_13)
-    est_13 = plan.estimar_orcamento_cena(s13, p13)["estimativa"]
+    orc_13 = plan.estimar_orcamento_cena(s13, p13)
+    _assert_teto_domina_estimativa(orc_13)
+    est_13 = orc_13["estimativa"]
     assert _err_pct(est_13["triangulos_cena"], 15516) < 50.0
     assert _err_pct(est_13["draw_calls_estimados"], 10) < 50.0
     assert _err_pct(est_13["vram_texturas_mb"], 0.08) < 50.0
@@ -383,7 +395,9 @@ def test_regressao_calibracao_tres_lotes_erro_abaixo_50_pct(tmp_path):
             ],
         }
     )
-    est_godot = plan.estimar_orcamento_cena(godot_spec, godot_perfil)["estimativa"]
+    orc_godot = plan.estimar_orcamento_cena(godot_spec, godot_perfil)
+    _assert_teto_domina_estimativa(orc_godot)
+    est_godot = orc_godot["estimativa"]
     assert est_godot["draw_calls_estimados"] == 24
     assert _err_pct(est_godot["triangulos_cena"], 45108) < 50.0
     assert _err_pct(est_godot["draw_calls_estimados"], 24) < 50.0
@@ -441,7 +455,9 @@ def test_regressao_calibracao_tres_lotes_erro_abaixo_50_pct(tmp_path):
             ],
         }
     )
-    est_roblox = plan.estimar_orcamento_cena(roblox_spec, roblox_perfil)["estimativa"]
+    orc_roblox = plan.estimar_orcamento_cena(roblox_spec, roblox_perfil)
+    _assert_teto_domina_estimativa(orc_roblox)
+    est_roblox = orc_roblox["estimativa"]
     assert _err_pct(est_roblox["triangulos_cena"], 6000) < 50.0
     assert _err_pct(est_roblox["draw_calls_estimados"], 14) < 50.0
     assert _err_pct(est_roblox["vram_texturas_mb"], 34.68) < 50.0

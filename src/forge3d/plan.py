@@ -403,21 +403,40 @@ def _estimar_item_teto(item: dict, perfil: dict) -> dict:
     qtd = int(item.get("quantidade_cena", 1))
     skinned = bool(item.get("auto_rig")) or bool(item.get("skinned"))
     eh_pbr = _eh_pbr(item)
-    tex_max_perfil = int((perfil.get("material") or {}).get("textura_max") or 1024)
-    px_base = min(tex_max_perfil, 2048 if qualidade in ("hero", "ultra") else 1024)
-    px_sub = min(tex_max_perfil, 2048 if qualidade == "ultra" else 1024)
-    if eh_pbr:
+    mat_max_perfil = max(1, int((perfil.get("validacao") or {}).get("materiais_max") or 1))
+    tex_max_perfil = int(
+        (perfil.get("material") or {}).get("textura_max")
+        or (perfil.get("validacao") or {}).get("textura_max")
+        or 1024
+    )
+    px_base, px_sub = _px_bake_estimado(qualidade, perfil)
+    # No pior caso, rota mesh (ex.: template_humanoide) pode emitir mapas ate 2048px mesmo em standard.
+    px_teto = max(px_base, min(tex_max_perfil, 2048))
+    if eh_pbr or _detalhe_alto_ativo(item):
         texturas = [
-            {"id": f"{iid}:color", "px": px_base, "canais": 4},
-            {"id": f"{iid}:normal", "px": px_sub, "canais": 3},
+            {"id": f"{iid}:color", "px": px_teto, "canais": 4},
+            {"id": f"{iid}:normal", "px": px_sub, "canais": 4},
+            {"id": f"{iid}:orm", "px": px_sub, "canais": 4},
             {"id": f"{iid}:roughness", "px": px_sub, "canais": 1},
             {"id": f"{iid}:metallic", "px": px_sub, "canais": 1},
+            {"id": f"{iid}:emb:0", "px": px_teto, "canais": 4},
+            {"id": f"{iid}:emb:1", "px": px_sub, "canais": 4},
+            {"id": f"{iid}:emb:2", "px": px_sub, "canais": 4},
         ]
+        for idx in range(3, mat_max_perfil):
+            texturas.append({"id": f"{iid}:emb:{idx}", "px": 512, "canais": 4})
     else:
-        texturas = [{"id": f"{iid}:albedo", "px": min(px_base, 1024), "canais": 4}]
+        px_simples = min(px_teto, 1024)
+        texturas = [
+            {"id": f"{iid}:albedo", "px": px_simples, "canais": 4},
+            {"id": f"{iid}:emb:0", "px": px_simples, "canais": 4},
+        ]
+        for idx in range(1, mat_max_perfil):
+            texturas.append({"id": f"{iid}:emb:{idx}", "px": 512, "canais": 4})
     return {
         "id": iid,
         "tris": tris,
+        "primitivas": mat_max_perfil,
         "quantidade_cena": qtd,
         "mesh_key": str(item.get("mesh_key") or iid),
         "material_key": f"pbr:{iid}" if eh_pbr else "palette_padrao",
@@ -606,11 +625,22 @@ def _estimar_item_calibrado(item: dict, spec_doc: dict, perfil: dict) -> dict:
     }
 
 
+def _vram_lista_mb(texturas: list[dict]) -> float:
+    return sum(qc._vram_mapa_mb(int(t["px"]), int(t["canais"])) for t in texturas)
+
+
 def estimar_orcamento_cena(spec_doc: dict, perfil: dict) -> dict:
     """Estima o orcamento de cena (Gate G11) separando ``teto_pior_caso`` e ``estimativa`` calibrada."""
     lote = spec_doc.get("lote") or []
     itens_teto = [_estimar_item_teto(item, perfil) for item in lote]
     itens_est = [_estimar_item_calibrado(item, spec_doc, perfil) for item in lote]
+
+    for teto_it, est_it in zip(itens_teto, itens_est):
+        teto_it["tris"] = max(int(teto_it["tris"]), int(est_it["tris"]))
+        teto_it["primitivas"] = max(int(teto_it["primitivas"]), int(est_it["primitivas"]))
+        teto_it["skinned"] = bool(teto_it["skinned"]) or bool(est_it["skinned"])
+        if _vram_lista_mb(est_it["texturas"]) > _vram_lista_mb(teto_it["texturas"]):
+            teto_it["texturas"] = list(est_it["texturas"])
 
     limite = profiles.orcamento_cena_perfil(perfil, spec_doc)
     rel_teto = qc.verificar_g11_orcamento_cena(itens_teto, limite_cena=limite)

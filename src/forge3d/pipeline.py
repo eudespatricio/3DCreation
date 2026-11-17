@@ -288,6 +288,7 @@ def _medir_item_g11(item: dict, staging: dict) -> dict:
     return {
         "id": iid,
         "tris": int(relatorio_qc["medidas"]["triangulos"]),
+        "primitivas": max(1, int(relatorio_qc["medidas"].get("primitivas") or 1)),
         "quantidade_cena": int(item.get("quantidade_cena", 1)),
         "mesh_key": str(item.get("mesh_key") or iid),
         "material_key": f"pbr:{iid}" if eh_pbr else "palette_padrao",

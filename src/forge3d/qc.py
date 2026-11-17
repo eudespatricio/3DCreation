@@ -2089,6 +2089,7 @@ def verificar(
             "bbox_m": [round(v / escala, 6) for v in info["bbox_m"]],
             "escala_saida": escala,
             "materiais": info["materiais"],
+            "primitivas": info["primitivas"],
             "ossos": info["ossos"],
             "animacoes": clipes,
             "partes_colisao": int(medidas.get("partes_colisao", 0)),
@@ -2127,7 +2128,7 @@ def verificar_g11_orcamento_cena(
     ref_tris = max(1, int(cfg.get("capacidade_referencia_tris", 500_000)))
 
     tris_cena = 0
-    instancing_batches: set[tuple[str, str]] = set()
+    instancing_batches: set[tuple[str, str, int]] = set()
     draw_calls_nao_instanciados = 0
     texturas_unicas: dict[str, float] = {}
     resumo_itens: list[dict[str, Any]] = []
@@ -2143,12 +2144,14 @@ def verificar_g11_orcamento_cena(
         tris_cena += tris_sub
 
         skinned = bool(it.get("skinned", False))
+        primitivas = max(1, int(it.get("primitivas") or it.get("materiais") or 1))
         mesh_key = str(it.get("mesh_key") or iid)
         mat_key = str(it.get("material_key") or "palette_padrao")
         if skinned:
-            draw_calls_nao_instanciados += qtd
+            draw_calls_nao_instanciados += qtd * primitivas
         else:
-            instancing_batches.add((mesh_key, mat_key))
+            for surf_idx in range(primitivas):
+                instancing_batches.add((mesh_key, mat_key, surf_idx))
 
         for tex in it.get("texturas") or ():
             tid = str(tex.get("id") or "")
@@ -2157,7 +2160,15 @@ def verificar_g11_orcamento_cena(
             if tid and tid not in texturas_unicas:
                 texturas_unicas[tid] = _vram_mapa_mb(px, canais)
 
-        resumo_itens.append({"id": iid, "tris_unit": tris_unit, "qtd": qtd, "tris_cena": tris_sub})
+        resumo_itens.append(
+            {
+                "id": iid,
+                "tris_unit": tris_unit,
+                "primitivas": primitivas,
+                "qtd": qtd,
+                "tris_cena": tris_sub,
+            }
+        )
 
     draw_calls_total = len(instancing_batches) + draw_calls_nao_instanciados
     vram_total_mb = round(sum(texturas_unicas.values()), 2)

@@ -25,7 +25,8 @@ def _ambiente(home: Path) -> dict:
     env["FORGE3D_ROOT"] = str(RAIZ)
     env.pop("FORGE3D_HOME", None)
     env.pop("FORGE3D_CONFIG", None)
-    env.pop("PYTHONPATH", None)
+    env.pop("FORGE3D_JSON_OUT", None)
+    env["PYTHONPATH"] = str(RAIZ / "src")
     return env
 
 
@@ -52,9 +53,12 @@ def rodar(args: list[str], sandbox: dict, esperar_json: bool = False):
         try:
             saida = json.loads(proc.stdout)
         except ValueError:
-            raise AssertionError(
-                f"stdout nao e JSON (exit {proc.returncode}):\nSTDOUT={proc.stdout}\nSTDERR={proc.stderr}"
-            ) from None
+            diag = (
+                f"stdout nao e JSON (exit {proc.returncode}):\n"
+                f"STDOUT={proc.stdout}\nSTDERR={proc.stderr}"
+            )
+            print(diag, file=sys.stderr, flush=True)
+            raise AssertionError(diag) from None
     return proc.returncode, saida
 
 

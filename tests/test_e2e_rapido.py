@@ -44,8 +44,9 @@ def _env(tmp_path: Path) -> dict:
     env["XDG_STATE_HOME"] = str(home / ".local" / "state")
     env["XDG_CONFIG_HOME"] = str(home / ".config")
     env["FORGE3D_ROOT"] = str(RAIZ)
-    for chave in ("FORGE3D_HOME", "FORGE3D_CONFIG", "PYTHONPATH"):
+    for chave in ("FORGE3D_HOME", "FORGE3D_CONFIG", "FORGE3D_JSON_OUT"):
         env.pop(chave, None)
+    env["PYTHONPATH"] = str(RAIZ / "src")
     return env
 
 
@@ -61,10 +62,12 @@ def _cli(args: list[str], env: dict) -> tuple[int, dict]:
     try:
         return proc.returncode, json.loads(proc.stdout)
     except ValueError:
-        raise AssertionError(
+        diag = (
             f"stdout nao e JSON (exit {proc.returncode})\n"
             f"STDOUT={proc.stdout}\nSTDERR={proc.stderr[-2000:]}"
-        ) from None
+        )
+        print(diag, file=sys.stderr, flush=True)
+        raise AssertionError(diag) from None
 
 
 def test_ciclo_completo_em_um_asset(tmp_path):

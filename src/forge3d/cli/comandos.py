@@ -8,7 +8,9 @@ Contrato unico: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -16,9 +18,20 @@ from .. import __version__, config, doctor, paths, pipeline, publish
 
 __all__ = ["construir_parser", "despachar"]
 
+_STDOUT_JSON = None
+
 
 def _json(obj) -> None:
-    print(json.dumps(obj, sort_keys=True, indent=1, ensure_ascii=False))
+    payload = json.dumps(obj, sort_keys=True, indent=1, ensure_ascii=False, default=str)
+    alvo_arq = os.environ.get("FORGE3D_JSON_OUT")
+    if alvo_arq:
+        p = Path(alvo_arq)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
+        tmp.write_text(payload + "\n", encoding="utf-8")
+        os.replace(tmp, p)
+    stream = _STDOUT_JSON if _STDOUT_JSON is not None else sys.stdout
+    print(payload, file=stream, flush=True)
 
 
 def _marca(ok: bool) -> str:
@@ -202,14 +215,20 @@ def construir_parser() -> argparse.ArgumentParser:
 
 
 def despachar(argv: list[str]) -> int:
+    global _STDOUT_JSON
     from ..errors import ForgeError, erro_interno
 
     parser = construir_parser()
     args = parser.parse_args(argv)
+    modo_json = bool(getattr(args, "json", False))
+    stdout_anterior = _STDOUT_JSON
+    _STDOUT_JSON = sys.stdout if modo_json else None
+    ctx = contextlib.redirect_stdout(sys.stderr) if modo_json else contextlib.nullcontext()
     try:
-        return _executar(args)
+        with ctx:
+            return _executar(args)
     except ForgeError as exc:
-        if getattr(args, "json", False):
+        if modo_json:
             _json({"schema": "forge3d/report@1", "comando": args.cmd, "exit": exc.exit_code, "erro": exc.como_dict()})
         print(f"erro: {exc}", file=sys.stderr)
         return exc.exit_code
@@ -218,7 +237,7 @@ def despachar(argv: list[str]) -> int:
         return 130
     except Exception as exc:  # noqa: BLE001 - falha nao tratada segue o contrato CLI/JSON
         interno = erro_interno(f"{type(exc).__name__}: {exc}")
-        if getattr(args, "json", False):
+        if modo_json:
             _json(
                 {
                     "schema": "forge3d/report@1",
@@ -229,6 +248,8 @@ def despachar(argv: list[str]) -> int:
             )
         print(f"erro: {interno}", file=sys.stderr)
         return interno.exit_code
+    finally:
+        _STDOUT_JSON = stdout_anterior
 
 
 def _executar(args) -> int:

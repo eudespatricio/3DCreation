@@ -8,10 +8,13 @@ import importlib.util
 import json
 import sys
 
+from pathlib import Path
+
 import bpy
 
 argv = sys.argv[sys.argv.index("--") + 1 :]
 glb, script_post = argv[0], argv[1]
+saida_json = Path(argv[2]) if len(argv) > 2 else None
 
 spec = importlib.util.spec_from_file_location("forge3d_postprocess", script_post)
 mod = importlib.util.module_from_spec(spec)
@@ -24,4 +27,7 @@ bpy.context.view_layer.objects.active = obj
 obj.select_set(True)
 
 info = mod.canonicalizar(obj, "personagem_humanoide")
-print("RESULTADO " + json.dumps(info, sort_keys=True))
+payload = json.dumps(info, sort_keys=True)
+if saida_json is not None:
+    saida_json.write_text(payload + "\n", encoding="utf-8")
+print("RESULTADO " + payload)

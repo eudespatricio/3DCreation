@@ -443,3 +443,27 @@ def test_plan_e_pipeline_permitem_cache_hit_sem_gpu(monkeypatch, tmp_path):
     assert codigo == 0
     assert rel["itens"][0]["estado"] == "cache_hit"
     assert (destino / "weapon.axe.ice.01.glb").is_file()
+
+
+def test_gap019_cli_json_isola_ruido_stdout_e_grava_json_out(monkeypatch, tmp_path, capsys):
+    """Regressao GAP-019: --json desvia prints acidentais para stderr e grava FORGE3D_JSON_OUT."""
+    from forge3d.cli import comandos
+
+    json_out = tmp_path / "cli_out.json"
+    monkeypatch.setenv("FORGE3D_JSON_OUT", str(json_out))
+
+    orig_preparar = spec.preparar
+
+    def _preparar_com_ruido(doc: dict):
+        print("RUIDO_ACIDENTAL_NO_STDOUT")
+        return orig_preparar(doc)
+
+    monkeypatch.setattr(spec, "preparar", _preparar_com_ruido)
+    codigo = comandos.despachar(["validate", str(EXEMPLO), "--json"])
+    assert codigo == 0
+    capturado = capsys.readouterr()
+    assert "RUIDO_ACIDENTAL_NO_STDOUT" in capturado.err
+    dados_stdout = json.loads(capturado.out)
+    dados_arq = json.loads(json_out.read_text(encoding="utf-8"))
+    assert dados_stdout["ok"] is True
+    assert dados_arq == dados_stdout

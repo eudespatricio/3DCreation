@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -28,26 +29,40 @@ def _ambiente(home: Path) -> dict:
     env["XDG_STATE_HOME"] = str(home / ".local" / "state")
     env["XDG_CONFIG_HOME"] = str(home / ".config")
     env["FORGE3D_ROOT"] = str(RAIZ)
-    for chave in ("FORGE3D_HOME", "FORGE3D_CONFIG", "PYTHONPATH"):
+    for chave in ("FORGE3D_HOME", "FORGE3D_CONFIG", "FORGE3D_JSON_OUT"):
         env.pop(chave, None)
+    env["PYTHONPATH"] = str(RAIZ / "src")
     return env
 
 
 def _rodar(args: list[str], env: dict) -> tuple[int, dict]:
-    proc = subprocess.run(
-        [sys.executable, "-m", "forge3d.cli.main", *args, "--json"],
-        cwd=str(RAIZ),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=1800,
-    )
+    with tempfile.TemporaryDirectory(prefix="forge3d-cli-json-") as tmp_dir:
+        json_out = Path(tmp_dir) / "saida.json"
+        env_exec = dict(env)
+        env_exec["FORGE3D_JSON_OUT"] = str(json_out)
+        cmd = [sys.executable, "-m", "forge3d.cli.main", *args, "--json"]
+        proc = subprocess.run(
+            cmd,
+            cwd=str(RAIZ),
+            env=env_exec,
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+        texto_arq = json_out.read_text(encoding="utf-8") if json_out.is_file() else ""
+    bruto = texto_arq or proc.stdout
     try:
-        return proc.returncode, json.loads(proc.stdout)
-    except ValueError:
-        raise AssertionError(
-            f"stdout nao e JSON (exit {proc.returncode})\nSTDOUT={proc.stdout}\nSTDERR={proc.stderr[-3000:]}"
-        ) from None
+        dados = json.loads(bruto)
+        if texto_arq and proc.stdout.strip():
+            assert json.loads(proc.stdout) == dados
+        return proc.returncode, dados
+    except (ValueError, AssertionError) as exc:
+        diag = (
+            f"[gap-019-diag] stdout/json_out nao e JSON valido (exit {proc.returncode})\n"
+            f"CMD={cmd}\nSTDOUT={proc.stdout}\nJSON_OUT={texto_arq}\nSTDERR={proc.stderr[-3000:]}"
+        )
+        print(diag, file=sys.stderr, flush=True)
+        raise AssertionError(diag) from exc
 
 
 @pytest.fixture(scope="module")
@@ -103,41 +118,49 @@ def test_i11_idempotencia_rerun_nao_trabalha(execucao):
     assert resumo["cache_hits"] == 3, resumo
 
 
-def test_i4_verify_pega_arquivo_adulterado(execucao):
-    destino = execucao["saida"]
+def test_i4_verify_pega_arquivo_adulterado(execucao, tmp_path):
+    destino = tmp_path / "saida_i4"
+    shutil.copytree(execucao["saida"], destino)
     codigo, saida = _rodar(["verify", str(destino)], execucao["env"])
     assert codigo == 0 and saida["ok"] is True, saida
 
     alvo = sorted(destino.glob("weapon.sword.fire.01*"))[0]
     original = alvo.read_bytes()
-    try:
-        alvo.write_bytes(original + b"\x00aduterado")
-        codigo, saida = _rodar(["verify", str(destino)], execucao["env"])
-        assert codigo == 3, saida
-        assert saida["ok"] is False
-        assert any("hash divergente" in e["erro"] for e in saida["erros"])
-    finally:
-        alvo.write_bytes(original)
+    alvo.write_bytes(original + b"\x00aduterado")
+    codigo, saida = _rodar(["verify", str(destino)], execucao["env"])
+    assert codigo == 3, saida
+    assert saida["ok"] is False
+    assert any("hash divergente" in e["erro"] for e in saida["erros"])
 
 
-def test_i1_determinismo_byte_identico(execucao):
+def test_i1_determinismo_byte_identico(execucao, tmp_path):
     """Mesma spec + mesma versao => mesmo sha256, mesmo com cache vazio."""
+    home = tmp_path / "home_i1"
+    home.mkdir()
+    env = _ambiente(home)
+    state = home / ".local" / "state" / "forge3d"
+    saida = state / "saida" / "lote_01"
     hashes = []
     for _ in range(2):
-        shutil.rmtree(execucao["state"] / "cache", ignore_errors=True)
-        shutil.rmtree(execucao["saida"], ignore_errors=True)
-        codigo, relatorio = _rodar(["run", str(EXEMPLO)], execucao["env"])
+        shutil.rmtree(state / "cache", ignore_errors=True)
+        shutil.rmtree(saida, ignore_errors=True)
+        codigo, relatorio = _rodar(["run", str(EXEMPLO)], env)
         assert codigo == 0, relatorio["itens"]
         hashes.append(sorted((a["caminho"], a["sha256"]) for a in relatorio["artifacts"]))
 
     assert hashes[0] == hashes[1], "rota D1 nao e byte-identica entre execucoes"
+    hashes_fixture = sorted((a["caminho"], a["sha256"]) for a in execucao["relatorio"]["artifacts"])
+    assert hashes[0] == hashes_fixture
 
 
 def test_i2_spec_invalida_sai_2_sem_tocar_provider(execucao, tmp_path):
+    home = tmp_path / "home_i2"
+    home.mkdir()
+    env = _ambiente(home)
     ruim = tmp_path / "ruim.yaml"
     texto = EXEMPLO.read_text(encoding="utf-8").replace("altura_metros: 1.10", "altura_metros: -1")
     ruim.write_text(texto, encoding="utf-8")
-    codigo, saida = _rodar(["run", str(ruim)], execucao["env"])
+    codigo, saida = _rodar(["run", str(ruim)], env)
     assert codigo == 2, saida
     assert saida["erro"]["codigo"] == "FORGE-E-SPEC"
 
@@ -150,6 +173,9 @@ def test_i5_qc_nao_tem_bypass():
 
 
 def test_i13_destino_fora_da_allowlist_sai_2(execucao, tmp_path):
+    home = tmp_path / "home_i13"
+    home.mkdir()
+    env = _ambiente(home)
     alvo = tmp_path / "destino-arbitrario"
     texto = EXEMPLO.read_text(encoding="utf-8").replace(
         "destino_exportacao: ~/.local/state/forge3d/saida/lote_01",
@@ -157,16 +183,20 @@ def test_i13_destino_fora_da_allowlist_sai_2(execucao, tmp_path):
     )
     spec_ruim = tmp_path / "lote.yaml"
     spec_ruim.write_text(texto, encoding="utf-8")
-    codigo, saida = _rodar(["plan", str(spec_ruim)], execucao["env"])
+    codigo, saida = _rodar(["plan", str(spec_ruim)], env)
     assert codigo == 2, saida
     assert saida["erro"]["codigo"] == "FORGE-E-DESTINO"
+
 
 def test_rota_import_normaliza_asset_existente(execucao, tmp_path):
     """Rota import: um GLB ja pronto passa pelo mesmo trilho e vira outro tamanho/pivo."""
     origem = execucao["saida"] / "weapon.sword.fire.01.glb"
-    if not origem.is_file():
-        codigo, relatorio = _rodar(["run", str(EXEMPLO)], execucao["env"])
-        assert codigo == 0, relatorio["itens"]
+    assert origem.is_file()
+
+    home = tmp_path / "home_import"
+    home.mkdir()
+    env = _ambiente(home)
+    state = home / ".local" / "state" / "forge3d"
 
     spec_import = tmp_path / "lote_import.yaml"
     spec_import.write_text(
@@ -192,19 +222,21 @@ def test_rota_import_normaliza_asset_existente(execucao, tmp_path):
         encoding="utf-8",
     )
 
-    codigo, relatorio = _rodar(["run", str(spec_import)], execucao["env"])
+    codigo, relatorio = _rodar(["run", str(spec_import)], env)
     assert codigo == 0, relatorio["itens"]
 
-    destino = execucao["state"] / "saida" / "importado"
+    destino = state / "saida" / "importado"
     manifesto = json.loads((destino / "prop.reliquia.importada.01.manifest.json").read_text())
     altura = manifesto["geometry"]["bbox_m"][1]
     assert abs(altura - 0.55) / 0.55 * 100 <= 0.5, altura
     assert manifesto["providers"]["geometry"]["name"] == "import"
     assert manifesto["qc"]["aprovado"] is True
 
-def test_i4_verify_reexecuta_gates_contra_manifesto(execucao):
+
+def test_i4_verify_reexecuta_gates_contra_manifesto(execucao, tmp_path):
     """C2: trocar a altura esperada no manifesto (sem tocar no GLB) tem que reprovar no verify."""
-    destino = execucao["saida"]
+    destino = tmp_path / "saida_i4_gates"
+    shutil.copytree(execucao["saida"], destino)
     manifesto = destino / "mob.skeleton.guard.manifest.json"
     original = manifesto.read_text(encoding="utf-8")
     man = json.loads(original)
@@ -212,13 +244,10 @@ def test_i4_verify_reexecuta_gates_contra_manifesto(execucao):
         if gate["id"] == "G2":
             gate["medido"]["esperado_m"] = 9.99
     manifesto.write_text(json.dumps(man, indent=1), encoding="utf-8")
-    try:
-        codigo, saida = _rodar(["verify", str(destino)], execucao["env"])
-        assert codigo == 3, saida
-        assert saida["ok"] is False
-        assert any("QC reexecutado" in erro["erro"] for erro in saida["erros"]), saida["erros"]
-    finally:
-        manifesto.write_text(original, encoding="utf-8")
+    codigo, saida = _rodar(["verify", str(destino)], execucao["env"])
+    assert codigo == 3, saida
+    assert saida["ok"] is False
+    assert any("QC reexecutado" in erro["erro"] for erro in saida["erros"]), saida["erros"]
 
 
 def test_kit_corpo_capa_arma_publica_e_verifica(tmp_path):

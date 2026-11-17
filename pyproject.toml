@@ -33,7 +33,7 @@ packages = ["src/forge3d"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["src", "."]
 markers = [
   "blender: exige o binario do Blender 4.2",
   "godot: exige o binario do Godot 4 em headless",

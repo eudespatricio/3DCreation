@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,27 +27,31 @@ BLENDER = shutil.which("blender") or str(Path.home() / ".local" / "bin" / "blend
 
 
 def _canonicalizar(glb: Path) -> dict:
-    proc = subprocess.run(
-        [
-            BLENDER,
-            "--background",
-            "--factory-startup",
-            "--python",
-            str(DRIVER),
-            "--",
-            str(glb),
-            str(POSTPROCESS),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    linha = next(
-        (linha_out for linha_out in proc.stdout.splitlines() if linha_out.startswith("RESULTADO ")),
-        None,
-    )
-    assert linha is not None, (proc.stdout[-2000:], proc.stderr[-2000:])
-    return json.loads(linha[len("RESULTADO ") :])
+    with tempfile.TemporaryDirectory(prefix="forge3d-orientacao-") as tmp_dir:
+        out_json = Path(tmp_dir) / "resultado.json"
+        proc = subprocess.run(
+            [
+                BLENDER,
+                "--background",
+                "--factory-startup",
+                "--python",
+                str(DRIVER),
+                "--",
+                str(glb),
+                str(POSTPROCESS),
+                str(out_json),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if not out_json.is_file():
+            print(proc.stderr[-2000:], file=sys.stderr, flush=True)
+            raise AssertionError(
+                f"checa_orientacao nao escreveu resultado.json (exit {proc.returncode})\n"
+                f"STDOUT={proc.stdout[-2000:]}\nSTDERR={proc.stderr[-2000:]}"
+            )
+        return json.loads(out_json.read_text(encoding="utf-8"))
 
 
 @pytest.mark.blender

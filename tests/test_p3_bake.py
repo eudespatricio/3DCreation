@@ -243,8 +243,9 @@ def test_godot_plugin_post_import_e_anim_headless(tmp_path):
     env["XDG_STATE_HOME"] = str(home / ".local" / "state")
     env["XDG_CONFIG_HOME"] = str(home / ".config")
     env["FORGE3D_ROOT"] = str(RAIZ)
-    for k in ("FORGE3D_HOME", "FORGE3D_CONFIG", "PYTHONPATH"):
+    for k in ("FORGE3D_HOME", "FORGE3D_CONFIG", "FORGE3D_JSON_OUT"):
         env.pop(k, None)
+    env["PYTHONPATH"] = str(RAIZ / "src")
 
     destino = home / ".local" / "state" / "forge3d" / "saida" / "godot_pkg3"
     lote = tmp_path / "lote_godot.yaml"

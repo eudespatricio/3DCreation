@@ -383,7 +383,10 @@ def test_g11_orcamento_cena_aprovado_e_reprovado():
     assert fail_vram["codigo"] == "FORGE-E-QC-SCENE"
 
 
-def test_exemplo_lote_13_validate_e_plan_scene_budget(capsys):
+def test_exemplo_lote_13_validate_e_plan_scene_budget(capsys, monkeypatch):
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.delenv("FORGE3D_ROOT", raising=False)
+    monkeypatch.delenv("FORGE3D_HOME", raising=False)
     lote13 = RAIZ / "examples" / "lote_13_scene_budget_aa.yaml"
     assert main(["validate", str(lote13)]) == 0
     capsys.readouterr()

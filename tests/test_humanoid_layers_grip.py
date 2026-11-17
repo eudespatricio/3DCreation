@@ -36,6 +36,7 @@ def test_mesh_provider_versao_e_repassa_camadas_e_poses_maos(monkeypatch, tmp_pa
     assert tuple(int(x) for x in mesh.VERSAO.split(".")) >= (0, 1, 10)
     prov = mesh.MeshProvider()
     monkeypatch.setattr(prov, "preflight_item", lambda _item: (True, "ok"))
+    monkeypatch.setattr("forge3d.post.binario", lambda: "/usr/bin/blender")
 
     foto = tmp_path / "hero.png"
     Image.new("RGBA", (64, 128), (200, 155, 125, 255)).save(foto)

@@ -103,7 +103,10 @@ def _assert_teto_domina_estimativa(orc: dict) -> None:
     assert teto["vram_texturas_mb"] >= est["vram_texturas_mb"]
 
 
-def test_separacao_teto_e_estimativa_e_retrocompatibilidade(capsys):
+def test_separacao_teto_e_estimativa_e_retrocompatibilidade(capsys, monkeypatch):
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.delenv("FORGE3D_ROOT", raising=False)
+    monkeypatch.delenv("FORGE3D_HOME", raising=False)
     lote13 = RAIZ / "examples" / "lote_13_scene_budget_aa.yaml"
     assert main(["plan", str(lote13), "--scene-budget", "--json"]) == 0
     rel = json.loads(capsys.readouterr().out)
@@ -125,7 +128,10 @@ def test_separacao_teto_e_estimativa_e_retrocompatibilidade(capsys):
     assert est["vram_texturas_mb"] == 0.08
 
 
-def test_cli_texto_exibe_estimativa_e_teto_rotulados(capsys):
+def test_cli_texto_exibe_estimativa_e_teto_rotulados(capsys, monkeypatch):
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.delenv("FORGE3D_ROOT", raising=False)
+    monkeypatch.delenv("FORGE3D_HOME", raising=False)
     lote13 = RAIZ / "examples" / "lote_13_scene_budget_aa.yaml"
     assert main(["plan", str(lote13), "--scene-budget"]) == 0
     out = capsys.readouterr().out

@@ -197,6 +197,7 @@ rig_q, _ = autorig.auto_rigar_por_tipo(q_inv, "godot-humanoid@1", _criar_armadur
 sp_q, mi_q = _checar_pesos(q_inv)
 bones_q = {b.name: {"head": list(b.head_local), "tail": list(b.tail_local)} for b in rig_q.data.bones}
 mods_q = [m for m in q_inv.modifiers if m.type == "ARMATURE"]
+q_dq = bool(mods_q and mods_q[0].use_deform_preserve_volume)
 socks_q = autorig.extrair_sockets(rig_q, q_inv)
 
 # 2. Montaria alada rotacionada 90 deg (+X inicialmente) com envergadura > comprimento
@@ -215,7 +216,7 @@ out_json.write_text(json.dumps({
     "q_tail_y": bones_q["Tail3"]["tail"][1],
     "q_sem_peso": sp_q,
     "q_max_inf": mi_q,
-    "q_dq": bool(mods_q and mods_q[0].use_deform_preserve_volume),
+    "q_dq": q_dq,
     "q_sockets": socks_q,
     "w_ossos": sorted(bones_w),
     "w_head_y": bones_w["Head"]["tail"][1],

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,13 +25,16 @@ def _isolar_allowlist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _godot_bin() -> str:
-    cand = Path("/home/eudespatricio/.gemini/antigravity/bin/godot")
-    if cand.is_file():
-        return str(cand)
+    env_g = os.environ.get("FORGE3D_GODOT")
+    if env_g and Path(env_g).is_file():
+        return env_g
     bin_g = shutil.which("godot") or shutil.which("godot4")
-    if not bin_g:
-        pytest.skip("Godot 4 nao disponivel neste ambiente")
-    return bin_g
+    if bin_g:
+        return bin_g
+    padrao = Path.home() / "tools" / "godot" / "Godot_v4.3-stable_linux.x86_64"
+    if padrao.is_file():
+        return str(padrao)
+    pytest.skip("Godot 4 nao disponivel neste ambiente")
 
 
 def test_plugin_godot_registra_scene_post_import_plugin() -> None:

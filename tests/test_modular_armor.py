@@ -418,8 +418,9 @@ def _tem_mpfb2_clothes() -> bool:
     return base.is_dir() and any(base.glob("**/mpfb/data/clothes/shoes01/shoes01.mhclo"))
 
 
-def test_custo_preflight_e_licenca_rotas_cpu():
+def test_custo_preflight_e_licenca_rotas_cpu(monkeypatch):
     """Modular armor (incl. escudo) e extrude_2d nao exigem GPU VRAM; template sem origem exige."""
+    monkeypatch.setattr("forge3d.post.binario", lambda: "/usr/bin/blender")
     prov = mesh.MeshProvider()
     perfil = profiles.carregar("godot4")
 

@@ -622,6 +622,7 @@ def test_mesh_py_nao_importa_deps_pesadas_no_nucleo():
 def test_mesh_extrude_2d_emite_bruto_extrude_sem_triposr(monkeypatch, tmp_path):
     prov = mesh.MeshProvider()
     monkeypatch.setattr(prov, "preflight_item", lambda item: (True, "ok"))
+    monkeypatch.setattr("forge3d.post.binario", lambda: "/usr/bin/blender")
 
     arma_png = tmp_path / "espada.png"
     Image.new("RGBA", (64, 64), (180, 190, 200, 255)).save(arma_png)
@@ -682,6 +683,7 @@ def test_mesh_humanoide_hero_ativa_pose_guard_delight_e_proteger_decimate(monkey
 
     prov = mesh.MeshProvider()
     monkeypatch.setattr(prov, "preflight_item", lambda item: (True, "ok"))
+    monkeypatch.setattr("forge3d.post.binario", lambda: "/usr/bin/blender")
 
     origem_png = _desenhar_silhueta_arms_down(tmp_path / "hero_arms_down.png")
     destino = tmp_path / "bruto_hero"
@@ -862,6 +864,7 @@ def test_bench_i23d_triposg_probe_json():
 def test_mesh_template_humanoide_usa_mpfb2_sem_triposr(monkeypatch, tmp_path):
     prov = mesh.MeshProvider()
     monkeypatch.setattr(prov, "preflight_item", lambda item: (True, "ok"))
+    monkeypatch.setattr("forge3d.post.binario", lambda: "/usr/bin/blender")
 
     foto_png = tmp_path / "hero.png"
     Image.new("RGBA", (64, 128), (200, 150, 120, 255)).save(foto_png)

@@ -14,7 +14,16 @@ jobs:
           version: "0.13.7"
       - run: uv venv --python 3.12 .venv
       - run: uv pip install --python .venv/bin/python -e ".[dev]"
-      - run: bash tools/ci.sh
+      - name: Run bash tools/ci.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! bash tools/ci.sh 2>&1 | tee /tmp/ci_portoes.log; then
+            (grep -E "FAILED|ERROR|AssertionError|ForgeError|FALHA|Traceback|error:" /tmp/ci_portoes.log || tail -n 20 /tmp/ci_portoes.log) | tail -n 25 | while IFS= read -r l; do
+              echo "::error::${l}"
+            done
+            exit 1
+          fi
 
   # P6: o wheel tem que funcionar fora do repo (schemas/profiles entram no pacote)
   distribuicao:
@@ -57,4 +66,13 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - run: uv venv --python 3.12 .venv
       - run: uv pip install --python .venv/bin/python -e ".[dev]"
-      - run: PYTHON=.venv/bin/python bash tools/ci_verify.sh
+      - name: Run PYTHON=.venv/bin/python bash tools/ci_verify.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! PYTHON=.venv/bin/python bash tools/ci_verify.sh 2>&1 | tee /tmp/ci_verify.log; then
+            (grep -E "FAILED|ERROR|AssertionError|ForgeError|FALHA|Traceback|error:" /tmp/ci_verify.log || tail -n 20 /tmp/ci_verify.log) | tail -n 25 | while IFS= read -r l; do
+              echo "::error::${l}"
+            done
+            exit 1
+          fi

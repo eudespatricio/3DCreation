@@ -220,6 +220,7 @@ def test_mesh_provider_cabelo_makehuman_dispensa_triposr_e_gpu(monkeypatch, tmp_
 def test_mesh_provider_template_humanoide_repassa_cabelo_e_macro(monkeypatch, tmp_path):
     prov = mesh.MeshProvider()
     monkeypatch.setattr(prov, "preflight_item", lambda _item: (True, "ok"))
+    monkeypatch.setattr("forge3d.post.binario", lambda: "/usr/bin/blender")
 
     foto = tmp_path / "hero.png"
     Image.new("RGBA", (64, 128), (200, 150, 120, 255)).save(foto)

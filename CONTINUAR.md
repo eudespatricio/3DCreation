@@ -1,12 +1,12 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 16/11/2026 · **P0–P6, C5–C15, Ondas A–D e releases `v0.7.0`–`v0.9.0` fechadas.** Contratos
-correntes `spec@6` e `manifest@6` (D94–D107; `@1`–`@5` compatíveis na leitura). Perfis AA (`godot4-aa`
+**Data:** 17/11/2026 · **P0–P6, C5–C15, Ondas A–D e releases `v0.7.0`–`v0.9.1` fechadas.** Contratos
+correntes `spec@6` e `manifest@6` (D94–D111; `@1`–`@5` compatíveis na leitura). Perfis AA (`godot4-aa`
 56 ossos `godot-humanoid-aa@1` + PBR 4K e `roblox-aa-80` 16k tris/parte + `SurfaceAppearance` 4 canais)
 com Gate `G11` de orçamento de cena 80 % AA (`<= 400k` tris, `<= 400` draw calls, `<= 200 MB` VRAM),
 bake Cycles High→Low (`detalhe_alto` + `pbr_zonas`), `smart_fit.py` (BVH/Laplacian/PCA), Vault CC0
 (`vault.py` + `gemini-embedding-2-preview` + `kitbash_composer.py` + `colab_trellis_lora.py`) e 6 albedos
-PBR 1024px. **507 verdes + 1 GPU (skip)** em 508 testes · CI com **429 + 78 testes** em 3 jobs (`portoes`,
+PBR 1024px. **520 verdes + 1 GPU (skip)** em 521 testes · CI com **442 + 78 testes** em 3 jobs (`portoes`,
 `verificar`, `distribuicao`).
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
@@ -56,16 +56,19 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   (`detalhe_alto` + `pbr_zonas`), isolamento `_orm`→`OrmPacked` + strip seguro de GLB, `blender/smart_fit.py`
   (BVH/Laplacian/PCA), Vault CC0 (`vault.py` + `gemini-embedding-2-preview` + `kitbash_composer.py` +
   `colab_trellis_lora.py`), 6 albedos PBR 1024px e 3 turntables Cycles 1600×1600 aprovados.
+- **Hardening `v0.9.1` (`D108–D111`)** — `plan --scene-budget` separa `teto_pior_caso` e `estimativa` calibrada
+  (< 1 % tris), G11 multi-superfície validado no Godot 4.7.2 (`tools/medir_draw_calls_godot.py`), `GAP-019`
+  fechado (180/180 e2e, I9) e correções visuais `V1`–`V4` + `lote_14`/`lote_15` + crítico visual determinístico.
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **507 verdes + 1 GPU (skip)** em **508 testes** (`508/508` verdes com `FORGE3D_CONCEPT_E2E=1`) |
-| CI no GitHub | **429 testes** em `portoes` + **78 testes Blender** em `verificar` (com Godot 4.7.2 headless) + `distribuicao` |
-| Instalação | wheel de **0.9.0** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
+| Suíte | **520 verdes + 1 GPU (skip)** em **521 testes** (`521/521` verdes com `FORGE3D_CONCEPT_E2E=1`) |
+| CI no GitHub | **442 testes** em `portoes` + **78 testes Blender** em `verificar` (com Godot 4.7.2 headless) + `distribuicao` |
+| Instalação | wheel de **0.9.1** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
 | `forge3d migrate` | `@1..@5`→`@6` textual com comentários intactos; `--saida`/`--em-lugar` |
-| AA `v0.9.0` (`v09_aa_godot` / `v09_aa_roblox` / `lote_13`) | `godot4-aa` `5/5` (`hero` 56 ossos `15.872 tris`, `gauntlets` `2.486 tris` `smart_fit`, `GODOT_VISUAL_QA_OK count=5`, G11 `45.108` tris / `7` draw calls / `53,0 MB` VRAM) · `roblox-aa-80` `3/3` (`export-surface` 4 canais, G11 `6.000` tris / `14` draw calls / `34,68 MB` VRAM) · `lote_13` `10/10` · `kitbash` `328 tris` `nao_manifold=0` · 3 turntables Cycles `1600×1600` (`aprovado: true`) |
+| AA `v0.9.1` (`lote_14` / `lote_15` / `lote_13`) | `godot4-aa` `5/5` (`hero` 56 ossos `15.872 tris`, `gauntlets` `2.486 tris` `smart_fit`, `GODOT_VISUAL_QA_OK count=5`, G11 `53.188` tris / `24` draw calls == Godot Vulkan `24` / `47,67 MB` VRAM) · `roblox-aa-80` `3/3` (`16.688` tris / `14` dc `[estimado]` Roblox / `34,68 MB` VRAM) · `lote_13` `10/10` (`15.516` tris / `10` dc) · `kitbash` `328 tris` `nao_manifold=0` · 3 turntables `docs/preview/v091_aa_hero_1600.png` / `docs/preview/v091_aa_prop_1600.png` / `docs/preview/v091_aa_roblox_1600.png` (`aprovado: true`) |
 | Showcase `v0.8.0` (`v08_showcase`) | 8 itens `manifest@5` (`nao_manifold=0`, `verify` **0 problemas**, `GODOT_VISUAL_QA_OK count=8`): herói `11.892 tris`, espada `1.430 tris`, orbe `1.860 tris`, mochila `1.672 tris`, capa `2.016 tris`, escudo `948 tris`, sela `1.200 tris`, dragão `15.920 tris` |
 | Repo por UNC (sessão Windows) | criar/apagar/`mv` funcionam; **modificar existente falha** (`GetFileSecurityW EIO`); 200 arquivos: **906 ms** vs 12 ms em ext4 || Destinos no sandbox | **23 destinos** em `manifest@4` `0.6.0`, `verify` **0 problemas** |
 | Clipe `idle` | **2,042 s**; move 5 ossos nos dois esqueletos; 48 canais no glb do R15 |
@@ -104,13 +107,13 @@ silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo**
 **`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
 **`D79` parede cheia no lado fechado** · **`D80` `migrate` textual, sem inventar valor** ·
 **`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado** · **`D83` a P6 é a última fase; o resto é backlog** ·
-**`D84` orientação por contato da sola** · **`D85–D93` sync, qualidade 3D, request contract, armadura modular, ondas A–D e eixos (`v0.6.1`)** · **`D94–D102` releases `v0.7.0`/`v0.8.0` (`spec@5`/`manifest@5`, humanoide 3D CC0 vestido, props AA + vidro refrativo, dragão/montaria, Godot zero-click, Gemini Interactions + `visual_qa_critic` e TRELLIS MIT)** · **`D103–D107` release `v0.9.0` (`spec@6`/`manifest@6`, perfis `godot4-aa`/`roblox-aa-80` + Gate G11 80 % AA, bake Cycles High→Low `detalhe_alto` + `pbr_zonas`, Smart-Fit BVH + rig 56 ossos `godot-humanoid-aa@1`, Vault CC0 + `gemini-embedding-2` + kitbash + TRELLIS LoRA)**.
+**`D84` orientação por contato da sola** · **`D85–D93` sync, qualidade 3D, request contract, armadura modular, ondas A–D e eixos (`v0.6.1`)** · **`D94–D102` releases `v0.7.0`/`v0.8.0` (`spec@5`/`manifest@5`, humanoide 3D CC0 vestido, props AA + vidro refrativo, dragão/montaria, Godot zero-click, Gemini Interactions + `visual_qa_critic` e TRELLIS MIT)** · **`D103–D107` release `v0.9.0` (`spec@6`/`manifest@6`, perfis `godot4-aa`/`roblox-aa-80` + Gate G11 80 % AA, bake Cycles High→Low `detalhe_alto` + `pbr_zonas`, Smart-Fit BVH + rig 56 ossos `godot-humanoid-aa@1`, Vault CC0 + `gemini-embedding-2` + kitbash + TRELLIS LoRA)** · **`D108–D111` release `v0.9.1` (`plan` calibrado, G11 multi-superfície validado no Godot 4.7.2, `GAP-019` e correções visuais `V1`–`V4`)**.
 
 ## Aberto
 
 Nada em aberto: Q1 fechou em **D72** (`forge3d` fica) e Q7 em **D73** (LFS no repo do jogo).
 
-**Plano de fases completo (P0–P6).** O que sobra é **backlog, não fase**: os 10 gaps de
+**Plano de fases completo (P0–P6).** O que sobra é **backlog, não fase**: os 8 gaps de
 `docs/gaps.md` (os de fase vencida valem como backlog) e a seção §Depois da P6 do `docs/roadmap.md`.
 
 ## Próximos passos — em ordem
@@ -134,8 +137,8 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 507 verdes + 1 GPU
-bash tools/ci.sh                          # 429 testes + ruff + mypy + contexto + P0 (job `portoes`)
+python -m pytest                          # 520 verdes + 1 GPU
+bash tools/ci.sh                          # 442 testes + ruff + mypy + contexto + P0 (job `portoes`)
 bash tools/ci_verify.sh                   # 78 testes Blender + pipeline real + verify + Godot QA (job `verificar`)
 bash tools/ci_dist.sh                     # wheel em venv limpo (job `distribuicao`)
 bash tools/check-contexto.sh
@@ -180,8 +183,8 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 
 ## Como retomar
 
-> Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P6 + Ondas A–D + `v0.9.0`
+> Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P6 + Ondas A–D + `v0.9.1`
 > fechadas (`spec@6`/`manifest@6`, `@1`–`@5` compatíveis), showcases `godot4-aa` (56 ossos) + `roblox-aa-80`
-> + G11 verdes, CI verde em 3 jobs (`portoes`, `verificar`, `distribuicao`) e wheel instalável (D81/D89–D107).
-> Próximo: operar num projeto de jogo e medir custo por asset. Não reabra D3–D107 sem fato novo.
+> + G11 verdes, CI verde em 3 jobs (`portoes`, `verificar`, `distribuicao`) e wheel instalável (D81/D89–D111).
+> Próximo: operar num projeto de jogo e medir custo por asset. Não reabra D3–D111 sem fato novo.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

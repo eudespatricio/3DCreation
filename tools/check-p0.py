@@ -68,6 +68,8 @@ LOTES = (
     ("examples/lote_11_hero_armor_set.yaml", "schemas/spec.v4.schema.json", "spec@4"),
     ("examples/lote_12_creatures_mounts.yaml", "schemas/spec.v5.schema.json", "spec@5"),
     ("examples/lote_13_scene_budget_aa.yaml", "schemas/spec.v6.schema.json", "spec@6"),
+    ("examples/lote_14_v09_aa_godot.yaml", "schemas/spec.v6.schema.json", "spec@6"),
+    ("examples/lote_15_v09_aa_roblox.yaml", "schemas/spec.v6.schema.json", "spec@6"),
 )
 for rel, schema_rel, rotulo in LOTES:
     try:

@@ -141,9 +141,9 @@ def _cubo_fechado_glb(altura: float = 1.0) -> bytes:
 
 
 def test_versao_0_9_0_e_consistente():
-    assert forge3d.__version__ == "0.9.0"
+    assert forge3d.__version__ == "0.9.1"
     pyproject = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.9.0"' in pyproject
+    assert 'version = "0.9.1"' in pyproject
 
 
 def test_perfis_aa_e_56_ossos_exatos():
@@ -620,3 +620,35 @@ def test_g2_e_g9_com_godot_humanoid_aa_e_lod_alpha_cards(tmp_path):
     )
     assert est["status"] == "ok"
     assert est["medido"]["triangulos_cena"] == 32000
+
+
+def test_exemplos_lote_14_e_15_validate_e_obelisk_manifold_suave(tmp_path, capsys):
+    """R1 + V3: lotes v09_aa_godot e v09_aa_roblox validam no repo e obelisco tem gema suave sem intersecao."""
+    from forge3d import vault
+
+    for nome_lote in ("lote_14_v09_aa_godot.yaml", "lote_15_v09_aa_roblox.yaml"):
+        caminho = RAIZ / "examples" / nome_lote
+        assert caminho.is_file(), f"R1: spec ausente em examples/: {caminho}"
+        assert main(["validate", str(caminho), "--json"]) == 0
+        out_val = json.loads(capsys.readouterr().out)
+        assert out_val["ok"] is True
+
+    ob_path = vault.construir_obelisk_aa_manifold_glb(tmp_path / "runestone_obelisk.glb")
+    gltf, blob = qc.ler_glb_bin(ob_path)
+    topo = qc.topologia(gltf, blob)
+    assert topo["nao_manifold"] == 0
+    assert topo["degeneradas"] == 0
+    assert topo["triangulos"] >= 1000
+    fac = qc._inspecionar_facetamento_organico(gltf, blob)
+    assert fac["facetada"] is False
+
+    pr = gltf["meshes"][0]["primitives"][0]
+    pos = qc._accessor(gltf, blob, pr["attributes"]["POSITION"])
+    uvs = qc._accessor(gltf, blob, pr["attributes"]["TEXCOORD_0"])
+    ys_fuste = [p[1] for p, u in zip(pos, uvs) if 0.34 <= u[0] <= 0.67]
+    ys_gema = [p[1] for p, u in zip(pos, uvs) if u[0] > 0.67]
+    assert ys_fuste and ys_gema
+    assert max(ys_fuste) < min(ys_gema), (
+        f"V3: coroa do obelisco ({max(ys_fuste):.4f}) intercepta gema ({min(ys_gema):.4f})"
+    )
+

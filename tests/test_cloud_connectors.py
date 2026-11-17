@@ -588,6 +588,37 @@ def test_visual_qa_critic_aprova_limpo_e_reprova_defeitos(tmp_path):
     assert any("leg_asymmetry" in d for d in res_perna["defeitos"])
     assert vqa.main([str(perna_assim_png)]) == 1
 
+    # Regressao V1 + V2: detecta intrusao escura nas botas e perda de textura na faixa inferior da tunica
+    v1_v2_png = tmp_path / "defeitos_v1_v2.png"
+    with Image.open(limpo_png) as base_sh:
+        sh_v12 = base_sh.copy()
+    px_sh = sh_v12.load()
+    assert px_sh is not None
+    # No quadrante frontal (0..160, 0..200), bbox y=20..180 (fh=161):
+    # - Texturiza tunica superior (y=55..73) com padrao espinha de peixe e mantem tunica inferior (y=78..96) lisa
+    for y_t in range(53, 110):
+        for x_t in range(54, 106):
+            if y_t < 75:
+                delta_t = 14 if ((x_t + y_t) % 2 == 0) else -14
+                px_sh[x_t, y_t] = (45 + delta_t, 70 + delta_t, 105 + delta_t, 255)
+            else:
+                px_sh[x_t, y_t] = (45, 70, 105, 255)
+    # - Calca escura (y=114..134) + botas de couro quente (y=140..172) com espinho escuro (V1)
+    for y_l in range(114, 136):
+        for x_l in list(range(60, 76)) + list(range(85, 101)):
+            px_sh[x_l, y_l] = (32, 30, 30, 255)
+    for y_b in range(140, 173):
+        for x_b in list(range(60, 76)) + list(range(85, 101)):
+            px_sh[x_b, y_b] = (112, 64, 38, 255)
+    for y_sp in range(142, 152):
+        for x_sp in (66, 67, 68, 91, 92, 93):
+            px_sh[x_sp, y_sp] = (28, 26, 26, 255)
+    sh_v12.save(v1_v2_png, format="PNG")
+    res_v12 = vqa.avaliar_turntable_png(v1_v2_png)
+    assert res_v12["aprovado"] is False
+    assert any("boot_interpenetration" in d for d in res_v12["defeitos"]), res_v12
+    assert any("tunic_texture_step" in d for d in res_v12["defeitos"]), res_v12
+
 
 def test_colab_trellis_worker_gera_spec_v5_valido(tmp_path):
     import importlib.util

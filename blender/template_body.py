@@ -1490,13 +1490,26 @@ def _adicionar_tubo_contornado_manifold(
         for lp, uv_co in zip(face.loops, uvs):
             lp[uv_layer].uv = uv_co
 
+    # Escala UV isotropica por comprimento de arco (~0.48 UV/m, compativel com suit_obj)
+    uv_por_metro = 0.48
+    ring0 = aneis_externos[0]
+    perim_m = sum((ring0[(s + 1) % n_seg] - ring0[s]).length for s in range(n_seg))
+    u_span = max(0.18, min(0.96, perim_m * uv_por_metro))
+    v_cum = [0.0]
     for r in range(n_rings - 1):
-        v0 = r / float(n_rings - 1)
-        v1 = (r + 1) / float(n_rings - 1)
+        dz_m = sum((aneis_externos[r + 1][s] - aneis_externos[r][s]).length for s in range(n_seg)) / float(max(1, n_seg))
+        v_cum.append(v_cum[-1] + dz_m * uv_por_metro)
+    v_total = max(1e-4, v_cum[-1])
+    if v_total > 0.92:
+        v_cum = [v * (0.92 / v_total) for v in v_cum]
+
+    for r in range(n_rings - 1):
+        v0 = 0.04 + v_cum[r]
+        v1 = 0.04 + v_cum[r + 1]
         for s in range(n_seg):
             sn = (s + 1) % n_seg
-            u0 = s / float(n_seg)
-            u1 = (s + 1) / float(n_seg)
+            u0 = 0.02 + (s / float(n_seg)) * u_span
+            u1 = 0.02 + ((s + 1) / float(n_seg)) * u_span
             # Parede externa
             f_out = bm.faces.new((v_out[r][s], v_out[r][sn], v_out[r + 1][sn], v_out[r + 1][s]))
             _set_face_uv(f_out, ((u0, v0), (u1, v0), (u1, v1), (u0, v1)))
@@ -1505,15 +1518,17 @@ def _adicionar_tubo_contornado_manifold(
             _set_face_uv(f_in, ((u1, v0), (u0, v0), (u0, v1), (u1, v1)))
 
     # Borda inferior (r = 0) e superior (r = n_rings - 1)
+    v_top_end = min(0.99, 0.04 + v_cum[-1] + 0.02)
+    v_top_start = max(0.0, v_top_end - 0.02)
     for s in range(n_seg):
         sn = (s + 1) % n_seg
-        u0 = s / float(n_seg)
-        u1 = (s + 1) / float(n_seg)
+        u0 = 0.02 + (s / float(n_seg)) * u_span
+        u1 = 0.02 + ((s + 1) / float(n_seg)) * u_span
         f_bot = bm.faces.new((v_in[0][s], v_in[0][sn], v_out[0][sn], v_out[0][s]))
-        _set_face_uv(f_bot, ((u0, 0.0), (u1, 0.0), (u1, 0.04), (u0, 0.04)))
+        _set_face_uv(f_bot, ((u0, 0.01), (u1, 0.01), (u1, 0.03), (u0, 0.03)))
         top = n_rings - 1
         f_top = bm.faces.new((v_out[top][s], v_out[top][sn], v_in[top][sn], v_in[top][s]))
-        _set_face_uv(f_top, ((u0, 0.96), (u1, 0.96), (u1, 1.0), (u0, 1.0)))
+        _set_face_uv(f_top, ((u0, v_top_start), (u1, v_top_start), (u1, v_top_end), (u0, v_top_end)))
 
 
 def _construir_sobreposicoes_medievais_3d(
@@ -1524,7 +1539,7 @@ def _construir_sobreposicoes_medievais_3d(
     rig=None,
     suit_obj=None,
 ):
-    """Cria camadas 3D contornadas (tunica/jerkin, cinto com fivela de latao, braceletes e botas)."""
+    """Cria camadas 3D contornadas (tunica/jerkin fallback, cinto com fivela de latao, braceletes e botas)."""
     pts = [v.co.copy() for v in body_obj.data.vertices]
     pts_ref_torso = list(pts)
     if suit_obj is not None and getattr(suit_obj, "data", None) is not None:
@@ -1546,34 +1561,35 @@ def _construir_sobreposicoes_medievais_3d(
         ry = min(0.105 * h, max(padrao_ry * 0.75, max(abs(p.y - cy) for p in fatia)))
         return cx, cy, rx, ry
 
-    # 1. Tunica / Jerkin medieval contornado iniciando em zf=0.50 (dentro do cinto, nunca na virilha)
-    z_fracs_tunica = (0.50, 0.54, 0.58, 0.63, 0.67)
     n_seg_t = 16
-    tun_in: list[list[Vector]] = []
-    tun_out: list[list[Vector]] = []
-    for zf in z_fracs_tunica:
-        zc = z_min + zf * h
-        cx, cy, rx, ry = _raios_elipticos_fatia(
-            zc - 0.020 * h, zc + 0.020 * h, 0.118 * h, 0.098 * h, 0.074 * h
-        )
-        flare = 0.0045
-        thick = 0.0050
-        ring_i = []
-        ring_o = []
-        for s in range(n_seg_t):
-            ang = (2.0 * math.pi * s) / float(n_seg_t)
-            ca, sa = math.cos(ang), math.sin(ang)
-            ring_i.append(Vector((cx + (rx + flare) * ca, cy + (ry + flare) * sa, zc)))
-            ring_o.append(
-                Vector((cx + (rx + flare + thick) * ca, cy + (ry + flare + thick) * sa, zc))
+    # 1. Tunica / Jerkin procedural apenas como fallback quando suit_obj (.mhclo) nao estiver presente
+    if suit_obj is None:
+        z_fracs_tunica = (0.50, 0.54, 0.58, 0.63, 0.67)
+        tun_in: list[list[Vector]] = []
+        tun_out: list[list[Vector]] = []
+        for zf in z_fracs_tunica:
+            zc = z_min + zf * h
+            cx, cy, rx, ry = _raios_elipticos_fatia(
+                zc - 0.020 * h, zc + 0.020 * h, 0.118 * h, 0.098 * h, 0.074 * h
             )
-        tun_in.append(ring_i)
-        tun_out.append(ring_o)
-    _adicionar_tubo_contornado_manifold(bm, uv_layer, tun_in, tun_out, mat_idx_tunic)
+            flare = 0.0045
+            thick = 0.0050
+            ring_i = []
+            ring_o = []
+            for s in range(n_seg_t):
+                ang = (2.0 * math.pi * s) / float(n_seg_t)
+                ca, sa = math.cos(ang), math.sin(ang)
+                ring_i.append(Vector((cx + (rx + flare) * ca, cy + (ry + flare) * sa, zc)))
+                ring_o.append(
+                    Vector((cx + (rx + flare + thick) * ca, cy + (ry + flare + thick) * sa, zc))
+                )
+            tun_in.append(ring_i)
+            tun_out.append(ring_o)
+        _adicionar_tubo_contornado_manifold(bm, uv_layer, tun_in, tun_out, mat_idx_tunic)
 
-    # 2. Cinto de couro pespontado em superelipse (cobre 100% os cantos diagonais do quadril sem expor pele)
-    z_belt_lo = z_min + 0.476 * h
-    z_belt_hi = z_min + 0.526 * h
+    # 2. Cinto de couro pespontado com parede interna embutida na tunica (zero fenda/sliver na barra)
+    z_belt_lo = z_min + 0.480 * h
+    z_belt_hi = z_min + 0.534 * h
     cx_b, cy_b, rx_b, ry_b = _raios_elipticos_fatia(
         z_belt_lo, z_belt_hi, 0.126 * h, 0.104 * h, 0.078 * h
     )
@@ -1585,17 +1601,17 @@ def _construir_sobreposicoes_medievais_3d(
         for s in range(n_seg_t):
             ang = (2.0 * math.pi * s) / float(n_seg_t)
             ca, sa = math.cos(ang), math.sin(ang)
-            sup_b = (abs(ca) ** 2.3 + abs(sa) ** 2.3) ** (-1.0 / 2.3)
+            sup_b = (abs(ca) ** 2.4 + abs(sa) ** 2.4) ** (-1.0 / 2.4)
             ux_b, uy_b = ca * sup_b, sa * sup_b
-            ri.append(Vector((cx_b + (rx_b + 0.0155) * ux_b, cy_b + (ry_b + 0.0155) * uy_b, zc)))
-            ro.append(Vector((cx_b + (rx_b + 0.0225) * ux_b, cy_b + (ry_b + 0.0225) * uy_b, zc)))
+            ri.append(Vector((cx_b + max(0.04, rx_b - 0.0060) * ux_b, cy_b + max(0.03, ry_b - 0.0060) * uy_b, zc)))
+            ro.append(Vector((cx_b + (rx_b + 0.0150) * ux_b, cy_b + (ry_b + 0.0150) * uy_b, zc)))
         belt_in.append(ri)
         belt_out.append(ro)
     _adicionar_tubo_contornado_manifold(bm, uv_layer, belt_in, belt_out, mat_idx_leather)
 
     # 3. Fivela frontal de latao/bronze (em -Y no espaco MPFB pre-exportacao -> +Y_bl apos Z=pi)
     z_bm = 0.5 * (z_belt_lo + z_belt_hi)
-    y_frente = cy_b - (ry_b + 0.0240)
+    y_frente = cy_b - (ry_b + 0.0165)
     f_in: list[list[Vector]] = []
     f_out: list[list[Vector]] = []
     for dy_i, dy_o in ((0.002, -0.006), (-0.002, -0.011)):
@@ -1685,7 +1701,7 @@ def _construir_sobreposicoes_medievais_3d(
                 _adicionar_tubo_contornado_manifold(bm, uv_layer, br_in, br_out, mat_idx_leather)
 
     # 5. Canos/punhos dobrados de botas de couro nas canelas (iniciando em zf=0.045 junto ao sapato)
-    n_seg_leg = 12
+    n_seg_leg = 16
     for sinal_x in (-1.0, 1.0):
         boot_in: list[list[Vector]] = []
         boot_out: list[list[Vector]] = []
@@ -2162,51 +2178,169 @@ def vestir_e_texturizar_camadas_cc0(
 
     if not corpo_nu:
         if suit_obj is not None:
-            # Apara barra da calca bem fundo dentro da bota (< 0.14*h) e recolhe 0.78 radial ate 0.250*h
+            # Separa camisa (tunica) e calca por componente conexa, estende barra da tunica ate o cinto
+            # e recolhe a calca dentro do cano das botas sem degrau no torso nem interpenetracao nas botas.
             b_zs = [v.co.z for v in obj.data.vertices]
             bz_min = min(b_zs)
             bh = max(0.5, max(b_zs) - bz_min)
-            z_trim_bota = bz_min + 0.140 * bh
-            z_corte_bota = bz_min + 0.250 * bh
-            z_corte_cinto = bz_min + 0.500 * bh
+            z_trim_bota = bz_min + 0.165 * bh
+            z_corte_bota = bz_min + 0.285 * bh
 
             bm_suit = bmesh.new()
             bm_suit.from_mesh(suit_obj.data)
-            faces_boot = [f for f in bm_suit.faces if f.calc_center_median().z < z_trim_bota]
-            if faces_boot:
-                bmesh.ops.delete(bm_suit, geom=faces_boot, context="FACES")
+            uv_suit = bm_suit.loops.layers.uv.active or bm_suit.loops.layers.uv.new("UVMap")
+
+            visitados_s: set = set()
+            verts_tunica: set = set()
+            verts_calca: set = set()
+            for v0 in bm_suit.verts:
+                if v0 in visitados_s:
+                    continue
+                pilha = [v0]
+                comp_v = []
+                visitados_s.add(v0)
+                while pilha:
+                    vc = pilha.pop()
+                    comp_v.append(vc)
+                    for ed in vc.link_edges:
+                        vn = ed.other_vert(vc)
+                        if vn not in visitados_s:
+                            visitados_s.add(vn)
+                            pilha.append(vn)
+                zf_min_c = min((v.co.z - bz_min) / bh for v in comp_v)
+                if zf_min_c > 0.35:
+                    verts_tunica.update(comp_v)
+                else:
+                    verts_calca.update(comp_v)
+
+            # 1) Estende suavemente a barra inferior da tunica (zf ~ 0.536..0.64) ate 0.490*bh (dentro do cinto)
+            if verts_tunica:
+                zf_hem = min((v.co.z - bz_min) / bh for v in verts_tunica)
+                zf_top_blend = 0.645
+                if zf_hem > 0.495 and zf_top_blend > zf_hem + 0.02:
+                    for v_t in verts_tunica:
+                        zf_v = (v_t.co.z - bz_min) / bh
+                        if zf_v < zf_top_blend:
+                            t_w = max(0.0, min(1.0, (zf_v - zf_hem) / (zf_top_blend - zf_hem)))
+                            zf_novo = 0.490 + t_w * (zf_top_blend - 0.490)
+                            dz_m = (zf_novo - zf_v) * bh
+                            v_t.co.z = bz_min + zf_novo * bh
+                            flare_t = 1.0 + 0.035 * (1.0 - t_w)
+                            v_t.co.x *= flare_t
+                            v_t.co.y *= flare_t
+                            # Compensa UV vertical proporcionalmente (~0.43 UV/m) para manter espinha de peixe uniforme
+                            for lp in v_t.link_loops:
+                                lp[uv_suit].uv.y += dz_m * 0.43
+
+            # 2) Apara barra inferior da calca (< 0.165*h) e borda superior acima do meio do cinto (> 0.512*h)
+            faces_remover = [
+                f
+                for f in bm_suit.faces
+                if any(v in verts_calca for v in f.verts)
+                and (f.calc_center_median().z < z_trim_bota or f.calc_center_median().z > bz_min + 0.512 * bh)
+            ]
+            if faces_remover:
+                bmesh.ops.delete(bm_suit, geom=faces_remover, context="FACES")
                 soltos_s = [v for v in bm_suit.verts if not v.link_faces]
                 if soltos_s:
                     bmesh.ops.delete(bm_suit, geom=soltos_s, context="VERTS")
-            pernas_pts_l = [v.co for v in obj.data.vertices if v.co.x >= 0.01 * bh and v.co.z <= z_corte_bota + 0.03]
-            pernas_pts_r = [v.co for v in obj.data.vertices if v.co.x <= -0.01 * bh and v.co.z <= z_corte_bota + 0.03]
-            for sv in bm_suit.verts:
-                if sv.co.z < z_corte_bota:
-                    ref_leg = pernas_pts_l if sv.co.x >= 0.0 else pernas_pts_r
-                    fat = [p for p in ref_leg if abs(p.z - sv.co.z) <= 0.025 * bh]
-                    if fat:
-                        cxl = 0.5 * (min(p.x for p in fat) + max(p.x for p in fat))
-                        cyl = 0.5 * (min(p.y for p in fat) + max(p.y for p in fat))
-                    else:
-                        cxl = (0.068 * bh) if sv.co.x >= 0.0 else (-0.068 * bh)
-                        cyl = 0.0
-                    # Afunda 0.78 dentro da bota mas abre suavemente para 0.94 na boca da bota (0.25*h)
-                    t_rim = max(0.0, min(1.0, (sv.co.z - (bz_min + 0.19 * bh)) / (0.06 * bh)))
-                    fator_r = 0.78 + 0.16 * t_rim
-                    sv.co.x = cxl + (sv.co.x - cxl) * fator_r
-                    sv.co.y = cyl + (sv.co.y - cyl) * fator_r
+                    verts_calca.difference_update(soltos_s)
+
+            pernas_pts_l = [v.co.copy() for v in obj.data.vertices if v.co.x >= 0.01 * bh and v.co.z <= z_corte_bota + 0.12]
+            pernas_pts_r = [v.co.copy() for v in obj.data.vertices if v.co.x <= -0.01 * bh and v.co.z <= z_corte_bota + 0.12]
+
+            def _fatia_perna(z_val: float, lado_pos: bool) -> tuple[float, float, float, float]:
+                ref_leg = pernas_pts_l if lado_pos else pernas_pts_r
+                fat = [p for p in ref_leg if abs(p.z - z_val) <= 0.020 * bh]
+                if len(fat) >= 4:
+                    cxl = 0.5 * (min(p.x for p in fat) + max(p.x for p in fat))
+                    cyl = 0.5 * (min(p.y for p in fat) + max(p.y for p in fat))
+                    rxl = max(0.042, max(abs(p.x - cxl) for p in fat))
+                    ryl = max(0.045, max(abs(p.y - cyl) for p in fat))
+                    return cxl, cyl, rxl, ryl
+                return ((0.068 * bh) if lado_pos else (-0.068 * bh)), 0.0, 0.048, 0.052
+
+            for sv in list(bm_suit.verts):
+                if sv in verts_calca:
+                    zf_sv = (sv.co.z - bz_min) / bh
+                    if zf_sv >= 0.495:
+                        # Recolhe o topo do cós estritamente dentro da tunica/cinto
+                        if sv.co.z > bz_min + 0.516 * bh:
+                            sv.co.z = bz_min + 0.516 * bh
+                        sv.co.x *= 0.88
+                        sv.co.y *= 0.88
+                    elif zf_sv <= 0.255:
+                        cxl, cyl, rxl, ryl = _fatia_perna(sv.co.z, sv.co.x >= 0.0)
+                        t_rim = max(0.0, min(1.0, (zf_sv - 0.190) / 0.065))
+                        fator_r = 0.78 + 0.12 * t_rim
+                        sv.co.x = cxl + (sv.co.x - cxl) * fator_r
+                        sv.co.y = cyl + (sv.co.y - cyl) * fator_r
+
+            for f in bm_suit.faces:
+                f.material_index = 0 if any(v in verts_tunica for v in f.verts) else 1
+
             bm_suit.to_mesh(suit_obj.data)
             bm_suit.free()
             suit_obj.data.update()
 
             topo_s = _preparar_camada_mhclo_manifold(
-                suit_obj, target_tris=1350, thickness=0.0040, offset_normal=0.0018
+                suit_obj, target_tris=1450, thickness=0.0040, offset_normal=0.0018
             )
+
             suit_obj.data.materials.clear()
             suit_obj.data.materials.append(mat_tunic)
             suit_obj.data.materials.append(mat_trousers)
-            for p in suit_obj.data.polygons:
-                p.material_index = 1 if p.center.z < z_corte_cinto else 0
+
+            # Pós-Solidify/Decimate: garante material por componente e confina 100% da calca dentro da bota/cinto
+            bm_pos = bmesh.new()
+            bm_pos.from_mesh(suit_obj.data)
+            vis_p: set = set()
+            for v0 in bm_pos.verts:
+                if v0 in vis_p:
+                    continue
+                pilha_p = [v0]
+                comp_p = []
+                vis_p.add(v0)
+                while pilha_p:
+                    vc = pilha_p.pop()
+                    comp_p.append(vc)
+                    for ed in vc.link_edges:
+                        vn = ed.other_vert(vc)
+                        if vn not in vis_p:
+                            vis_p.add(vn)
+                            pilha_p.append(vn)
+                zf_min_p = min((v.co.z - bz_min) / bh for v in comp_p)
+                eh_tunica_p = zf_min_p > 0.35
+                mat_p = 0 if eh_tunica_p else 1
+                for vp in comp_p:
+                    for fp in vp.link_faces:
+                        fp.material_index = mat_p
+                    if not eh_tunica_p:
+                        zf_vp = (vp.co.z - bz_min) / bh
+                        if zf_vp >= 0.495:
+                            if vp.co.z > bz_min + 0.516 * bh:
+                                vp.co.z = bz_min + 0.516 * bh
+                            vp.co.x *= 0.90
+                            vp.co.y *= 0.90
+                        elif zf_vp <= 0.300:
+                            cxl, cyl, rxl, ryl = _fatia_perna(vp.co.z, vp.co.x >= 0.0)
+                            if zf_vp <= 0.256:
+                                cuff_e = 0.011 + 0.008 * max(0.0, min(1.0, (zf_vp - 0.045) / 0.205))
+                                extra_max = cuff_e - 0.0075
+                            else:
+                                t_tap = (zf_vp - 0.256) / 0.044
+                                extra_max = 0.0115 + 0.0145 * t_tap
+                            lim_rx = rxl + extra_max
+                            lim_ry = ryl + extra_max
+                            dx_v = vp.co.x - cxl
+                            dy_v = vp.co.y - cyl
+                            u_ell = math.hypot(dx_v / max(0.015, lim_rx), dy_v / max(0.015, lim_ry))
+                            if u_ell > 1.0:
+                                vp.co.x = cxl + dx_v / u_ell
+                                vp.co.y = cyl + dy_v / u_ell
+            bm_pos.to_mesh(suit_obj.data)
+            bm_pos.free()
+            suit_obj.data.update()
             camadas_join.append(suit_obj)
             tris_extras += topo_s["triangulos"]
             nomes_camadas.append("clothes/suit")
@@ -2234,6 +2368,20 @@ def vestir_e_texturizar_camadas_cc0(
         camadas_join.append(ov_obj)
         tris_extras += len(ov_obj.data.polygons)
         nomes_camadas.extend(["tunic_jerkin_3d", "leather_belt_bracers_boots_3d", "brass_buckle_3d"])
+
+        if suit_obj is not None:
+            # Recolhe levemente a pele oculta sob a roupa DEPOIS de construir as botas/cinto
+            for vb in obj.data.vertices:
+                zf_b = (vb.co.z - bz_min) / bh
+                if 0.045 <= zf_b <= 0.745 and abs(vb.co.x) <= 0.138 * bh:
+                    if zf_b >= 0.44:
+                        vb.co.x *= 0.90
+                        vb.co.y *= 0.90
+                    else:
+                        cxl_b, cyl_b, _, _ = _fatia_perna(vb.co.z, vb.co.x >= 0.0)
+                        vb.co.x = cxl_b + (vb.co.x - cxl_b) * 0.86
+                        vb.co.y = cyl_b + (vb.co.y - cyl_b) * 0.86
+            obj.data.update()
 
     info_cabelo = {}
     if hair_obj is not None:

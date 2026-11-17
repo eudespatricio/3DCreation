@@ -357,6 +357,14 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                 from .providers import importer
 
                 p = Path(origem).expanduser()
+                if not p.is_file() and p.name.lower() in (
+                    "runestone_obelisk.glb",
+                    "arcane_fern_cards.glb",
+                    "runeblade_kitbash.glb",
+                ):
+                    from . import vault as _vault
+
+                    _vault.garantir_fixture_kitbash_showcase(p)
                 if not p.is_file():
                     erros.append(
                         {"id": iid, "regra": "B3", "mensagem": f"origem inexistente: {p}"}

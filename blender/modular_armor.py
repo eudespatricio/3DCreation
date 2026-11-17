@@ -815,18 +815,44 @@ def _criar_material_pbr_zona(
     return mat
 
 
-def _inferir_arquivo_textura_slot(mat) -> str | None:
-    """Resolve arquivo esperado em ``textures_pbr`` a partir de tag ou nome do material."""
-    if mat is None:
-        return None
-    explicito = mat.get("forge3d_textura_local") if hasattr(mat, "get") else None
-    if explicito:
-        return str(explicito)
-    nome_low = str(getattr(mat, "name", "") or "").lower()
-    for chave, arq in _TEXTURA_POR_ZONA.items():
-        if chave in nome_low:
-            return arq
+def _inferir_arquivo_textura_slot(mat, job: dict | None = None) -> str | None:
+    """Resolve arquivo esperado em ``textures_pbr`` a partir de tag, nome do material ou job."""
+    if mat is not None:
+        explicito = mat.get("forge3d_textura_local") if hasattr(mat, "get") else None
+        if explicito:
+            return str(explicito)
+        nome_low = str(getattr(mat, "name", "") or "").lower()
+        for chave, arq in _TEXTURA_POR_ZONA.items():
+            if chave in nome_low:
+                return arq
+    if isinstance(job, dict):
+        prompt_low = str(job.get("prompt") or "").lower()
+        parte_low = str(job.get("parte") or "").strip().lower()
+        for chave, arq in _TEXTURA_POR_ZONA.items():
+            if chave in prompt_low:
+                return arq
+        if parte_low in ("luvas", "peitoral", "elmo", "ombreiras", "escudo"):
+            return "steel_forged_albedo.png"
+        if parte_low == "botas":
+            return "leather_saddle_albedo.png"
+        if parte_low in ("calcas", "calças", "capa"):
+            return "linen_tunic_albedo.png"
     return None
+
+
+_NOMES_VAZADOS_MAKEHUMAN = (
+    "casualsuit",
+    "worksuit",
+    "elegantsuit",
+    "sportsuit",
+    "fedora",
+    "shoes",
+)
+
+
+def _nome_material_vaza_origem(nome: str) -> bool:
+    low = (nome or "").strip().lower()
+    return low.startswith("human.") or low.startswith("armor_mat") or any(k in low for k in _NOMES_VAZADOS_MAKEHUMAN)
 
 
 def _aplicar_estilo_visual(obj, job: dict) -> None:
@@ -878,10 +904,19 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
 
     tint_default = estilo["tint"] or (0.55, 0.58, 0.62)
 
+    parte_limpa = str(job.get("parte") or "piece").strip().lower() or "piece"
+    if parte_limpa == "calças":
+        parte_limpa = "calcas"
+
     for idx_m, mat in enumerate(list(obj.data.materials)):
+        nome_canonico = f"armor_{parte_limpa}_pbr" if idx_m == 0 else f"armor_{parte_limpa}_pbr_{idx_m}"
         if mat is None:
-            mat = bpy.data.materials.new(name=f"Armor_Mat_{idx_m}")
+            mat = bpy.data.materials.new(name=nome_canonico)
             obj.data.materials[idx_m] = mat
+        elif _nome_material_vaza_origem(mat.name):
+            mat.name = nome_canonico
+        if hasattr(mat, "blend_method"):
+            mat.blend_method = "OPAQUE"
         mat.use_nodes = True
         nt = mat.node_tree
         bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
@@ -895,6 +930,29 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
             bsdf.inputs["Metallic"].default_value = estilo["metallic"]
         if "Roughness" in bsdf.inputs:
             bsdf.inputs["Roughness"].default_value = estilo["roughness"]
+        if "Coat Weight" in bsdf.inputs:
+            bsdf.inputs["Coat Weight"].default_value = 0.0
+
+        # Remove normal map vazado de traje MakeHuman (ex.: male_casualsuit01_normal)
+        normal_inp = bsdf.inputs.get("Normal")
+        if normal_inp is not None and normal_inp.is_linked:
+            nodos_remover = []
+            for n_cand in list(nt.nodes):
+                if n_cand.type == "TEX_IMAGE" and n_cand.image is not None:
+                    nm_im = str(getattr(n_cand.image, "name", "") or "").lower()
+                    fp_im = str(getattr(n_cand.image, "filepath", "") or "").lower()
+                    if any(k in nm_im or k in fp_im for k in _NOMES_VAZADOS_MAKEHUMAN) and (
+                        "normal" in nm_im or "normal" in fp_im or n_cand != bsdf.inputs.get("Base Color")
+                    ):
+                        if any(lk.from_node == n_cand or lk.to_socket == normal_inp for lk in normal_inp.links):
+                            nodos_remover.append(n_cand)
+                        elif "normal" in nm_im or "normal" in fp_im:
+                            nodos_remover.append(n_cand)
+            if nodos_remover:
+                for lk in list(normal_inp.links):
+                    nt.links.remove(lk)
+                for n_rm in nodos_remover:
+                    nt.nodes.remove(n_rm)
 
         # Localiza TEX_IMAGE ligado ao Base Color (se houver)
         tex_node = None
@@ -911,7 +969,7 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
         if tex_node is None:
             tex_node = next((n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is not None), None)
 
-        arq_local = _inferir_arquivo_textura_slot(mat)
+        arq_local = _inferir_arquivo_textura_slot(mat, job)
         img_local = _carregar_textura_pbr_local(arq_local or "")
         if concept_img is not None:
             img_final = (
@@ -920,7 +978,14 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
                 else concept_img
             )
         elif img_local is not None:
-            img_final = img_local
+            if estilo["tint"] is not None:
+                img_final = _tingir_imagem(img_local, f"{nome_canonico}_albedo", estilo["tint"], estilo["accent"])
+            else:
+                img_final = img_local
+                try:
+                    img_final.pack()
+                except Exception:
+                    pass
         elif tex_node is not None and tex_node.image is not None:
             if estilo["tint"] is not None:
                 img_final = _tingir_imagem(tex_node.image, f"ArmorTint_{idx_m}", estilo["tint"], estilo["accent"])
@@ -940,6 +1005,7 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
             for lk in list(bc_input.links):
                 nt.links.remove(lk)
             nt.links.new(tex_node.outputs["Color"], bc_input)
+        _vincular_micro_relevo_bsdf(nt, bsdf, 0.14, 42.0)
 
 
 def _criar_escudo_procedural(nome: str = "EscudoModular") -> "bpy.types.Object":

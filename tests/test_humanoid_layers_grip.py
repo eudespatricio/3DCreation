@@ -33,7 +33,7 @@ def _tem_mpfb2() -> bool:
 
 
 def test_mesh_provider_versao_e_repassa_camadas_e_poses_maos(monkeypatch, tmp_path):
-    assert mesh.VERSAO >= "0.1.9"
+    assert tuple(int(x) for x in mesh.VERSAO.split(".")) >= (0, 1, 10)
     prov = mesh.MeshProvider()
     monkeypatch.setattr(prov, "preflight_item", lambda _item: (True, "ok"))
 
@@ -270,3 +270,34 @@ with open({str(res_json)!r}, "w", encoding="utf-8") as f:
     assert por_nome["Hand.L"]["posicao_local"][1] > 0.02
     assert ver["hand_r_head"][0] < 0.0 and ver["hand_l_head"][0] > 0.0
     assert abs(ver["hand_r_head"][0] + ver["hand_l_head"][0]) < 1e-4
+
+    # (d) Regressao V1 (calca confinada dentro do cano da bota) e V2 (tunica continua sem degrau UV)
+    mats_idx = {m.get("name", ""): idx for idx, m in enumerate(gltf.get("materials", []))}
+    prims_por_mat = {
+        pr.get("material", -1): pr for pr in gltf["meshes"][0]["primitives"]
+    }
+    assert "trousers" in mats_idx and "leather" in mats_idx and "tunic" in mats_idx
+    pos_trous = qc._accessor(gltf, binario, prims_por_mat[mats_idx["trousers"]]["attributes"]["POSITION"])
+    pos_leath = qc._accessor(gltf, binario, prims_por_mat[mats_idx["leather"]]["attributes"]["POSITION"])
+    ys_all = [p[1] for p in qc._accessor(gltf, binario, prims_por_mat[mats_idx["skin"]]["attributes"]["POSITION"])]
+    h_char = max(ys_all) - min(ys_all)
+    y_min_c = min(ys_all)
+    boot_verts = [v for v in pos_leath if y_min_c + 0.04 * h_char <= v[1] <= y_min_c + 0.252 * h_char]
+    assert len(boot_verts) >= 40
+    for sgn in (-1.0, 1.0):
+        bv_side = [v for v in boot_verts if v[0] * sgn > 0.0]
+        tv_side = [
+            v
+            for v in pos_trous
+            if v[0] * sgn > 0.0 and y_min_c + 0.05 * h_char <= v[1] <= y_min_c + 0.248 * h_char
+        ]
+        assert bv_side and tv_side
+        for tv in tv_side:
+            near_b = [b for b in bv_side if abs(b[1] - tv[1]) <= 0.035 * h_char]
+            if len(near_b) >= 4:
+                cxl = 0.5 * (min(b[0] for b in near_b) + max(b[0] for b in near_b))
+                czl = 0.5 * (min(b[2] for b in near_b) + max(b[2] for b in near_b))
+                r_t = ((tv[0] - cxl) ** 2 + (tv[2] - czl) ** 2) ** 0.5
+                r_b_out = max(((b[0] - cxl) ** 2 + (b[2] - czl) ** 2) ** 0.5 for b in near_b)
+                assert r_t < r_b_out - 0.003, f"V1: vertice da calca perfurou a bota em y={tv[1]:.3f}: r_t={r_t:.4f} >= r_b={r_b_out:.4f}"
+

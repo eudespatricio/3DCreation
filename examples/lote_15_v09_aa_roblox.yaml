@@ -1,0 +1,106 @@
+# Showcase v0.9.x AA para Roblox R15 (roblox-aa-80: SurfaceAppearance 4 canais, High->Low Cycles + pbr_zonas, kitbash auto_grip e Gate G11)
+schema: forge3d/spec@6
+projeto: citadel_roblox_aa
+perfil: roblox-aa-80
+destino_exportacao: ~/.local/state/forge3d/saida/v09_aa_roblox
+estilo_global: stylized_pbr
+
+orcamento_cena:
+  triangulos_max: 400000
+  draw_calls_max: 400
+  vram_mb_max: 200
+
+roblox_render:
+  lighting_technology: Future
+  render_fidelity_padrao: Precise
+  surface_appearance: true
+  strip_embedded_textures_glb: true
+
+politica:
+  falha: abortar
+  custo_max_min: 30
+  seed_base: 20261116
+
+lote:
+  - id: prop.obsidian.obelisk.01
+    tipo: prop_estatico
+    rota: import
+    origem: ~/.local/state/forge3d/saida/kitbash/runestone_obelisk.glb
+    altura_metros: 2.20
+    pivot: base
+    qualidade: hero
+    limite_triangulos: 4000
+    material: pbr
+    colisao: box
+    quantidade_cena: 8
+    render_fidelity_roblox: Precise
+    detalhe_alto:
+      ativo: true
+      subdiv_niveis: 2
+      chanfro_bevel_m: 0.010
+      crease_angulo_graus: 38
+      ao_cavidade_forca: 0.40
+    pbr_zonas:
+      - nome: pedestal_pedra
+        uv_faixa: [0.0, 0.0, 0.34, 1.0]
+        preset: pedra_musgo
+        cor_tinta: "#2B2F3A"
+      - nome: fuste_aco
+        uv_faixa: [0.34, 0.0, 0.67, 1.0]
+        preset: aco_forjado
+        metallic_override: 0.86
+      - nome: nucleo_cristal
+        uv_faixa: [0.67, 0.0, 1.0, 1.0]
+        preset: cristal_arcano
+        cor_tinta: "#22D3EE"
+        roughness_escala: 0.45
+    tags: [prop, obelisk, aa]
+
+  - id: weapon.paladin.runeblade.01
+    tipo: prop_equipavel
+    rota: import
+    origem: ~/.local/state/forge3d/saida/kitbash/runeblade_kitbash.glb
+    altura_metros: 1.18
+    pivot: empunhadura
+    qualidade: hero
+    limite_triangulos: 3200
+    material: pbr
+    colisao: box
+    quantidade_cena: 4
+    render_fidelity_roblox: Precise
+    smart_fit:
+      auto_grip: true
+    detalhe_alto:
+      ativo: true
+      subdiv_niveis: 1
+      chanfro_bevel_m: 0.006
+      crease_angulo_graus: 40
+      ao_cavidade_forca: 0.35
+    pbr_zonas:
+      - nome: punho_couro
+        uv_faixa: [0.0, 0.0, 0.35, 1.0]
+        preset: couro_gasto
+      - nome: guarda_ouro
+        uv_faixa: [0.35, 0.0, 0.65, 1.0]
+        preset: ouro_ornamentado
+        metallic_override: 0.92
+      - nome: lamina_aco
+        uv_faixa: [0.65, 0.0, 1.0, 1.0]
+        preset: aco_forjado
+        metallic_override: 0.88
+    tags: [weapon, sword, kitbash]
+
+  - id: guard.citadel.warden.01
+    tipo: personagem_humanoide
+    rota: blocky
+    prompt: Citadel obsidian warden guard in dark plate and gold trim
+    altura_metros: 1.85
+    pivot: base
+    qualidade: standard
+    limite_triangulos: 2400
+    auto_rig: true
+    esqueleto: r15@1
+    clipes: [idle, walk, attack]
+    quantidade_cena: 12
+    render_fidelity_roblox: Precise
+    tags: [guard, r15, aa]

@@ -71,6 +71,7 @@ def test_mesh_provider_versao_e_repassa_camadas_e_poses_maos(monkeypatch, tmp_pa
             "id": "hero.layers.01",
             "tipo": "personagem_humanoide",
             "parte": "corpo",
+            "template_humanoide": True,  # explicito: o runner de CI nao tem MPFB2 instalado
             "qualidade": "hero",
             "auto_rig": True,
             "limite_triangulos": 12000,

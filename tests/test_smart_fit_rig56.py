@@ -497,9 +497,18 @@ Path(sys.argv[sys.argv.index("--") + 1]).write_text(json.dumps({{
     assert set(info["nomes_ossos"]) == set(OSSOS_56_ESPERADOS)
 
 
+def _tem_mpfb2() -> bool:
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    cfg_root = Path(xdg) if xdg else (Path.home() / ".config")
+    base = cfg_root / "blender" / "4.2" / "extensions"
+    return base.is_dir() and any(base.glob("**/mpfb/__init__.py"))
+
+
 @pytest.mark.blender
 def test_blender_template_body_e_modular_armor_aa_56(tmp_path: Path):
     blender = _blender_bin()
+    if not _tem_mpfb2():
+        pytest.skip("extensao MPFB2 nao instalada/visivel no Blender deste ambiente")
     dir_body = tmp_path / "body_aa"
     dir_body.mkdir()
     job_body = tmp_path / "job_body.json"

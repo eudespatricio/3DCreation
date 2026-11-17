@@ -82,7 +82,7 @@ def _construir_glb_com_textura_embutida() -> bytes:
 
 
 def test_post_versao_090_preflight_i9_e_forward_v6(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert post.PIPELINE_VERSION == "0.9.0"
+    assert post.PIPELINE_VERSION == "0.9.1"
     assert post.VERSAO_MIN == (4, 2)
     assert post.VERSAO_MAX == (4, 3)
 
@@ -470,3 +470,53 @@ print("ZONAS_BLENDER_OK")
     with Image.open(saida / papeis["metallic"]) as im_met:
         r_ext, _, _ = im_met.getextrema()
         assert r_ext[1] > 150, f"zona metalica ouro nao assada no mapa metallic: {r_ext}"
+
+
+def test_obelisk_aa_v3_esfera_32_segmentos_sem_intersecao_com_coroa(tmp_path: Path) -> None:
+    from forge3d import qc, vault
+
+    glb_path = tmp_path / "runestone_obelisk.glb"
+    vault.construir_obelisk_aa_manifold_glb(glb_path)
+    gltf, binario = qc.ler_glb_bin(glb_path)
+    topo = qc.topologia(gltf, binario)
+    assert topo["nao_manifold"] == 0
+    assert topo["degeneradas"] == 0
+    assert topo["triangulos"] >= 1200
+
+    prim = gltf["meshes"][0]["primitives"][0]
+    pos = qc._accessor(gltf, binario, prim["attributes"]["POSITION"])
+    uvs = qc._accessor(gltf, binario, prim["attributes"]["TEXCOORD_0"])
+    ys_gema = [p[1] for p, uv in zip(pos, uvs) if uv[0] >= 0.67]
+    ys_fuste = [p[1] for p, uv in zip(pos, uvs) if 0.34 <= uv[0] < 0.67]
+    assert len(ys_gema) >= 400
+    assert len(ys_fuste) >= 150
+    assert min(ys_gema) > max(ys_fuste) + 0.003, (
+        f"V3: coroa do obelisco ({max(ys_fuste):.4f}) intercepta a gema ({min(ys_gema):.4f})"
+    )
+
+
+def test_visual_qa_critic_detecta_v1_v2_e_aprova_v091() -> None:
+    import importlib.util
+
+    spec_mod = importlib.util.spec_from_file_location(
+        "visual_qa_critic_mod",
+        RAIZ / "tools" / "visual_qa_critic.py",
+    )
+    assert spec_mod and spec_mod.loader
+    vqa = importlib.util.module_from_spec(spec_mod)
+    spec_mod.loader.exec_module(vqa)
+
+    old_hero = RAIZ / "docs" / "preview" / "v09_aa_hero_1600.png"
+    if old_hero.is_file():
+        rel_old = vqa.avaliar_turntable_png(old_hero, usar_gemini=False)
+        txt_old = " ".join(rel_old["defeitos"])
+        assert rel_old["aprovado"] is False
+        assert "boot_interpenetration" in txt_old
+        assert "tunic_texture_step" in txt_old
+
+    for nome_ok in ("v091_aa_prop_1600.png", "v091_aa_roblox_1600.png", "v091_aa_hero_1600.png"):
+        p_ok = RAIZ / "docs" / "preview" / nome_ok
+        if p_ok.is_file():
+            rel_ok = vqa.avaliar_turntable_png(p_ok, usar_gemini=False)
+            assert rel_ok["aprovado"] is True, f"{nome_ok} reprovado: {rel_ok['defeitos']}"
+

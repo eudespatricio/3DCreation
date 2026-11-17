@@ -1,0 +1,135 @@
+# Showcase v0.9.x AA para Godot 4 (godot4-aa: rig 56 ossos godot-humanoid-aa@1, Smart-Fit BVH, High->Low Cycles + pbr_zonas, alpha_cards e Gate G11)
+schema: forge3d/spec@6
+projeto: citadel_godot_aa
+perfil: godot4-aa
+destino_exportacao: ~/.local/state/forge3d/saida/v09_aa_godot
+estilo_global: stylized_pbr
+
+orcamento_cena:
+  triangulos_max: 400000
+  draw_calls_max: 400
+  vram_mb_max: 200
+
+politica:
+  falha: abortar
+  custo_max_min: 60
+  seed_base: 20261116
+
+lote:
+  - id: hero.warden.aa.01
+    tipo: personagem_humanoide
+    rota: mesh
+    template_humanoide: true
+    makehuman_cabelo: short01
+    cor_cabelo: "#2B3240"
+    qualidade: hero
+    provider_conceito: auto
+    suavizacao_normais:
+      modo: organico
+      angulo_graus: 65
+      corrective_smooth: true
+    prompt: >-
+      Stylized fantasy arcane warden hero in dark slate tunic and leather bracers,
+      neutral A-pose, clean proportions, game-ready silhouette.
+    altura_metros: 1.82
+    pivot: base
+    limite_triangulos: 16000
+    material: pbr
+    colisao: convex
+    auto_rig: true
+    esqueleto: godot-humanoid-aa@1
+    clipes: [idle, walk, run, attack, cast, slash_combo]
+    sockets: [Hand.R, Hand.L, Back, Head, Shoulder.L, Shoulder.R]
+    quantidade_cena: 2
+    lod: [100, 50]
+    seed: 20261116
+    tags: [hero, rig56, aa]
+
+  - id: armor.warden.gauntlets.01
+    tipo: prop_equipavel
+    rota: mesh
+    parte: luvas
+    skinned: true
+    esqueleto: godot-humanoid-aa@1
+    smart_fit:
+      encaixar_contato: true
+      folga_m: 0.0015
+    prompt: Articulated knight plate gauntlets in forged steel and bronze trim
+    altura_metros: 0.30
+    pivot: origem
+    limite_triangulos: 2500
+    material: pbr
+    colisao: none
+    quantidade_cena: 2
+    seed: 20261117
+    tags: [armor, gauntlets, smartfit]
+
+  - id: gear.warden.sword.01
+    tipo: prop_equipavel
+    rota: mesh
+    parte: arma
+    extrudir_2d: false
+    skinned: false
+    smart_fit:
+      auto_grip: true
+    suavizacao_normais:
+      modo: hard_surface
+      angulo_graus: 35
+      weighted_normals: true
+    prompt: Forged steel arcane warden longsword with bronze crossguard and leather grip
+    altura_metros: 0.98
+    pivot: empunhadura
+    limite_triangulos: 2500
+    material: pbr
+    colisao: none
+    quantidade_cena: 4
+    seed: 20261118
+    tags: [weapon, sword, grip]
+
+  - id: prop.runestone.altar.01
+    tipo: prop_estatico
+    rota: import
+    origem: ~/.local/state/forge3d/saida/kitbash/runestone_obelisk.glb
+    altura_metros: 2.20
+    pivot: base
+    qualidade: hero
+    limite_triangulos: 6000
+    material: pbr
+    colisao: convex
+    quantidade_cena: 6
+    detalhe_alto:
+      ativo: true
+      subdiv_niveis: 2
+      chanfro_bevel_m: 0.010
+      crease_angulo_graus: 38
+      ao_cavidade_forca: 0.42
+    pbr_zonas:
+      - nome: obsidiana
+        uv_faixa: [0.0, 0.0, 0.34, 1.0]
+        preset: pedra_musgo
+        cor_tinta: "#2A2E38"
+      - nome: filigrana
+        uv_faixa: [0.34, 0.0, 0.67, 1.0]
+        preset: ouro_ornamentado
+        metallic_override: 0.92
+      - nome: cristal
+        uv_faixa: [0.67, 0.0, 1.0, 1.0]
+        preset: cristal_arcano
+        cor_tinta: "#22D3EE"
+        roughness_escala: 0.40
+    tags: [prop, altar, pbr_zonas]
+
+  - id: prop.arcane.fern.01
+    tipo: prop_estatico
+    rota: import
+    origem: ~/.local/state/forge3d/saida/kitbash/arcane_fern_cards.glb
+    altura_metros: 0.85
+    pivot: base
+    qualidade: standard
+    limite_triangulos: 1200
+    material: pbr
+    material_procedural: pedra_musgo
+    alpha_cards: true
+    colisao: box
+    quantidade_cena: 16
+    tags: [prop, foliage, alpha_cards]

@@ -1121,6 +1121,61 @@ def executar_bake_high_low(
     else:
         nome_cor = "uv_material"
     tris_high = _contar_triangulos(obj)
+    diag_original = _bbox_diag(obj)
+    passo_zona_x = 6.0
+    zonas_deslocadas = False
+    if tem_zonas and pbr_zonas and obj.data.uv_layers:
+        bm_z = bmesh.new()
+        bm_z.from_mesh(obj.data)
+        bm_z.verts.ensure_lookup_table()
+        uv_z = bm_z.loops.layers.uv.active
+        if uv_z is not None:
+            vis_z: set = set()
+            comps_z: list[list] = []
+            for v0 in bm_z.verts:
+                if v0 in vis_z:
+                    continue
+                pilha_z = [v0]
+                comp_z = []
+                vis_z.add(v0)
+                while pilha_z:
+                    vc = pilha_z.pop()
+                    comp_z.append(vc)
+                    for ed in vc.link_edges:
+                        vn = ed.other_vert(vc)
+                        if vn not in vis_z:
+                            vis_z.add(vn)
+                            pilha_z.append(vn)
+                comps_z.append(comp_z)
+            if len(comps_z) > 1:
+                for comp_z in comps_z:
+                    us_c = [lp[uv_z].uv.x for v in comp_z for lp in v.link_loops]
+                    vs_c = [lp[uv_z].uv.y for v in comp_z for lp in v.link_loops]
+                    if not us_c:
+                        continue
+                    u_m = sum(us_c) / float(len(us_c))
+                    v_m = sum(vs_c) / float(len(vs_c))
+                    z_escolhida = 0
+                    melhor_dist = 1e9
+                    for idx_z, z_cfg in enumerate(pbr_zonas):
+                        faixa = z_cfg.get("uv_faixa") if isinstance(z_cfg, dict) else None
+                        if isinstance(faixa, (list, tuple)) and len(faixa) == 4:
+                            u0, v0_f, u1, v1_f = float(faixa[0]), float(faixa[1]), float(faixa[2]), float(faixa[3])
+                            du = 0.0 if u0 <= u_m <= u1 else min(abs(u_m - u0), abs(u_m - u1))
+                            dv = 0.0 if v0_f <= v_m <= v1_f else min(abs(v_m - v0_f), abs(v_m - v1_f))
+                            d_z = du + dv
+                            if d_z < melhor_dist:
+                                melhor_dist = d_z
+                                z_escolhida = idx_z
+                    dx_z = float(z_escolhida) * passo_zona_x
+                    if abs(dx_z) > 1e-6:
+                        for v in comp_z:
+                            v.co.x += dx_z
+                        zonas_deslocadas = True
+                if zonas_deslocadas:
+                    bm_z.to_mesh(obj.data)
+                    obj.data.update()
+        bm_z.free()
 
     high_mesh = obj.data.copy()
     high_mesh.name = f"{nome_base}_high_mesh"
@@ -1188,10 +1243,13 @@ def executar_bake_high_low(
         tris_low = _contar_triangulos(obj)
 
         bpy.context.view_layer.update()
-        diag = _bbox_diag(obj)
+        diag = diag_original if zonas_deslocadas else _bbox_diag(obj)
         if proteger_superficie:
             cage_extrusion = max(0.010, 0.014 * diag)
             max_ray_dist = max(0.025, 0.036 * diag)
+        elif (tem_detalhe_alto or tem_zonas) and not tem_cor_vertice:
+            cage_extrusion = max(0.004, min(0.012, 0.008 * diag))
+            max_ray_dist = max(0.012, min(0.030, 0.020 * diag))
         else:
             cage_extrusion = max(0.02, 0.03 * diag)
             max_ray_dist = max(0.025, 0.06 * diag)
@@ -1422,6 +1480,12 @@ def executar_bake_high_low(
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
     finally:
+        if zonas_deslocadas and obj is not None and getattr(obj, "data", None) is not None:
+            for v_obj in obj.data.vertices:
+                kz = int(round(v_obj.co.x / passo_zona_x))
+                if kz > 0:
+                    v_obj.co.x -= float(kz) * passo_zona_x
+            obj.data.update()
         if cam_obj is not None and cam_obj.name in bpy.data.objects:
             bpy.data.objects.remove(cam_obj, do_unlink=True)
         if cam_data is not None and cam_data.name in bpy.data.cameras and cam_data.users == 0:

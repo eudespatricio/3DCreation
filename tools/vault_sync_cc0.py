@@ -459,6 +459,14 @@ def seed_local_cc0(
     if usar_blender:
         gerar_pecas_kitbash_Via_blender_json(dir_pecas)
 
+    # Garante tambem os GLBs canonicos de showcase AA em <raiz_estado>/saida/kitbash/
+    from forge3d import paths as _paths
+    from forge3d.vault import garantir_fixture_kitbash_showcase
+
+    dir_kb_saida = _paths.dir_saida() / "kitbash"
+    for nome_kb in ("runestone_obelisk.glb", "arcane_fern_cards.glb", "runeblade_kitbash.glb"):
+        garantir_fixture_kitbash_showcase(dir_kb_saida / nome_kb, forcar=True)
+
     embeddings_gerados = 0
     if gerar_embeddings:
         embeddings_gerados = sincronizar_embeddings_vault(vault, dimensao_offline=dimensao_embedding)

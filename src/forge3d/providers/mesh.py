@@ -27,7 +27,7 @@ from typing import Any
 from .. import locks, paths
 from .base import RawAsset
 
-VERSAO = "0.1.9"
+VERSAO = "0.1.10"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
 VRAM_MINIMA_MB = 3500

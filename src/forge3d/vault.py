@@ -721,3 +721,457 @@ class VaultCC0:
             key=lambda r: (-r["score"], -r["score_cosseno"], -r["score_lexical"], r["asset_id"])
         )
         return resultados[: int(top_k)]
+
+
+def _empacotar_glb_primitiva_unica(
+    vertices: list[tuple[float, float, float]],
+    normais: list[tuple[float, float, float]],
+    uvs: list[tuple[float, float]],
+    indices: list[int],
+    *,
+    nome_no: str,
+    nome_mat: str,
+    cor_rgba: tuple[float, float, float, float] = (0.76, 0.78, 0.82, 1.0),
+    metallic: float = 0.2,
+    roughness: float = 0.5,
+) -> bytes:
+    """Empacota uma malha indexada (POSITION, NORMAL, TEXCOORD_0) num binario GLB 2.0."""
+    import struct
+
+    pos_bytes = b"".join(struct.pack("<3f", *v) for v in vertices)
+    norm_bytes = b"".join(struct.pack("<3f", *n) for n in normais)
+    uv_bytes = b"".join(struct.pack("<2f", *u) for u in uvs)
+    idx_bytes = b"".join(struct.pack("<H", idx) for idx in indices)
+    while len(idx_bytes) % 4 != 0:
+        idx_bytes += b"\x00"
+
+    xs = [v[0] for v in vertices]
+    ys = [v[1] for v in vertices]
+    zs = [v[2] for v in vertices]
+
+    bin_blob = pos_bytes + norm_bytes + uv_bytes + idx_bytes
+    while len(bin_blob) % 4 != 0:
+        bin_blob += b"\x00"
+
+    off_pos = 0
+    len_pos = len(pos_bytes)
+    off_norm = off_pos + len_pos
+    len_norm = len(norm_bytes)
+    off_uv = off_norm + len_norm
+    len_uv = len(uv_bytes)
+    off_idx = off_uv + len_uv
+    len_idx_raw = len(indices) * 2
+
+    gltf_dict: dict[str, Any] = {
+        "asset": {"version": "2.0", "generator": "Forge3D VaultCC0 Manifold Builder"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"name": nome_no, "mesh": 0}],
+        "materials": [
+            {
+                "name": nome_mat,
+                "doubleSided": True,
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [float(c) for c in cor_rgba],
+                    "metallicFactor": float(metallic),
+                    "roughnessFactor": float(roughness),
+                },
+            }
+        ],
+        "meshes": [
+            {
+                "name": nome_no,
+                "primitives": [
+                    {
+                        "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2},
+                        "indices": 3,
+                        "material": 0,
+                        "mode": 4,
+                    }
+                ],
+            }
+        ],
+        "buffers": [{"byteLength": len(bin_blob)}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": off_pos, "byteLength": len_pos, "target": 34962},
+            {"buffer": 0, "byteOffset": off_norm, "byteLength": len_norm, "target": 34962},
+            {"buffer": 0, "byteOffset": off_uv, "byteLength": len_uv, "target": 34962},
+            {"buffer": 0, "byteOffset": off_idx, "byteLength": len_idx_raw, "target": 34963},
+        ],
+        "accessors": [
+            {
+                "bufferView": 0,
+                "byteOffset": 0,
+                "componentType": 5126,
+                "count": len(vertices),
+                "type": "VEC3",
+                "min": [min(xs), min(ys), min(zs)],
+                "max": [max(xs), max(ys), max(zs)],
+            },
+            {
+                "bufferView": 1,
+                "byteOffset": 0,
+                "componentType": 5126,
+                "count": len(normais),
+                "type": "VEC3",
+            },
+            {
+                "bufferView": 2,
+                "byteOffset": 0,
+                "componentType": 5126,
+                "count": len(uvs),
+                "type": "VEC2",
+            },
+            {
+                "bufferView": 3,
+                "byteOffset": 0,
+                "componentType": 5123,
+                "count": len(indices),
+                "type": "SCALAR",
+            },
+        ],
+    }
+
+    json_bytes = json.dumps(gltf_dict, separators=(",", ":")).encode("utf-8")
+    while len(json_bytes) % 4 != 0:
+        json_bytes += b" "
+
+    total_len = 12 + 8 + len(json_bytes) + 8 + len(bin_blob)
+    header = struct.pack("<4sII", b"glTF", 2, total_len)
+    chunk_json = struct.pack("<II", len(json_bytes), 0x4E4F534A) + json_bytes
+    chunk_bin = struct.pack("<II", len(bin_blob), 0x004E4942) + bin_blob
+    return header + chunk_json + chunk_bin
+
+
+def _anexar_casca_revolucao_uv_zona(
+    vertices: list[tuple[float, float, float]],
+    normais: list[tuple[float, float, float]],
+    uvs: list[tuple[float, float]],
+    indices: list[int],
+    *,
+    aneis: list[tuple[float, float, float]],
+    segmentos: int,
+    u_centro: float,
+    u_raio: float = 0.09,
+    y_polo_inf: float | None = None,
+    y_polo_sup: float | None = None,
+    esferico: bool = False,
+    centro_esfera: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> None:
+    """Adiciona casca fechada 2-manifold de revolucao mapeada na faixa UV ``u_centro +- u_raio``."""
+    n_seg = max(6, int(segmentos))
+    y_min = float(aneis[0][0])
+    y_max = float(aneis[-1][0])
+    alt = max(1e-4, y_max - y_min)
+    yp0 = float(y_polo_inf) if y_polo_inf is not None else (y_min - 0.01 * alt)
+    yp1 = float(y_polo_sup) if y_polo_sup is not None else (y_max + 0.01 * alt)
+
+    base_v = len(vertices)
+    vertices.append((0.0, yp0, 0.0))
+    normais.append((0.0, -1.0, 0.0))
+    uvs.append((u_centro, 0.12))
+
+    cx, cy, cz = centro_esfera
+    for y_val, rx, rz in aneis:
+        t_y = (float(y_val) - y_min) / alt
+        v_base = 0.16 + 0.68 * t_y
+        for k in range(n_seg):
+            ang = (2.0 * math.pi * k) / float(n_seg)
+            ca = math.cos(ang)
+            sa = math.sin(ang)
+            vx = float(rx) * ca
+            vy = float(y_val)
+            vz = float(rz) * sa
+            vertices.append((vx, vy, vz))
+            if esferico:
+                dx, dy, dz = vx - cx, vy - cy, vz - cz
+                dl = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
+                normais.append((dx / dl, dy / dl, dz / dl))
+            else:
+                nx = ca / max(1e-4, float(rx))
+                nz = sa / max(1e-4, float(rz))
+                nl = math.hypot(nx, nz) or 1.0
+                normais.append((nx / nl, 0.0, nz / nl))
+            u_val = u_centro + u_raio * ca
+            v_val = v_base + 0.05 * sa
+            uvs.append((u_val, v_val))
+
+    idx_topo = len(vertices)
+    vertices.append((0.0, yp1, 0.0))
+    normais.append((0.0, 1.0, 0.0))
+    uvs.append((u_centro, 0.88))
+
+    for k in range(n_seg):
+        k_next = (k + 1) % n_seg
+        indices.extend([base_v, base_v + 1 + k, base_v + 1 + k_next])
+
+    n_aneis = len(aneis)
+    for r in range(n_aneis - 1):
+        b0 = base_v + 1 + r * n_seg
+        b1 = base_v + 1 + (r + 1) * n_seg
+        for k in range(n_seg):
+            k_next = (k + 1) % n_seg
+            i00 = b0 + k
+            i01 = b0 + k_next
+            i10 = b1 + k
+            i11 = b1 + k_next
+            indices.extend([i00, i10, i11])
+            indices.extend([i00, i11, i01])
+
+    b_ult = base_v + 1 + (n_aneis - 1) * n_seg
+    for k in range(n_seg):
+        k_next = (k + 1) % n_seg
+        indices.extend([idx_topo, b_ult + k_next, b_ult + k])
+
+
+def construir_obelisk_aa_manifold_glb(caminho_glb: Path) -> Path:
+    """Gera ``runestone_obelisk.glb`` 2-manifold com gema esferica suave (32 segs x 16 aneis) sem intersecao."""
+    verts: list[tuple[float, float, float]] = []
+    norms: list[tuple[float, float, float]] = []
+    uvs: list[tuple[float, float]] = []
+    inds: list[int] = []
+
+    # Zona 0 (u ~ 0.17 in [0.0, 0.34]): pedestal octogonal/hexadecagonal escalonado
+    _anexar_casca_revolucao_uv_zona(
+        verts,
+        norms,
+        uvs,
+        inds,
+        aneis=[
+            (0.002, 0.38, 0.38),
+            (0.220, 0.37, 0.37),
+            (0.260, 0.31, 0.31),
+            (0.298, 0.30, 0.30),
+        ],
+        segmentos=16,
+        u_centro=0.17,
+        u_raio=0.09,
+        y_polo_inf=0.0,
+        y_polo_sup=0.300,
+    )
+
+    # Zona 1 (u ~ 0.50 in [0.34, 0.67]): fuste com colarinho circular de 32 segmentos terminando em y=1.532
+    _anexar_casca_revolucao_uv_zona(
+        verts,
+        norms,
+        uvs,
+        inds,
+        aneis=[
+            (0.306, 0.260, 0.260),
+            (0.680, 0.220, 0.220),
+            (1.080, 0.175, 0.175),
+            (1.420, 0.132, 0.132),
+            (1.495, 0.116, 0.116),
+            (1.530, 0.124, 0.124),
+        ],
+        segmentos=32,
+        u_centro=0.50,
+        u_raio=0.09,
+        y_polo_inf=0.304,
+        y_polo_sup=1.532,
+    )
+
+    # Zona 2 (u ~ 0.83 in [0.67, 1.00]): gema esferica suave (32 segs x 16 aneis) acima da coroa (y >= 1.538)
+    yc_orb = 1.718
+    r_orb = 0.180
+    n_lat = 16
+    aneis_orb: list[tuple[float, float, float]] = []
+    for j in range(1, n_lat):
+        theta = (math.pi * j) / float(n_lat)
+        y_ring = yc_orb - r_orb * math.cos(theta)
+        r_ring = r_orb * math.sin(theta)
+        aneis_orb.append((y_ring, r_ring, r_ring))
+
+    _anexar_casca_revolucao_uv_zona(
+        verts,
+        norms,
+        uvs,
+        inds,
+        aneis=aneis_orb,
+        segmentos=32,
+        u_centro=0.83,
+        u_raio=0.09,
+        y_polo_inf=yc_orb - r_orb,
+        y_polo_sup=yc_orb + r_orb,
+        esferico=True,
+        centro_esfera=(0.0, yc_orb, 0.0),
+    )
+
+    caminho_glb.parent.mkdir(parents=True, exist_ok=True)
+    caminho_glb.write_bytes(
+        _empacotar_glb_primitiva_unica(
+            verts,
+            norms,
+            uvs,
+            inds,
+            nome_no="runestone_obelisk",
+            nome_mat="obelisk_mat",
+        )
+    )
+    return caminho_glb
+
+
+def construir_fern_cards_glb(caminho_glb: Path) -> Path:
+    """Gera ``arcane_fern_cards.glb`` (vaso fechado + 6 alpha cards de folhagem, 116 tris, arestas_t=0)."""
+    verts: list[tuple[float, float, float]] = []
+    norms: list[tuple[float, float, float]] = []
+    uvs: list[tuple[float, float]] = []
+    inds: list[int] = []
+
+    _anexar_casca_revolucao_uv_zona(
+        verts,
+        norms,
+        uvs,
+        inds,
+        aneis=[(0.005, 0.22, 0.22), (0.275, 0.22, 0.22)],
+        segmentos=12,
+        u_centro=0.25,
+        u_raio=0.15,
+        y_polo_inf=0.0,
+        y_polo_sup=0.28,
+    )
+
+    # 6 planos curvados abertos (2x3 subdivisoes = 6 quads = 12 tris cada -> 72 tris + 44 tris vaso = 116 tris)
+    for i in range(6):
+        ang = (i * math.pi) / 3.0
+        ca, sa = math.cos(ang), math.sin(ang)
+        base_idx = len(verts)
+        for iy in range(4):
+            fy = iy / 3.0
+            for ix in range(3):
+                fx = (ix / 2.0) - 0.5
+                lx = fx * 0.42
+                ly = (fy - 0.5) * 0.42
+                # Rotacao inclinada para fora
+                rx = lx * (-sa) + ly * 0.40 * ca + 0.12 * ca
+                ry = 0.52 + ly * 0.91
+                rz = lx * ca + ly * 0.40 * sa + 0.12 * sa
+                verts.append((rx, ry, rz))
+                norms.append((ca * 0.9, 0.43, sa * 0.9))
+                uvs.append((0.55 + 0.35 * (fx + 0.5), 0.10 + 0.80 * fy))
+        for iy in range(3):
+            for ix in range(2):
+                i00 = base_idx + iy * 3 + ix
+                i01 = i00 + 1
+                i10 = i00 + 3
+                i11 = i10 + 1
+                inds.extend([i00, i10, i11])
+                inds.extend([i00, i11, i01])
+
+    caminho_glb.parent.mkdir(parents=True, exist_ok=True)
+    caminho_glb.write_bytes(
+        _empacotar_glb_primitiva_unica(
+            verts,
+            norms,
+            uvs,
+            inds,
+            nome_no="arcane_fern_cards",
+            nome_mat="fern_mat",
+        )
+    )
+    return caminho_glb
+
+
+def construir_runeblade_kitbash_glb(caminho_glb: Path) -> Path:
+    """Gera ``runeblade_kitbash.glb`` (4 pecas manifold empilhadas com UV por zona, 328 tris)."""
+    verts: list[tuple[float, float, float]] = []
+    norms: list[tuple[float, float, float]] = []
+    uvs: list[tuple[float, float]] = []
+    inds: list[int] = []
+
+    # 1. Pomo (u ~ 0.18 in [0.0, 0.35])
+    _anexar_casca_revolucao_uv_zona(
+        verts,
+        norms,
+        uvs,
+        inds,
+        aneis=[(0.002, 0.045, 0.045), (0.04, 0.080, 0.075), (0.09, 0.080, 0.075), (0.128, 0.045, 0.045)],
+        segmentos=8,
+        u_centro=0.18,
+        u_raio=0.08,
+        y_polo_inf=0.0,
+        y_polo_sup=0.130,
+    )
+    # 2. Empunhadura cilindrica (u ~ 0.18 in [0.0, 0.35])
+    _anexar_casca_revolucao_uv_zona(
+        verts,
+        norms,
+        uvs,
+        inds,
+        aneis=[
+            (0.134, 0.052, 0.048),
+            (0.214, 0.046, 0.044),
+            (0.314, 0.048, 0.045),
+            (0.414, 0.046, 0.044),
+            (0.494, 0.052, 0.048),
+        ],
+        segmentos=12,
+        u_centro=0.18,
+        u_raio=0.08,
+        y_polo_inf=0.132,
+        y_polo_sup=0.496,
+    )
+    # 3. Guarda cruzada (u ~ 0.50 in [0.35, 0.65])
+    _anexar_casca_revolucao_uv_zona(
+        verts,
+        norms,
+        uvs,
+        inds,
+        aneis=[(0.500, 0.14, 0.065), (0.530, 0.22, 0.075), (0.590, 0.22, 0.075), (0.620, 0.14, 0.065)],
+        segmentos=8,
+        u_centro=0.50,
+        u_raio=0.08,
+        y_polo_inf=0.498,
+        y_polo_sup=0.622,
+    )
+    # 4. Lamina de aco forjado (u ~ 0.82 in [0.65, 1.00])
+    _anexar_casca_revolucao_uv_zona(
+        verts,
+        norms,
+        uvs,
+        inds,
+        aneis=[
+            (0.626, 0.115, 0.048),
+            (0.846, 0.110, 0.045),
+            (1.106, 0.095, 0.040),
+            (1.286, 0.065, 0.032),
+            (1.386, 0.025, 0.018),
+        ],
+        segmentos=8,
+        u_centro=0.82,
+        u_raio=0.08,
+        y_polo_inf=0.624,
+        y_polo_sup=1.390,
+    )
+
+    caminho_glb.parent.mkdir(parents=True, exist_ok=True)
+    caminho_glb.write_bytes(
+        _empacotar_glb_primitiva_unica(
+            verts,
+            norms,
+            uvs,
+            inds,
+            nome_no="kitbash_assembled",
+            nome_mat="kitbash_pbr",
+            cor_rgba=(0.64, 0.67, 0.72, 1.0),
+            metallic=0.55,
+            roughness=0.42,
+        )
+    )
+    return caminho_glb
+
+
+def garantir_fixture_kitbash_showcase(caminho: Path, *, forcar: bool = False) -> Path:
+    """Materializa sob demanda os GLBs de fixture do showcase AA em ``saida/kitbash/``."""
+    arq = Path(caminho).expanduser()
+    if arq.is_file() and not forcar:
+        return arq
+    nome = arq.name.lower()
+    if nome == "runestone_obelisk.glb":
+        return construir_obelisk_aa_manifold_glb(arq)
+    if nome == "arcane_fern_cards.glb":
+        return construir_fern_cards_glb(arq)
+    if nome == "runeblade_kitbash.glb":
+        return construir_runeblade_kitbash_glb(arq)
+    return arq
+

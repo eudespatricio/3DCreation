@@ -9,7 +9,7 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from forge3d import post, profiles, publish, spec
+from forge3d import post, profiles, publish, qc, spec
 from forge3d.errors import ForgeError
 from forge3d.providers import mesh
 
@@ -397,6 +397,18 @@ def test_blender_modular_armor_gera_peitoral_skinned_e_elmo_socket(tmp_path):
     assert rel_e["ok"] is True
     assert rel_e["skinned"] is False
     assert rel_e["osso"] == "Head"
+
+    # 3. Regressao V4: nenhum nome de ativo MakeHuman vaza em materials ou images do GLB
+    for glb_cand in (dir_peitoral / "template_armor.glb", dir_elmo / "template_armor.glb"):
+        g_cand = qc.ler_glb(glb_cand)
+        for mat_c in g_cand.get("materials", []):
+            nm_m = str(mat_c.get("name") or "").lower()
+            assert not nm_m.startswith("human."), f"V4: nome de material vazou: {nm_m}"
+            assert "casualsuit" not in nm_m and "fedora" not in nm_m, f"V4: origem vazou: {nm_m}"
+            assert mat_c.get("alphaMode") != "BLEND", f"V4: alphaMode BLEND indevido em {nm_m}"
+        for img_c in g_cand.get("images", []):
+            nm_i = str(img_c.get("name") or "").lower()
+            assert "casualsuit" not in nm_i, f"V4: imagem interna vazou: {nm_i}"
 
 
 def _tem_mpfb2_clothes() -> bool:

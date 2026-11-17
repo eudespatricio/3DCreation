@@ -47,6 +47,23 @@ _SKINNED_MODULAR_PADRAO: dict[str, bool] = {
     "ombreiras": True,
 }
 
+_PRIM_MODULAR_ARMOR: dict[str, int] = {
+    "luvas": 1,
+    "corpo": 1,
+    "peitoral": 2,
+    "elmo": 2,
+    "ombreiras": 2,
+    "calcas": 2,
+    "calças": 2,
+    "botas": 2,
+    "capa": 2,
+    "escudo": 3,
+    "mochila": 3,
+    "orbe": 3,
+    "sela": 3,
+    "arma": 4,
+}
+
 _EXTS_3D = {".glb", ".gltf", ".obj"}
 
 
@@ -282,9 +299,11 @@ def _inspecionar_gltf(gltf: dict[str, Any], bin_data: bytes = b"", base_dir: Pat
                 if dims:
                     px = max(dims)
         imagens_px.append(px)
+    primitivas = max(1, sum(len(m.get("primitives") or []) for m in meshes))
     return {
         "tris": _contar_tris_gltf_json(gltf),
         "materiais": len(gltf.get("materials") or []),
+        "primitivas": primitivas,
         "skinned": len(gltf.get("skins") or []) > 0,
         "tem_uv": tem_uv,
         "tem_cor_vertice": tem_cor,
@@ -334,6 +353,7 @@ def _inspecionar_arquivo_3d(caminho: Path) -> dict[str, Any] | None:
             return {
                 "tris": tris,
                 "materiais": max(1, len(mats)),
+                "primitivas": max(1, len(mats)),
                 "skinned": False,
                 "tem_uv": tem_uv,
                 "tem_cor_vertice": False,
@@ -424,6 +444,8 @@ def _estimar_item_calibrado(item: dict, spec_doc: dict, perfil: dict) -> dict:
     tris_est: int
     fonte: str
     texturas: list[dict]
+    primitivas = 1
+    mat_max_perfil = int((perfil.get("validacao") or {}).get("materiais_max") or 8)
 
     if rota == "blocky":
         altura = float(item.get("altura_metros") or 1.0)
@@ -469,14 +491,18 @@ def _estimar_item_calibrado(item: dict, spec_doc: dict, perfil: dict) -> dict:
         )
         if deve_bake:
             texturas = _texturas_bake_pbr(iid, item, perfil, qualidade)
-        elif info and info["imagens_px"]:
-            texturas = [
-                {"id": f"{iid}:emb:{idx}", "px": px_img, "canais": 4}
-                for idx, px_img in enumerate(info["imagens_px"])
-            ]
+            primitivas = 1
         else:
-            px_fb = min(_tex_max_perfil(perfil, qualidade) or 1024, 1024)
-            texturas = [{"id": f"{iid}:emb:0", "px": px_fb, "canais": 4}]
+            if info and info.get("primitivas"):
+                primitivas = max(1, min(mat_max_perfil, int(info["primitivas"])))
+            if info and info["imagens_px"]:
+                texturas = [
+                    {"id": f"{iid}:emb:{idx}", "px": px_img, "canais": 4}
+                    for idx, px_img in enumerate(info["imagens_px"])
+                ]
+            else:
+                px_fb = min(_tex_max_perfil(perfil, qualidade) or 1024, 1024)
+                texturas = [{"id": f"{iid}:emb:0", "px": px_fb, "canais": 4}]
 
     else:
         raw_origem = str(item.get("origem") or "").strip()
@@ -504,7 +530,9 @@ def _estimar_item_calibrado(item: dict, spec_doc: dict, perfil: dict) -> dict:
                 skinned = _SKINNED_MODULAR_PADRAO.get(parte, False)
             if bool(item.get("material_procedural")) or bool(item.get("pbr_zonas")) or detalhe_alto:
                 texturas = _texturas_bake_pbr(iid, item, perfil, qualidade)
+                primitivas = 1
             else:
+                primitivas = max(1, min(mat_max_perfil, _PRIM_MODULAR_ARMOR.get(parte, 2)))
                 texturas = [
                     {"id": f"{iid}:emb:0", "px": 1024, "canais": 4},
                     {"id": f"{iid}:emb:1", "px": 1024, "canais": 4},
@@ -527,7 +555,9 @@ def _estimar_item_calibrado(item: dict, spec_doc: dict, perfil: dict) -> dict:
             mat_proc = str(item.get("material_procedural") or "").strip()
             if (mat_proc and mat_proc != "pele_humana") or bool(item.get("pbr_zonas")) or detalhe_alto:
                 texturas = _texturas_bake_pbr(iid, item, perfil, qualidade)
+                primitivas = 1
             else:
+                primitivas = max(1, min(mat_max_perfil, 8 if qualidade in ("hero", "ultra") else 6))
                 tex_perfil_base = int((perfil.get("material") or {}).get("textura_max") or 1024)
                 tex_cap = max(256, min(tex_perfil_base, 2048))
                 texturas = [
@@ -559,6 +589,7 @@ def _estimar_item_calibrado(item: dict, spec_doc: dict, perfil: dict) -> dict:
     return {
         "id": iid,
         "tris": tris_est,
+        "primitivas": primitivas,
         "quantidade_cena": qtd,
         "mesh_key": str(item.get("mesh_key") or iid),
         "material_key": f"pbr:{iid}" if eh_pbr else "palette_padrao",
@@ -567,8 +598,9 @@ def _estimar_item_calibrado(item: dict, spec_doc: dict, perfil: dict) -> dict:
         "_meta": {
             "rota": rota,
             "fonte": fonte,
+            "primitivas": primitivas,
             "skinned": skinned,
-            "draw_calls": (qtd if skinned else (1 if qtd > 0 else 0)),
+            "draw_calls": (qtd * primitivas if skinned else (primitivas if qtd > 0 else 0)),
             "vram_mb": vram_item,
         },
     }

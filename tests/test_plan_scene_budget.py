@@ -22,8 +22,10 @@ def _glb_com_tris(
     skinned: bool = False,
     imagens_px: list[int] | None = None,
     tem_uv: bool = True,
+    primitivas: int = 1,
 ) -> bytes:
     """Gera um GLB minimo valido com ``n_tris`` triangulos nos accessors e imagens opcionais."""
+    n_prims = max(1, int(primitivas))
     n_verts = max(3, n_tris * 3)
     buf = bytearray()
     bvs: list[dict] = []
@@ -48,6 +50,14 @@ def _glb_com_tris(
         accs.append({"bufferView": bv_uv, "componentType": 5126, "count": n_verts, "type": "VEC2"})
         attrs["TEXCOORD_0"] = 2
 
+    prims_list: list[dict] = [{"attributes": attrs, "indices": 1, "material": 0}]
+    if n_prims > 1:
+        bv_zero = _push(b"\x00" * 6)
+        acc_zero = len(accs)
+        accs.append({"bufferView": bv_zero, "componentType": 5123, "count": 0, "type": "SCALAR"})
+        for p_idx in range(1, n_prims):
+            prims_list.append({"attributes": attrs, "indices": acc_zero, "material": p_idx})
+
     images: list[dict] = []
     for px in imagens_px or []:
         bio = BytesIO()
@@ -63,8 +73,8 @@ def _glb_com_tris(
         "buffers": [{"byteLength": len(buf)}],
         "bufferViews": bvs,
         "accessors": accs,
-        "materials": [{"name": "mat_0"}],
-        "meshes": [{"primitives": [{"attributes": attrs, "indices": 1, "material": 0}]}],
+        "materials": [{"name": f"mat_{i}"} for i in range(n_prims)],
+        "meshes": [{"primitives": prims_list}],
     }
     if images:
         gltf["images"] = images
@@ -166,7 +176,9 @@ def test_estimador_por_rota_import_obj_gltf_modular_e_mesh(tmp_path):
         encoding="utf-8",
     )
     glb_sem_pbr = tmp_path / "raw.glb"
-    glb_sem_pbr.write_bytes(_glb_com_tris(240, skinned=True, imagens_px=[512], tem_uv=True))
+    glb_sem_pbr.write_bytes(
+        _glb_com_tris(240, skinned=True, imagens_px=[512], tem_uv=True, primitivas=3)
+    )
 
     gltf_path = tmp_path / "mesa.gltf"
     gltf_path.write_text(
@@ -247,10 +259,11 @@ def test_estimador_por_rota_import_obj_gltf_modular_e_mesh(tmp_path):
     assert por_id["imp.obj.01"]["tris_unit"] == 2
     assert por_id["imp.obj.01"]["fonte"] == "obj_header"
 
-    # GLB com skin e 1 imagem 512px sem bake PBR -> 240 tris, skinned -> 2 draw calls
+    # GLB com skin, 3 primitivas e 1 imagem 512px sem bake PBR -> 240 tris, skinned -> 2 * 3 = 6 draw calls
     assert por_id["imp.glb.01"]["tris_unit"] == 240
+    assert por_id["imp.glb.01"]["primitivas"] == 3
     assert por_id["imp.glb.01"]["skinned"] is True
-    assert por_id["imp.glb.01"]["draw_calls"] == 2
+    assert por_id["imp.glb.01"]["draw_calls"] == 6
     assert por_id["imp.glb.01"]["vram_mb"] == 0.33
 
     # GLTF com indices=180 -> 60 tris
@@ -371,8 +384,10 @@ def test_regressao_calibracao_tres_lotes_erro_abaixo_50_pct(tmp_path):
         }
     )
     est_godot = plan.estimar_orcamento_cena(godot_spec, godot_perfil)["estimativa"]
+    assert est_godot["draw_calls_estimados"] == 24
     assert _err_pct(est_godot["triangulos_cena"], 45108) < 50.0
-    assert _err_pct(est_godot["draw_calls_estimados"], 7) < 50.0
+    assert _err_pct(est_godot["draw_calls_estimados"], 24) < 50.0
+    assert _err_pct(est_godot["draw_calls_estimados"], 26) < 50.0
     assert _err_pct(est_godot["vram_texturas_mb"], 53.0) < 50.0
 
     # 3. v09_aa_roblox (medido: 6000 tris, 14 dc, 34.68 MB)

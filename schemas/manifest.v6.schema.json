@@ -445,7 +445,8 @@
               "colisor",
               "lod",
               "animacao",
-              "manifesto"
+              "manifesto",
+              "concept"
             ]
           },
           "sha256": {

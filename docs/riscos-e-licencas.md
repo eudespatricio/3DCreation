@@ -19,7 +19,7 @@
 | **TRELLIS v1** | MIT | ≥16 GB `[oficial]` | boa | não | **inviável** |
 | **InstantMesh** | Apache-2.0 | ~15 GiB numa alocação `[terceiro]` | zero123++ | não | **inviável** |
 | **CraftsMan3D** | MIT | ~12–16 GB `[estimado]` | topologia regular | não | inviável |
-| **Pixal3D** | **acadêmica / não comercial, proibida na UE** `[terceiro]` | ≥16 GB | fine-tune do TRELLIS.2 | sim | **inviável por VRAM e licença** |
+| **Pixal3D** | **MIT** `[oficial — LICENSE do repo verificada em 18/11/2026]` | ≥24 GB `[oficial]` | fine-tune do TRELLIS.2 com multi-view | sim | **entra** via endpoint/Colab (D112); `--low_vram` sem piso garantido em 6 GB |
 | **SAM 3D Objects** | SAM License, gated | ≥32 GB `[oficial]` | objeto único | não | inviável |
 
 ### Correção de expectativa (comum em blog de 2024–2025)
@@ -52,13 +52,13 @@ SF3D/TRELLIS se um dia forem necessários (é o dissenso X2).
 | Modelo | Restrição | Impacto |
 |---|---|---|
 | **Hunyuan3D-2.x** | a licença Tencent **não se aplica na UE, Reino Unido e Coreia do Sul**; proíbe uso fora do "Territory"; exige licença acima de 1 M MAU | jogo vendido na Steam (UE) fica em zona de risco — **fora da allowlist** |
-| **Pixal3D** | explicitamente acadêmica, **não comercial**, proibida na UE | fora da allowlist |
 | **SAM 3D Objects** | gated, uso comercial restrito `[não verificado em detalhe]` | fora da allowlist |
 | **SF3D / SPAR3D** | Stability Community License: comercial **até US$ 1 M** de receita anual, com **registro** e "Powered by Stability AI"; acima disso a licença **termina** | permitido **com obrigações** — `NOTICE` no manifesto (G8) |
 
 ## 4. Licenças sem fricção
 
-`MIT`: **TripoSR**, **TRELLIS/TRELLIS.2**, **CraftsMan3D**.
+`MIT`: **TripoSR**, **TRELLIS/TRELLIS.2**, **CraftsMan3D**, **Pixal3D** (verificado em
+18/11/2026, D112).
 `Apache-2.0`: **InstantMesh**, **Z-Image-Turbo**, **FLUX.1-schnell**.
 
 **Nuance que quase sempre se perde:** quase toda licença isenta os *outputs* ("claims no rights in

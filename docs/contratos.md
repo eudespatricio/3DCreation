@@ -66,6 +66,7 @@ nunca aparece em manifesto publicado (I14).
 | `material_procedural` | string | não | `@5`: `pele_humana` \| `escamas_dragao` \| `aco_forjado` \| `ouro_ornamentado` \| `couro_gasto` \| `cristal_arcano` \| `pedra_musgo` \| `tecido_nobre` \| `madeira_ancestral` \| `energia_espectral` |
 | `suavizacao_normais` | objeto | não | `@5`: `{modo, angulo_graus, weighted_normals, corrective_smooth, soldar_componentes_organicos}` |
 | `provider_conceito` | string | não | `@5`: `auto` \| `sd15` \| `gemini` \| `higgsfield` |
+| `referencia_estilo` | string | não | `@6` (D113, 18/11/2026): PNG/JPG de referência de estilo para o concept via Gemini; exige rota `mesh` e provider `gemini`/`auto` (B23) |
 | `colisao` | string | não | `none` \| `box` \| `convex` \| `ucx`; default do perfil por `tipo` |
 | `lod` | integer[] | não | percentuais **decrescentes**, começando em `100`; default `[100]` |
 | `seed` | integer | cond. | **obrigatório** em `rota: mesh`; opcional nas demais |

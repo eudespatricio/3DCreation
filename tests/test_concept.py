@@ -37,6 +37,7 @@ def test_sd15_e_openpose_estao_na_allowlist_comercial():
 
 def test_concept_preflight_sem_venv_da_razao_acionavel(monkeypatch, tmp_path):
     monkeypatch.setenv("FORGE3D_VENV_CONCEPT", str(tmp_path / "sem-venv"))
+    monkeypatch.setenv("FORGE3D_PROVIDER_CONCEITO", "sd15")
     pronto, razao = ConceptProvider().preflight()
     assert pronto is False
     assert "venv" in razao.lower(), razao
@@ -62,6 +63,82 @@ def test_mesh_sem_origem_checa_concept(monkeypatch):
     pronto, razao = MeshProvider().preflight_item({"prompt": "corpo", "seed": 1})
     assert pronto is False
     assert "P3.5" in razao
+
+
+def test_mesh_gerar_origem_pula_concept_e_sem_origem_chama_concept(monkeypatch, tmp_path):
+    # P0-7 (D82): fluxo concept<->mesh sem GPU — sem origem chama concept; com origem nao chama.
+    from forge3d.providers import mesh as mesh_mod
+
+    chamadas_concept: list[str] = []
+
+    monkeypatch.setattr(
+        mesh_mod.MeshProvider, "preflight_item", lambda self, item: (True, "mesh ok")
+    )
+
+    def _fake_concept_retry(self, item, destino, env):
+        chamadas_concept.append(str(item.get("id")))
+        png = destino / "concept.png"
+        Image.new("RGB", (64, 64), (10, 20, 30)).save(png)
+        return png, {
+            "seed": item.get("seed"),
+            "prompt_final": "x",
+            "modelo": "gemini/gemini-nano-banana-2.1",
+            "versao": "0.2.4",
+            "licenca": {"modelo": "Gemini", "uso_comercial": True, "notice": "x"},
+        }
+
+    monkeypatch.setattr(mesh_mod.MeshProvider, "_gerar_concept_com_retry", _fake_concept_retry)
+    monkeypatch.setattr(
+        mesh_mod.MeshProvider,
+        "_executar_pose_guard",
+        lambda self, item, imagem, destino, env: (imagem, {}),
+    )
+
+    def _fake_run(comando, capture_output=True, text=True, timeout=None, env=None, **_kwargs):
+        saida_dir = Path(comando[comando.index("--saida-dir") + 1])
+        resultado_path = Path(comando[comando.index("--resultado") + 1])
+        (saida_dir / "modelo.glb").write_bytes(b"glb-placeholder")
+        resultado_path.write_text(
+            json.dumps({"ok": True, "faces": 100, "mc_resolution": 256}), encoding="utf-8"
+        )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(mesh_mod.subprocess, "run", _fake_run)
+
+    perfil = {"perfil": "godot4", "validacao": {}}
+    prov = mesh_mod.MeshProvider()
+
+    # sem origem -> chama concept
+    item_sem = {
+        "id": "mob.sem.origem",
+        "tipo": "criatura",
+        "prompt": "dragon",
+        "seed": 5,
+        "altura_metros": 2.0,
+        "pivot": "base",
+        "limite_triangulos": 5000,
+        "material": "opaque",
+        "colisao": "none",
+    }
+    prov.gerar(item_sem, perfil, tmp_path / "sem_origem")
+    assert chamadas_concept == ["mob.sem.origem"]
+
+    # com origem -> nao chama concept
+    origem_png = tmp_path / "entrada.png"
+    Image.new("RGB", (64, 64), (1, 2, 3)).save(origem_png)
+    item_com = {
+        "id": "mob.com.origem",
+        "tipo": "criatura",
+        "origem": str(origem_png),
+        "altura_metros": 2.0,
+        "pivot": "base",
+        "limite_triangulos": 5000,
+        "material": "opaque",
+        "colisao": "none",
+    }
+    chamadas_concept.clear()
+    prov.gerar(item_com, perfil, tmp_path / "com_origem")
+    assert chamadas_concept == []
 
 
 def test_manifesto_grava_providers_texture_e_licenca_combinada():
@@ -157,6 +234,70 @@ def test_manifesto_sem_concept_nao_cria_provider_texture():
     )
     assert "texture" not in manifesto["providers"]
     assert "Concept:" not in manifesto["licenca"]["notice"]
+
+
+def test_manifesto_inclui_sidecar_concept_e_schema_aceita_papel_concept():
+    # D-06: o sidecar concept.json entra em files com papel "concept" e o schema@6 o aceita.
+    schema_v6 = json.loads(
+        (RAIZ / "schemas" / "manifest.v6.schema.json").read_text(encoding="utf-8")
+    )
+    papel_enum = schema_v6["properties"]["files"]["items"]["properties"]["papel"]["enum"]
+    assert "concept" in papel_enum
+
+    resultado = {
+        "arquivos": [
+            {
+                "caminho": "a.glb",
+                "papel": "mesh",
+                "nivel": 0,
+                "triangulos": 1,
+                "sha256": "sha256:" + "0" * 64,
+                "bytes": 10,
+            },
+            {
+                "caminho": "a_concept.json",
+                "papel": "concept",
+                "sha256": "sha256:" + "1" * 64,
+                "bytes": 200,
+            },
+        ],
+        "concept": {
+            "modelo": "gemini/gemini-nano-banana-2.1",
+            "versao": "0.2.4",
+            "revisao": "abcdef123456",
+            "seed": 7,
+            "prompt_final": "armored paladin, game asset concept art",
+            "negativo": "blurry, text",
+            "licenca": {"modelo": "Gemini", "uso_comercial": True, "notice": "Gemini."},
+        },
+    }
+    relatorio = {
+        "aprovado": True,
+        "gates": [{"id": "G1", "status": "ok"}],
+        "medidas": {
+            "triangulos": 1,
+            "vertices": 1,
+            "bbox_m": [0.1, 0.1, 0.1],
+            "materiais": 1,
+            "ossos": 0,
+            "partes_colisao": 0,
+        },
+    }
+    manifesto = publish.montar_manifesto(
+        item={"id": "a.b", "rota": "mesh", "seed": 7},
+        spec_doc={"projeto": "demo", "perfil": "godot4", "_arquivo": "lote.yaml"},
+        spec_hash="sha256:" + "0" * 64,
+        perfil_nome="godot4",
+        provider={"nome": "mesh", "versao": "x", "determinism": "D2"},
+        resultado=resultado,
+        relatorio_qc=relatorio,
+        licenca={"modelo": "TripoSR", "uso_comercial": True, "notice": "TripoSR (MIT)."},
+        run_id="run-teste",
+    )
+    papeis = {f["papel"] for f in manifesto["files"]}
+    assert "concept" in papeis
+    conceito_file = next(f for f in manifesto["files"] if f["papel"] == "concept")
+    assert conceito_file["caminho"] == "a_concept.json"
 
 
 def test_combinar_prompt_respeita_limite_clip_e_preserva_prompt_intacto():
@@ -269,6 +410,7 @@ def test_resolver_pose_e_montar_comando_controlnet(monkeypatch, tmp_path):
 def test_preflight_explicito_sem_pesos_controlnet_falha(monkeypatch, tmp_path):
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     monkeypatch.setenv("FORGE3D_CONCEPT_POSE", "tpose")
+    monkeypatch.setenv("FORGE3D_PROVIDER_CONCEITO", "sd15")
     monkeypatch.setattr(concept, "_diagnostico", lambda: {"ok": True, "diffusers": "0.31.0"})
     monkeypatch.setattr(concept, "_vram_livre_mb", lambda: 6000)
     (tmp_path / "hf" / "hub" / "models--stable-diffusion-v1-5--stable-diffusion-v1-5").mkdir(
@@ -310,7 +452,7 @@ def test_concept_gerar_gera_pose_png_e_grava_meta_com_mock(monkeypatch, tmp_path
     monkeypatch.setattr(concept.subprocess, "run", fake_run)
     destino = tmp_path / "stage"
     res = ConceptProvider().gerar(
-        {"id": "char.01", "tipo": "personagem_humanoide", "prompt": "sentinel robot", "seed": 11},
+        {"id": "char.01", "tipo": "personagem_humanoide", "prompt": "sentinel robot", "seed": 11, "provider_conceito": "sd15"},
         destino,
     )
     assert res["png"].is_file()
@@ -320,6 +462,57 @@ def test_concept_gerar_gera_pose_png_e_grava_meta_com_mock(monkeypatch, tmp_path
     assert res["meta"]["controlnet"] == CONTROLNET_MODELO_PADRAO
     assert "extra arms" in res["meta"]["negativo"]
     assert "OpenPose" in res["meta"]["licenca"]["notice"]
+
+
+def test_normalizar_png_real_converte_jpeg_renomeado_e_devolve_dimensoes(tmp_path):
+    # D-05: o conector cloud pode gravar bytes JPEG num arquivo chamado concept.png.
+    png_falso = tmp_path / "concept.png"
+    Image.new("RGB", (848, 1264), (30, 60, 90)).save(png_falso, format="JPEG")
+    assert png_falso.read_bytes()[:3] == b"\xff\xd8\xff"  # JFIF, nao PNG
+
+    largura_real, altura_real, digesto = concept._normalizar_png_real(png_falso)
+    assert (largura_real, altura_real) == (848, 1264)
+    assert png_falso.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"  # agora PNG real
+    assert len(digesto) == 64
+
+
+def test_concept_gerar_cloud_normaliza_jpeg_e_grava_dimensoes_reais(monkeypatch, tmp_path):
+    # D-05: caminho cloud (gemini) grava JPEG -> normaliza para PNG e registra dimensoes reais.
+    monkeypatch.setattr(concept, "preflight", lambda: (True, "pronto"))
+
+    def _fake_gemini(prompt_final, negativo, seed, png, **_kwargs):
+        Image.new("RGB", (320, 640), (10, 20, 30)).save(png, format="JPEG")
+        return {
+            "ok": True,
+            "provider_conceito": "gemini",
+            "modelo": "gemini/gemini-nano-banana-2.1",
+            "revisao": "d" * 12,
+            "seed": seed,
+            "largura": 512,
+            "altura": 512,
+            "fonte_credencial": "env",
+            "tempo_s": 0.1,
+            "licenca": {"modelo": "Gemini", "uso_comercial": True, "notice": "gemini"},
+        }
+
+    monkeypatch.setattr(concept.cloud_ai, "gerar_conceito_gemini", _fake_gemini)
+    res = concept.ConceptProvider().gerar(
+        {
+            "id": "mob.concept.01",
+            "tipo": "criatura",
+            "prompt": "dragon",
+            "seed": 3,
+            "provider_conceito": "gemini",
+        },
+        tmp_path / "stage",
+    )
+    assert res["png"].is_file()
+    assert res["png"].read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert res["meta"]["largura_real"] == 320
+    assert res["meta"]["altura_real"] == 640
+    # revisao passa a refletir o PNG normalizado (nao os bytes JPEG crus)
+    assert res["meta"]["revisao"] != "d" * 12
+    assert len(res["meta"]["revisao"]) == 12
 
 
 def test_concept_infer_controlnet_cpu_mock(monkeypatch, tmp_path):

@@ -78,11 +78,11 @@ prompt ──► concept (text-to-image) ──► image-to-3D ──► remesh/
 | Etapa | 1ª escolha | Alternativa | Motivo |
 |---|---|---|---|
 | concept | `Z-Image-Turbo` Q4 via `sd.cpp` (Apache-2.0) | SD 1.5 (OpenRAIL-M) | roda em 4 GB, 8 passos, sem Python |
-| image→3D | **SF3D** (6 GB, UV + material nativos) | **TripoSR** (MIT, topologia pior) | único que entrega UV nessa faixa |
+| image→3D | **TripoSR** (MIT, bake UV/textura próprio no `bpy`) | TRELLIS.2 (MIT, endpoint/Colab) | leve e local; UV sai do bake próprio |
 | limpeza | remesh + decimate no `bpy` | Instant Meshes via subprocess | controlável e local |
 
-**Não entra:** TRELLIS.2 (16–24 GB), Hunyuan3D-2.1 (10–29 GB e cláusula territorial), InstantMesh
-(~15 GiB), Pixal3D (não-comercial). Ver D18.
+**Não entra:** Hunyuan3D-2.1 (10–29 GB e cláusula territorial), InstantMesh (~15 GiB). Ver D18.
+TRELLIS.2 (MIT) entra via endpoint/Colab (D101) e Pixal3D é MIT (D112), fora do bloqueio do D18.
 
 **Determinismo:** D2. Seed fixa + versões pinadas tornam o resultado *estável na forma*, não idêntico.
 `plan` registra a seed resolvida; manifesto guarda provider, versão e seed.
@@ -97,7 +97,8 @@ vez. Mesh gerada tem topologia irregular e UV que não sobrevive a edição — 
 
 O provider `mesh` **infere TripoSR** na venv única `~/.cache/forge3d/venv-i23d` (Python 3.12.14,
 torch 2.4.1+cu121), chamada por subprocesso com `FORGE3D_VENV_I23D`; o núcleo não importa `torch`.
-A entrada é `origem` (PNG) — o concept text-to-image é GAP-026; `prompt` é proveniência.
+A entrada é `origem` (PNG) ou o concept gerado internamente quando não há `origem` (D35); `prompt`
+é a proveniência do concept.
 
 Fluxo medido com o bule:
 

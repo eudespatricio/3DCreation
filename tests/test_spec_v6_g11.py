@@ -140,10 +140,10 @@ def _cubo_fechado_glb(altura: float = 1.0) -> bytes:
     return _glb_minimo(verts, tris)
 
 
-def test_versao_0_9_0_e_consistente():
-    assert forge3d.__version__ == "0.9.1"
+def test_versao_0_9_3_e_consistente():
+    assert forge3d.__version__ == "0.9.3"
     pyproject = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.9.1"' in pyproject
+    assert 'version = "0.9.3"' in pyproject
 
 
 def test_perfis_aa_e_56_ossos_exatos():
@@ -195,7 +195,7 @@ def test_limite_tri_qualidade_e_orcamento_cena_perfil():
 
 
 def test_spec_v6_aceita_campos_novos_e_entra_no_cache():
-    for campo in ("detalhe_alto", "pbr_zonas", "render_fidelity_roblox", "alpha_cards", "smart_fit"):
+    for campo in ("detalhe_alto", "pbr_zonas", "render_fidelity_roblox", "alpha_cards", "smart_fit", "referencia_estilo"):
         assert campo in spec.CAMPOS_CANONICOS_ITEM
 
     doc_base = {
@@ -249,6 +249,100 @@ def test_spec_v6_aceita_campos_novos_e_entra_no_cache():
 
     with pytest.raises(ForgeError):
         spec.preparar({**doc_base, "orcamento_cena": {"triangulos_max": 100}})
+
+
+def test_spec_v6_b23_referencia_estilo(tmp_path):
+    ref_png = tmp_path / "style_sheet.png"
+    ref_png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+
+    def _doc(provider: str, ref: str) -> dict:
+        return {
+            "schema": "forge3d/spec@6",
+            "projeto": "teste_ref_estilo",
+            "perfil": "godot4-aa",
+            "destino_exportacao": "~/.local/state/forge3d/saida/spec6",
+            "lote": [
+                {
+                    "id": "espada.ref.01",
+                    "tipo": "prop_estatico",
+                    "rota": "mesh",
+                    "prompt": "espada de cristal arcano",
+                    "altura_metros": 0.9,
+                    "seed": 7,
+                    "provider_conceito": provider,
+                    "referencia_estilo": ref,
+                }
+            ],
+        }
+
+    prep, _perfil, _avisos = spec.preparar(_doc("gemini", str(ref_png)))
+    assert prep["lote"][0]["referencia_estilo"] == str(ref_png)
+    assert "referencia_estilo_hash" in spec.resolver_item(prep["lote"][0])
+
+    # B23: provider sd15/higgsfield nao suporta referencia de estilo
+    for provider_ruim in ("sd15", "higgsfield"):
+        with pytest.raises(ForgeError) as exc:
+            spec.preparar(_doc(provider_ruim, str(ref_png)))
+        assert any(e.get("regra") == "B23" for e in exc.value.detalhes["erros"])
+
+    # B23: arquivo inexistente
+    with pytest.raises(ForgeError) as exc2:
+        spec.preparar(_doc("gemini", str(tmp_path / "nao_existe.png")))
+    assert any(e.get("regra") == "B23" for e in exc2.value.detalhes["erros"])
+
+    # B23: rota fora de mesh
+    doc_blocky = _doc("gemini", str(ref_png))
+    doc_blocky["lote"][0]["rota"] = "blocky"
+    with pytest.raises(ForgeError) as exc3:
+        spec.preparar(doc_blocky)
+    assert any(e.get("regra") == "B23" for e in exc3.value.detalhes["erros"])
+
+    # B23 (D-01): origem + referencia_estilo sao mutuamente exclusivos
+    # (origem e input do i23d; referencia ancora o concept, que nao roda com origem)
+    origem_png = tmp_path / "entrada.png"
+    origem_png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+    doc_origem = _doc("gemini", str(ref_png))
+    doc_origem["lote"][0]["origem"] = str(origem_png)
+    with pytest.raises(ForgeError) as exc4:
+        spec.preparar(doc_origem)
+    assert any(e.get("regra") == "B23" for e in exc4.value.detalhes["erros"])
+
+
+def test_spec_v6_b24_esqueleto_x_tipo_incompativel():
+    def _doc(tipo: str, esqueleto: str) -> dict:
+        return {
+            "schema": "forge3d/spec@6",
+            "projeto": "teste_b24",
+            "perfil": "godot4-aa",
+            "destino_exportacao": "~/.local/state/forge3d/saida/b24",
+            "lote": [
+                {
+                    "id": "criatura.b24.01",
+                    "tipo": tipo,
+                    "rota": "mesh",
+                    "prompt": "criatura de teste",
+                    "altura_metros": 1.5,
+                    "seed": 7,
+                    "auto_rig": True,
+                    "esqueleto": esqueleto,
+                }
+            ],
+        }
+
+    # humanoide em criatura alada/quadrupede/montaria -> B24
+    for tipo_ruim in ("criatura_alada", "criatura_quadrupede", "montaria"):
+        with pytest.raises(ForgeError) as exc:
+            spec.preparar(_doc(tipo_ruim, "godot-humanoid@1"))
+        assert any(e.get("regra") == "B24" for e in exc.value.detalhes["erros"])
+
+    # criatura em personagem_humanoide -> B24
+    with pytest.raises(ForgeError) as exc2:
+        spec.preparar(_doc("personagem_humanoide", "quadruped@1"))
+    assert any(e.get("regra") == "B24" for e in exc2.value.detalhes["erros"])
+
+    # D-02: "criatura" generico + esqueleto humanoide explicito e valido (mob bipede)
+    prep, _perfil, _avisos = spec.preparar(_doc("criatura", "godot-humanoid-aa@1"))
+    assert prep["lote"][0]["esqueleto"] == "godot-humanoid-aa@1"
 
 
 def test_topologia_e_g1_alpha_cards_vs_t_edges_e_colisao(tmp_path):

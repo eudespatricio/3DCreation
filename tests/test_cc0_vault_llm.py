@@ -66,7 +66,8 @@ def test_validar_licenca_cc0_allowlist_e_bloqueio_i7_d18():
             assert res["ok"] is True
             assert res["uso_comercial"] is True
 
-    # Rejeicao estrita de NC, BY-NC, GPL, unknown, hunyuan e pixal3d
+    # Rejeicao estrita de NC, BY-NC, GPL e unknown; hunyuan continua bloqueado;
+    # pixal3d saiu do bloqueio em 18/11/2026 (D112: LICENSE oficial MIT)
     casos_proibidos = [
         ("CC-BY-NC-4.0", "polyhaven", ""),
         ("BY-NC", "ambientcg", ""),
@@ -76,7 +77,6 @@ def test_validar_licenca_cc0_allowlist_e_bloqueio_i7_d18():
         ("unknown", "local_cc0", ""),
         ("CC0-1.0", "hunyuan", ""),
         ("CC0-1.0", "local_cc0", "hunyuan3d-2"),
-        ("MIT", "local_cc0", "pixal3d-v1"),
         ("CC0-1.0", "sketchfab_random", ""),
         ("", "local_cc0", ""),
     ]
@@ -84,6 +84,11 @@ def test_validar_licenca_cc0_allowlist_e_bloqueio_i7_d18():
         with pytest.raises(ForgeError) as exc_info:
             validar_licenca_cc0(lic, origem=orig, modelo=mod)
         assert exc_info.value.codigo == "FORGE-E-LICENCA"
+
+    # D112: Pixal3D e MIT desde 18/11/2026 (LICENSE verificada) e sai do bloqueio.
+    res_pixal3d = validar_licenca_cc0("MIT", origem="local_cc0", modelo="pixal3d-v1")
+    assert res_pixal3d["ok"] is True
+    assert res_pixal3d["uso_comercial"] is True
 
 
 def test_vault_sqlite_crud_sha256_tamper_e_busca_semantica(tmp_path):

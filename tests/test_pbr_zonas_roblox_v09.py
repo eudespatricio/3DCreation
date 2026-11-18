@@ -81,8 +81,8 @@ def _construir_glb_com_textura_embutida() -> bytes:
     )
 
 
-def test_post_versao_090_preflight_i9_e_forward_v6(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert post.PIPELINE_VERSION == "0.9.1"
+def test_post_versao_093_preflight_i9_e_forward_v6(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert post.PIPELINE_VERSION == "0.9.3"
     assert post.VERSAO_MIN == (4, 2)
     assert post.VERSAO_MAX == (4, 3)
 

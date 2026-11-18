@@ -1455,6 +1455,16 @@ def _g2_orientacao(
                     except (TypeError, ValueError):
                         _marcar("socket_invalido")
 
+    # D-04: socket pedido que o esqueleto final nao fornece e falha de QC (nunca descarte silencioso).
+    sockets_pedidos = item.get("sockets")
+    if isinstance(sockets_pedidos, (list, tuple)) and sockets_pedidos:
+        nomes_sockets_extraidos = {
+            str(s.get("nome")) for s in entradas_sockets if isinstance(s, dict)
+        }
+        for nome_pedido in sockets_pedidos:
+            if str(nome_pedido) not in nomes_sockets_extraidos:
+                _marcar("socket_ausente")
+
     if (
         frente_perfil == "-Z"
         and item.get("tipo") == "personagem_humanoide"

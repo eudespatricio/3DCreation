@@ -81,9 +81,10 @@ Modelo fora da allowlist comercial não gera asset publicado.
 
 ```bash
 forge3d doctor --json | python3 -c "import json,sys;print(json.load(sys.stdin)['modelos_aptos'])"
-grep -rn "hunyuan\|pixal3d" profiles/ src/ || echo "OK: ausente"
+grep -rn "hunyuan" profiles/ src/ || echo "OK: ausente"
 ```
-Esperado: só modelos com `uso_comercial: true`. Hunyuan3D-2.x e Pixal3D ausentes (D18).
+Esperado: só modelos com `uso_comercial: true`. Hunyuan3D-2.x ausente; Pixal3D é MIT
+(D112, 18/11/2026) e saiu do bloqueio.
 
 ## I8 — Escala e pivô conforme o perfil `[P1]`
 

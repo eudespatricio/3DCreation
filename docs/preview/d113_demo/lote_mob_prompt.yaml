@@ -1,0 +1,27 @@
+schema: forge3d/spec@6
+projeto: demo_mob
+perfil: godot4-aa
+destino_exportacao: /home/eudespatricio/.local/state/forge3d/saida/mob_prompt_v2
+politica:
+  falha: abortar
+  custo_max_min: 15
+  seed_base: 20261119
+lote:
+  - id: criatura.mob.demoniaco.01
+    tipo: criatura
+    rota: mesh
+    prompt: >-
+      massive demonic brute, hunched ogre-like silhouette, rocky basalt-gray armor
+      plates with ochre-brown demonic flesh, glowing amber core embedded in the chest,
+      heavy stone pauldrons with spikes, horned helm-like head with glowing eyes,
+      enormous fists and thick legs, dark fantasy ARPG concept art, front view,
+      full body, neutral dark background
+    altura_metros: 2.2
+    pivot: base
+    limite_triangulos: 16000
+    material: opaque
+    colisao: convex
+    seed: 20261119
+    lod: [100]
+    provider_conceito: gemini
+    tags: [demo, comparativo, mob, prompt]

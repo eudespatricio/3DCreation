@@ -1,0 +1,24 @@
+schema: forge3d/spec@6
+projeto: demo_mob
+perfil: godot4-aa
+destino_exportacao: /home/eudespatricio/.local/state/forge3d/saida/mob_ref_v1
+politica:
+  falha: abortar
+  custo_max_min: 15
+  seed_base: 20261118
+lote:
+  - id: criatura.mob.referencia.01
+    tipo: criatura
+    rota: mesh
+    prompt: >-
+      massive demonic brute, rocky armored body, glowing amber core in chest,
+      heavy stone shoulder plates, front view, game asset concept art
+    origem: /tmp/demo_mob/ref_mob_final.png
+    altura_metros: 2.2
+    pivot: base
+    limite_triangulos: 16000
+    material: opaque
+    colisao: convex
+    seed: 20261118
+    lod: [100]
+    tags: [demo, comparativo, mob]

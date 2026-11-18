@@ -25,7 +25,7 @@ from . import cloud_ai
 
 cloud_ai.registrar_licencas_cloud()
 
-VERSAO = "0.2.3"
+VERSAO = "0.2.4"
 MODELO_PADRAO = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 CONTROLNET_MODELO_PADRAO = "lllyasviel/control_v11p_sd15_openpose"
 LIMITE_TOKENS_CLIP = 77
@@ -262,6 +262,26 @@ def _gerar_pose_png(pose: str, destino_png: Path, largura: int, altura: int) -> 
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
     return modulo.gerar_pose_map(pose, destino_png, largura=largura, altura=altura)
+
+
+def _normalizar_png_real(png: Path) -> tuple[int, int, str]:
+    """Re-codifica a imagem como PNG real e devolve (largura, altura, sha256) reais (D-05).
+
+    O Gemini/Higgsfield pode devolver bytes JPEG mesmo gravando em ``concept.png``; o verify/G3
+    valida integridade PNG e um JPEG renomeado passaria hoje por engano e falharia depois. Pillow
+    e permitido no nucleo (D26); a normalizacao fica fora de ``cloud_ai.py`` (stdlib puro).
+    """
+    from PIL import Image
+    import hashlib
+
+    with Image.open(png) as img:
+        img.load()
+        largura, altura = img.size
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA")
+        img.save(png, format="PNG")
+    digesto = hashlib.sha256(png.read_bytes()).hexdigest()
+    return largura, altura, digesto
 
 
 def _vram_livre_mb() -> int | None:
@@ -553,6 +573,14 @@ class ConceptProvider:
         if not prompt:
             raise erro_provider_run("concept exige 'prompt' no item", id=item.get("id"))
 
+        ref_item = item.get("referencia_estilo")
+        if ref_item and prov_conceito != "gemini":
+            raise erro_provider_run(
+                f"referencia_estilo exige provider 'gemini' (resolvido '{prov_conceito}')",
+                id=item.get("id"),
+                modelo=prov_conceito,
+            )
+
         destino.mkdir(parents=True, exist_ok=True)
         if prov_conceito in ("gemini", "higgsfield"):
             sufixo = os.environ.get("FORGE3D_CONCEPT_SUFIXO", SUFIXO_PADRAO).strip()
@@ -565,6 +593,9 @@ class ConceptProvider:
             png = destino / "concept.png"
             resultado_path = destino / "concept_resultado.json"
             if prov_conceito == "gemini":
+                ref_png: Path | None = None
+                if ref_item:
+                    ref_png = Path(str(ref_item)).expanduser()
                 resultado = cloud_ai.gerar_conceito_gemini(
                     prompt_final,
                     negative_final,
@@ -573,6 +604,7 @@ class ConceptProvider:
                     largura=largura,
                     altura=altura,
                     item_id=item.get("id"),
+                    referencia_png=ref_png,
                 )
             else:
                 resultado = cloud_ai.gerar_conceito_higgsfield(
@@ -589,6 +621,10 @@ class ConceptProvider:
             resultado["prompt_final"] = prompt_final
             resultado["negativo"] = negative_final
             resultado["pose"] = ""
+            largura_real, altura_real, digesto_png = _normalizar_png_real(png)
+            resultado["largura_real"] = largura_real
+            resultado["altura_real"] = altura_real
+            resultado["revisao"] = digesto_png[:12]
             resultado_path.write_text(
                 json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
             )
@@ -670,6 +706,9 @@ class ConceptProvider:
         if info["pose"]:
             resultado["controlnet"] = info["controlnet"]
             resultado["pose_imagem"] = str(info["pose_png"])
+        largura_real, altura_real, _digesto_png = _normalizar_png_real(png)
+        resultado["largura_real"] = largura_real
+        resultado["altura_real"] = altura_real
         resultado_path.write_text(
             json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
         )

@@ -1,0 +1,28 @@
+schema: forge3d/spec@6
+projeto: demo_kaelen_zero
+perfil: godot4-aa
+destino_exportacao: /home/eudespatricio/.local/state/forge3d/saida/kaelen_zero
+politica:
+  falha: abortar
+  custo_max_min: 30
+  seed_base: 20261118
+lote:
+  - id: personagem.kaelen.draconico.v3
+    tipo: personagem_humanoide
+    rota: mesh
+    template_humanoide: true
+    makehuman_cabelo: short01
+    cor_cabelo: "#1C1822"
+    prompt: >-
+      full body front view of an original dragon knight hero in ornate
+      draconic plate armor with emerald accents, T-pose, stylized PBR
+      game character concept art, neutral background
+    altura_metros: 1.84
+    pivot: base
+    limite_triangulos: 16000
+    material: opaque
+    colisao: convex
+    seed: 20261118
+    lod: [100]
+    provider_conceito: gemini
+    tags: [demo, comparativo, kaelen, zero]

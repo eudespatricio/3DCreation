@@ -1,0 +1,23 @@
+{
+ "altura": 512,
+ "fonte_credencial": "arquivo:gemini.key",
+ "largura": 512,
+ "licenca": {
+  "modelo": "Google Gemini / Imagen API",
+  "notice": "Concept art gerado via Google Gemini / Imagen API paga sob Google Cloud / Gemini API Terms of Service (uso comercial permitido ao titular da conta).",
+  "uso_comercial": true
+ },
+ "modelo": "gemini/gemini-nano-banana-2.1",
+ "negativo": "blurry, low quality, cropped, text, watermark, logo, multiple views, busy background, extra limbs, deformed, duplicate, frame, halo, rim light, backlighting, shadow, drop shadow, white border",
+ "ok": true,
+ "pose": "",
+ "prompt_final": "fantasy longsword with golden filigree guard, engraved steel blade, front view, game asset concept art, neutral dark background, isolated object, centered, plain neutral light gray background, soft studio lighting, high detail",
+ "provider_conceito": "gemini",
+ "referencia_estilo": "/home/eudespatricio/.local/state/forge3d/neutral_warden_ref.png",
+ "referencia_estilo_sha256": "637a48d6a6ed24db2a5d8993e6e8a6a84484c0c00d83d8cf6d1d31e54dca0104",
+ "revisao": "f2f9f0a43257",
+ "seed": 424242,
+ "tempo_provider_s": 13.652,
+ "tempo_s": 13.652,
+ "versao": "0.2.4"
+}

@@ -307,6 +307,58 @@ def test_g2_v3_roll_braco_direito_simetrico_e_criatura_frente_menos_z(tmp_path: 
     assert "socket_invalido" in det_sock["motivos"]
 
 
+def test_g2_socket_pedido_ausente_no_esqueleto_final() -> None:
+    # D-04: socket solicitado que o esqueleto final nao fornece vira falha de QC (nunca silencio)
+    gltf_q = {
+        "nodes": [
+            {"name": "Rig", "children": [1]},
+            {"name": "Hips", "translation": [0.0, 1.0, 0.2], "children": [2, 3]},
+            {"name": "Head", "translation": [0.0, 1.3, -0.7]},
+            {"name": "Tail1", "translation": [0.0, 1.0, 0.8]},
+        ],
+        "skins": [{"joints": [1, 2, 3]}],
+        "meshes": [],
+    }
+    info_q = {
+        "min": [-0.4, 0.0, -0.8],
+        "max": [0.4, 1.4, 0.8],
+        "bbox_m": [0.8, 1.4, 1.6],
+        "ossos": 3,
+        "nomes_ossos": ["Hips", "Head", "Tail1"],
+    }
+    item_base = {
+        "id": "mob.quadrupede.01",
+        "tipo": "criatura_quadrupede",
+        "rota": "mesh",
+        "esqueleto": "quadruped@1",
+    }
+
+    # Rig quadruped nao tem maos: pedir Hand.R/Hand.L seria descarte silencioso -> socket_ausente
+    info_sem_sockets = {**info_q, "_sockets": []}
+    item_maos = {**item_base, "sockets": ["Hand.R", "Hand.L"]}
+    ok, det = qc._g2_orientacao(gltf_q, b"", item_maos, GODOT, info_sem_sockets)
+    assert ok is False
+    assert "socket_ausente" in det["motivos"]
+
+    # Socket presente no esqueleto final nao marca socket_ausente
+    info_com_socket = {
+        **info_q,
+        "_sockets": [
+            {
+                "nome": "Head",
+                "osso": "Head",
+                "posicao_local": [0.0, 0.0, 0.0],
+                "rotacao_quat_wxyz": [1.0, 0.0, 0.0, 0.0],
+                "frente_local": [0.0, 0.0, -1.0],
+            }
+        ],
+    }
+    item_head = {**item_base, "sockets": ["Head"]}
+    ok_ok, det_ok = qc._g2_orientacao(gltf_q, b"", item_head, GODOT, info_com_socket)
+    assert ok_ok is True, det_ok
+    assert "socket_ausente" not in det_ok.get("motivos", [])
+
+
 def test_g10_v2_continuidade_loop_e_movimento_multi_osso() -> None:
     tempos = b"".join(struct.pack("<f", t) for t in (0.0, 0.5, 1.0))
     # Clipe ciclico "walk" que NAO fecha o loop (termina em 90 graus de rotacao X)

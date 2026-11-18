@@ -75,7 +75,6 @@ PADROES_LICENCA_BLOQUEADOS: tuple[str, ...] = (
     "proprietary",
     "all rights reserved",
     "hunyuan",
-    "pixal3d",
 )
 
 _RE_TOKEN_NC = re.compile(r"(?:^|[^a-z0-9])nc(?:$|[^a-z0-9])", re.IGNORECASE)
@@ -162,8 +161,9 @@ def validar_licenca_cc0(licenca: str, origem: str = "", modelo: str = "") -> dic
     """Valida se a licenca, origem e modelo atendem ao gate comercial estrito (I7, D18).
 
     Apenas ``CC0-1.0``, ``CC0``, ``Public Domain`` e ``MIT`` de origens comerciais limpas
-    sao aceitos. Qualquer mencao a ``NC``, ``BY-NC``, ``GPL``, ``unknown``, ``hunyuan`` ou
-    ``pixal3d`` dispara ``erro_licenca`` (``FORGE-E-LICENCA``).
+    sao aceitos. Qualquer mencao a ``NC``, ``BY-NC``, ``GPL``, ``unknown`` ou ``hunyuan`` dispara
+    ``erro_licenca`` (``FORGE-E-LICENCA``). ``pixal3d`` deixou o bloqueio em 18/11/2026
+    (D112: a LICENSE oficial do repo e MIT pura, verificada no GitHub).
     """
     lic_raw = (licenca or "").strip()
     orig_raw = (origem or "").strip()

@@ -193,7 +193,7 @@ def _checar_pesos(obj):
 
 # 1. Quadrupede invertido 180 deg (-Y inicialmente) -> PCA alinha focinho para +Y_bl
 q_inv = _criar_quadrupede(rot_z_deg=180.0, com_asas=False)
-rig_q, _ = autorig.auto_rigar_por_tipo(q_inv, "godot-humanoid@1", _criar_armadura, tipo="criatura_quadrupede")
+rig_q, _ = autorig.auto_rigar_por_tipo(q_inv, "quadruped@1", _criar_armadura, tipo="criatura_quadrupede")
 sp_q, mi_q = _checar_pesos(q_inv)
 bones_q = {b.name: {"head": list(b.head_local), "tail": list(b.tail_local)} for b in rig_q.data.bones}
 mods_q = [m for m in q_inv.modifiers if m.type == "ARMATURE"]

@@ -65,6 +65,7 @@ CAMPOS_CANONICOS_ITEM = (
     "material_procedural",
     "suavizacao_normais",
     "provider_conceito",
+    "referencia_estilo",
     "colisao",
     "lod",
     "seed",
@@ -381,6 +382,58 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                         }
                     )
 
+        ref_estilo = item.get("referencia_estilo")
+        if ref_estilo:
+            prov_conceito_raw = str(item.get("provider_conceito") or "auto").strip().lower()
+            if item.get("origem"):
+                # D-01: origem e input do i23d e referencia_estilo ancora o concept; juntos o
+                # concept nunca roda (mesh.gerar pula quando ha origem) e a referencia seria
+                # ignorada em silencio.
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "B23",
+                        "mensagem": "'origem' e 'referencia_estilo' sao mutuamente exclusivos",
+                    }
+                )
+            elif item.get("rota") != "mesh":
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "B23",
+                        "mensagem": "'referencia_estilo' so existe na rota mesh",
+                    }
+                )
+            elif prov_conceito_raw in ("sd15", "higgsfield"):
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "B23",
+                        "mensagem": (
+                            f"'referencia_estilo' exige provider_conceito 'gemini' ou 'auto' "
+                            f"(recebido '{prov_conceito_raw}')"
+                        ),
+                    }
+                )
+            else:
+                p_ref = Path(str(ref_estilo)).expanduser()
+                if not p_ref.is_file():
+                    erros.append(
+                        {
+                            "id": iid,
+                            "regra": "B23",
+                            "mensagem": f"referencia_estilo inexistente: {p_ref}",
+                        }
+                    )
+                elif p_ref.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+                    erros.append(
+                        {
+                            "id": iid,
+                            "regra": "B23",
+                            "mensagem": f"extensao '{p_ref.suffix}' invalida para referencia_estilo",
+                        }
+                    )
+
         campos_i14 = [str(iid)] + [str(t) for t in (item.get("tags") or [])]
         if item.get("prompt"):
             campos_i14.append(str(item["prompt"]))
@@ -429,6 +482,27 @@ def _regras_negocio(doc: dict, perfil: dict) -> None:
                         "id": iid,
                         "regra": "B10",
                         "mensagem": f"esqueleto '{esq}' nao existe no perfil (tem: {', '.join(esqueletos)})",
+                    }
+                )
+            # B24 (D-02): combinacao esqueleto x tipo claramente incompativel. "criatura" generico
+            # aceita qualquer familia (mob bipede com esqueleto humanoide e valido).
+            tipo_b24 = item.get("tipo")
+            humano_b24 = esq in ("godot-humanoid@1", "godot-humanoid-aa@1", "r15@1")
+            criatura_b24 = esq in ("quadruped@1", "winged_mount@1")
+            if criatura_b24 and tipo_b24 == "personagem_humanoide":
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "B24",
+                        "mensagem": f"esqueleto '{esq}' (criatura) incompativel com tipo 'personagem_humanoide'",
+                    }
+                )
+            elif humano_b24 and tipo_b24 in ("criatura_alada", "criatura_quadrupede", "montaria"):
+                erros.append(
+                    {
+                        "id": iid,
+                        "regra": "B24",
+                        "mensagem": f"esqueleto '{esq}' (humanoide) incompativel com tipo '{tipo_b24}'",
                     }
                 )
 
@@ -699,4 +773,10 @@ def resolver_item(item: dict) -> dict:
                 resolvido["origem_hash"] = sha256_arquivo(p)
             except OSError:
                 resolvido["origem_hash"] = "indisponivel"
+    if item.get("referencia_estilo"):
+        p_ref = Path(str(item["referencia_estilo"])).expanduser()
+        try:
+            resolvido["referencia_estilo_hash"] = sha256_arquivo(p_ref)
+        except OSError:
+            resolvido["referencia_estilo_hash"] = "indisponivel"
     return resolvido

@@ -1625,6 +1625,56 @@ def _resolver_opcional_bruto(bruto_dir: str, relativo: str | None) -> str | None
     return caminho if os.path.isfile(caminho) else None
 
 
+def _escrever_concept_sidecar(saida_dir: str, nome_base: str, concept: dict) -> dict | None:
+    """Grava sidecar de proveniencia do concept (D-06) e devolve o item de arquivo.
+
+    O prompt_final/negativo/modelo/seed/revisao/referencia nao viviam em arquivo publicado
+    (o concept_resultado.json e limpo do staging). Este sidecar preserva a proveniencia
+    junto do asset e entra no manifesto com papel ``concept``.
+    """
+    campos = (
+        "prompt_final",
+        "negativo",
+        "modelo",
+        "seed",
+        "revisao",
+        "versao",
+        "provider_conceito",
+        "largura_real",
+        "altura_real",
+        "referencia_estilo",
+        "referencia_estilo_sha256",
+    )
+    dado = {c: concept[c] for c in campos if c in concept}
+    if not dado:
+        return None
+    nome = f"{nome_base}_concept.json"
+    jsave(os.path.join(saida_dir, nome), dado)
+    return {
+        "caminho": nome,
+        "papel": "concept",
+        "bytes": os.path.getsize(os.path.join(saida_dir, nome)),
+    }
+
+
+def _detectar_esqueleto_pelos_ossos(rig_obj) -> str | None:
+    """Infere o esqueleto REAL pelos nomes dos ossos (D-03); None quando nao reconhece."""
+    if rig_obj is None:
+        return None
+    nomes = {b.name for b in rig_obj.data.bones}
+    if "WingShoulder.L" in nomes:
+        return "winged_mount@1"
+    if "FrontUpperLeg.L" in nomes:
+        return "quadruped@1"
+    if any(b in nomes for b in ("Thumb1.L", "Eye.L", "Cape")):
+        return "godot-humanoid-aa@1"
+    if "UpperTorso" in nomes:
+        return "r15@1"
+    if "Neck" in nomes and "Hand.L" in nomes:
+        return "godot-humanoid@1"
+    return None
+
+
 def processar(job: dict) -> dict:
     saida_dir = job["saida_dir"]
     os.makedirs(saida_dir, exist_ok=True)
@@ -1662,6 +1712,7 @@ def processar(job: dict) -> dict:
         if (item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao"))
         else None
     )
+    esqueleto_pedido: str | None = esqueleto_efetivo
 
     if bruto["schema"] == "forge3d/bruto-blocky@1":
         obj, grupos = construir_blocky(bruto, bruto_dir)
@@ -1925,6 +1976,7 @@ def processar(job: dict) -> dict:
                 ):
                     esq_padrao = "winged_mount@1"
             esq = str(item.get("esqueleto") or esq_padrao)
+            esqueleto_pedido = esq
             esqueleto_efetivo = esq
             fn_rig_tipo = getattr(autorig, "auto_rigar_por_tipo", None)
             if callable(fn_rig_tipo):
@@ -1932,10 +1984,10 @@ def processar(job: dict) -> dict:
             else:
                 rig_obj, grupos = autorig.auto_rigar_humanoide(obj, esq, criar_armadura)
             if rig_obj is not None:
-                if "WingShoulder.L" in rig_obj.data.bones:
-                    esqueleto_efetivo = "winged_mount@1"
-                elif "FrontUpperLeg.L" in rig_obj.data.bones:
-                    esqueleto_efetivo = "quadruped@1"
+                # D-03: o esqueleto REAL e detectado pelos ossos, nunca assumido como o pedido.
+                detectado = _detectar_esqueleto_pelos_ossos(rig_obj)
+                if detectado is not None:
+                    esqueleto_efetivo = detectado
     else:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
 
@@ -2075,6 +2127,8 @@ def processar(job: dict) -> dict:
         medidas_base["sockets"] = sockets_extraidos
     if rig_obj is not None and esqueleto_efetivo:
         medidas_base["esqueleto"] = esqueleto_efetivo
+    if esqueleto_pedido:
+        medidas_base["esqueleto_pedido"] = esqueleto_pedido
     medidas_base.update(medir_geometria(obj, permitir_bordas_abertas=alpha_cards_ativo))
 
     if textura_max_perfil > 0:
@@ -2205,6 +2259,11 @@ def processar(job: dict) -> dict:
     medidas_base["partes_colisao"] = len(colisores)
     medidas_base["esqueleto"] = esqueleto_efetivo if rig_obj is not None else None
     medidas_base["lod"] = [{"nivel": a["nivel"], "triangulos": a["triangulos"]} for a in arquivos if a["papel"] in ("mesh", "lod")]
+
+    if bruto.get("concept"):
+        sidecar_concept = _escrever_concept_sidecar(saida_dir, nome_base, bruto["concept"])
+        if sidecar_concept is not None:
+            arquivos.append(sidecar_concept)
 
     resultado = {
         "ok": True,

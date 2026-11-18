@@ -157,9 +157,14 @@ def montar_manifesto(
         revisao = str(concept.get("revisao", "") or "")
         if revisao:
             versao_concept = f"{versao_concept}+{revisao[:12]}"
+        ref_sha = str(concept.get("referencia_estilo_sha256", "") or "")
+        if ref_sha:
+            versao_concept = f"{versao_concept}+ref{ref_sha[:12]}"
         detalhe = "{w}x{h}s{passos}g{guidance}".format(
-            w=concept.get("largura", "?"),
-            h=concept.get("altura", "?"),
+            # D-05: dimensoes REAIS do PNG publicado (largura_real/altura_real), com fallback
+            # para as requisitadas quando o provider antigo ainda nao registrava o real.
+            w=concept.get("largura_real", concept.get("largura", "?")),
+            h=concept.get("altura_real", concept.get("altura", "?")),
             passos=concept.get("passos", "?"),
             guidance=concept.get("guidance", "?"),
         )

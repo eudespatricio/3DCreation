@@ -1,0 +1,23 @@
+{
+ "altura": 512,
+ "fonte_credencial": "arquivo:gemini.key",
+ "largura": 512,
+ "licenca": {
+  "modelo": "Google Gemini / Imagen API",
+  "notice": "Concept art gerado via Google Gemini / Imagen API paga sob Google Cloud / Gemini API Terms of Service (uso comercial permitido ao titular da conta).",
+  "uso_comercial": true
+ },
+ "modelo": "gemini/gemini-nano-banana-2.1",
+ "negativo": "blurry, low quality, cropped, text, watermark, logo, multiple views, busy background, extra limbs, deformed, duplicate, frame, halo, rim light, backlighting, shadow, drop shadow, white border",
+ "ok": true,
+ "pose": "",
+ "prompt_final": "massive demonic brute, hunched ogre-like silhouette, rocky basalt-gray armor plates with ochre-brown demonic flesh, glowing amber core embedded in the chest, heavy stone pauldrons with spikes, horned helm-like head with glowing eyes, enormous fists and thick legs, dark fantasy ARPG concept art, front view, full body, neutral dark background, isolated object, centered, plain neutral light gray background, game asset concept art, soft studio lighting, high detail",
+ "provider_conceito": "gemini",
+ "referencia_estilo": null,
+ "referencia_estilo_sha256": null,
+ "revisao": "f0dd08893f90",
+ "seed": 20261118,
+ "tempo_provider_s": 14.61,
+ "tempo_s": 14.61,
+ "versao": "0.2.4"
+}

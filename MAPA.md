@@ -14,7 +14,7 @@
 | `docs/perfis-export.md` | `godot4`, `godot4-aa`, `roblox-r15`, `roblox-aa-80`: eixos, escala, rig 56 ossos, PBR | exportar ou integrar no jogo |
 | `docs/qc-e-verificacao.md` | gates G1–G11, severidade, remediação, `verify` reexecutando | asset ou cena reprovada no QC |
 | `docs/dependencias.md` | versões pinadas, venv i23d, o que instalar, o que não instalar | `doctor` falhou / montar ambiente |
-| `docs/riscos-e-licencas.md` | VRAM, licenças de modelo, IP, tabela de modelos 6 GB | escolher modelo ou publicar |
+| `docs/riscos-e-licencas.md` · `docs/avaliacao-qualidade-3d.md` | VRAM, licenças de modelo, IP, tabela de modelos 6 GB; opções de escala de qualidade (conexões existentes) | escolher modelo ou publicar |
 | `docs/roadmap.md` | P0–P6 com portão de saída por fase; §Depois da P6 = backlog sem fase nova | planejar próxima fase |
 | `docs/integracao.md` | como outro projeto chama a CLI: instalar, allowlist, lote, exit codes, manifesto | integrar num projeto de jogo |
 | `docs/gaps.md` | lacunas abertas com dono e condição de fechamento | fim de fase |

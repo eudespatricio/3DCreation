@@ -1,12 +1,12 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 17/11/2026 · **P0–P6, C5–C15, Ondas A–D e releases `v0.7.0`–`v0.9.1` fechadas.** Contratos
-correntes `spec@6` e `manifest@6` (D94–D111; `@1`–`@5` compatíveis na leitura). Perfis AA (`godot4-aa`
+**Data:** 18/11/2026 · **P0–P6, C5–C15, Ondas A–D e releases `v0.7.0`–`v0.9.3` fechadas.** Contratos
+correntes `spec@6` e `manifest@6` (D94–D122; `@1`–`@5` compatíveis na leitura). Perfis AA (`godot4-aa`
 56 ossos `godot-humanoid-aa@1` + PBR 4K e `roblox-aa-80` 16k tris/parte + `SurfaceAppearance` 4 canais)
 com Gate `G11` de orçamento de cena 80 % AA (`<= 400k` tris, `<= 400` draw calls, `<= 200 MB` VRAM),
 bake Cycles High→Low (`detalhe_alto` + `pbr_zonas`), `smart_fit.py` (BVH/Laplacian/PCA), Vault CC0
 (`vault.py` + `gemini-embedding-2-preview` + `kitbash_composer.py` + `colab_trellis_lora.py`) e 6 albedos
-PBR 1024px. **520 verdes + 1 GPU (skip)** em 521 testes · CI com **442 + 78 testes** em 3 jobs (`portoes`,
+PBR 1024px. **533 verdes + 1 GPU (skip)** em 534 testes · CI com **442 + 78 testes** em 3 jobs (`portoes`,
 `verificar`, `distribuicao`).
 
 Verificação rápida: `python -m pytest tests/test_e2e_rapido.py -q` (~2 s) e `python -m pytest` (~20 s).
@@ -59,12 +59,20 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 - **Hardening `v0.9.1` (`D108–D111`)** — `plan --scene-budget` separa `teto_pior_caso` e `estimativa` calibrada
   (< 1 % tris), G11 multi-superfície validado no Godot 4.7.2 (`tools/medir_draw_calls_godot.py`), `GAP-019`
   fechado (180/180 e2e, I9) e correções visuais `V1`–`V4` + `lote_14`/`lote_15` + crítico visual determinístico.
+- **Qualidade sem conexões novas `v0.9.2` (`D112–D113`)** — Pixal3D passa a MIT e sai do bloqueio do
+  D18 (LICENSE verificada em 18/11/2026) e `referencia_estilo` no concept via Gemini (`spec@6` aditivo
+  + regra B23): o style sheet entra como imagem de referência no payload do Nano Banana já conectado,
+  com hash na chave de cache e na versão do `providers.texture` (`+ref<12>`); auditoria do GameOne
+  confirma pipeline 100 % Godot (81 manifestos `godot4`/`godot4-aa`).
+- **Correções P0 do handoff `v0.9.3` (`D114–D122`)** — D-01 `origem`×`referencia_estilo` exclusivos; D-02
+  auto-rig honra esqueleto explícito + B24; D-03 esqueleto real + run falha se pedido≠real; D-04 socket
+  ausente vira falha; D-05 concept PNG real + dims reais; D-06 sidecar `concept.json`. `mob_rig_v1` `verify` verde.
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte | **520 verdes + 1 GPU (skip)** em **521 testes** (`521/521` verdes com `FORGE3D_CONCEPT_E2E=1`) |
+| Suíte | **523 verdes + 1 GPU (skip)** em **524 testes** (`524/524` verdes com `FORGE3D_CONCEPT_E2E=1`) |
 | CI no GitHub | **442 testes** em `portoes` + **78 testes Blender** em `verificar` (com Godot 4.7.2 headless) + `distribuicao` |
 | Instalação | wheel de **0.9.1** instalado em venv limpo; `validate`/`migrate`/`plan` rodam **fora do repo** (`tools/ci_dist.sh`) |
 | `forge3d migrate` | `@1..@5`→`@6` textual com comentários intactos; `--saida`/`--em-lugar` |
@@ -107,7 +115,7 @@ silhueta** · **`D72` o nome fica `forge3d`** · **`D73` LFS nos repos de jogo**
 **`D77` portão da P4** · **`D78` ambiente WSL/UNC é o normal** ·
 **`D79` parede cheia no lado fechado** · **`D80` `migrate` textual, sem inventar valor** ·
 **`D81` CI de PR com Blender pinado por sha256 e `verify`** · **`D82` comando citado na doc é testado** · **`D83` a P6 é a última fase; o resto é backlog** ·
-**`D84` orientação por contato da sola** · **`D85–D93` sync, qualidade 3D, request contract, armadura modular, ondas A–D e eixos (`v0.6.1`)** · **`D94–D102` releases `v0.7.0`/`v0.8.0` (`spec@5`/`manifest@5`, humanoide 3D CC0 vestido, props AA + vidro refrativo, dragão/montaria, Godot zero-click, Gemini Interactions + `visual_qa_critic` e TRELLIS MIT)** · **`D103–D107` release `v0.9.0` (`spec@6`/`manifest@6`, perfis `godot4-aa`/`roblox-aa-80` + Gate G11 80 % AA, bake Cycles High→Low `detalhe_alto` + `pbr_zonas`, Smart-Fit BVH + rig 56 ossos `godot-humanoid-aa@1`, Vault CC0 + `gemini-embedding-2` + kitbash + TRELLIS LoRA)** · **`D108–D111` release `v0.9.1` (`plan` calibrado, G11 multi-superfície validado no Godot 4.7.2, `GAP-019` e correções visuais `V1`–`V4`)**.
+**`D84` orientação por contato da sola** · **`D85–D93` sync, qualidade 3D, request contract, armadura modular, ondas A–D e eixos (`v0.6.1`)** · **`D94–D102` releases `v0.7.0`/`v0.8.0` (`spec@5`/`manifest@5`, humanoide 3D CC0 vestido, props AA + vidro refrativo, dragão/montaria, Godot zero-click, Gemini Interactions + `visual_qa_critic` e TRELLIS MIT)** · **`D103–D107` release `v0.9.0` (`spec@6`/`manifest@6`, perfis `godot4-aa`/`roblox-aa-80` + Gate G11 80 % AA, bake Cycles High→Low `detalhe_alto` + `pbr_zonas`, Smart-Fit BVH + rig 56 ossos `godot-humanoid-aa@1`, Vault CC0 + `gemini-embedding-2` + kitbash + TRELLIS LoRA)** · **`D108–D111` release `v0.9.1` (`plan` calibrado, G11 multi-superfície validado no Godot 4.7.2, `GAP-019` e correções visuais `V1`–`V4`)** · **`D112–D113` release `v0.9.2` (Pixal3D MIT fora do bloqueio D18; `referencia_estilo` no concept, B23)**.
 
 ## Aberto
 
@@ -137,7 +145,7 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest                          # 520 verdes + 1 GPU
+python -m pytest                          # 523 verdes + 1 GPU
 bash tools/ci.sh                          # 442 testes + ruff + mypy + contexto + P0 (job `portoes`)
 bash tools/ci_verify.sh                   # 78 testes Blender + pipeline real + verify + Godot QA (job `verificar`)
 bash tools/ci_dist.sh                     # wheel em venv limpo (job `distribuicao`)
@@ -183,8 +191,8 @@ python tools/r15_anim_studio.py --clipe idle --tempo 0.5
 
 ## Como retomar
 
-> Leia `CONTINUAR.md`, `MAPA.md`, `INVARIANTES.md` e `DECISOES.md` §2 e §4. P0–P6 + Ondas A–D + `v0.9.1`
-> fechadas (`spec@6`/`manifest@6`, `@1`–`@5` compatíveis), showcases `godot4-aa` (56 ossos) + `roblox-aa-80`
-> + G11 verdes, CI verde em 3 jobs (`portoes`, `verificar`, `distribuicao`) e wheel instalável (D81/D89–D111).
-> Próximo: operar num projeto de jogo e medir custo por asset. Não reabra D3–D111 sem fato novo.
+> **Estado**: P0–P6 + Ondas A–D + `v0.9.0`–`v0.9.3` fechadas (`spec@6`/`manifest@6`, `@1`–`@5` compatíveis).
+> Correções P0 do handoff em `v0.9.3` (D114–D122); `mob_rig_v1` `verify` verde. Sobram do plano: D-07 (decisão
+> template×concept), D-08 (retry de seed no G2), D-10 (doc do GameOne, fora do repo) e P1-4/P1-5/P2-* (A/B e
+> medições). Próximo: operar num projeto de jogo e medir custo por asset. Não reabra D3–D111 sem fato novo.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

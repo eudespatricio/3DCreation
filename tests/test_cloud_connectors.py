@@ -146,6 +146,63 @@ def test_gemini_connector_env_e_arquivo_key_mock_http(monkeypatch, tmp_path):
     assert segredo not in json.dumps(meta)
 
 
+def test_gemini_concept_com_referencia_estilo_payload_e_proveniencia(monkeypatch, tmp_path):
+    """D113: referencia_estilo vira parte de imagem no payload e hash no resultado."""
+    import hashlib as _hl
+
+    segredo = "AIza_TEST_KEY_REF_ESTILO_42"
+    monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", segredo)
+    monkeypatch.delenv("FORGE3D_GEMINI_MODELO", raising=False)
+
+    png_ref = tmp_path / "style_sheet.png"
+    png_ref.write_bytes(_png_bytes_rgba((10, 20, 30, 255)))
+    png_saida = _png_bytes_rgba((200, 60, 40, 255))
+    b64_saida = base64.b64encode(png_saida).decode("ascii")
+    capturado: dict = {}
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {"steps": [{"type": "model_output", "content": [{"type": "image", "data": b64_saida}]}]}
+            ).encode("utf-8")
+
+    def fake_urlopen(req, timeout=120):
+        capturado["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp()
+
+    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_urlopen)
+    destino = tmp_path / "out_ref" / "concept.png"
+    meta = cloud_ai.gerar_conceito_gemini(
+        "sword in the style sheet",
+        "",
+        7,
+        destino,
+        referencia_png=png_ref,
+    )
+    entrada = capturado["body"]["input"]
+    assert entrada[0] == {"type": "text", "text": "sword in the style sheet"}
+    assert entrada[1]["type"] == "image"
+    assert entrada[1]["mime_type"] == "image/png"
+    assert entrada[1]["data"] == base64.b64encode(png_ref.read_bytes()).decode("ascii")
+    assert meta["referencia_estilo"] == str(png_ref)
+    assert meta["referencia_estilo_sha256"] == _hl.sha256(png_ref.read_bytes()).hexdigest()
+    assert segredo not in json.dumps(meta)
+
+
+def test_gemini_referencia_estilo_inexistente_falha(monkeypatch, tmp_path):
+    monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", "AIza_TEST_KEY_REF_AUSENTE")
+    with pytest.raises(ForgeError):
+        cloud_ai.gerar_conceito_gemini(
+            "x", "", 1, tmp_path / "c.png", referencia_png=tmp_path / "nao_existe.png"
+        )
+
+
 def test_gemini_modelos_novos_e_legado_imagen_predict(monkeypatch, tmp_path):
     monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", "AIza_TEST_KEY_778899")
     png_raw = _png_bytes_rgba((50, 120, 210, 255))

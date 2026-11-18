@@ -133,7 +133,12 @@ def _sanitizar_texto_erro(texto: str, segredos: list[str]) -> str:
 
 
 def _ler_arquivo_chave(nome_arquivo: str) -> str:
-    for raiz in (paths.raiz_config(), Path.home() / ".config" / "forge3d"):
+    raizes = [paths.raiz_config()]
+    # Isolamento (D25): com FORGE3D_CONFIG explicito nao cai no ~/.config/forge3d do
+    # usuario, senao testes e runs isolados enxergam a chave real e "auto" muda de provider.
+    if "FORGE3D_CONFIG" not in os.environ:
+        raizes.append(Path.home() / ".config" / "forge3d")
+    for raiz in raizes:
         caminho = raiz / nome_arquivo
         if caminho.is_file():
             try:
@@ -382,6 +387,7 @@ def gerar_conceito_gemini(
     altura: int = 512,
     timeout_s: int = 120,
     item_id: Any = None,
+    referencia_png: Path | None = None,
 ) -> dict[str, Any]:
     from . import LICENCAS
 
@@ -397,6 +403,14 @@ def gerar_conceito_gemini(
     url_custom = os.environ.get("FORGE3D_GEMINI_API_URL", "").strip()
     prompt_final = prompt if not negativo else f"{prompt}. Avoid: {negativo}"
 
+    if referencia_png is not None and modelo.startswith("imagen-"):
+        raise erro_provider_run(
+            "referencia de estilo so suportada nos modelos gemini-* (nano banana), nao em imagen-*",
+            id=item_id,
+            modelo="gemini",
+        )
+
+    ref_sha: str | None = None
     if modelo.startswith("imagen-"):
         endpoint = url_custom or f"{URL_GEMINI_BASE}/{modelo}:predict"
         headers = {
@@ -419,9 +433,23 @@ def gerar_conceito_gemini(
             "Content-Type": "application/json",
             "Api-Revision": API_REVISION_GEMINI,
         }
+        partes_entrada: list[dict[str, Any]] = [{"type": "text", "text": prompt_final}]
+        if referencia_png is not None:
+            if not referencia_png.is_file():
+                raise erro_provider_run(
+                    f"referencia de estilo inexistente: {referencia_png}",
+                    id=item_id,
+                    modelo="gemini",
+                )
+            bytes_ref = referencia_png.read_bytes()
+            b64_ref = base64.b64encode(bytes_ref).decode("ascii")
+            ref_sha = hashlib.sha256(bytes_ref).hexdigest()
+            partes_entrada.append(
+                {"type": "image", "data": b64_ref, "mime_type": "image/png"}
+            )
         payload = {
             "model": modelo,
-            "input": [{"type": "text", "text": prompt_final}],
+            "input": partes_entrada,
         }
 
     t0 = time.monotonic()
@@ -459,6 +487,8 @@ def gerar_conceito_gemini(
         "fonte_credencial": fonte,
         "tempo_s": round(time.monotonic() - t0, 3),
         "licenca": dict(LICENCAS["gemini"]),
+        "referencia_estilo": str(referencia_png) if referencia_png is not None else None,
+        "referencia_estilo_sha256": ref_sha,
     }
 
 

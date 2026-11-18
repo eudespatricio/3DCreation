@@ -324,6 +324,11 @@
           ],
           "description": "provider de geracao de imagem conceito"
         },
+        "referencia_estilo": {
+          "type": "string",
+          "pattern": ".*\\.(png|PNG|jpg|jpeg|webp)$",
+          "description": "imagem de referencia de estilo (style sheet) para o concept via Gemini (B23); rota mesh + provider gemini/auto"
+        },
         "colisao": {
           "enum": [
             "none",

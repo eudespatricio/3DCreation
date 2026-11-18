@@ -8,9 +8,10 @@ Cadeia implementada nesta fase:
     imagem PNG ──► TripoSR (GPU) ──► GLB com COLOR_0 ──► bake de UV/textura no bpy
                                                    ──► pós-processo/QC/publicação
 
-O provider de *concept* (text-to-image) continua em GAP-026: por isso a rota exige ``origem``
-(uma imagem) enquanto o prompt é proveniência, não entrada. A licença é gate (D18) e a GPU é
-serializada pelo lock do pipeline (D11).
+O provider de *concept* (text-to-image) roda **internamente** quando o item não declara
+``origem`` (D35): o prompt vira imagem (SD1.5 local ou Gemini) e ``origem`` continua sendo a
+alternativa PNG para pular o concept. A licença é gate (D18) e a GPU é serializada pelo lock do
+pipeline (D11).
 """
 
 from __future__ import annotations

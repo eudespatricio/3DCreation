@@ -66,6 +66,15 @@ def _escrever_json(caminho: Path, obj: dict) -> None:
 # ---------------------------------------------------------------- item
 
 
+def _esqueleto_divergente(medidas: dict) -> tuple[str, str] | None:
+    """D-03: devolve (pedido, real) quando o esqueleto medido difere do pedido; None quando ok."""
+    pedido = medidas.get("esqueleto_pedido")
+    real = medidas.get("esqueleto")
+    if pedido and real and str(pedido) != str(real):
+        return str(pedido), str(real)
+    return None
+
+
 def _clipes_pedidos(item: dict) -> list[str] | None:
     bruto = [*(item.get("animacoes_base") or []), *(item.get("clipes") or [])]
     if not bruto:
@@ -172,6 +181,17 @@ def _executar_item(
                 modelo=licenca.get("modelo", modelo_meta or provider.nome),
             )
         resultado["licenca"] = licenca
+
+        # D-03: esqueleto real medido tem que bater com o pedido; nunca publicar divergente.
+        divergencia = _esqueleto_divergente(resultado.get("medidas") or {})
+        if divergencia:
+            pedido, real = divergencia
+            raise ForgeError(
+                "FORGE-E-QC",
+                f"esqueleto pedido '{pedido}' difere do real medido '{real}'",
+                EXIT_QC,
+                {"esqueleto_pedido": pedido, "esqueleto_real": real},
+            )
 
         relatorio_qc = qc_mod.verificar(item, perfil, Path(resultado["dir_final"]), resultado)
         if not relatorio_qc["aprovado"]:

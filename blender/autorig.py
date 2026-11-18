@@ -2586,6 +2586,10 @@ def auto_rigar_por_tipo(
     esq = str(esqueleto_spec or "").strip()
     tipo_norm = str(tipo or "").strip().lower()
 
+    if esq in _ESQUELETOS_HUMANOS:
+        # D-02: esqueleto explicito humanoide vence o tipo (mob bipede com tipo "criatura").
+        return auto_rigar_humanoide(obj, esq, criar_armadura_fn)
+
     if esq in _ESQUELETOS_CRIATURA:
         alvo_esq = esq
     elif tipo_norm == "criatura_alada":

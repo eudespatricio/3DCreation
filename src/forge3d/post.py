@@ -17,7 +17,7 @@ from .errors import ForgeError, erro_ambiente, erro_bpy
 
 __all__ = ["binario", "versao", "script", "executar", "preflight", "PIPELINE_VERSION"]
 
-PIPELINE_VERSION = "0.9.3"
+PIPELINE_VERSION = "0.9.5"
 VERSAO_MIN = (4, 2)
 VERSAO_MAX = (4, 3)
 
@@ -91,6 +91,8 @@ def _preparar_job(job: dict) -> dict:
             "alpha_cards",
             "smart_fit",
             "roblox_render",
+            "vistas",
+            "vistas_ortograficas",
         ):
             if chave in item and chave not in preparado:
                 preparado[chave] = item[chave]

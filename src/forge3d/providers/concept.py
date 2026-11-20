@@ -1,43 +1,48 @@
-"""Estagio ``concept`` — text-to-image local (Stable Diffusion 1.5) na venv de concept.
+"""Estagio ``concept`` — text-to-image local (SD1.5) e cloud (Gemini 1/4-vistas, Higgsfield).
 
-Nao e uma rota do lote: e a primeira etapa do provider ``mesh`` quando o item **nao** declara
-``origem``. O nucleo nao importa ``torch``/``diffusers``; a inferencia roda em subprocesso na
+O nucleo nao importa ``torch``/``diffusers``; a inferencia SD1.5 roda em subprocesso na
 ``FORGE3D_VENV_CONCEPT`` e o canal e JSON em disco (I9).
-
-Por que uma venv separada da i23d (D29/GAP-031): o TripoSR prende ``transformers==4.35`` e o
-``diffusers`` moderno exige ``transformers>=4.44``. Sao modelos diferentes, nao duas copias do
-mesmo i23d. O doc `docs/dependencias.md` registra a escolha.
 """
 
 from __future__ import annotations
 
-import importlib.util
+import inspect
 import json
 import os
-import re
-import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
-from . import cloud_ai
+from .. import locks
+from . import cloud_ai, concept_views
+from .concept_prompt import (
+    LIMITE_TOKENS_CLIP,
+    NEGATIVO_PADRAO,
+    SUFIXO_PADRAO,
+    SUFIXOS_VISTA_ORTOGRAFICA,
+    VISTAS_ORTOGRAFICAS,
+    _chave_env_item,
+    _pose_env_raw,
+    combinar_prompt,
+    estado_pose_cache_com_estado,
+    estimar_tokens_clip,
+    gerar_pose_png,
+    negativo_efetivo,
+    prompt_para_vista,
+    resolver_pose_com_estado,
+    sufixo_efetivo,
+)
+from .concept_views import _normalizar_png_real, escrever_metadados_concept, resolver_vistas
 
 cloud_ai.registrar_licencas_cloud()
 
-VERSAO = "0.2.4"
+VERSAO = "0.2.5"
 MODELO_PADRAO = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 CONTROLNET_MODELO_PADRAO = "lllyasviel/control_v11p_sd15_openpose"
-LIMITE_TOKENS_CLIP = 77
 VRAM_MINIMA_MB = 3000
 TIMEOUT_S = 900
 
 _DIAGNOSTICO: dict[tuple[str, str], dict] = {}
-
-SUFIXO_PADRAO = (
-    "isolated object, front view, centered, plain neutral light gray background, "
-    "game asset concept art, soft studio lighting, high detail"
-)
 
 
 def _device() -> str:
@@ -47,114 +52,6 @@ def _device() -> str:
         .strip()
         .lower()
     )
-
-
-NEGATIVO_PADRAO = (
-    "blurry, low quality, cropped, text, watermark, logo, multiple views, "
-    "busy background, extra limbs, deformed, duplicate, frame, "
-    "halo, rim light, backlighting, shadow, drop shadow, white border"
-)
-
-
-def sufixo_efetivo(prompt: str, sufixo: str) -> str:
-    """Sufixo sem os trechos que o prompt ja repete (C11).
-
-    O sufixo padrao termina em ``game asset concept art`` e varios prompts do lote tambem
-    dizem isso. Duplicar nao muda a imagem e gasta tokens do CLIP, cujo limite e 77.
-    """
-    alvo = (prompt or "").lower()
-    partes = []
-    for fragmento in (sufixo or "").split(","):
-        limpo = fragmento.strip()
-        if not limpo or limpo.lower() in alvo:
-            continue
-        partes.append(limpo)
-    return ", ".join(partes)
-
-
-def estimar_tokens_clip(texto: str) -> int:
-    """Estimativa conservadora de tokens CLIP (inclui BOS/EOS)."""
-    tokens = re.findall(r"[A-Za-z0-9]+|[^\sA-Za-z0-9]", texto or "")
-    total = 2
-    for tok in tokens:
-        if tok.isalnum() and len(tok) > 9:
-            total += max(1, (len(tok) + 5) // 6)
-        else:
-            total += 1
-    return total
-
-
-def combinar_prompt(
-    prompt: str,
-    sufixo: str,
-    limite_tokens: int = LIMITE_TOKENS_CLIP,
-) -> str:
-    """Mescla ``prompt`` + ``sufixo`` mantendo ``prompt`` intacto dentro do limite CLIP."""
-    base = (prompt or "").strip()
-    efetivo = sufixo_efetivo(base, sufixo)
-    if not efetivo:
-        return base
-    atual = base
-    for fragmento in efetivo.split(","):
-        limpo = fragmento.strip()
-        if not limpo:
-            continue
-        candidato = f"{atual}, {limpo}" if atual else limpo
-        if estimar_tokens_clip(candidato) <= limite_tokens:
-            atual = candidato
-    return atual
-
-
-def _chave_env_item(item_id: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9]+", "_", item_id).strip("_").upper()
-    return f"FORGE3D_CONCEPT_NEGATIVO_{slug}" if slug else ""
-
-
-def negativo_efetivo(item: dict) -> str:
-    """Combina negativo global + por item (env/meta) sem quebrar ``spec@1..@3``."""
-    base = os.environ.get("FORGE3D_CONCEPT_NEGATIVO", NEGATIVO_PADRAO).strip()
-    extras: list[str] = []
-
-    for chave in ("negativo", "negative"):
-        val = item.get(chave)
-        if isinstance(val, str) and val.strip():
-            extras.append(val.strip())
-
-    meta = item.get("meta")
-    if isinstance(meta, dict):
-        for chave in ("negativo", "negative"):
-            val = meta.get(chave)
-            if isinstance(val, str) and val.strip():
-                extras.append(val.strip())
-
-    item_id = str(item.get("id") or "").strip()
-    if item_id:
-        mapa_raw = os.environ.get("FORGE3D_CONCEPT_NEGATIVO_MAP", "").strip()
-        if mapa_raw:
-            try:
-                mapa = json.loads(mapa_raw)
-                if isinstance(mapa, dict) and isinstance(mapa.get(item_id), str):
-                    extras.append(mapa[item_id].strip())
-            except ValueError:
-                pass
-        env_item = _chave_env_item(item_id)
-        if env_item:
-            val_env = os.environ.get(env_item, "").strip()
-            if val_env:
-                extras.append(val_env)
-
-    partes: list[str] = []
-    vistos: set[str] = set()
-    for bloco in [base, *extras]:
-        for frag in (bloco or "").split(","):
-            limpo = frag.strip()
-            if not limpo:
-                continue
-            chave = limpo.lower()
-            if chave not in vistos:
-                vistos.add(chave)
-                partes.append(limpo)
-    return ", ".join(partes)
 
 
 def modelo_escolhido() -> str:
@@ -211,94 +108,22 @@ def controlnet_disponivel() -> bool:
     return _controlnet_no_cache().is_dir()
 
 
-def _pose_env_raw() -> str:
-    return os.environ.get("FORGE3D_CONCEPT_POSE", "").strip().lower().replace("-", "")
-
-
 def resolver_pose(item: dict) -> str:
-    """Resolve ``FORGE3D_CONCEPT_POSE`` ('' | 'tpose' | 'apose' | 'auto'; default inteligente quando unset)."""
-    if "FORGE3D_CONCEPT_POSE" not in os.environ:
-        if (
-            item.get("tipo") == "personagem_humanoide"
-            and bool(item.get("auto_rig"))
-            and controlnet_disponivel()
-        ):
-            return "apose"
-        return ""
-    raw = _pose_env_raw()
-    if raw in ("", "none", "off", "0"):
-        return ""
-    if raw in ("tpose", "apose"):
-        return raw
-    if raw == "auto":
-        if item.get("tipo") == "personagem_humanoide" and controlnet_disponivel():
-            return "apose" if item.get("auto_rig") else "tpose"
-        return ""
-    raise ValueError(
-        f"FORGE3D_CONCEPT_POSE invalido: {raw!r} (use '', 'tpose', 'apose' ou 'auto')"
-    )
+    """Resolve ``FORGE3D_CONCEPT_POSE`` ('' | 'tpose' | 'apose' | 'auto')."""
+    return resolver_pose_com_estado(item, controlnet_ok=controlnet_disponivel())
 
 
 def estado_pose_cache() -> str:
     """Resumo deterministico da politica de pose ControlNet para chave de cache (D6)."""
-    cn = "cn1" if controlnet_disponivel() else "cn0"
-    if "FORGE3D_CONCEPT_POSE" not in os.environ:
-        return f"smart_{cn}"
-    raw = _pose_env_raw()
-    if raw in ("", "none", "off", "0"):
-        return "off"
-    if raw == "auto":
-        return f"auto_{cn}"
-    return raw
+    return estado_pose_cache_com_estado(controlnet_ok=controlnet_disponivel())
 
 
 def _gerar_pose_png(pose: str, destino_png: Path, largura: int, altura: int) -> Path:
-    script = script_pose_map()
-    if not script.is_file():
-        raise FileNotFoundError(f"script pose_map ausente em {script}")
-    spec = importlib.util.spec_from_file_location("forge3d_pose_map", script)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"nao foi possivel carregar {script}")
-    modulo = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modulo)
-    return modulo.gerar_pose_map(pose, destino_png, largura=largura, altura=altura)
-
-
-def _normalizar_png_real(png: Path) -> tuple[int, int, str]:
-    """Re-codifica a imagem como PNG real e devolve (largura, altura, sha256) reais (D-05).
-
-    O Gemini/Higgsfield pode devolver bytes JPEG mesmo gravando em ``concept.png``; o verify/G3
-    valida integridade PNG e um JPEG renomeado passaria hoje por engano e falharia depois. Pillow
-    e permitido no nucleo (D26); a normalizacao fica fora de ``cloud_ai.py`` (stdlib puro).
-    """
-    from PIL import Image
-    import hashlib
-
-    with Image.open(png) as img:
-        img.load()
-        largura, altura = img.size
-        if img.mode not in ("RGB", "RGBA"):
-            img = img.convert("RGBA")
-        img.save(png, format="PNG")
-    digesto = hashlib.sha256(png.read_bytes()).hexdigest()
-    return largura, altura, digesto
+    return gerar_pose_png(pose, destino_png, largura, altura, script_pose_map())
 
 
 def _vram_livre_mb() -> int | None:
-    exe = shutil.which("nvidia-smi")
-    if not exe:
-        return None
-    try:
-        saida = subprocess.run(
-            [exe, "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=20,
-        ).stdout.strip()
-        return int(saida.splitlines()[0])
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return None
+    return locks.vram_livre_mb()
 
 
 def _diagnostico() -> dict:
@@ -387,10 +212,18 @@ def preflight(item: dict | None = None) -> tuple[bool, str]:
     """Checa venv/script/CUDA/pesos (sd15) ou chave de API (gemini/higgsfield)."""
     try:
         prov = resolver_provider_conceito(item)
+        vistas = resolver_vistas(item)
     except ValueError as exc:
         return False, f"P3.5: {exc}"
 
+    if vistas == 4 and prov != "gemini":
+        return False, f"P3.5: vistas=4 exige provider 'gemini' (recebido '{prov}')"
+
     if prov == "gemini":
+        if vistas == 4:
+            modelo = str(cloud_ai.modelo_gemini_escolhido())
+            if modelo.startswith("imagen-"):
+                return False, "P3.5: vistas=4 exige modelo gemini-* (ex.: gemini-nano-banana-2.1)"
         ok, razao = cloud_ai.gemini_disponivel()
         return ok, f"gemini: {razao}" if not ok else razao
     if prov == "higgsfield":
@@ -427,6 +260,13 @@ def preflight(item: dict | None = None) -> tuple[bool, str]:
         f"pronto (SD1.5, diffusers {diagnostico.get('diffusers', '?')}, "
         f"venv {dir_venv().name})"
     )
+
+
+def _chamar_preflight(item: dict | None) -> tuple[bool, str]:
+    params = inspect.signature(preflight).parameters
+    if len(params) == 0:
+        return preflight()
+    return preflight(item)
 
 
 def montar_comando(item: dict, destino: Path) -> tuple[list[str], dict]:
@@ -526,22 +366,17 @@ class ConceptProvider:
     def custo(self, item: dict, perfil: dict) -> dict:
         try:
             prov = resolver_provider_conceito(item)
-        except ValueError:
+        except ValueError as exc:
+            print(f"[concept] aviso custo: {exc}", file=sys.stderr)
             prov = "sd15"
         if prov in ("gemini", "higgsfield"):
             return {"segundos_estimados": 8.0, "vram_mb": 0, "disco_mb": 20}
-        # [estimado] a partir do SD1.5 fp16 em 6 GB; medir na primeira execucao
         if _device().startswith("cpu"):
             return {"segundos_estimados": 180.0, "vram_mb": 0, "disco_mb": 4000}
         return {"segundos_estimados": 15.0, "vram_mb": 3000, "disco_mb": 4000}
 
     def preflight(self, item: dict | None = None) -> tuple[bool, str]:
-        if item is None:
-            return preflight()
-        try:
-            return preflight(item)
-        except TypeError:
-            return preflight()
+        return _chamar_preflight(item)
 
     def gerar(self, item: dict, destino: Path) -> dict:
         from ..errors import erro_provider_run, erro_recurso
@@ -549,13 +384,11 @@ class ConceptProvider:
 
         try:
             prov_conceito = resolver_provider_conceito(item)
+            vistas = resolver_vistas(item)
         except ValueError as exc:
             raise erro_provider_run(str(exc), id=item.get("id")) from exc
 
-        try:
-            pronto, razao = preflight(item) if prov_conceito != "sd15" else preflight()
-        except TypeError:
-            pronto, razao = preflight()
+        pronto, razao = _chamar_preflight(item)
         if not pronto:
             if "VRAM" in razao:
                 raise erro_recurso(
@@ -583,133 +416,72 @@ class ConceptProvider:
 
         destino.mkdir(parents=True, exist_ok=True)
         if prov_conceito in ("gemini", "higgsfield"):
-            sufixo = os.environ.get("FORGE3D_CONCEPT_SUFIXO", SUFIXO_PADRAO).strip()
-            efetivo = sufixo_efetivo(prompt, sufixo)
-            prompt_final = f"{prompt}, {efetivo}" if efetivo else prompt
-            negative_final = negativo_efetivo(item)
-            largura = int(os.environ.get("FORGE3D_CONCEPT_LARGURA", "512").strip() or "512")
-            altura = int(os.environ.get("FORGE3D_CONCEPT_ALTURA", "512").strip() or "512")
-            seed = int(item.get("seed", 20261110))
-            png = destino / "concept.png"
-            resultado_path = destino / "concept_resultado.json"
-            if prov_conceito == "gemini":
-                ref_png: Path | None = None
-                if ref_item:
-                    ref_png = Path(str(ref_item)).expanduser()
-                resultado = cloud_ai.gerar_conceito_gemini(
-                    prompt_final,
-                    negative_final,
-                    seed,
-                    png,
-                    largura=largura,
-                    altura=altura,
-                    item_id=item.get("id"),
-                    referencia_png=ref_png,
-                )
-            else:
-                resultado = cloud_ai.gerar_conceito_higgsfield(
-                    prompt_final,
-                    negative_final,
-                    seed,
-                    png,
-                    largura=largura,
-                    altura=altura,
-                    item_id=item.get("id"),
-                )
-            resultado["tempo_provider_s"] = resultado.get("tempo_s", 0.0)
-            resultado["versao"] = VERSAO
-            resultado["prompt_final"] = prompt_final
-            resultado["negativo"] = negative_final
-            resultado["pose"] = ""
-            largura_real, altura_real, digesto_png = _normalizar_png_real(png)
-            resultado["largura_real"] = largura_real
-            resultado["altura_real"] = altura_real
-            resultado["revisao"] = digesto_png[:12]
-            resultado_path.write_text(
-                json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
+            return concept_views.gerar_conceito_cloud(
+                item,
+                destino,
+                prov_conceito=prov_conceito,
+                versao=VERSAO,
+                cloud_ai_mod=cloud_ai,
+                normalizar_fn=_normalizar_png_real,
             )
-            return {"png": png, "meta": resultado}
+
+        if vistas == 4:
+            raise erro_provider_run(
+                "vistas=4 exige provider 'gemini'", id=item.get("id"), modelo=prov_conceito
+            )
 
         try:
             comando, info = montar_comando(item, destino)
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             raise erro_provider_run(str(exc), id=item.get("id")) from exc
 
-        png = info["png"]
-        resultado_path = info["resultado_path"]
-        if resultado_path.exists():
-            resultado_path.unlink()
-
         if info["pose"] and info["pose_png"] is not None:
-            _gerar_pose_png(
-                info["pose"], info["pose_png"], info["largura"], info["altura"]
-            )
+            _gerar_pose_png(info["pose"], info["pose_png"], info["largura"], info["altura"])
 
-        env = dict(os.environ)
-        env.setdefault("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
-        env.setdefault("PYTHONUNBUFFERED", "1")
-
-        t0 = time.monotonic()
-        try:
-            proc = subprocess.run(
-                comando, check=False, capture_output=True, text=True, timeout=TIMEOUT_S, env=env
-            )
-        except subprocess.TimeoutExpired:
-            raise erro_provider_run(
-                f"timeout de {TIMEOUT_S}s na geracao de concept", id=item.get("id")
-            ) from None
-        except OSError as exc:
-            raise erro_provider_run(
-                f"falha ao executar a venv de concept: {exc}", id=item.get("id")
-            ) from exc
-
-        if not resultado_path.is_file():
-            raise erro_provider_run(
-                "concept nao escreveu resultado.json",
-                id=item.get("id"),
-                exit=proc.returncode,
-                stderr=(proc.stderr or proc.stdout or "")[-2000:],
-            )
-        try:
-            resultado = json.loads(resultado_path.read_text(encoding="utf-8"))
-        except ValueError as exc:
-            raise erro_provider_run(f"resultado.json do concept ilegivel: {exc}") from exc
-        if not resultado.get("ok"):
-            raise erro_provider_run(
-                f"concept falhou: {resultado.get('erro')}",
-                id=item.get("id"),
-                stderr=(resultado.get("traceback") or "")[-2000:],
-            )
-        if not png.is_file():
-            raise erro_provider_run(f"concept nao produziu PNG em {destino}", id=item.get("id"))
-
-        if resultado.get("prompt_truncado"):
-            print(
-                "aviso: prompt do concept truncado de "
-                f"{resultado.get('prompt_tokens')} para "
-                f"{resultado.get('prompt_tokens_efetivo')} tokens (limite CLIP 77)",
-                file=sys.stderr,
-            )
-
-        lic = self.licenca
-        if info["pose"]:
-            cn_lic = dict(LICENCAS["sd15_openpose"])
-            lic["notice"] = f"{lic['notice'].rstrip()} {cn_lic['notice']}".strip()
-
-        resultado["provider_conceito"] = "sd15"
-        resultado["tempo_provider_s"] = round(time.monotonic() - t0, 3)
-        resultado["versao"] = VERSAO
-        resultado["licenca"] = lic
-        resultado["prompt_final"] = info["prompt_final"]
-        resultado["negativo"] = info["negative_final"]
-        resultado["pose"] = info["pose"]
-        if info["pose"]:
-            resultado["controlnet"] = info["controlnet"]
-            resultado["pose_imagem"] = str(info["pose_png"])
-        largura_real, altura_real, _digesto_png = _normalizar_png_real(png)
-        resultado["largura_real"] = largura_real
-        resultado["altura_real"] = altura_real
-        resultado_path.write_text(
-            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
+        return concept_views.gerar_conceito_sd15(
+            item,
+            destino,
+            comando=comando,
+            info=info,
+            versao=VERSAO,
+            licenca_base=self.licenca,
+            licenca_openpose=LICENCAS["sd15_openpose"],
+            timeout_s=TIMEOUT_S,
+            subprocess_mod=subprocess,
+            normalizar_fn=_normalizar_png_real,
         )
-        return {"png": png, "meta": resultado}
+
+
+__all__ = [
+    "CONTROLNET_MODELO_PADRAO",
+    "LIMITE_TOKENS_CLIP",
+    "MODELO_PADRAO",
+    "NEGATIVO_PADRAO",
+    "SUFIXO_PADRAO",
+    "SUFIXOS_VISTA_ORTOGRAFICA",
+    "TIMEOUT_S",
+    "VERSAO",
+    "VISTAS_ORTOGRAFICAS",
+    "VRAM_MINIMA_MB",
+    "ConceptProvider",
+    "_chave_env_item",
+    "_normalizar_png_real",
+    "combinar_prompt",
+    "controlnet_disponivel",
+    "controlnet_modelo_escolhido",
+    "dir_venv",
+    "escrever_metadados_concept",
+    "estado_pose_cache",
+    "estimar_tokens_clip",
+    "modelo_escolhido",
+    "montar_comando",
+    "negativo_efetivo",
+    "preflight",
+    "prompt_para_vista",
+    "resolver_pose",
+    "resolver_provider_conceito",
+    "resolver_vistas",
+    "script_inferencia",
+    "script_pose_map",
+    "sufixo_efetivo",
+]

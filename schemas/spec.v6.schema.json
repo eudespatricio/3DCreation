@@ -236,7 +236,11 @@
             "blocky",
             "import",
             "mesh",
-            "modular"
+            "modular",
+            "i23d",
+            "template",
+            "procedural",
+            "extrude_2d"
           ]
         },
         "prompt": {
@@ -328,6 +332,14 @@
           "type": "string",
           "pattern": ".*\\.(png|PNG|jpg|jpeg|webp)$",
           "description": "imagem de referencia de estilo (style sheet) para o concept via Gemini (B23); rota mesh + provider gemini/auto"
+        },
+        "vistas": {
+          "type": "integer",
+          "enum": [
+            1,
+            4
+          ],
+          "description": "numero de vistas ortograficas de concept (1 frontal ou 4: front/back/left/right)"
         },
         "colisao": {
           "enum": [
@@ -704,20 +716,173 @@
           "type": "object",
           "additionalProperties": true,
           "description": "Configuracao opcional de encaixe BVH / conformacao / recorte interno / auto-grip."
+        },
+        "partes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nome"
+            ],
+            "properties": {
+              "nome": {
+                "type": "string",
+                "minLength": 1
+              },
+              "papel": {
+                "type": "string"
+              },
+              "junta": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "rig": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "modo"
+          ],
+          "properties": {
+            "modo": {
+              "enum": [
+                "motor6d",
+                "skinned",
+                "none"
+              ]
+            },
+            "esqueleto": {
+              "type": "string"
+            }
+          }
+        },
+        "animacoes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nome"
+            ],
+            "properties": {
+              "nome": {
+                "type": "string",
+                "minLength": 1
+              },
+              "formato": {
+                "enum": [
+                  "keyframe",
+                  "glb_clip"
+                ]
+              },
+              "alvo": {
+                "enum": [
+                  "motor6d",
+                  "bones"
+                ]
+              },
+              "loop": {
+                "type": "boolean"
+              }
+            }
+          }
         }
       },
       "allOf": [
         {
-          "description": "B2: rota mesh exige seed e prompt",
+          "description": "B2: rota mesh ou procedural exige seed e prompt",
           "if": {
             "required": [
               "rota"
             ],
             "properties": {
               "rota": {
-                "const": "mesh"
+                "enum": [
+                  "mesh",
+                  "procedural"
+                ]
               }
             }
+          },
+          "then": {
+            "required": [
+              "seed",
+              "prompt"
+            ]
+          }
+        },
+        {
+          "description": "B2b: rotas i23d e extrude_2d sem origem exigem seed e prompt",
+          "if": {
+            "allOf": [
+              {
+                "required": [
+                  "rota"
+                ],
+                "properties": {
+                  "rota": {
+                    "enum": [
+                      "i23d",
+                      "extrude_2d"
+                    ]
+                  }
+                }
+              },
+              {
+                "not": {
+                  "required": [
+                    "origem"
+                  ]
+                }
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "seed",
+              "prompt"
+            ]
+          }
+        },
+        {
+          "description": "B2c: rota template sem origem/makehuman_cabelo/parte exige seed e prompt",
+          "if": {
+            "allOf": [
+              {
+                "required": [
+                  "rota"
+                ],
+                "properties": {
+                  "rota": {
+                    "const": "template"
+                  }
+                }
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "origem"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "makehuman_cabelo"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "parte"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
           },
           "then": {
             "required": [
@@ -792,7 +957,7 @@
           }
         },
         {
-          "description": "B11: 'parte' so nas rotas blocky ou mesh",
+          "description": "B11: 'parte' so nas rotas blocky, mesh ou sub-rotas visuais",
           "if": {
             "required": [
               "parte"
@@ -803,7 +968,11 @@
               "rota": {
                 "enum": [
                   "blocky",
-                  "mesh"
+                  "mesh",
+                  "i23d",
+                  "template",
+                  "procedural",
+                  "extrude_2d"
                 ]
               }
             }

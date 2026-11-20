@@ -93,13 +93,13 @@ FRACOES_CICLO = (0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0)
 
 #: Motores do `idle` com transferencia sutil de peso no quadril (LowerTorso ativo no R15).
 MOTORES_IDLE = (
-    ("quadril", 0.6, 0.0, "Z", 1, 0.0),
-    ("quadril", 0.35, 0.25, "X", 1, 0.0),
-    ("coluna", 0.8, 0.0, "X"),
-    ("tronco", 1.6, 0.0, "X"),
-    ("cabeca", -1.4, 0.12, "X"),
-    ("braco_e", 2.0, 0.25, "X"),
-    ("braco_d", 2.0, 0.75, "X"),
+    ("quadril", 2.6, 0.0, "Z", 1, 0.0),
+    ("quadril", 0.5, 0.25, "X", 1, 0.0),
+    ("coluna", 2.6, 0.0, "X"),
+    ("tronco", 2.7, 0.0, "X"),
+    ("cabeca", -2.6, 0.12, "X"),
+    ("braco_e", 2.8, 0.25, "X"),
+    ("braco_d", 2.8, 0.75, "X"),
 )
 
 #: Locomocao humana C1: bounce duplo suave em cosseno, contra-rotacao de coluna/cabeca,

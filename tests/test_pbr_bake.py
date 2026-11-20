@@ -43,7 +43,20 @@ def _rodar_blender_py(codigo: str, timeout: int = 180) -> subprocess.CompletedPr
 
 def test_bake_pbr_usa_apenas_bpy_bmesh_mathutils_e_stdlib():
     arvore = ast.parse(BAKE_PBR.read_text(encoding="utf-8"))
-    permitidos = {"__future__", "array", "math", "os", "bpy", "bmesh", "mathutils"}
+    permitidos = {
+        "__future__",
+        "array",
+        "math",
+        "os",
+        "sys",
+        "bpy",
+        "bmesh",
+        "mathutils",
+        "bake_pbr_config",
+        "bake_pbr_proj",
+        "bake_pbr_maps",
+        "bake_pbr_exec",
+    }
     encontrados: set[str] = set()
     for node in ast.walk(arvore):
         if isinstance(node, ast.Import):

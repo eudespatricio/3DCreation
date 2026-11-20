@@ -262,3 +262,80 @@ def test_godot_visual_qa_aprova_upright_e_reprova_facetada(tmp_path: Path) -> No
     assert proc_bad.returncode != 0
     assert "GODOT_VISUAL_QA_FAIL" in proc_bad.stdout
     assert "malha_organica_facetada" in proc_bad.stdout
+
+
+def test_godot_anim_check_fallback_nome_vazio_e_nao_ciclicos(tmp_path: Path) -> None:
+    godot = _godot_bin()
+    anim_check_gd = RAIZ / "tools" / "godot_anim_check.gd"
+
+    # 1. Probe direto de _extrair_manifest_loop_overrides e _loop_esperado
+    probe = tmp_path / "probe_anim_check.gd"
+    probe.write_text(
+        f"""extends SceneTree
+const AnimCheck := preload({str(anim_check_gd)!r})
+func _initialize() -> void:
+\tvar ov := AnimCheck._extrair_manifest_loop_overrides({{"animacoes": [{{"nome": "", "name": "idle", "loop": false}}]}})
+\tif ov.get("idle", -1) != Animation.LOOP_NONE:
+\t\tprinterr("FAIL ov=", ov)
+\t\tquit(1)
+\t\treturn
+\tfor c in ["slash_combo", "cast", "bite"]:
+\t\tif AnimCheck._loop_esperado(c, c, {{}}, {{}}) != Animation.LOOP_NONE:
+\t\t\tprinterr("FAIL nao_ciclico=", c)
+\t\t\tquit(1)
+\t\t\treturn
+\tif AnimCheck._loop_esperado("slash_combo", "slash_combo", {{"slash_combo": Animation.LOOP_LINEAR}}, {{}}) != Animation.LOOP_LINEAR:
+\t\tprinterr("FAIL override")
+\t\tquit(1)
+\t\treturn
+\tif AnimCheck._loop_esperado("custom_dance", "custom_dance", {{}}, {{}}) != -1:
+\t\tprinterr("FAIL custom")
+\t\tquit(1)
+\t\treturn
+\tprint("ANIM_CHECK_PROBE_OK")
+\tquit(0)
+""",
+        encoding="utf-8",
+    )
+    proc_p = subprocess.run([godot, "--headless", "--path", str(GODOT_PROJ), "--script", str(probe)], capture_output=True, text=True, timeout=30, check=False)
+    assert proc_p.returncode == 0 and "ANIM_CHECK_PROBE_OK" in proc_p.stdout, proc_p.stdout + proc_p.stderr
+
+    # 2. Execucao real de godot_anim_check.gd com {"nome": "", "name": "idle", "loop": false} + clipes nao-ciclicos
+    from tests.test_godot_addon_anim_loop import _criar_glb_clips
+
+    glb = tmp_path / "hero_anim_chk.glb"
+    _criar_glb_clips(glb, ("idle", "slash_combo", "cast", "bite"))
+    (tmp_path / "hero_anim_chk.manifest.json").write_text(
+        json.dumps({"animacoes": [{"nome": "", "name": "idle", "loop": False}]}),
+        encoding="utf-8",
+    )
+    proc_cli = subprocess.run(
+        [godot, "--headless", "--path", str(GODOT_PROJ), "--script", str(anim_check_gd), "--", str(glb)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert proc_cli.returncode == 0, proc_cli.stdout + proc_cli.stderr
+    assert "GODOT_ANIM_OK" in proc_cli.stdout
+    for c in ("slash_combo", "cast", "bite"):
+        assert f"{c} " in proc_cli.stdout and "loop=0" in proc_cli.stdout
+
+
+def test_godot_visual_qa_reprova_manifesto_malformado(tmp_path: Path) -> None:
+    godot = _godot_bin()
+    glb = tmp_path / "bad_manifest.glb"
+    shutil.copyfile(RAIZ / "tests" / "fixtures" / "personagem_upright.glb", glb)
+
+    for payload in ("{bad json", "[]"):
+        (tmp_path / "bad_manifest.manifest.json").write_text(payload, encoding="utf-8")
+        proc = subprocess.run(
+            [godot, "--headless", "--path", str(GODOT_PROJ), "--script", str(VISUAL_QA_GD), "--", str(glb)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert proc.returncode != 0
+        assert "GODOT_VISUAL_QA_FAIL" in proc.stdout
+        assert "manifesto invalido" in proc.stdout

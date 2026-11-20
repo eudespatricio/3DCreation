@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Critico deterministico de QA visual (e opcional Gemini Vision) para turntables PNG.
+"""Critico deterministico de QA visual (e opcional Gemini Vision) para turntables PNG e G15.
 
-Verifica em folhas 2x2 (``render_preview.py --turntable``) ou renders avulsos:
-1. Faixa preta / borrao na testa (``forehead_smear``): compara luminancia/cromaticidade da
-   zona superior da cabeca contra a zona das bochechas no quadrante frontal.
-2. Assimetria ou manchas nas pernas (``leg_asymmetry`` / ``leg_mottling``): compara as tiras
-   verticais das pernas esquerda e direita nos quadrantes frontal e traseiro.
-3. Silhueta e enquadramento (``silhouette_blank`` / ``silhouette_clipped``): garante cobertura
-   valida de primeiro plano sem cortes nas bordas.
-4. Opcional ``--gemini``: avaliacao multimodal com ``gemini-4-hydrogen`` via ``cloud_ai``.
+Verifica em folhas 2x2 (``render_preview.py --turntable``), renders avulsos ou pares concept->render:
+1. Faixa preta / borrao na testa (``forehead_smear``)
+2. Assimetria ou manchas nas pernas (``leg_asymmetry`` / ``leg_mottling``)
+3. Silhueta e enquadramento (``silhouette_blank`` / ``silhouette_clipped``)
+4. Fidelidade concept->3D G15 via ``--concept <path>`` (``avaliar_fidelidade_concept_3d``)
+5. Opcional ``--gemini``: avaliacao multimodal com ``gemini-4-hydrogen`` via ``cloud_ai``
 
 Uso:
     python tools/visual_qa_critic.py <turntable_png> [--json] [--gemini]
+    python tools/visual_qa_critic.py <render_png> --concept <concept_png> [--json]
 """
 
 from __future__ import annotations
@@ -29,204 +28,41 @@ RAIZ_REPO = Path(__file__).resolve().parents[1]
 if str(RAIZ_REPO / "src") not in sys.path:
     sys.path.insert(0, str(RAIZ_REPO / "src"))
 
+_TOOLS_DIR = str(Path(__file__).resolve().parent)
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
 
-def _luminancia(r: int, g: int, b: int) -> float:
-    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+from visual_qa_fidelidade import (  # noqa: E402
+    _analisar_mascara,
+    _checar_silhueta_e_enquadramento,
+    _eh_foreground,
+    _estimar_fundo_rgb,
+    _fg_by_y,
+    _luminancia,
+    _media_rgb,
+    _mediana_int,
+    _reduzir_para_analise,
+    _tem_alfa_transparente,
+    avaliar_fidelidade_concept_3d,
+    avaliar_fidelidade_g15,
+    dividir_quadrantes,
+)
 
+__all__ = [
+    "avaliar_fidelidade_concept_3d",
+    "avaliar_fidelidade_g15",
+    "avaliar_turntable_png",
+    "dividir_quadrantes",
+    "main",
+]
 
-def _mediana_int(vals: list[int]) -> int:
-    s = sorted(vals)
-    return s[len(s) // 2]
-
-
-def _estimar_fundo_rgb(quad: Image.Image) -> tuple[int, int, int]:
-    w, h = quad.size
-    px = quad.load()
-    assert px is not None
-    rs: list[int] = []
-    gs: list[int] = []
-    bs: list[int] = []
-    amostra_x = list(range(min(4, w))) + list(range(max(0, w - 4), w))
-    for y in range(min(4, h)):
-        for x in amostra_x:
-            r, g, b, _a = px[x, y]
-            rs.append(r)
-            gs.append(g)
-            bs.append(b)
-    if not rs:
-        return (0, 0, 0)
-    return (_mediana_int(rs), _mediana_int(gs), _mediana_int(bs))
-
-
-def _tem_alfa_transparente(quad: Image.Image) -> bool:
-    extrema = quad.getextrema()
-    return isinstance(extrema, tuple) and len(extrema) == 4 and extrema[3][0] < 245
-
-
-def _eh_foreground(
-    rgba: tuple[int, int, int, int],
-    bg_rgb: tuple[int, int, int],
-    usar_alfa: bool,
-) -> bool:
-    r, g, b, a = rgba
-    if usar_alfa:
-        return a > 24
-    return max(abs(r - bg_rgb[0]), abs(g - bg_rgb[1]), abs(b - bg_rgb[2])) > 20
-
-
-def _reduzir_para_analise(quad: Image.Image, max_lado: int = 400) -> Image.Image:
-    rgba = quad.convert("RGBA")
-    w, h = rgba.size
-    if max(w, h) <= max_lado:
-        return rgba
-    escala = max_lado / float(max(w, h))
-    nw = max(16, int(round(w * escala)))
-    nh = max(16, int(round(h * escala)))
-    return rgba.resize((nw, nh), Image.Resampling.BILINEAR)
-
-
-def _analisar_mascara(quad_original: Image.Image) -> dict[str, Any]:
-    orig = quad_original.convert("RGBA")
-    ow, oh = orig.size
-    usar_alfa = _tem_alfa_transparente(orig)
-    bg_orig = _estimar_fundo_rgb(orig)
-    px_orig = orig.load()
-    assert px_orig is not None
-
-    def _frac_borda(xs: range, ys: range) -> float:
-        total = 0
-        fg = 0
-        for y in ys:
-            for x in xs:
-                total += 1
-                if _eh_foreground(px_orig[x, y], bg_orig, usar_alfa):
-                    fg += 1
-        return fg / float(total) if total else 0.0
-
-    borda = 2
-    altura_sem_piso = max(1, int(oh * 0.72))
-    clip_top = _frac_borda(range(ow), range(min(borda, oh)))
-    clip_left = _frac_borda(range(min(borda, ow)), range(altura_sem_piso))
-    clip_right = _frac_borda(range(max(0, ow - borda), ow), range(altura_sem_piso))
-
-    img = _reduzir_para_analise(orig)
-    w, h = img.size
-    px = img.load()
-    assert px is not None
-    bg = _estimar_fundo_rgb(img)
-
-    estimar_fundo_por_linha = not usar_alfa and max(clip_left, clip_right) < 0.15
-
-    def _bg_linha(y: int) -> tuple[int, int, int]:
-        if y < 0 or y >= h:
-            return bg
-        rs: list[int] = []
-        gs: list[int] = []
-        bs: list[int] = []
-        for x in list(range(min(4, w))) + list(range(max(0, w - 4), w)):
-            r, g, b, _a = px[x, y]
-            rs.append(r)
-            gs.append(g)
-            bs.append(b)
-        if not rs:
-            return bg
-        return (_mediana_int(rs), _mediana_int(gs), _mediana_int(bs))
-
-    fg_coords: list[tuple[int, int, tuple[int, int, int]]] = []
-    fg_by_y: dict[int, list[tuple[int, tuple[int, int, int]]]] = {}
-    min_x, min_y = w, h
-    max_x, max_y = -1, -1
-    for y in range(h):
-        bg_row = _bg_linha(y) if estimar_fundo_por_linha else bg
-        fg_row: list[tuple[int, tuple[int, int, int]]] = []
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            if _eh_foreground((r, g, b, a), bg_row, usar_alfa):
-                fg_coords.append((x, y, (r, g, b)))
-                fg_row.append((x, (r, g, b)))
-                if x < min_x:
-                    min_x = x
-                if x > max_x:
-                    max_x = x
-                if y < min_y:
-                    min_y = y
-                if y > max_y:
-                    max_y = y
-        if fg_row:
-            fg_by_y[y] = fg_row
-
-    total = w * h
-    cobertura = len(fg_coords) / float(total) if total else 0.0
-    bbox = (min_x, min_y, max_x, max_y) if max_x >= min_x and max_y >= min_y else None
-    return {
-        "img": img,
-        "w": w,
-        "h": h,
-        "cobertura": cobertura,
-        "bbox": bbox,
-        "fg_coords": fg_coords,
-        "fg_by_y": fg_by_y,
-        "clip_top": clip_top,
-        "clip_left": clip_left,
-        "clip_right": clip_right,
-    }
-
-
-def dividir_quadrantes(img: Image.Image, layout: str = "auto") -> tuple[str, dict[str, Image.Image]]:
-    """Separa folha 2x2 (TL=front, TR=right, BL=back, BR=3/4) ou retorna render unico."""
-    rgba = img.convert("RGBA")
-    w, h = rgba.size
-    if layout == "single" or w < 32 or h < 32:
-        return "single", {"front": rgba}
-
-    if layout == "auto":
-        usar_alfa = _tem_alfa_transparente(rgba)
-        bg = _estimar_fundo_rgb(rgba)
-        px = rgba.load()
-        assert px is not None
-        mid_x = w // 2
-        mid_y = h // 2
-        hh_auto = max(1, h // 2)
-        h_sem_piso = max(1, int(hh_auto * 0.72))
-        ys_sem_piso = list(range(h_sem_piso)) + list(range(hh_auto, min(h, hh_auto + h_sem_piso)))
-
-        fg_v = sum(1 for y in ys_sem_piso if _eh_foreground(px[mid_x, y], bg, usar_alfa)) / float(len(ys_sem_piso))
-        fg_h = sum(1 for x in range(w) if _eh_foreground(px[x, mid_y], bg, usar_alfa)) / float(w)
-        if fg_v > 0.12 or fg_h > 0.12:
-            return "single", {"front": rgba}
-
-    hw, hh = w // 2, h // 2
-    return "turntable", {
-        "front": rgba.crop((0, 0, hw, hh)),
-        "right": rgba.crop((hw, 0, w, hh)),
-        "back": rgba.crop((0, hh, hw, h)),
-        "three_quarter": rgba.crop((hw, hh, w, h)),
-    }
-
-
-def _checar_silhueta_e_enquadramento(
-    nome: str,
-    info: dict[str, Any],
-) -> tuple[list[str], dict[str, Any]]:
-    defeitos: list[str] = []
-    cov = info["cobertura"]
-    clip_top = info["clip_top"]
-    clip_left = info["clip_left"]
-    clip_right = info["clip_right"]
-    if cov < 0.015:
-        defeitos.append(f"silhouette_blank ({nome}): cobertura de primeiro plano {cov:.3f} < 0.015")
-    if max(clip_top, clip_left, clip_right) > 0.15 or cov > 0.92:
-        defeitos.append(
-            f"silhouette_clipped ({nome}): recorte nas bordas "
-            f"(top={clip_top:.2f}, left={clip_left:.2f}, right={clip_right:.2f}, cov={cov:.2f})"
-        )
-    metrica = {
-        "cobertura": round(cov, 4),
-        "clip_top": round(clip_top, 4),
-        "clip_left": round(clip_left, 4),
-        "clip_right": round(clip_right, 4),
-    }
-    return defeitos, metrica
+_REEXPORTS = (
+    _eh_foreground,
+    _estimar_fundo_rgb,
+    _mediana_int,
+    _reduzir_para_analise,
+    _tem_alfa_transparente,
+)
 
 
 def _checar_testa_manchada(info_front: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
@@ -260,8 +96,8 @@ def _checar_testa_manchada(info_front: dict[str, Any]) -> tuple[list[str], dict[
     lum_b = sum(lums_b) / len(lums_b)
     frac_preta = sum(1 for v in lums_t if v < 0.10) / float(len(lums_t))
 
-    mean_t = tuple(sum(p[c] for p in testa_px) / (255.0 * len(testa_px)) for c in range(3))
-    mean_b = tuple(sum(p[c] for p in bochecha_px) / (255.0 * len(bochecha_px)) for c in range(3))
+    mean_t = _media_rgb(testa_px)
+    mean_b = _media_rgb(bochecha_px)
     chrom_delta = math.sqrt(sum((a - b) ** 2 for a, b in zip(mean_t, mean_b)))
     lum_delta = lum_b - lum_t
 
@@ -283,12 +119,10 @@ def _checar_testa_manchada(info_front: dict[str, Any]) -> tuple[list[str], dict[
 
 
 def _stats_tira(pixels: list[tuple[int, int, int]]) -> tuple[tuple[float, float, float], float]:
+    if not pixels:
+        return (0.0, 0.0, 0.0), 0.0
     n = float(len(pixels))
-    mean_rgb = (
-        sum(p[0] for p in pixels) / (255.0 * n),
-        sum(p[1] for p in pixels) / (255.0 * n),
-        sum(p[2] for p in pixels) / (255.0 * n),
-    )
+    mean_rgb = _media_rgb(pixels)
     lums = [_luminancia(*p) for p in pixels]
     mean_lum = sum(lums) / n
     var_lum = sum((v - mean_lum) ** 2 for v in lums) / n
@@ -355,15 +189,7 @@ def _checar_intrusao_botas(nome: str, info: dict[str, Any]) -> tuple[list[str], 
     fh = max(1, fy1 - fy0 + 1)
     cx = (fx0 + fx1) / 2.0
     h_img = info["h"]
-
-    fg_by_y_raw = info.get("fg_by_y")
-    fg_by_y: dict[int, list[tuple[int, tuple[int, int, int]]]]
-    if fg_by_y_raw is None:
-        fg_by_y = {}
-        for x, y, rgb in info["fg_coords"]:
-            fg_by_y.setdefault(y, []).append((x, rgb))
-    else:
-        fg_by_y = fg_by_y_raw
+    fg_by_y = _fg_by_y(info)
 
     zonas = {
         "upper": (fy0 + 0.58 * fh, fy0 + 0.70 * fh),
@@ -460,15 +286,7 @@ def _checar_continuidade_torso(info_front: dict[str, Any]) -> tuple[list[str], d
     fh = max(1, fy1 - fy0 + 1)
     cx = (fx0 + fx1) / 2.0
     h_img = info_front["h"]
-
-    fg_by_y_raw = info_front.get("fg_by_y")
-    fg_by_y: dict[int, list[tuple[int, tuple[int, int, int]]]]
-    if fg_by_y_raw is None:
-        fg_by_y = {}
-        for x, y, rgb in info_front["fg_coords"]:
-            fg_by_y.setdefault(y, []).append((x, rgb))
-    else:
-        fg_by_y = fg_by_y_raw
+    fg_by_y = _fg_by_y(info_front)
 
     upper_y0, upper_y1 = fy0 + 0.22 * fh, fy0 + 0.33 * fh
     lower_y0, lower_y1 = fy0 + 0.36 * fh, fy0 + 0.47 * fh
@@ -508,19 +326,12 @@ def _checar_continuidade_torso(info_front: dict[str, Any]) -> tuple[list[str], d
             "chrom_delta": 0.0,
         }
 
-    def _media_rgb(pixels: list[tuple[int, int, int]]) -> tuple[float, float, float]:
-        n = len(pixels)
-        return (
-            sum(p[0] for p in pixels) / (255.0 * n),
-            sum(p[1] for p in pixels) / (255.0 * n),
-            sum(p[2] for p in pixels) / (255.0 * n),
-        )
-
     mean_upper = _media_rgb(upper_pixels)
     mean_lower = _media_rgb(lower_pixels)
     chrom_delta = math.sqrt(sum((a - b) ** 2 for a, b in zip(mean_upper, mean_lower)))
     upper_grad = sum(upper_grads) / n_pares_upper
     lower_grad = sum(lower_grads) / n_pares_lower
+    ratio = (lower_grad / upper_grad) if upper_grad > 0.0 else 0.0
 
     if chrom_delta >= 0.16 or upper_grad < 0.007:
         return [], {
@@ -529,11 +340,10 @@ def _checar_continuidade_torso(info_front: dict[str, Any]) -> tuple[list[str], d
             "n_pares_inferior": n_pares_lower,
             "upper_grad": round(upper_grad, 4),
             "lower_grad": round(lower_grad, 4),
-            "ratio": round(lower_grad / upper_grad, 4),
+            "ratio": round(ratio, 4),
             "chrom_delta": round(chrom_delta, 4),
         }
 
-    ratio = lower_grad / upper_grad
     defeitos: list[str] = []
     if ratio < 0.32:
         defeitos.append(
@@ -628,6 +438,7 @@ def avaliar_turntable_png(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Critico deterministico de QA visual em PNG")
     parser.add_argument("turntable_png", type=Path, help="Caminho para o PNG turntable 2x2 ou render")
+    parser.add_argument("--concept", type=Path, default=None, help="PNG do concept 2D para fidelidade G15")
     parser.add_argument("--json", action="store_true", dest="em_json", help="Imprime saida em JSON")
     parser.add_argument("--gemini", action="store_true", help="Executa rubrica complementar gemini-4-hydrogen")
     parser.add_argument("--context", default="", help="Contexto opcional enviado ao avaliador Gemini")
@@ -640,13 +451,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        relatorio = avaliar_turntable_png(
-            args.turntable_png,
-            usar_gemini=args.gemini,
-            contexto=args.context,
-            layout=args.layout,
-        )
-    except Exception as exc:
+        if args.concept is not None:
+            relatorio = avaliar_fidelidade_concept_3d(args.concept, args.turntable_png)
+        else:
+            relatorio = avaliar_turntable_png(
+                args.turntable_png,
+                usar_gemini=args.gemini,
+                contexto=args.context,
+                layout=args.layout,
+            )
+    except Exception as exc:  # noqa: BLE001 - erro reportado em JSON/stderr com codigo 2
         if args.em_json:
             print(json.dumps({"ok": False, "aprovado": False, "erro": str(exc)}, ensure_ascii=False))
         else:
@@ -657,13 +471,19 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(relatorio, indent=2, ensure_ascii=False))
     else:
         status = "PASS" if relatorio["aprovado"] else "FAIL"
-        print(f"[{status}] {relatorio['arquivo']} (layout={relatorio['layout']})")
+        if "layout" in relatorio:
+            print(f"[{status}] {relatorio['arquivo']} (layout={relatorio['layout']})")
+        else:
+            print(
+                f"[{status}] {relatorio['render']} vs {relatorio['concept']} "
+                f"(iou={relatorio['iou_silhueta']:.3f}, score={relatorio['score']:.3f})"
+            )
         if relatorio["defeitos"]:
             for d in relatorio["defeitos"]:
                 print(f"  - {d}")
         else:
             print("  - Nenhum defeito visual detectado.")
-        if relatorio["gemini"]:
+        if relatorio.get("gemini"):
             g = relatorio["gemini"]
             print(f"  - Gemini ({g['modelo']}): nota={g['nota']:.1f}, aprovado={g['aprovado']}")
 

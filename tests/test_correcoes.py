@@ -207,3 +207,98 @@ def test_prompt_longo_e_truncado_no_limite_do_clip():
     assert antes == 120
     assert depois == mod.LIMITE_TOKENS_CLIP
     assert len(texto.split()) == mod.LIMITE_TOKENS_CLIP
+
+
+# ------------------------------------------------------------------ mapa_setor sem altura_metros
+
+def test_montar_manifesto_emite_tipo_e_verify_aceita_mapa_setor_sem_altura(tmp_path: Path) -> None:
+    from forge3d import profiles, qc
+    from tests.test_qc_v3 import _construir_esfera_glb, _empacotar_glb
+
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    gltf_s, bin_s = _construir_esfera_glb(flat_shaded=False, altura_m=1.80)
+    glb = dest / "setor.glb"
+    glb.write_bytes(_empacotar_glb(gltf_s, bin_s))
+
+    item = {
+        "id": "setor.01",
+        "tipo": "mapa_setor",
+        "rota": "import",
+        "pivot": "base",
+        "limite_triangulos": 5000,
+        "colisao": "none",
+    }
+    res = {
+        "arquivos": [{"caminho": "setor.glb", "papel": "mesh", "nivel": 0, "triangulos": 352, "sha256": sha256_arquivo(glb), "bytes": glb.stat().st_size}],
+        "licenca": {"modelo": "CC0", "uso_comercial": True},
+        "determinism": "D1",
+    }
+    rel_qc = qc.verificar(item, profiles.carregar("godot4"), dest, res)
+    assert rel_qc["aprovado"] is True
+    man = publish.montar_manifesto(
+        item=item,
+        spec_doc={"projeto": "demo", "perfil": "godot4", "_arquivo": "lote.yaml"},
+        spec_hash="sha256:" + "0" * 64,
+        perfil_nome="godot4",
+        provider={"nome": "import", "versao": "1.0", "determinism": "D1"},
+        resultado=res,
+        relatorio_qc=rel_qc,
+        licenca={"modelo": "CC0", "uso_comercial": True, "notice": "proprio"},
+        run_id="run-setor",
+    )
+    assert man["tipo"] == "mapa_setor"
+    (dest / "setor.01.manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    assert publish.verificar(dest)["ok"] is True
+
+    # Manifesto adulterado (nao-mapa_setor com esperado_m=None) continua rejeitado pelo verify
+    man_adulterado = json.loads(json.dumps(man))
+    man_adulterado["tipo"] = "prop_estatico"
+    (dest / "setor.01.manifest.json").write_text(json.dumps(man_adulterado), encoding="utf-8")
+    rel_bad = publish.verificar(dest)
+    assert rel_bad["ok"] is False
+    assert any("G2/G9" in (e.get("erro") or "") for e in rel_bad["erros"])
+
+
+def test_cli_run_e_verify_mapa_setor_sem_altura_import_e_blocky(tmp_path: Path, monkeypatch) -> None:
+    import yaml
+    from forge3d import config
+    from forge3d.cli.main import main
+    from tests.test_qc_v3 import _construir_esfera_glb, _empacotar_glb
+
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "fhome"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "fcfg"))
+    dest = tmp_path / "saida_setor"
+    dest.mkdir()
+    config.adicionar(dest)
+
+    gltf_s, bin_s = _construir_esfera_glb(flat_shaded=False, altura_m=2.0)
+    origem_glb = tmp_path / "origem_setor.glb"
+    origem_glb.write_bytes(_empacotar_glb(gltf_s, bin_s))
+
+    spec_yaml = tmp_path / "lote_setor.yaml"
+    spec_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "schema": "forge3d/spec@6",
+                "projeto": "demo_setor",
+                "perfil": "godot4",
+                "estilo_global": "blocky_voxel",
+                "destino_exportacao": str(dest),
+                "lote": [
+                    {"id": "mapa.imp.01", "tipo": "mapa_setor", "rota": "import", "origem": str(origem_glb), "pivot": "centro"},
+                    {"id": "mapa.blk.01", "tipo": "mapa_setor", "rota": "blocky", "prompt": "patio pedra"},
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    assert main(["run", str(spec_yaml), "--json"]) == 0
+    assert main(["verify", str(dest), "--json"]) == 0
+    assert main(["verify", str(dest), "--only=escala,pivo", "--json"]) == 0
+    man_imp = json.loads((dest / "mapa.imp.01.manifest.json").read_text(encoding="utf-8"))
+    assert man_imp["tipo"] == "mapa_setor"
+    g2_imp = {g["id"]: g for g in man_imp["qc"]["gates"]}["G2"]
+    assert g2_imp["medido"]["esperado_m"] is None
+    assert (dest / "mapa.blk.01.manifest.json").is_file()

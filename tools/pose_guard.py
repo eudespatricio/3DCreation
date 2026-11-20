@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import statistics
+import sys
 import traceback
 from collections import deque
 from pathlib import Path
@@ -398,6 +399,7 @@ def decompor_silhueta_arma(imagem_path: str | Path, saida_png: str | Path) -> di
     metodo = "alpha"
     recorte = rgba
     usou_rembg = False
+    rembg_avisos: list[str] = []
 
     if era_opaca:
         try:
@@ -407,13 +409,21 @@ def decompor_silhueta_arma(imagem_path: str | Path, saida_png: str | Path) -> di
             try:
                 sessao = rembg.new_session(rembg_modelo)
                 metodo = f"rembg:{rembg_modelo}"
-            except Exception:  # noqa: BLE001 - fallback offline para u2net em cache
+            except (OSError, RuntimeError, ImportError, LookupError, ValueError) as exc:
+                if rembg_modelo == "u2net" or "No session class found" in str(exc):
+                    raise
+                msg_u2 = f"rembg '{rembg_modelo}' falhou ({type(exc).__name__}: {exc}); fallback u2net"
+                rembg_avisos.append(msg_u2)
+                print(f"[pose_guard] aviso {msg_u2}", file=sys.stderr)
                 sessao = rembg.new_session("u2net")
                 metodo = "rembg:u2net"
             recorte = rembg.remove(rgba, session=sessao).convert("RGBA")
             usou_rembg = True
-        except Exception:  # noqa: BLE001 - ambiente sem rembg/rede cai no GrabCut/contraste
+        except (ImportError, OSError, RuntimeError, ValueError, AttributeError) as exc:
             usou_rembg = False
+            msg_local = f"rembg indisponivel ({type(exc).__name__}: {exc}); fallback recorte local"
+            rembg_avisos.append(msg_local)
+            print(f"[pose_guard] aviso {msg_local}", file=sys.stderr)
 
         if not usou_rembg:
             if _TEM_CV2:
@@ -483,6 +493,7 @@ def decompor_silhueta_arma(imagem_path: str | Path, saida_png: str | Path) -> di
         "altura": recorte.height,
         "area_fg": round(opacos / total, 4),
         "metodo": metodo,
+        **({"avisos": rembg_avisos} if rembg_avisos else {}),
     }
 
 

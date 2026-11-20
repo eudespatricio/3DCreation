@@ -31,37 +31,56 @@ def _glb_bytes(
     verts: list[tuple[float, float, float]] | None = None,
     tris: list[tuple[int, int, int]] | None = None,
     uvs: list[tuple[float, float]] | None = None,
-    png_wh: tuple[int, int] = (8, 8),
+    png_wh: tuple[int, int] = (32, 32),
     materiais: list[dict] | None = None,
     ossos: list[str] | None = None,
     pesos_skin: list[tuple[float, float, float, float]] | None = None,
     no_nome: str = "Asset",
     com_uv: bool = True,
 ) -> bytes:
-    # Cubo fechado valido (8 vertices, 12 triangulos, centro XZ=(0,0), Y=[0,1])
-    if verts is None:
-        verts = [
-            (-0.5, 0.0, -0.5),
-            (0.5, 0.0, -0.5),
-            (0.5, 1.0, -0.5),
-            (-0.5, 1.0, -0.5),
-            (-0.5, 0.0, 0.5),
-            (0.5, 0.0, 0.5),
-            (0.5, 1.0, 0.5),
-            (-0.5, 1.0, 0.5),
+    # Cubo fechado valido com UVs disjuntas 3x2 por face (24 vertices, 12 triangulos)
+    if verts is None and tris is None and uvs is None and pesos_skin is None:
+        faces = [
+            [(-0.5, 0.0, -0.5), (-0.5, 1.0, -0.5), (0.5, 1.0, -0.5), (0.5, 0.0, -0.5)],
+            [(-0.5, 0.0, 0.5), (0.5, 0.0, 0.5), (0.5, 1.0, 0.5), (-0.5, 1.0, 0.5)],
+            [(-0.5, 0.0, -0.5), (0.5, 0.0, -0.5), (0.5, 0.0, 0.5), (-0.5, 0.0, 0.5)],
+            [(-0.5, 1.0, -0.5), (-0.5, 1.0, 0.5), (0.5, 1.0, 0.5), (0.5, 1.0, -0.5)],
+            [(-0.5, 0.0, -0.5), (-0.5, 0.0, 0.5), (-0.5, 1.0, 0.5), (-0.5, 1.0, -0.5)],
+            [(0.5, 0.0, -0.5), (0.5, 1.0, -0.5), (0.5, 1.0, 0.5), (0.5, 0.0, 0.5)],
         ]
-    if tris is None:
-        tris = [
-            (0, 2, 1), (0, 3, 2),
-            (4, 5, 6), (4, 6, 7),
-            (0, 1, 5), (0, 5, 4),
-            (2, 3, 7), (2, 7, 6),
-            (0, 4, 7), (0, 7, 3),
-            (1, 2, 6), (1, 6, 5),
-        ]
-    if uvs is None:
-        padrao_uv = [(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)]
-        uvs = [padrao_uv[i % 4] for i in range(len(verts))]
+        verts, tris, uvs = [], [], []
+        du, dv = 0.9 / 3.0, 0.9 / 2.0
+        p = 0.02
+        for k, q in enumerate(faces):
+            b = len(verts)
+            verts.extend(q)
+            tris.extend([(b, b + 1, b + 2), (b, b + 2, b + 3)])
+            cu, cv = 0.05 + (k % 3) * du, 0.05 + (k // 3) * dv
+            uvs.extend([(cu + p, cv + p), (cu + du - p, cv + p), (cu + du - p, cv + dv - p), (cu + p, cv + dv - p)])
+    else:
+        if verts is None:
+            verts = [
+                (-0.5, 0.0, -0.5),
+                (0.5, 0.0, -0.5),
+                (0.5, 1.0, -0.5),
+                (-0.5, 1.0, -0.5),
+                (-0.5, 0.0, 0.5),
+                (0.5, 0.0, 0.5),
+                (0.5, 1.0, 0.5),
+                (-0.5, 1.0, 0.5),
+            ]
+        if tris is None:
+            tris = [
+                (0, 2, 1), (0, 3, 2),
+                (4, 5, 6), (4, 6, 7),
+                (0, 1, 5), (0, 5, 4),
+                (2, 3, 7), (2, 7, 6),
+                (0, 4, 7), (0, 7, 3),
+                (1, 2, 6), (1, 6, 5),
+            ]
+        if uvs is None:
+            padrao_uv = [(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)]
+            uvs = [padrao_uv[i % 4] for i in range(len(verts))]
 
     buf = bytearray()
 
@@ -124,8 +143,10 @@ def _glb_bytes(
     skins = []
     if ossos:
         j_off = len(buf)
-        for _ in range(len(verts)):
-            buf.extend(struct.pack("<BBBB", 0, 0, 0, 0))
+        n_nao_raiz = max(1, len(ossos) - 1)
+        for vi in range(len(verts)):
+            j0 = 1 + (vi % n_nao_raiz) if len(ossos) >= 2 else 0
+            buf.extend(struct.pack("<BBBB", j0, 0, 0, 0))
         j_len = len(buf) - j_off
         w_off = len(buf)
         pesos_v = pesos_skin if pesos_skin is not None else [(1.0, 0.0, 0.0, 0.0)] * len(verts)
@@ -512,9 +533,23 @@ def test_qc_v2_g1_invertidas_g3_uv_e_g4_crc_webp(tmp_path):
 
     d_g3t = tmp_path / "g3_tile"
     d_g3t.mkdir()
+    faces_t = [
+        [(-0.5, 0.0, -0.5), (-0.5, 1.0, -0.5), (0.5, 1.0, -0.5), (0.5, 0.0, -0.5)],
+        [(-0.5, 0.0, 0.5), (0.5, 0.0, 0.5), (0.5, 1.0, 0.5), (-0.5, 1.0, 0.5)],
+        [(-0.5, 0.0, -0.5), (0.5, 0.0, -0.5), (0.5, 0.0, 0.5), (-0.5, 0.0, 0.5)],
+        [(-0.5, 1.0, -0.5), (-0.5, 1.0, 0.5), (0.5, 1.0, 0.5), (0.5, 1.0, -0.5)],
+        [(-0.5, 0.0, -0.5), (-0.5, 0.0, 0.5), (-0.5, 1.0, 0.5), (-0.5, 1.0, -0.5)],
+        [(0.5, 0.0, -0.5), (0.5, 1.0, -0.5), (0.5, 1.0, 0.5), (0.5, 0.0, 0.5)],
+    ]
+    verts_t, tris_t, uvs_t = [], [], []
+    for q in faces_t:
+        b = len(verts_t)
+        verts_t.extend(q)
+        tris_t.extend([(b, b + 1, b + 2), (b, b + 2, b + 3)])
+        uvs_t.extend([(0.1, 0.1), (2.4, 0.1), (2.4, 2.4), (0.1, 2.4)])
     rel_tile = _rodar_qc(
         d_g3t,
-        _glb_bytes(uvs=[(0.1, 0.1), (2.4, 0.1), (2.4, 2.4), (0.1, 2.4)] * 2),
+        _glb_bytes(verts=verts_t, tris=tris_t, uvs=uvs_t),
         item_extra={"permitir_tiling": True},
     )
     assert _gate(rel_tile, "G3")["status"] == "ok"
@@ -532,7 +567,7 @@ def test_qc_v2_g1_invertidas_g3_uv_e_g4_crc_webp(tmp_path):
 
     d_webp = tmp_path / "g4_webp"
     d_webp.mkdir()
-    Image.new("RGBA", (8, 8), (120, 40, 20, 255)).save(d_webp / "m_albedo.webp", format="WEBP")
+    Image.new("RGBA", (32, 32), (120, 40, 20, 255)).save(d_webp / "m_albedo.webp", format="WEBP")
     (d_webp / "m.glb").write_bytes(_glb_bytes(materiais=[{"name": "m0", "pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1]}}]))
     rel_webp = qc.verificar(
         {"id": "prop.webp.01", "altura_metros": 1.0, "pivot": "base", "limite_triangulos": 500, "colisao": "none"},
@@ -763,7 +798,15 @@ def test_qc_g2_orientacao_reprova_desvios_e_aprova_rig_valido(tmp_path):
         (-0.2, 0.15, -0.07), (0.2, 0.15, -0.07), (0.2, 1.0, -0.07), (-0.2, 1.0, -0.07),
         (-0.2, 0.15, 0.045), (0.2, 0.15, 0.045), (0.2, 1.0, 0.045), (-0.2, 1.0, 0.045),
     ]
-    rel_amb = _rodar_qc(d_mesh_amb, _glb_bytes(verts=verts_amb, tris=tris_2), item_extra={"tipo": "personagem_humanoide"})
+    rel_amb = _rodar_qc(
+        d_mesh_amb,
+        _glb_bytes(
+            verts=verts_amb,
+            tris=tris_2,
+            materiais=[{"name": "m0", "pbrMetallicRoughness": {"baseColorFactor": [0.8, 0.8, 0.8, 1.0]}}],
+        ),
+        item_extra={"tipo": "personagem_humanoide"},
+    )
     g2_amb = _gate(rel_amb, "G2")
     assert rel_amb["aprovado"] is True, rel_amb
     assert g2_amb["status"] == "warn", g2_amb

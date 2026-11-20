@@ -420,3 +420,33 @@ def test_g10_v2_continuidade_loop_e_movimento_multi_osso() -> None:
     assert clipes["walk"]["loop_delta_rad"] > 0.35
     assert clipes["gallop"]["loop_fechado"] is True
     assert clipes["gallop"]["loop_delta_rad"] == pytest.approx(0.0, abs=1e-5)
+
+
+def test_g2_mapa_setor_sem_altura_metros_e_nao_isento_falha(tmp_path: Path) -> None:
+    gltf_s, bin_s = _construir_esfera_glb(flat_shaded=False, altura_m=1.80)
+    p_glb = tmp_path / "setor.glb"
+    p_glb.write_bytes(_empacotar_glb(gltf_s, bin_s))
+    res = {"arquivos": [{"caminho": "setor.glb", "papel": "mesh"}], "licenca": {"modelo": "CC0", "uso_comercial": True}}
+
+    # mapa_setor sem altura_metros passa G2 (esperado_m=None) e continua cobrando pivo (I8)
+    item_setor = {"id": "setor.01", "tipo": "mapa_setor", "rota": "import", "pivot": "base", "limite_triangulos": 5000, "colisao": "none"}
+    rel_ok = qc.verificar(item_setor, GODOT, tmp_path, res)
+    g2_ok = {g["id"]: g for g in rel_ok["gates"]}["G2"]
+    assert rel_ok["aprovado"] is True
+    assert g2_ok["status"] == "ok" and g2_ok["medido"]["esperado_m"] is None
+
+    # mapa_setor com pivo errado ("centro" em malha apoiada no chao) ainda reprova G2
+    rel_pivo = qc.verificar({**item_setor, "pivot": "centro"}, GODOT, tmp_path, res)
+    g2_pivo = {g["id"]: g for g in rel_pivo["gates"]}["G2"]
+    assert rel_pivo["aprovado"] is False and g2_pivo["codigo"] == "FORGE-E-QC"
+
+    # mapa_setor COM altura_metros declarada continua aplicando I8
+    rel_i8 = qc.verificar({**item_setor, "altura_metros": 4.0}, GODOT, tmp_path, res)
+    assert rel_i8["aprovado"] is False
+    assert {g["id"]: g for g in rel_i8["gates"]}["G2"]["codigo"] == "FORGE-E-QC"
+
+    # prop_estatico nao e isento de altura_metros -> G2 reprova com FORGE-E-QC
+    item_prop = {"id": "prop.01", "tipo": "prop_estatico", "rota": "import", "pivot": "base", "limite_triangulos": 5000, "colisao": "none"}
+    rel_prop = qc.verificar(item_prop, GODOT, tmp_path, res)
+    g2_prop = {g["id"]: g for g in rel_prop["gates"]}["G2"]
+    assert rel_prop["aprovado"] is False and g2_prop["status"] == "falhou" and g2_prop["codigo"] == "FORGE-E-QC"

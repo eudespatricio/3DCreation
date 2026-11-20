@@ -41,12 +41,18 @@ def _executar_worker_blender(job_in_path: Path, job_out_path: Path) -> int:
         sys.path.insert(0, dir_blender)
 
     smart_fit_mod: Any = None
+    smart_fit_erro: str | None = None
     try:
         import smart_fit as _sf  # type: ignore[import-not-found]
 
         smart_fit_mod = _sf
-    except Exception:
+    except (ImportError, RuntimeError) as exc:
         smart_fit_mod = None
+        smart_fit_erro = f"{type(exc).__name__}: {exc}"
+        print(
+            f"[kitbash_composer] aviso smart_fit indisponivel ({smart_fit_erro}); usando fallback BVH",
+            file=sys.stderr,
+        )
 
     job = json.loads(job_in_path.read_text(encoding="utf-8"))
     out_glb = Path(job["out_glb"])
@@ -235,6 +241,7 @@ def _executar_worker_blender(job_in_path: Path, job_out_path: Path) -> int:
                 alvo_obj = alvo_base
 
             usou_smart_fit = False
+            snap_fallback_motivo: str | None = smart_fit_erro
             if smart_fit_mod is not None and hasattr(smart_fit_mod, "encaixar_contato_bvh"):
                 try:
                     _aplicar_transformacao_malha(peca_obj)
@@ -267,10 +274,18 @@ def _executar_worker_blender(job_in_path: Path, job_out_path: Path) -> int:
                     _aplicar_transformacao_malha(peca_obj)
                     info_snap = res_sf if isinstance(res_sf, dict) else {"metodo": "smart_fit", "folga_m": folga_m}
                     usou_smart_fit = True
-                except Exception:
+                except (RuntimeError, ValueError, TypeError, AttributeError, ZeroDivisionError) as exc:
                     usou_smart_fit = False
+                    snap_fallback_motivo = f"{type(exc).__name__}: {exc}"
+                    print(
+                        f"[kitbash_composer] aviso smart_fit.encaixar_contato_bvh falhou para {pid} "
+                        f"({snap_fallback_motivo}); usando fallback BVH",
+                        file=sys.stderr,
+                    )
             if not usou_smart_fit:
                 info_snap = _encaixar_bvh_fallback(peca_obj, alvo_obj, direcao=direcao, folga_m=folga_m)
+                if snap_fallback_motivo:
+                    info_snap["smart_fit_erro"] = snap_fallback_motivo
 
         objetos_por_id[pid] = peca_obj
         ordem_objetos.append(peca_obj)
@@ -336,10 +351,19 @@ def _executar_worker_blender(job_in_path: Path, job_out_path: Path) -> int:
         try:
             res_grip = smart_fit_mod.auto_grip_cilindrico(obj_final)
             grip_info = res_grip if isinstance(res_grip, dict) else _auto_grip_fallback(obj_final)
-        except Exception:
+        except (RuntimeError, ValueError, TypeError, AttributeError, ZeroDivisionError) as exc:
+            motivo_grip = f"{type(exc).__name__}: {exc}"
+            print(
+                f"[kitbash_composer] aviso smart_fit.auto_grip_cilindrico falhou ({motivo_grip}); "
+                "usando _auto_grip_fallback",
+                file=sys.stderr,
+            )
             grip_info = _auto_grip_fallback(obj_final)
+            grip_info["fallback_motivo"] = motivo_grip
     else:
         grip_info = _auto_grip_fallback(obj_final)
+        if smart_fit_erro:
+            grip_info["fallback_motivo"] = smart_fit_erro
 
     out_glb.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.export_scene.gltf(

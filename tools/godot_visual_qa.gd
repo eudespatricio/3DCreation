@@ -39,7 +39,7 @@ func _fail(msg: String, cena: Node = null) -> void:
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.is_empty():
-		_fail("uso: godot --headless --path tools/godot_project --script tools/godot_visual_qa.gd -- <glb> [more_glbs...]")
+		_fail("uso: godot --headless --path tools/godot_project --script \"$PWD/tools/godot_visual_qa.gd\" -- <glb> [more_glbs...]")
 		return
 
 	var resumos: Array[String] = []
@@ -74,9 +74,32 @@ func _validar_glb(caminho: String) -> String:
 	var manifest_path := caminho.get_basename() + ".manifest.json"
 	var manifesto: Dictionary = {}
 	if FileAccess.file_exists(manifest_path):
-		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(manifest_path))
-		if typeof(parsed) == TYPE_DICTIONARY:
-			manifesto = parsed
+		var json := JSON.new()
+		if json.parse(FileAccess.get_file_as_string(manifest_path)) != OK or typeof(json.data) != TYPE_DICTIONARY:
+			_fail("manifesto invalido (%s): %s" % [manifest_path, json.get_error_message()], cena)
+			return ""
+		manifesto = json.data
+
+	var tem_orm_irmao := FileAccess.file_exists(caminho.get_basename() + "_orm.png")
+	if manifesto.is_empty() and not tem_orm_irmao and not cena.has_meta("forge3d_manifest"):
+		for mnode in cena.find_children("*", "MeshInstance3D", true, false):
+			var mi := mnode as MeshInstance3D
+			if mi == null or mi.mesh == null:
+				continue
+			for s in range(mi.mesh.get_surface_count()):
+				var mat: Material = mi.get_surface_override_material(s)
+				if mat == null:
+					mat = mi.mesh.surface_get_material(s)
+				if mat is BaseMaterial3D:
+					var bm := mat as BaseMaterial3D
+					var has_orm := (
+						(bm is ORMMaterial3D and (bm as ORMMaterial3D).orm_texture != null)
+						or bm.metallic_texture != null
+						or bm.roughness_texture != null
+					)
+					if not has_orm and is_equal_approx(bm.metallic, 1.0) and is_equal_approx(bm.roughness, 1.0):
+						_fail("PBR clampado em metallic=1.0/roughness=1.0 sem textura ORM em %s" % caminho, cena)
+						return ""
 
 	if not cena.has_meta("forge3d_manifest") and cena.find_children("Socket_*", "Marker3D", true, false).is_empty():
 		PostImport.aplicar(cena, caminho)
@@ -113,16 +136,21 @@ func _validar_glb(caminho: String) -> String:
 			var mat: Material = mi.get_surface_override_material(s)
 			if mat == null:
 				mat = mesh.surface_get_material(s)
-			if mat != null and mat is StandardMaterial3D:
-				var smat := mat as StandardMaterial3D
-				if smat.roughness < 0.0 or smat.roughness > 1.0 or smat.metallic < 0.0 or smat.metallic > 1.0:
-					_fail("PBR fora de [0,1] em %s: metallic=%.3f roughness=%.3f" % [caminho, smat.metallic, smat.roughness], cena)
+			if mat != null and mat is BaseMaterial3D:
+				var bmat := mat as BaseMaterial3D
+				if bmat.roughness < 0.0 or bmat.roughness > 1.0 or bmat.metallic < 0.0 or bmat.metallic > 1.0:
+					_fail("PBR fora de [0,1] em %s: metallic=%.3f roughness=%.3f" % [caminho, bmat.metallic, bmat.roughness], cena)
 					return ""
-				if smat.metallic_texture == null and smat.roughness_texture == null:
-					if is_equal_approx(smat.metallic, 1.0) and is_equal_approx(smat.roughness, 1.0):
+				var tem_orm := (
+					(bmat is ORMMaterial3D and (bmat as ORMMaterial3D).orm_texture != null)
+					or bmat.metallic_texture != null
+					or bmat.roughness_texture != null
+				)
+				if not tem_orm:
+					if is_equal_approx(bmat.metallic, 1.0) and is_equal_approx(bmat.roughness, 1.0):
 						_fail("PBR clampado em metallic=1.0/roughness=1.0 sem textura ORM em %s" % caminho, cena)
 						return ""
-				if smat.normal_texture != null and not smat.normal_enabled:
+				if bmat.normal_texture != null and not bmat.normal_enabled:
 					_fail("normal_texture presente mas normal_enabled=false em %s" % caminho, cena)
 					return ""
 
@@ -219,31 +247,70 @@ func _validar_glb(caminho: String) -> String:
 			return ""
 
 	# 3. Inspeciona AnimationPlayer e playback de tracks
+	var err_anim := _validar_animacoes_cena(cena, caminho, manifesto)
+	if err_anim != "":
+		_fail(err_anim, cena)
+		return ""
 	var players := cena.find_children("*", "AnimationPlayer", true, false)
 	var anims_count := 0
 	if not players.is_empty():
-		var player := players[0] as AnimationPlayer
-		var lista := player.get_animation_list()
-		anims_count = lista.size()
-		for nome in lista:
-			var anim := player.get_animation(nome)
-			if anim == null or anim.length <= 0.2 or anim.get_track_count() < 1:
-				_fail("animacao '%s' invalida em %s" % [nome, caminho], cena)
-				return ""
-			var nome_limpo := str(nome).to_lower()
-			if nome_limpo in CLIPES_CICLICOS and anim.loop_mode != Animation.LOOP_LINEAR:
-				_fail("clipe ciclico '%s' sem LOOP_LINEAR em %s" % [nome, caminho], cena)
-				return ""
-			var max_delta := _maior_delta_anim(anim)
-			if max_delta <= 1e-5:
-				_fail("clipe '%s' congelado (delta=%.6f) em %s" % [nome, max_delta, caminho], cena)
-				return ""
-			player.play(nome)
-			player.seek(anim.length * 0.5, true)
+		anims_count = (players[0] as AnimationPlayer).get_animation_list().size()
 
 	var resumo := "%s(tris=%d,sockets=%d,anims=%d)" % [caminho.get_file(), total_tris, sockets_count, anims_count]
 	cena.free()
 	return resumo
+
+
+static func _extrair_loop_overrides(manifesto: Dictionary, caminho: String = "") -> Dictionary:
+	var overrides := PostImport._ler_import_subresources_animacoes(caminho)
+	var raw_anims: Variant = manifesto.get("animacoes", [])
+	if typeof(raw_anims) == TYPE_ARRAY:
+		for entry_var in raw_anims:
+			if typeof(entry_var) != TYPE_DICTIONARY:
+				continue
+			var entry: Dictionary = entry_var
+			if not entry.has("loop") or entry.get("loop") == null:
+				continue
+			var raw_nome: Variant = entry.get("nome", null)
+			var clip_nome := ("" if raw_nome == null else str(raw_nome)).strip_edges().to_lower()
+			if clip_nome == "":
+				var raw_name: Variant = entry.get("name", null)
+				clip_nome = ("" if raw_name == null else str(raw_name)).strip_edges().to_lower()
+			if clip_nome == "":
+				continue
+			overrides[clip_nome] = Animation.LOOP_LINEAR if bool(entry["loop"]) else Animation.LOOP_NONE
+	return overrides
+
+
+static func _validar_animacoes_cena(cena: Node, caminho: String, manifesto: Dictionary) -> String:
+	var players := cena.find_children("*", "AnimationPlayer", true, false)
+	if players.is_empty():
+		return ""
+	var overrides := _extrair_loop_overrides(manifesto, caminho)
+	var player := players[0] as AnimationPlayer
+	var lista := player.get_animation_list()
+	for nome in lista:
+		var anim := player.get_animation(nome)
+		if anim == null or anim.length <= 0.2 or anim.get_track_count() < 1:
+			return "animacao '%s' invalida em %s" % [nome, caminho]
+		var key := str(nome).strip_edges().to_lower()
+		var base_key := key.substr(key.rfind("|") + 1).strip_edges() if key.contains("|") else key
+		if overrides.has(key):
+			var expected_mode := int(overrides[key])
+			if anim.loop_mode != expected_mode:
+				return "clipe '%s' com loop_mode=%d (esperado %d) em %s" % [nome, anim.loop_mode, expected_mode, caminho]
+		elif base_key != key and overrides.has(base_key):
+			var expected_base := int(overrides[base_key])
+			if anim.loop_mode != expected_base:
+				return "clipe '%s' com loop_mode=%d (esperado %d) em %s" % [nome, anim.loop_mode, expected_base, caminho]
+		elif (key in CLIPES_CICLICOS or base_key in CLIPES_CICLICOS) and anim.loop_mode != Animation.LOOP_LINEAR:
+			return "clipe ciclico '%s' sem LOOP_LINEAR em %s" % [nome, caminho]
+		var max_delta := _maior_delta_anim(anim)
+		if max_delta <= 1e-5:
+			return "clipe '%s' congelado (delta=%.6f) em %s" % [nome, max_delta, caminho]
+		player.play(nome)
+		player.seek(anim.length * 0.5, true)
+	return ""
 
 
 func _medir_arestas_facetadas(
@@ -307,7 +374,7 @@ func _registrar_aresta(edge_map: Dictionary, ka: Vector3i, kb: Vector3i, fn: Vec
 	edge_map[k].append({"fn": fn, "flat": flat_tri})
 
 
-func _maior_delta_anim(anim: Animation) -> float:
+static func _maior_delta_anim(anim: Animation) -> float:
 	var maior := 0.0
 	for i in range(anim.get_track_count()):
 		var tipo := anim.track_get_type(i)

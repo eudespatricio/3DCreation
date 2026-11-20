@@ -9,18 +9,16 @@ var _importer: EditorScenePostImportPlugin
 class Forge3DPostImportPlugin extends ScenePostImportPlugin:
 	func _get_import_options(path: String) -> void:
 		if path != "":
-			_source_queue.append(path)
+			_ultimo_caminho = path
 
 	func _post_process(scene: Node) -> void:
 		if scene == null:
-			if not _source_queue.is_empty():
-				_source_queue.pop_front()
+			_ultimo_caminho = ""
 			return
-		var source_path := ""
-		if not _source_queue.is_empty():
-			source_path = String(_source_queue.pop_front())
+		var source_path := scene.scene_file_path
 		if source_path == "":
-			source_path = scene.scene_file_path
+			source_path = _ultimo_caminho
+		_ultimo_caminho = ""
 		if scene.has_meta("forge3d_post_imported"):
 			return
 		PostImport.aplicar(scene, source_path)

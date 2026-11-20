@@ -133,8 +133,8 @@ local function mundo(tempo)
         for filho, motor in pairs(pendentes) do
             local pai = motor.Part0.Name
             if cf[pai] ~= nil then
-                -- a pose e por nome de JUNTA (D69); o motor tambem
-                local t = tr[motor.Name] or CFrame.new()
+                -- Animator indexa Pose por Part1.Name (fallback para motor.Name por compatibilidade)
+                local t = tr[motor.Part1.Name] or tr[motor.Name] or CFrame.new()
                 cf[filho] = cf[pai] * motor.C0 * t * motor.C1:Inverse()
                 pendentes[filho] = nil
                 mudou = true

@@ -166,21 +166,22 @@ def _encontrar_mhclo(item_ou_caminho: str, subpasta: str = "clothes") -> str:
         user_clothes = LocationService.get_user_data("clothes")
         if user_clothes:
             raizes.append(user_clothes)
-    except Exception:
-        pass
+    except (ImportError, AttributeError, KeyError, RuntimeError, OSError, TypeError) as exc:
+        print(f"[modular_armor] LocationService indisponivel ({subpasta}): {exc}", file=sys.stderr)
 
     try:
         from bl_ext.user_default.mpfb.services.assetservice import AssetService
 
         raizes.extend(AssetService.get_asset_roots(subpasta))
         raizes.extend(AssetService.get_asset_roots("clothes"))
-    except Exception:
-        pass
+    except (ImportError, AttributeError, KeyError, RuntimeError, OSError, TypeError) as exc:
+        print(f"[modular_armor] AssetService indisponivel ({subpasta}): {exc}", file=sys.stderr)
 
     cfg_dir = ""
     try:
         cfg_dir = bpy.utils.user_resource("CONFIG") or ""
-    except Exception:
+    except (AttributeError, RuntimeError, OSError, ValueError) as exc:
+        print(f"[modular_armor] bpy.utils.user_resource('CONFIG') indisponivel: {exc}", file=sys.stderr)
         cfg_dir = ""
     if cfg_dir:
         for p in (subpasta, "clothes", "hair"):
@@ -493,16 +494,442 @@ def _resolver_estilo_visual(job: dict) -> dict[str, Any]:
     }
 
 
-def _garantir_uv(obj) -> None:
-    """Garante camada UV ativa na malha caso o asset nao possua UVs."""
-    if obj.data.uv_layers:
+_UV_GRID_ARMOR = 64
+
+
+def _area_tri_2d_uv(
+    a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]
+) -> float:
+    return 0.5 * abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]))
+
+
+def _area_tri_3d_vec(a, b, c) -> float:
+    ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+    vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+    cx = uy * vz - uz * vy
+    cy = uz * vx - ux * vz
+    cz = ux * vy - uy * vx
+    return 0.5 * math.sqrt(cx * cx + cy * cy + cz * cz)
+
+
+def _orientar_ccw_2d(
+    tri: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
+) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
+    a, b, c = tri
+    cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    return (a, c, b) if cross < 0.0 else tri
+
+
+def _clip_tri_2d_area(
+    sujeito: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
+    recorte: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
+) -> float:
+    """Area de intersecao de dois triangulos 2D via Sutherland-Hodgman."""
+    poly: list[tuple[float, float]] = list(_orientar_ccw_2d(sujeito))
+    c_tri = _orientar_ccw_2d(recorte)
+    for k in range(3):
+        if not poly:
+            return 0.0
+        p = c_tri[k]
+        q = c_tri[(k + 1) % 3]
+        ex, ey = q[0] - p[0], q[1] - p[1]
+        saida: list[tuple[float, float]] = []
+        s_pt = poly[-1]
+        for e_pt in poly:
+            e_in = (ex * (e_pt[1] - p[1]) - ey * (e_pt[0] - p[0])) >= -1e-11
+            s_in = (ex * (s_pt[1] - p[1]) - ey * (s_pt[0] - p[0])) >= -1e-11
+            if e_in:
+                if not s_in:
+                    dx, dy = e_pt[0] - s_pt[0], e_pt[1] - s_pt[1]
+                    denom = ex * dy - ey * dx
+                    if abs(denom) <= 1e-15:
+                        saida.append(s_pt)
+                    else:
+                        t = (ex * (p[1] - s_pt[1]) - ey * (p[0] - s_pt[0])) / denom
+                        saida.append((s_pt[0] + t * dx, s_pt[1] + t * dy))
+                saida.append(e_pt)
+            elif s_in:
+                dx, dy = e_pt[0] - s_pt[0], e_pt[1] - s_pt[1]
+                denom = ex * dy - ey * dx
+                if abs(denom) <= 1e-15:
+                    saida.append(s_pt)
+                else:
+                    t = (ex * (p[1] - s_pt[1]) - ey * (p[0] - s_pt[0])) / denom
+                    saida.append((s_pt[0] + t * dx, s_pt[1] + t * dy))
+            s_pt = e_pt
+        poly = saida
+
+    if len(poly) < 3:
+        return 0.0
+    area2 = 0.0
+    n_p = len(poly)
+    for i in range(n_p):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n_p]
+        area2 += x1 * y2 - x2 * y1
+    return 0.5 * abs(area2)
+
+
+def _grupo_uv_sobreposto(
+    tris_uv: list[
+        tuple[
+            tuple[float, float],
+            tuple[float, float],
+            tuple[float, float],
+            float,
+            float,
+            float,
+            float,
+            float,
+        ]
+    ],
+) -> bool:
+    n = len(tris_uv)
+    if n < 2:
+        return False
+
+    def _sobrepoe(i: int, j: int) -> bool:
+        a0, a1, a2, area_a, u0a, v0a, u1a, v1a = tris_uv[i]
+        b0, b1, b2, area_b, u0b, v0b, u1b, v1b = tris_uv[j]
+        if max(u0a, u0b) + 1e-6 >= min(u1a, u1b) or max(v0a, v0b) + 1e-6 >= min(v1a, v1b):
+            return False
+        inter = _clip_tri_2d_area((a0, a1, a2), (b0, b1, b2))
+        return inter > 1e-8 and inter > 1e-4 * min(area_a, area_b)
+
+    if n <= 32:
+        for i in range(n):
+            for j in range(i + 1, n):
+                if _sobrepoe(i, j):
+                    return True
+        return False
+
+    grade: dict[tuple[int, int], list[int]] = {}
+    vistos: set[tuple[int, int]] = set()
+    for idx, item in enumerate(tris_uv):
+        _, _, _, _, u0, v0, u1, v1 = item
+        gx0 = max(0, min(_UV_GRID_ARMOR - 1, int(math.floor(u0 * _UV_GRID_ARMOR))))
+        gx1 = max(0, min(_UV_GRID_ARMOR - 1, int(math.floor(u1 * _UV_GRID_ARMOR))))
+        gy0 = max(0, min(_UV_GRID_ARMOR - 1, int(math.floor(v0 * _UV_GRID_ARMOR))))
+        gy1 = max(0, min(_UV_GRID_ARMOR - 1, int(math.floor(v1 * _UV_GRID_ARMOR))))
+        for gx in range(gx0, gx1 + 1):
+            for gy in range(gy0, gy1 + 1):
+                cel = grade.setdefault((gx, gy), [])
+                for outro in cel:
+                    par = (outro, idx)
+                    if par in vistos:
+                        continue
+                    vistos.add(par)
+                    if _sobrepoe(outro, idx):
+                        return True
+                cel.append(idx)
+    return False
+
+
+def _uv_saudavel(obj) -> bool:
+    """Verifica se a malha possui TEXCOORD_0 valido sem colapso, sobreposicao ou densidade extrema."""
+    me = getattr(obj, "data", None)
+    uv_layers = getattr(me, "uv_layers", None) if me is not None else None
+    if not uv_layers:
+        return False
+    if not hasattr(bmesh, "new"):
+        return True
+    polygons = getattr(me, "polygons", None)
+    if polygons is not None and len(polygons) == 0:
+        return True
+    uv_obj = getattr(uv_layers, "active", None) or uv_layers[0]
+    if uv_obj is None:
+        return False
+
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    uv_lay = bm.loops.layers.uv.get(uv_obj.name) or bm.loops.layers.uv.active
+    if uv_lay is None:
+        bm.free()
+        return False
+    if len(bm.faces) == 0:
+        bm.free()
+        return True
+
+    grupos: dict[int, list] = {}
+    ratios: dict[int, list[float]] = {}
+    ok = True
+    for f in bm.faces:
+        loops = list(f.loops)
+        if len(loops) < 3:
+            continue
+        for lp in loops:
+            u_val = float(lp[uv_lay].uv[0])
+            v_val = float(lp[uv_lay].uv[1])
+            if (
+                not math.isfinite(u_val)
+                or not math.isfinite(v_val)
+                or u_val < -1e-4
+                or u_val > 1.0 + 1e-4
+                or v_val < -1e-4
+                or v_val > 1.0 + 1e-4
+            ):
+                ok = False
+                break
+        if not ok:
+            break
+        mat_i = int(f.material_index)
+        g_list = grupos.setdefault(mat_i, [])
+        r_list = ratios.setdefault(mat_i, [])
+        lp0 = loops[0]
+        for k in range(1, len(loops) - 1):
+            lp1 = loops[k]
+            lp2 = loops[k + 1]
+            area_3d = _area_tri_3d_vec(lp0.vert.co, lp1.vert.co, lp2.vert.co)
+            a = (float(lp0[uv_lay].uv[0]), float(lp0[uv_lay].uv[1]))
+            b = (float(lp1[uv_lay].uv[0]), float(lp1[uv_lay].uv[1]))
+            c = (float(lp2[uv_lay].uv[0]), float(lp2[uv_lay].uv[1]))
+            area_uv = _area_tri_2d_uv(a, b, c)
+            if area_3d > 1e-10 and area_uv <= 1e-10:
+                ok = False
+                break
+            if area_uv > 1e-10:
+                g_list.append(
+                    (
+                        a,
+                        b,
+                        c,
+                        area_uv,
+                        min(a[0], b[0], c[0]),
+                        min(a[1], b[1], c[1]),
+                        max(a[0], b[0], c[0]),
+                        max(a[1], b[1], c[1]),
+                    )
+                )
+                if area_3d > 1e-6:
+                    r_list.append(area_uv / area_3d)
+        if not ok:
+            break
+
+    bm.free()
+    if not ok:
+        return False
+
+    for rs in ratios.values():
+        if len(rs) >= 2:
+            r_min = min(rs)
+            r_max = max(rs)
+            if r_min > 0.0 and (r_max / r_min) > 1000.0:
+                return False
+
+    for tris_g in grupos.values():
+        if _grupo_uv_sobreposto(tris_g):
+            return False
+
+    return True
+
+
+def _empacotar_shelves_uv(
+    itens: list[tuple[int, float, float, float]],
+    rho: float,
+    uv_min: float,
+    uv_max: float,
+    gap: float,
+    s_min: float,
+    s_max: float,
+) -> list[tuple[float, float, float]] | None:
+    """Empacota caixas UV proporcionais a sqrt(area_3d) por shelf-packing decrescente."""
+    caixas: list[tuple[float, int]] = []
+    for idx, a_ref, k_poly, s_floor in itens:
+        s_alvo = math.sqrt(max(0.0, rho * a_ref / max(k_poly, 1e-6))) if rho > 0.0 else s_floor
+        s_i = max(s_floor, s_min, min(s_max, s_alvo))
+        caixas.append((s_i, idx))
+    caixas.sort(key=lambda item: item[0], reverse=True)
+
+    posicoes: list[tuple[float, float, float] | None] = [None] * len(itens)
+    x = uv_min
+    y = uv_min
+    shelf_h = 0.0
+    for s_i, idx in caixas:
+        if (uv_min + s_i) > uv_max:
+            return None
+        if x > uv_min and (x + s_i) > uv_max:
+            y += shelf_h + gap
+            x = uv_min
+            shelf_h = 0.0
+        if (y + s_i) > uv_max:
+            return None
+        posicoes[idx] = (x, y, s_i)
+        if s_i > shelf_h:
+            shelf_h = s_i
+        x += s_i + gap
+    return [p for p in posicoes if p is not None]
+
+
+def _fallback_uv_disjunto_bmesh(obj) -> None:
+    """Fallback deterministico puro-bmesh: atribui UVs disjuntos proporcionais a area 3D."""
+    me = getattr(obj, "data", None)
+    if me is None or not hasattr(bmesh, "new"):
         return
+    uv_layers = getattr(me, "uv_layers", None)
+    if uv_layers is None:
+        return
+    while len(uv_layers) > 1:
+        uv_layers.remove(uv_layers[-1])
+    if not uv_layers:
+        uv_layers.new(name="UVMap")
+    uv_obj = uv_layers[0]
+    uv_layers.active = uv_obj
+    uv_obj.active_render = True
+
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    if len(bm.faces) == 0:
+        bm.free()
+        return
+    uv_lay = bm.loops.layers.uv.get(uv_obj.name) or bm.loops.layers.uv.active
+    if uv_lay is None:
+        uv_lay = bm.loops.layers.uv.new(uv_obj.name)
+
+    faces_validas = []
+    itens: list[tuple[int, float, float, float]] = []
+    soma_area = 0.0
+    for f in bm.faces:
+        loops = list(f.loops)
+        m = len(loops)
+        if m < 3:
+            continue
+        if m == 3:
+            area_3d = _area_tri_3d_vec(loops[0].vert.co, loops[1].vert.co, loops[2].vert.co)
+            k_poly = 0.5
+        else:
+            area_3d = sum(
+                _area_tri_3d_vec(loops[0].vert.co, loops[k].vert.co, loops[k + 1].vert.co)
+                for k in range(1, m - 1)
+            )
+            ang = 2.0 * math.pi / m
+            k_poly = 0.2304 * math.sin(ang) * (1.0 - math.cos(ang))
+        a_ref = max(area_3d / max(1, m - 2), 1e-10)
+        s_floor = max(8.0e-5, math.sqrt(2.5e-9 / max(k_poly, 1e-6)))
+        itens.append((len(faces_validas), a_ref, k_poly, s_floor))
+        faces_validas.append(loops)
+        soma_area += a_ref
+
+    if not faces_validas:
+        bm.free()
+        return
+
+    uv_min = 0.02
+    uv_max = 0.98
+    gap = 2.0e-5
+    s_min = 8.0e-5
+    s_max = 0.90
+
+    rho_hi = min(1.0e6, 0.5 / max(soma_area, 1e-12))
+    posicoes = _empacotar_shelves_uv(itens, rho_hi, uv_min, uv_max, gap, s_min, s_max)
+    if posicoes is None:
+        rho_lo = rho_hi
+        for _ in range(28):
+            rho_lo *= 0.5
+            posicoes = _empacotar_shelves_uv(itens, rho_lo, uv_min, uv_max, gap, s_min, s_max)
+            if posicoes is not None:
+                break
+        if posicoes is None:
+            posicoes = _empacotar_shelves_uv(itens, 0.0, uv_min, uv_max, gap, s_min, s_max)
+        else:
+            lo = rho_lo
+            hi = rho_hi
+            melhor = posicoes
+            for _ in range(14):
+                mid = math.sqrt(lo * hi)
+                cand = _empacotar_shelves_uv(itens, mid, uv_min, uv_max, gap, s_min, s_max)
+                if cand is not None:
+                    melhor = cand
+                    lo = mid
+                else:
+                    hi = mid
+            posicoes = melhor
+
+    if posicoes is None:
+        cols = max(1, int(math.ceil(math.sqrt(len(faces_validas)))))
+        step = (uv_max - uv_min) / cols
+        cell = max(1e-6, step - gap)
+        posicoes = [
+            (uv_min + (idx % cols) * step, uv_min + (idx // cols) * step, cell)
+            for idx in range(len(faces_validas))
+        ]
+
+    for idx, loops in enumerate(faces_validas):
+        u0, v0, s_i = posicoes[idx]
+        m = len(loops)
+        if m == 3:
+            coords = ((u0, v0), (u0 + s_i, v0), (u0, v0 + s_i))
+        else:
+            cx = u0 + 0.5 * s_i
+            cy = v0 + 0.5 * s_i
+            rad = 0.48 * s_i
+            coords = tuple(
+                (
+                    cx + rad * math.cos(2.0 * math.pi * k / m),
+                    cy + rad * math.sin(2.0 * math.pi * k / m),
+                )
+                for k in range(m)
+            )
+        for lp, uv_xy in zip(loops, coords):
+            lp[uv_lay].uv = uv_xy
+
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+
+
+def _garantir_uv(obj, *, forcar: bool = False) -> None:
+    """Garante camada UV ativa e saudavel na malha (re-unwrap se invalida ou ausente)."""
+    if not forcar and _uv_saudavel(obj):
+        return
+    uv_layers = obj.data.uv_layers
+    while len(uv_layers) > 1:
+        uv_layers.remove(uv_layers[-1])
+    if not uv_layers:
+        uv_layers.new(name="UVMap")
+    uv_act = uv_layers[0]
+    uv_layers.active = uv_act
+    uv_act.active_render = True
+
+    bpy.ops.object.select_all(action="DESELECT")
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(angle_limit=1.15, island_margin=0.02)
+    bpy.ops.uv.smart_project(
+        angle_limit=math.radians(20.0),
+        island_margin=0.02,
+        area_weight=0.5,
+        correct_aspect=True,
+        scale_to_bounds=False,
+    )
     bpy.ops.object.mode_set(mode="OBJECT")
+
+    if not _uv_saudavel(obj):
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.smart_project(
+            angle_limit=math.radians(15.0),
+            island_margin=0.03,
+            area_weight=0.5,
+            correct_aspect=True,
+            scale_to_bounds=False,
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    if not _uv_saudavel(obj):
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.smart_project(
+            angle_limit=math.radians(5.0),
+            island_margin=0.04,
+            area_weight=0.5,
+            correct_aspect=True,
+            scale_to_bounds=False,
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    if not _uv_saudavel(obj):
+        _fallback_uv_disjunto_bmesh(obj)
 
 
 def _criar_imagem_tinta(
@@ -612,10 +1039,11 @@ def _carregar_textura_pbr_local(nome_arquivo: str):
         img = bpy.data.images.load(caminho, check_existing=True)
         try:
             img.colorspace_settings.name = "sRGB"
-        except Exception:
-            pass
+        except (TypeError, ValueError, AttributeError, RuntimeError) as exc:
+            print(f"[modular_armor] colorspace sRGB indisponivel ({nome_arquivo}): {exc}", file=sys.stderr)
         return img
-    except Exception:
+    except (RuntimeError, OSError, ValueError, TypeError, AttributeError) as exc:
+        print(f"[modular_armor] falha ao carregar textura local ({nome_arquivo}): {exc}", file=sys.stderr)
         return None
 
 
@@ -696,8 +1124,8 @@ def _tingir_textura_preservando_trama(
         carregada.name = nome
         try:
             carregada.colorspace_settings.name = "sRGB"
-        except Exception:
-            pass
+        except (TypeError, ValueError, AttributeError, RuntimeError) as exc:
+            print(f"[modular_armor] colorspace sRGB indisponivel ({nome}): {exc}", file=sys.stderr)
         carregada.pack()
     finally:
         if os.path.exists(tmp_png):
@@ -899,8 +1327,8 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
         concept_img = bpy.data.images.load(os.path.abspath(textura_path), check_existing=True)
         try:
             concept_img.pack()
-        except Exception:
-            pass
+        except (RuntimeError, OSError, AttributeError) as exc:
+            print(f"[modular_armor] concept_img.pack() ignorado ({textura_path}): {exc}", file=sys.stderr)
 
     tint_default = estilo["tint"] or (0.55, 0.58, 0.62)
 
@@ -984,8 +1412,8 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
                 img_final = img_local
                 try:
                     img_final.pack()
-                except Exception:
-                    pass
+                except (RuntimeError, OSError, AttributeError) as exc:
+                    print(f"[modular_armor] img_local.pack() ignorado ({arq_local}): {exc}", file=sys.stderr)
         elif tex_node is not None and tex_node.image is not None:
             if estilo["tint"] is not None:
                 img_final = _tingir_imagem(tex_node.image, f"ArmorTint_{idx_m}", estilo["tint"], estilo["accent"])
@@ -993,8 +1421,11 @@ def _aplicar_estilo_visual(obj, job: dict) -> None:
                 img_final = tex_node.image
                 try:
                     img_final.pack()
-                except Exception:
-                    pass
+                except (RuntimeError, OSError, AttributeError) as exc:
+                    print(
+                        f"[modular_armor] tex_node.image.pack() ignorado ({getattr(img_final, 'name', '')}): {exc}",
+                        file=sys.stderr,
+                    )
         else:
             img_final = _criar_imagem_tinta(f"ArmorBase_{idx_m}", tint_default, estilo["accent"])
 
@@ -1392,8 +1823,11 @@ def _aplicar_suavizacao_modular(obj, angulo_graus: float = 48.0) -> None:
         me.shade_smooth()
         me.set_sharp_from_angle(angle=math.radians(float(angulo_graus)))
         me.update()
-    except Exception:
-        pass
+    except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+        print(
+            f"[modular_armor] aviso suavizacao modular em {getattr(obj, 'name', '?')}: {exc}",
+            file=sys.stderr,
+        )
 
 
 def _bmesh_criar_objeto_multimat(
@@ -1751,22 +2185,11 @@ def _criar_capa_procedural(nome: str = "CapaSimuladaModular") -> "bpy.types.Obje
 
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bmesh.ops.triangulate(bm, faces=bm.faces)
-    uv_layer = bm.loops.layers.uv.verify()
-    for f in bm.faces:
-        if f.material_index == 1:
-            n_f = f.normal
-            eixo_ref = Vector((0.0, 0.0, 1.0)) if abs(n_f.z) < 0.85 else Vector((1.0, 0.0, 0.0))
-            t1 = n_f.cross(eixo_ref).normalized()
-            t2 = n_f.cross(t1).normalized()
-            c_f = f.calc_center_median()
-            for lp in f.loops:
-                dv = lp.vert.co - c_f
-                u_val = max(0.05, min(0.95, 0.5 + dv.dot(t1) * 18.0))
-                v_val = max(0.05, min(0.95, 0.5 + dv.dot(t2) * 18.0))
-                lp[uv_layer].uv = (u_val, v_val)
+    while bm.loops.layers.uv:
+        bm.loops.layers.uv.remove(bm.loops.layers.uv[0])
     bm.to_mesh(capa.data)
     bm.free()
-    _garantir_uv(capa)
+    _garantir_uv(capa, forcar=True)
     _aplicar_suavizacao_modular(capa, angulo_graus=65.0)
     capa["forge3d_angulo_suave"] = 65.0
     return capa
@@ -2116,13 +2539,157 @@ def _criar_sela_montaria_procedural(nome: str = "SelaMontariaModular") -> "bpy.t
     )
 
 
-def _limpar_malha_manifold(obj) -> None:
-    """Remove vertices duplicados, faces degeneradas e arestas nao-manifold pos-decimate."""
+def _fechar_ciclos_borda_fan_armor(bm) -> int:
+    """Fallback de fechamento por leque no centroide para ciclos de borda nao-planares."""
+    restantes = [e for e in bm.edges if len(e.link_faces) == 1]
+    if not restantes:
+        return 0
+    dvert_lay = bm.verts.layers.deform.active
+    uv_lays = list(bm.loops.layers.uv.values())
+    criadas = 0
+    visitadas: set = set()
+    for e0 in restantes:
+        if e0 in visitadas or len(e0.link_faces) != 1:
+            continue
+        comp_e = []
+        fila = [e0]
+        visitadas.add(e0)
+        adj: dict = {}
+        while fila:
+            ec = fila.pop()
+            comp_e.append(ec)
+            for v in ec.verts:
+                adj.setdefault(v, []).append(ec)
+                for en in v.link_edges:
+                    if len(en.link_faces) == 1 and en not in visitadas:
+                        visitadas.add(en)
+                        fila.append(en)
+        if len(comp_e) < 3 or any(len(es) != 2 for es in adj.values()):
+            continue
+        f_adj = comp_e[0].link_faces[0]
+        va, vb = comp_e[0].verts[0], comp_e[0].verts[1]
+        for lp in f_adj.loops:
+            if lp.edge == comp_e[0]:
+                va, vb = lp.link_loop_next.vert, lp.vert
+                break
+        ciclo = [va, vb]
+        usadas = {comp_e[0]}
+        while len(ciclo) < len(comp_e):
+            atual = ciclo[-1]
+            prox_e = next((e for e in adj[atual] if e not in usadas), None)
+            if prox_e is None:
+                break
+            usadas.add(prox_e)
+            ciclo.append(prox_e.other_vert(atual))
+        if len(ciclo) != len(comp_e):
+            continue
+        centro = sum((v.co for v in ciclo), Vector((0.0, 0.0, 0.0))) / len(ciclo)
+        vc = bm.verts.new(centro)
+        if dvert_lay is not None:
+            pesos: dict[int, float] = {}
+            for v in ciclo:
+                for grp, w in v[dvert_lay].items():
+                    pesos[grp] = pesos.get(grp, 0.0) + w / len(ciclo)
+            tot = sum(pesos.values())
+            if tot > 1e-8:
+                for grp, w in pesos.items():
+                    vc[dvert_lay][grp] = w / tot
+        uv_map: dict = {}
+        uv_centros: dict = {}
+        for uvl in uv_lays:
+            uv_map[uvl] = {
+                v: next((lp[uvl].uv.copy() for lp in v.link_loops), Vector((0.5, 0.5)))
+                for v in ciclo
+            }
+            uv_centros[uvl] = sum(uv_map[uvl].values(), Vector((0.0, 0.0))) / len(ciclo)
+        mat_idx = f_adj.material_index
+        for i in range(len(ciclo)):
+            v1 = ciclo[i]
+            v2 = ciclo[(i + 1) % len(ciclo)]
+            if v1 == v2 or v1 == vc or v2 == vc:
+                continue
+            if bm.faces.get((v1, v2, vc)) is not None:
+                continue
+            nf = bm.faces.new((v1, v2, vc))
+            nf.material_index = mat_idx
+            criadas += 1
+            for uvl in uv_lays:
+                uv1 = uv_map[uvl][v1]
+                uv2 = uv_map[uvl][v2]
+                uvc = uv_centros[uvl]
+                for lp in nf.loops:
+                    if lp.vert == v1:
+                        lp[uvl].uv = uv1
+                    elif lp.vert == v2:
+                        lp[uvl].uv = uv2
+                    else:
+                        lp[uvl].uv = uvc
+    return criadas
+
+
+def _corrigir_orientacao_componentes_bm(bm) -> None:
+    """Inverte faces de componentes manifold fechados com volume assinado negativo."""
+    if not bm.faces or not hasattr(bmesh.ops, "reverse_faces"):
+        return
+    visitadas_f: set = set()
+    for f_ini in list(bm.faces):
+        if f_ini in visitadas_f or not hasattr(f_ini, "edges"):
+            continue
+        comp_faces = []
+        fila = [f_ini]
+        visitadas_f.add(f_ini)
+        while fila:
+            fc = fila.pop()
+            comp_faces.append(fc)
+            for e in fc.edges:
+                for fn in e.link_faces:
+                    if fn not in visitadas_f:
+                        visitadas_f.add(fn)
+                        fila.append(fn)
+        if len(comp_faces) < 4:
+            continue
+        comp_edges = {e for f in comp_faces for e in f.edges}
+        if not comp_edges or any(len(e.link_faces) != 2 for e in comp_edges):
+            continue
+        comp_verts = {v for f in comp_faces for v in f.verts}
+        if not comp_verts:
+            continue
+        centro = sum((v.co for v in comp_verts), Vector((0.0, 0.0, 0.0))) / float(len(comp_verts))
+        vol = 0.0
+        for f in comp_faces:
+            verts_f = f.verts
+            if len(verts_f) < 3:
+                continue
+            v0 = verts_f[0].co - centro
+            for idx in range(1, len(verts_f) - 1):
+                v1 = verts_f[idx].co - centro
+                v2 = verts_f[idx + 1].co - centro
+                vol += v0.dot(v1.cross(v2)) / 6.0
+        if vol < 0.0:
+            bmesh.ops.reverse_faces(bm, faces=comp_faces)
+
+
+def _limpar_malha_manifold(obj, *, fechar_bordas: bool = True) -> None:
+    """Remove vertices duplicados, fecha bordas abertas, remove degeneradas e arestas nao-manifold."""
     me = obj.data
     bm = bmesh.new()
     bm.from_mesh(me)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    # 2e-5 > sqrt(3)*1e-5 garante que vertices nao colidam na solda round(p, 5) do QC G1
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=2e-5)
+    if fechar_bordas:
+        bordas = [e for e in bm.edges if len(e.link_faces) == 1]
+        if bordas:
+            bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
+            if any(len(e.link_faces) == 1 for e in bm.edges):
+                _fechar_ciclos_borda_fan_armor(bm)
+            ilhas = [f for f in bm.faces if all(len(e.link_faces) == 1 for e in f.edges)]
+            if ilhas:
+                bmesh.ops.delete(bm, geom=ilhas, context="FACES")
     bmesh.ops.triangulate(bm, faces=bm.faces)
+    if hasattr(bmesh.ops, "dissolve_degenerate"):
+        bmesh.ops.dissolve_degenerate(bm, dist=2e-5, edges=list(bm.edges))
+    if hasattr(bm.verts, "index_update"):
+        bm.verts.index_update()
 
     # Remove faces duplicadas ou degeneradas
     vistos: set[frozenset[int]] = set()
@@ -2151,6 +2718,9 @@ def _limpar_malha_manifold(obj) -> None:
         bmesh.ops.delete(bm, geom=soltos, context="VERTS")
 
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    _corrigir_orientacao_componentes_bm(bm)
+    if hasattr(bm, "normal_update"):
+        bm.normal_update()
     bm.to_mesh(me)
     bm.free()
     me.update()
@@ -2448,16 +3018,18 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
                 cabeca_osso = bone.head_local.copy()
         bpy.data.objects.remove(rig_tmp, do_unlink=True)
 
-    # Decimate antes de transferir pesos / ajustar socket para preservar ordenamento limpo
-    tris_atuais, _, _ = _medir_geometria(cloth)
-    if tris_atuais > limite_tri and tris_atuais > 0:
-        ratio = max(0.05, min(1.0, float(limite_tri) / float(tris_atuais)))
+    # Fecha bordas abertas antes do decimate para estabilizar orcamento de triangulos e UVs
+    _limpar_malha_manifold(cloth)
+    for _ in range(3):
+        tris_atuais, _, _ = _medir_geometria(cloth)
+        if tris_atuais <= limite_tri or tris_atuais <= 0:
+            break
+        ratio = max(0.02, min(0.98, float(max(4, limite_tri - 4)) / float(tris_atuais)))
         mod_dec = cloth.modifiers.new(name="DecimateArmor", type="DECIMATE")
         mod_dec.ratio = ratio
         bpy.context.view_layer.objects.active = cloth
         bpy.ops.object.modifier_apply(modifier="DecimateArmor")
-
-    _limpar_malha_manifold(cloth)
+        _limpar_malha_manifold(cloth)
     angulo_pos = cloth.get("forge3d_angulo_suave") if hasattr(cloth, "get") else None
     if angulo_pos is None and eh_procedural:
         angulo_pos = {"arma": 36.0, "capa": 65.0, "asas": 65.0}.get(parte, 48.0)
@@ -2501,6 +3073,8 @@ def gerar_modular_armor(job: dict) -> dict[str, Any]:
                 dist_max_m=float(sf_dict.get("dist_max_m", 0.035)),
                 limiar_cobertura=float(sf_dict.get("limiar_cobertura", 0.85)),
             )
+        if "conformar_anatomico" in smart_fit_res or "recortar_oclusao" in smart_fit_res:
+            _garantir_uv(cloth, forcar=True)
 
     if skinned and rig_obj is not None and human is not None:
         _aplicar_transformes(rig_obj)

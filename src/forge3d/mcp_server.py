@@ -290,9 +290,17 @@ def _eh_binario(stream: Any) -> bool:
     modo = getattr(stream, "mode", "")
     if isinstance(modo, str) and "b" in modo:
         return True
+    if isinstance(modo, str) and modo:
+        return False
+    read_fn = getattr(stream, "read", None)
+    if not callable(read_fn):
+        return False
     try:
-        return isinstance(stream.read(0), (bytes, bytearray))
-    except Exception:  # noqa: BLE001
+        return isinstance(read_fn(0), (bytes, bytearray))
+    except (io.UnsupportedOperation, OSError, ValueError, AttributeError, TypeError) as exc:
+        sys.stderr.write(
+            f"[forge3d.mcp] aviso ao sondar modo binario do stream ({type(exc).__name__}: {exc}); assumindo texto\n"
+        )
         return False
 
 

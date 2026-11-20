@@ -14,12 +14,13 @@ import math
 import os
 import re
 import sqlite3
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from . import paths
-from .errors import erro_input_tampered, erro_licenca, erro_path, erro_recurso
+from .errors import ForgeError, erro_input_tampered, erro_licenca, erro_path, erro_recurso
 
 __all__ = [
     "LICENCAS_PERMITIDAS",
@@ -667,20 +668,28 @@ class VaultCC0:
             return []
 
         vetor_q: list[float] | None = None
+        aviso_embedding: str | None = None
         if query_embedding is not None and len(query_embedding) > 0:
             vetor_q = normalizar_vetor_l2(query_embedding)
         elif usar_gemini_online and (query or "").strip():
             try:
                 from .providers import cloud_ai
 
-                ok_gem, _ = cloud_ai.gemini_disponivel()
+                ok_gem, motivo_gem = cloud_ai.gemini_disponivel()
                 if ok_gem:
                     vetor_q = cloud_ai.gerar_embedding_gemini(
                         query,
                         task_type="RETRIEVAL_QUERY",
                     )
-            except Exception:
+                else:
+                    aviso_embedding = f"gemini indisponivel ({motivo_gem}); fallback lexical_bm25"
+            except (ForgeError, OSError, ValueError, TypeError, ImportError) as exc:
                 vetor_q = None
+                aviso_embedding = (
+                    f"falha em gerar_embedding_gemini ({type(exc).__name__}: {exc}); "
+                    "fallback lexical_bm25"
+                )
+                sys.stderr.write(f"[forge3d.vault] aviso: {aviso_embedding}\n")
 
         tokens_base = _tokenizar(query or "")
         tokens_exp = _expandir_tokens_consulta(tokens_base)
@@ -715,6 +724,8 @@ class VaultCC0:
             item["score_cosseno"] = round(cos, 6)
             item["score_lexical"] = round(lex, 6)
             item["metodo_busca"] = metodo
+            if aviso_embedding is not None:
+                item["aviso_embedding"] = aviso_embedding
             resultados.append(item)
 
         resultados.sort(

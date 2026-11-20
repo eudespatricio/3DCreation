@@ -86,7 +86,7 @@ def _gate(relatorio: dict, gid: str) -> dict:
 
 
 def test_m05_montar_manifesto_preenche_tangentes_uv_lightmap_e_modo_rig_roblox(tmp_path):
-    uv1 = [(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)] * 2
+    uv1 = [(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)] * 6
     ossos_r15 = profiles.carregar("roblox-r15")["rig"]["mapas"]["r15@1"]
     glb = _injetar_atributos_glb(_glb_bytes(ossos=ossos_r15), com_tangent=True, uv1=uv1)
     (tmp_path / "m.glb").write_bytes(glb)
@@ -241,7 +241,7 @@ def test_m07_qc_g9_reprova_lod_sem_reducao_ou_com_degeneradas(tmp_path):
 
 def test_m08_qc_g3_valida_texcoord_1_lightmap(tmp_path):
     # UV0 valida, mas TEXCOORD_1 colapsada em um unico ponto -> G3 deve falhar
-    glb_bad_uv1 = _injetar_atributos_glb(_glb_bytes(), uv1=[(0.5, 0.5)] * 8)
+    glb_bad_uv1 = _injetar_atributos_glb(_glb_bytes(), uv1=[(0.5, 0.5)] * 24)
     (tmp_path / "m.glb").write_bytes(glb_bad_uv1)
     rel = qc.verificar(
         {"id": "prop.uv1.01", "altura_metros": 1.0, "pivot": "base", "limite_triangulos": 500, "colisao": "none"},
@@ -267,7 +267,7 @@ def test_m09_qc_g4_g5_valida_normal_map_z_positivo_e_vinculo_orm(tmp_path):
         extra_mat={"normalTexture": {"index": 0}},
     )
     (d_nm / "m.glb").write_bytes(glb)
-    Image.new("RGB", (8, 8), (128, 128, 20)).save(d_nm / "m_normal.png")
+    Image.new("RGB", (32, 32), (128, 128, 20)).save(d_nm / "m_normal.png")
     rel_nm = qc.verificar(
         {"id": "prop.nm.01", "altura_metros": 1.0, "pivot": "base", "limite_triangulos": 500, "colisao": "none"},
         profiles.carregar("godot4"),

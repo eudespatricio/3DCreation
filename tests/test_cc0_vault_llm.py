@@ -47,6 +47,7 @@ def test_vault_usa_apenas_stdlib_d26():
         "re",
         "sqlite3",
         "struct",
+        "sys",
         "typing",
     }
     for node in ast.walk(arvore):

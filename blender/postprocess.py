@@ -1,969 +1,115 @@
 """Script bpy do Forge3D — roda com ``blender --background --python``.
 
 Canal unico: arquivo JSON de entrada e arquivo JSON de saida (I9). Nada de parse de stdout.
-
-Etapas: construir geometria -> rig -> normalizar escala/pivo -> LOD -> colisor -> exportar GLB
--> medir. O script nao decide qualidade nem aprova nada: ele mede e exporta. Quem reprova e o QC.
 """
 
 from __future__ import annotations
 
-import json
-import math
 import os
 import sys
 import traceback
 
-import bmesh
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Vector
 
-_BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
-if _BLENDER_DIR not in sys.path:
-    sys.path.insert(0, _BLENDER_DIR)
+if __package__:
+    from . import autorig, bake_pbr, extrude_2d, organic_sculpt  # noqa: F401
+    from . import postprocess_bruto as _br
+    from . import postprocess_canon as _ca
+    from . import postprocess_export_pipe as _ep
+    from . import postprocess_lod_col as _lc
+    from . import postprocess_normals_uv as _nuv
+    from . import postprocess_repair as _rp
+    from . import postprocess_scene as _sc
+else:
+    _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
+    if _BLENDER_DIR not in sys.path:
+        sys.path.insert(0, _BLENDER_DIR)
+    import autorig  # noqa: F401
+    import bake_pbr  # noqa: F401
+    import extrude_2d  # noqa: F401
+    import organic_sculpt  # noqa: F401
+    import postprocess_bruto as _br
+    import postprocess_canon as _ca
+    import postprocess_export_pipe as _ep
+    import postprocess_lod_col as _lc
+    import postprocess_normals_uv as _nuv
+    import postprocess_repair as _rp
+    import postprocess_scene as _sc
 
-import autorig  # noqa: E402
-import bake_pbr  # noqa: E402
-import extrude_2d  # noqa: E402
-import organic_sculpt  # noqa: E402
+TIPOS_ORGANICOS = _sc.TIPOS_ORGANICOS
+PARTES_RIGIDAS = _sc.PARTES_RIGIDAS
+LIMIAR_SCORE_FRENTE = _sc.LIMIAR_SCORE_FRENTE
+FACES_CUBO = _sc.FACES_CUBO
+TEX_PX_GERADA = _sc.TEX_PX_GERADA
 
-TIPOS_ORGANICOS = (
-    "personagem_humanoide",
-    "criatura",
-    "criatura_quadrupede",
-    "criatura_alada",
-    "montaria",
-)
-PARTES_RIGIDAS = (
-    "elmo",
-    "ombreiras",
-    "peitoral",
-    "luvas",
-    "calcas",
-    "calças",
-    "botas",
-    "escudo",
-    "arma",
-)
+jload = _sc.jload
+jsave = _sc.jsave
+limpar_cena = _sc.limpar_cena
+objetos_malha = _sc.objetos_malha
+objetos_colisao_ucx = _sc.objetos_colisao_ucx
+material_atlas = _sc.material_atlas
+construir_blocky = _sc.construir_blocky
+criar_armadura = _sc.criar_armadura
+_limpar_objetos_gltf_internos = _sc._limpar_objetos_gltf_internos
+importar_fonte = _sc.importar_fonte
+_selecionar = _sc._selecionar
+_aplicar_transformes = _sc._aplicar_transformes
+unir_malhas = _sc.unir_malhas
+transformar_armadura = _sc.transformar_armadura
+bbox_local = _sc.bbox_local
+transformar = _sc.transformar
+transformar_colisores_ucx = _sc.transformar_colisores_ucx
+calcular_pivo = _sc.calcular_pivo
+malha_triangulada = _sc.malha_triangulada
+medir_geometria = _sc.medir_geometria
+animar = _sc.animar
+_resolver_opcional_bruto = _sc._resolver_opcional_bruto
+_escrever_concept_sidecar = _sc._escrever_concept_sidecar
+_detectar_esqueleto_pelos_ossos = _sc._detectar_esqueleto_pelos_ossos
 
-# Limiar compartilhado com src/forge3d/qc.py para decidir frente/costas humanoide sem ambiguidade.
-LIMIAR_SCORE_FRENTE = 0.035
+_remover_ilhas_de_uma_face = _rp._remover_ilhas_de_uma_face
+_fechar_ciclos_borda_fan = _rp._fechar_ciclos_borda_fan
+_preencher_bordas_e_triangular = _rp._preencher_bordas_e_triangular
+_colapsar_faces_degeneradas = _rp._colapsar_faces_degeneradas
+reparar_malha = _rp.reparar_malha
+_media_vizinhos = _rp._media_vizinhos
+_suavizar_taubin_bm = _rp._suavizar_taubin_bm
+_relaxar_arestas_dobradas_bm = _rp._relaxar_arestas_dobradas_bm
 
-# faces de um cubo por indice de vertice; a orientacao e corrigida depois por recalc
-FACES_CUBO = (
-    (0, 3, 2, 1),
-    (4, 5, 6, 7),
-    (0, 1, 5, 4),
-    (2, 3, 7, 6),
-    (3, 0, 4, 7),
-    (1, 2, 6, 5),
-)
+_extensao_faixa = _ca._extensao_faixa
+canonicalizar = _ca.canonicalizar
+_medir_score_frente_humanoide = _ca._medir_score_frente_humanoide
+_alinhar_frente_humanoide = _ca._alinhar_frente_humanoide
 
+_resolver_config_suavizacao = _nuv._resolver_config_suavizacao
+suavizar_por_angulo = _nuv.suavizar_por_angulo
+aplicar_weighted_normal = _nuv.aplicar_weighted_normal
+gerar_uv_lightmap = _nuv.gerar_uv_lightmap
+assar_cor_vertices = _nuv.assar_cor_vertices
+_imagens_exportaveis = _nuv._imagens_exportaveis
+_redimensionar_imagem = _nuv._redimensionar_imagem
+_pot_abaixo = _nuv._pot_abaixo
+_enquadrar_texturas_no_teto = _nuv._enquadrar_texturas_no_teto
 
-# ------------------------------------------------------------------ utilidades
-
-
-def jload(caminho: str) -> dict:
-    with open(caminho, encoding="utf-8") as fh:
-        return json.load(fh)
-
-
-def jsave(caminho: str, obj: dict) -> None:
-    os.makedirs(os.path.dirname(caminho), exist_ok=True)
-    with open(caminho, "w", encoding="utf-8") as fh:
-        json.dump(obj, fh, sort_keys=True, indent=1)
-        fh.write("\n")
-
-
-def limpar_cena() -> None:
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-
-
-def objetos_malha() -> list:
-    ignorar = set()
-    col_ne = bpy.data.collections.get("glTF_not_exported")
-    if col_ne is not None:
-        ignorar.update(o.name for o in col_ne.objects)
-    return [o for o in bpy.context.scene.objects if o.type == "MESH" and o.name not in ignorar]
-
-
-# ------------------------------------------------------------------ construcao
-
-
-def material_atlas(atlas: str) -> "bpy.types.Material":
-    mat = bpy.data.materials.new("forge3d_atlas")
-    mat.use_nodes = True
-    mat.use_backface_culling = True
-    nt = mat.node_tree
-    bsdf = nt.nodes.get("Principled BSDF")
-    tex = nt.nodes.new("ShaderNodeTexImage")
-    tex.image = bpy.data.images.load(atlas, check_existing=False)
-    tex.interpolation = "Closest"
-    tex.extension = "EXTEND"
-    tex.location = (-420, 260)
-    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-    if "Roughness" in bsdf.inputs:
-        bsdf.inputs["Roughness"].default_value = 0.85
-    if "Metallic" in bsdf.inputs:
-        bsdf.inputs["Metallic"].default_value = 0.0
-    return mat
-
-
-def construir_blocky(bruto: dict, base_dir: str) -> tuple:
-    """Uma malha com todas as caixas + atribuicao rigida de osso por vertice."""
-    verts: list[tuple] = []
-    faces: list[tuple] = []
-    uvs: list[tuple] = []
-    grupos: dict[str, list[int]] = {}
-
-    for caixa in bruto["caixas"]:
-        i0 = len(verts)
-        x0, y0, z0 = caixa["min"]
-        x1, y1, z1 = caixa["max"]
-        verts.extend(
-            [
-                (x0, y0, z0),
-                (x1, y0, z0),
-                (x1, y1, z0),
-                (x0, y1, z0),
-                (x0, y0, z1),
-                (x1, y0, z1),
-                (x1, y1, z1),
-                (x0, y1, z1),
-            ]
-        )
-        for face in FACES_CUBO:
-            faces.append(tuple(i0 + i for i in face))
-        regiao = caixa["uv"]
-        regiao_topo = caixa.get("uv_topo") or regiao
-        for indice_face in range(6):
-            # face 1 de FACES_CUBO e o topo: recebe a celula clareada
-            u0, v0, u1, v1 = regiao_topo if indice_face == 1 else regiao
-            uvs.extend([(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
-        osso = caixa.get("osso")
-        if osso:
-            grupos.setdefault(osso, []).extend(range(i0, i0 + 8))
-
-    malha = bpy.data.meshes.new("forge3d_mesh")
-    malha.from_pydata(verts, [], faces)
-    malha.update()
-
-    camada_uv = malha.uv_layers.new(name="UVMap")
-    for indice, loop in enumerate(malha.loops):
-        camada_uv.data[loop.index].uv = uvs[indice]
-
-    obj = bpy.data.objects.new("forge3d_asset", malha)
-    bpy.context.collection.objects.link(obj)
-    obj.data.materials.append(material_atlas(os.path.join(base_dir, bruto["atlas"])))
-
-    # normais para fora (winding consistente, independente da ordem em que as faces nasceram)
-    bm = bmesh.new()
-    bm.from_mesh(malha)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bm.to_mesh(malha)
-    bm.free()
-    malha.update()
-
-    for osso, indices in grupos.items():
-        grupo = obj.vertex_groups.new(name=osso)
-        grupo.add(indices, 1.0, "REPLACE")
-
-    return obj, grupos
-
-
-def criar_armadura(ossos: list[dict], nome: str = "Armature") -> "bpy.types.Object":
-    arm = bpy.data.armatures.new("forge3d_rig")
-    obj = bpy.data.objects.new(nome, arm)
-    bpy.context.collection.objects.link(obj)
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-
-    bpy.ops.object.mode_set(mode="EDIT")
-    criados = {}
-    for osso in ossos:
-        eb = arm.edit_bones.new(osso["nome"])
-        eb.head = Vector(osso["cabeca"])
-        eb.tail = Vector(osso["cauda"])
-        criados[osso["nome"]] = eb
-    for osso in ossos:
-        pai = osso.get("pai")
-        if pai and pai in criados and pai != osso["nome"]:
-            criados[osso["nome"]].parent = criados[pai]
-            criados[osso["nome"]].use_connect = False
-    bpy.ops.object.mode_set(mode="OBJECT")
-    obj.select_set(False)
-    if any(b.name in autorig._OSSOS_BRACO or b.name in autorig._OSSOS_PERNA for b in obj.data.bones):
-        autorig._alinhar_roll_ossos(obj)
-    return obj
-
-
-def _limpar_objetos_gltf_internos() -> None:
-    """Remove colecoes/objetos auxiliares do importador glTF (ex: Icosphere de custom_shape)."""
-    for arm in bpy.data.objects:
-        if arm.type == "ARMATURE" and arm.pose is not None:
-            for pb in arm.pose.bones:
-                pb.custom_shape = None
-    for col in list(bpy.data.collections):
-        if col.name.startswith("glTF_not_exported"):
-            for obj in list(col.objects):
-                bpy.data.objects.remove(obj, do_unlink=True)
-            bpy.data.collections.remove(col)
-
-
-def importar_fonte(arquivo: str) -> None:
-    ext = os.path.splitext(arquivo)[1].lower()
-    if ext == ".glb" or ext == ".gltf":
-        bpy.ops.import_scene.gltf(filepath=arquivo)
-        _limpar_objetos_gltf_internos()
-    elif ext == ".obj":
-        if bpy.app.version >= (4, 0, 0):
-            bpy.ops.wm.obj_import(filepath=arquivo)
-        else:  # pragma: no cover - so 4.2 e suportado
-            bpy.ops.import_scene.obj(filepath=arquivo)
-    elif ext == ".fbx":
-        bpy.ops.import_scene.fbx(filepath=arquivo)
-    elif ext == ".blend":
-        with bpy.data.libraries.load(arquivo, link=False) as (de, para):
-            para.objects = [n for n in de.objects]
-        for obj in para.objects:
-            if obj is not None:
-                bpy.context.collection.objects.link(obj)
-    else:
-        raise RuntimeError(f"formato de origem nao suportado: {ext}")
-
-
-
-# ------------------------------------------------------------------ malha gerada (P3-A)
-
-
-TEX_PX_GERADA = 1024
-
-
-def _selecionar(obj) -> None:
-    bpy.ops.object.select_all(action="DESELECT")
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-
-
-def _aplicar_transformes(obj) -> None:
-    _selecionar(obj)
-    if obj.parent is not None:
-        bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
-    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-
-
-def unir_malhas() -> "bpy.types.Object":
-    """Uma malha so: o gerador pode devolver varias; o pos-processo trata um asset."""
-    malhas = objetos_malha()
-    if not malhas:
-        raise RuntimeError("origem sem malha importavel")
-    if len(malhas) == 1:
-        obj = malhas[0]
-        _aplicar_transformes(obj)
-        return obj
-    for obj in malhas:
-        _aplicar_transformes(obj)
-    bpy.ops.object.select_all(action="DESELECT")
-    for obj in malhas:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = malhas[0]
-    bpy.ops.object.join()
-    return bpy.context.view_layer.objects.active
-
-
-def _remover_ilhas_de_uma_face(bm, *, permitir_bordas_abertas: bool = False) -> int:
-    """Ilha de uma face minuscula (sobra de decimate) vira borda aberta no G1."""
-    vistos = set()
-    remover = []
-    for face in bm.faces:
-        if face.index in vistos:
-            continue
-        pilha = [face]
-        componente = []
-        vistos.add(face.index)
-        while pilha:
-            atual = pilha.pop()
-            componente.append(atual)
-            for aresta in atual.edges:
-                for vizinha in aresta.link_faces:
-                    if vizinha.index not in vistos:
-                        vistos.add(vizinha.index)
-                        pilha.append(vizinha)
-        # qualquer ilha de uma face e sobra (exceto card valido quando permitir_bordas_abertas=True)
-        if len(componente) == 1 and (
-            not permitir_bordas_abertas or componente[0].calc_area() < 1e-6
-        ):
-            remover.append(componente[0])
-    if remover:
-        bmesh.ops.delete(bm, geom=remover, context="FACES")
-        soltos = [v for v in bm.verts if not v.link_faces]
-        if soltos:
-            bmesh.ops.delete(bm, geom=soltos, context="VERTS")
-    return len(remover)
-
-
-def _fechar_ciclos_borda_fan(bm) -> int:
-    """Fecha ciclos simples de borda nao-planares via leque ao centroide preservando pesos e UV."""
-    restantes = [e for e in bm.edges if len(e.link_faces) == 1]
-    if not restantes:
-        return 0
-    dvert_lay = bm.verts.layers.deform.active
-    uv_lays = list(bm.loops.layers.uv.values())
-    criadas = 0
-    visitadas: set = set()
-    for e0 in restantes:
-        if e0 in visitadas or len(e0.link_faces) != 1:
-            continue
-        comp_e = []
-        fila = [e0]
-        visitadas.add(e0)
-        adj: dict = {}
-        while fila:
-            ec = fila.pop()
-            comp_e.append(ec)
-            for v in ec.verts:
-                adj.setdefault(v, []).append(ec)
-                for en in v.link_edges:
-                    if len(en.link_faces) == 1 and en not in visitadas:
-                        visitadas.add(en)
-                        fila.append(en)
-        if len(comp_e) < 3 or any(len(es) != 2 for es in adj.values()):
-            continue
-        f_adj = comp_e[0].link_faces[0]
-        va, vb = comp_e[0].verts[0], comp_e[0].verts[1]
-        for lp in f_adj.loops:
-            if lp.edge == comp_e[0]:
-                va, vb = lp.link_loop_next.vert, lp.vert
-                break
-        ciclo = [va, vb]
-        usadas = {comp_e[0]}
-        while len(ciclo) < len(comp_e):
-            atual = ciclo[-1]
-            prox_e = next((e for e in adj[atual] if e not in usadas), None)
-            if prox_e is None:
-                break
-            usadas.add(prox_e)
-            ciclo.append(prox_e.other_vert(atual))
-        if len(ciclo) != len(comp_e):
-            continue
-        centro = sum((v.co for v in ciclo), Vector((0.0, 0.0, 0.0))) / len(ciclo)
-        vc = bm.verts.new(centro)
-        if dvert_lay is not None:
-            pesos: dict[int, float] = {}
-            for v in ciclo:
-                for grp, w in v[dvert_lay].items():
-                    pesos[grp] = pesos.get(grp, 0.0) + w / len(ciclo)
-            tot = sum(pesos.values())
-            if tot > 1e-8:
-                for grp, w in pesos.items():
-                    vc[dvert_lay][grp] = w / tot
-        uv_map: dict = {}
-        for uvl in uv_lays:
-            uv_map[uvl] = {
-                v: next((lp[uvl].uv.copy() for lp in v.link_loops), Vector((0.5, 0.5)))
-                for v in ciclo
-            }
-        mat_idx = f_adj.material_index
-        for i in range(len(ciclo)):
-            v1 = ciclo[i]
-            v2 = ciclo[(i + 1) % len(ciclo)]
-            try:
-                nf = bm.faces.new((v1, v2, vc))
-            except ValueError:
-                continue
-            nf.material_index = mat_idx
-            criadas += 1
-            for uvl in uv_lays:
-                uv1 = uv_map[uvl][v1]
-                uv2 = uv_map[uvl][v2]
-                uvc = sum(uv_map[uvl].values(), Vector((0.0, 0.0))) / len(ciclo)
-                for lp in nf.loops:
-                    if lp.vert == v1:
-                        lp[uvl].uv = uv1
-                    elif lp.vert == v2:
-                        lp[uvl].uv = uv2
-                    else:
-                        lp[uvl].uv = uvc
-    return criadas
-
-
-def _preencher_bordas_e_triangular(bm, *, permitir_bordas_abertas: bool = False) -> int:
-    """Fecha bordas abertas (holes_fill + fallback fan), remove ilhas e triangula."""
-    bordas = [e for e in bm.edges if len(e.link_faces) == 1]
-    if bordas and not permitir_bordas_abertas:
-        bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
-        if any(len(e.link_faces) == 1 for e in bm.edges):
-            _fechar_ciclos_borda_fan(bm)
-        _remover_ilhas_de_uma_face(bm, permitir_bordas_abertas=permitir_bordas_abertas)
-    bmesh.ops.triangulate(bm, faces=list(bm.faces))
-    return 0 if permitir_bordas_abertas else len(bordas)
-
-
-def _colapsar_faces_degeneradas(bm, area_min: float = 1e-12) -> int:
-    """Colapsa aresta mais curta de faces < area_min sem reabrir buracos na malha."""
-    colapsadas = 0
-    for _ in range(4):
-        degs = [f for f in bm.faces if f.is_valid and f.calc_area() < area_min]
-        if not degs:
-            break
-        arestas_alvo = set()
-        for f in degs:
-            if not f.is_valid or not f.edges:
-                continue
-            arestas_alvo.add(min(f.edges, key=lambda e: e.calc_length()))
-        arestas_validas = [e for e in arestas_alvo if e.is_valid]
-        if not arestas_validas:
-            break
-        bmesh.ops.collapse(bm, edges=arestas_validas)
-        colapsadas += len(arestas_validas)
-    return colapsadas
-
-
-def reparar_malha(obj, permitir_bordas_abertas: bool = False) -> dict:
-    """Solda, remove ilha solta e fecha buraco antes do export."""
-    antes = (len(obj.data.vertices), len(obj.data.polygons))
-    obj.data.validate(verbose=False)
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    # 1.8e-5m > sqrt(3)*1e-5m: garante que vertices soldados no grid 1e-5m do QC saiam ja soldados.
-    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1.8e-5)
-    bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=list(bm.edges))
-    slivers = [f for f in bm.faces if f.calc_area() < 1e-12]
-    if slivers:
-        bmesh.ops.delete(bm, geom=slivers, context="FACES")
-    soltas_e = [e for e in bm.edges if not e.link_faces]
-    if soltas_e:
-        bmesh.ops.delete(bm, geom=soltas_e, context="EDGES")
-    soltos = [v for v in bm.verts if not v.link_faces]
-    if soltos:
-        bmesh.ops.delete(bm, geom=soltos, context="VERTS")
-    ilhas = _remover_ilhas_de_uma_face(bm, permitir_bordas_abertas=permitir_bordas_abertas)
-    bordas_iniciais = _preencher_bordas_e_triangular(
-        bm, permitir_bordas_abertas=permitir_bordas_abertas
-    )
-    for _ in range(3):
-        vistos_faces: set[frozenset] = set()
-        dups = []
-        for f in bm.faces:
-            chave = frozenset(f.verts)
-            if len(chave) < 3 or chave in vistos_faces:
-                dups.append(f)
-            else:
-                vistos_faces.add(chave)
-        if dups:
-            bmesh.ops.delete(bm, geom=dups, context="FACES")
-        _colapsar_faces_degeneradas(bm, area_min=1e-12)
-        excedentes_nm = set()
-        for e in bm.edges:
-            if len(e.link_faces) > 2:
-                ordenadas = sorted(e.link_faces, key=lambda f: f.calc_area(), reverse=True)
-                for f in ordenadas[2:]:
-                    excedentes_nm.add(f)
-        if excedentes_nm:
-            bmesh.ops.delete(bm, geom=list(excedentes_nm), context="FACES")
-        _remover_ilhas_de_uma_face(bm, permitir_bordas_abertas=permitir_bordas_abertas)
-        bordas_pos = _preencher_bordas_e_triangular(
-            bm, permitir_bordas_abertas=permitir_bordas_abertas
-        )
-        if not dups and not excedentes_nm and bordas_pos == 0:
-            break
-    _colapsar_faces_degeneradas(bm, area_min=1e-12)
-    soltas_e_pos = [e for e in bm.edges if not e.link_faces]
-    if soltas_e_pos:
-        bmesh.ops.delete(bm, geom=soltas_e_pos, context="EDGES")
-    soltos_pos = [v for v in bm.verts if not v.link_faces]
-    if soltos_pos:
-        bmesh.ops.delete(bm, geom=soltos_pos, context="VERTS")
-    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-    bm.to_mesh(obj.data)
-    bm.free()
-    obj.data.update()
-    return {
-        "vertices_antes": antes[0],
-        "faces_antes": antes[1],
-        "vertices_depois": len(obj.data.vertices),
-        "faces_depois": len(obj.data.polygons),
-        "ilhas_removidas": ilhas,
-        "slivers_removidos": len(slivers),
-        "bordas_preenchidas": bordas_iniciais,
-    }
-
-
-def _media_vizinhos(v):
-    edges = v.link_edges
-    if not edges:
-        return v.co.copy()
-    soma = Vector((0.0, 0.0, 0.0))
-    for e in edges:
-        soma += e.other_vert(v).co
-    return soma / len(edges)
-
-
-def _suavizar_taubin_bm(bm, iteracoes: int = 2, fator: float = 0.45) -> int:
-    """Suavizacao Taubin sem encolher volume (reduz ondas de Marching Cubes no bmesh)."""
-    if not bm.verts or iteracoes <= 0:
-        return 0
-    for _ in range(iteracoes):
-        for peso in (fator, -1.04 * fator):
-            deslocs = [(_media_vizinhos(v) - v.co) * peso for v in bm.verts]
-            for v, d in zip(bm.verts, deslocs):
-                v.co += d
-    bm.normal_update()
-    return len(bm.verts)
-
-
-def _relaxar_arestas_dobradas_bm(bm, passadas: int = 3) -> int:
-    """Desdobra arestas internas/invertidas apos decimate para zerar rasgos e normais."""
-    total_movidos = 0
-    for _ in range(passadas):
-        bm.normal_update()
-        marcados: set[int] = set()
-        for e in bm.edges:
-            if len(e.link_faces) == 2 and e.link_faces[0].normal.dot(e.link_faces[1].normal) < -0.15:
-                marcados.add(e.verts[0].index)
-                marcados.add(e.verts[1].index)
-        if not marcados:
-            break
-        bm.verts.ensure_lookup_table()
-        novos = {idx: _media_vizinhos(bm.verts[idx]) for idx in marcados}
-        for idx, destino in novos.items():
-            v = bm.verts[idx]
-            v.co = v.co.lerp(destino, 0.55)
-        total_movidos += len(marcados)
-    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-    return total_movidos
+clonar_malha = _lc.clonar_malha
+aplicar_decimate = _lc.aplicar_decimate
+_componentes_indices = _lc._componentes_indices
+_volume_componente = _lc._volume_componente
+aplicar_lod = _lc.aplicar_lod
+criar_colisor = _lc.criar_colisor
+_ilhas = _lc._ilhas
+_tem_normal_map = _lc._tem_normal_map
+exportar = _lc.exportar
 
 
 def decimar(obj, alvo_tris: int, proteger_cabeca_maos: bool = False) -> int:
-    tris = malha_triangulada(obj)
-    if alvo_tris <= 0 or tris <= alvo_tris:
-        return tris
-
-    if proteger_cabeca_maos and obj.data.vertices and tris >= 4000:
-        bm_pre = bmesh.new()
-        bm_pre.from_mesh(obj.data)
-        _suavizar_taubin_bm(bm_pre, iteracoes=1, fator=0.35)
-        bm_pre.to_mesh(obj.data)
-        bm_pre.free()
-        obj.data.update()
-
-    vg_name: str | None = None
-    if proteger_cabeca_maos and obj.data.vertices:
-        mw = obj.matrix_world
-        coords = [mw @ v.co for v in obj.data.vertices]
-        z_min = min(c.z for c in coords)
-        z_max = max(c.z for c in coords)
-        h = z_max - z_min
-        if h > 0.0:
-            cx = 0.5 * (min(c.x for c in coords) + max(c.x for c in coords))
-            vg_name = "forge3d_decimate_peso"
-            vg_temp = obj.vertex_groups.new(name=vg_name)
-            cabeca_verts: list[int] = []
-            maos_verts: list[int] = []
-            resto_verts: list[int] = []
-            z_cabeca = z_min + 0.76 * h
-            z_mao_min = z_min + 0.30 * h
-            z_mao_max = z_min + 0.70 * h
-            x_mao = 0.25 * h
-            for v, co in zip(obj.data.vertices, coords):
-                if co.z >= z_cabeca:
-                    cabeca_verts.append(v.index)
-                elif z_mao_min <= co.z <= z_mao_max and abs(co.x - cx) >= x_mao:
-                    maos_verts.append(v.index)
-                else:
-                    resto_verts.append(v.index)
-            if cabeca_verts:
-                vg_temp.add(cabeca_verts, 0.15, "REPLACE")
-            if maos_verts:
-                vg_temp.add(maos_verts, 0.40, "REPLACE")
-            if resto_verts:
-                vg_temp.add(resto_verts, 1.0, "REPLACE")
-
-    try:
-        mod = obj.modifiers.new("forge3d_decimate", "DECIMATE")
-        mod.ratio = max(0.01, min(1.0, (alvo_tris * 0.995) / tris))
-        if vg_name is not None:
-            mod.vertex_group = vg_name
-            mod.invert_vertex_group = False
-            if hasattr(mod, "vertex_group_factor"):
-                mod.vertex_group_factor = 0.80
-        _selecionar(obj)
-        if len(obj.modifiers) > 1:
-            bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
-        bpy.ops.object.modifier_apply(modifier=mod.name)
-    finally:
-        if vg_name is not None:
-            vg_ref = obj.vertex_groups.get(vg_name)
-            if vg_ref is not None:
-                obj.vertex_groups.remove(vg_ref)
-
-    tris_pos = malha_triangulada(obj)
-    for passo_fb in range(2):
-        if tris_pos <= alvo_tris or tris_pos <= 4:
-            break
-        mod_fb = obj.modifiers.new(f"forge3d_decimate_fb_{passo_fb}", "DECIMATE")
-        mod_fb.ratio = max(0.01, min(0.99, (alvo_tris * 0.985) / tris_pos))
-        _selecionar(obj)
-        if len(obj.modifiers) > 1:
-            bpy.ops.object.modifier_move_to_index(modifier=mod_fb.name, index=0)
-        bpy.ops.object.modifier_apply(modifier=mod_fb.name)
-        novo_tris = malha_triangulada(obj)
-        if novo_tris >= tris_pos:
-            break
-        tris_pos = novo_tris
-
-    if proteger_cabeca_maos and obj.data.vertices:
-        bm_pos = bmesh.new()
-        bm_pos.from_mesh(obj.data)
-        _relaxar_arestas_dobradas_bm(bm_pos, passadas=3)
-        bm_pos.to_mesh(obj.data)
-        bm_pos.free()
-        obj.data.update()
-    return tris_pos
-
-
-def _extensao_faixa(obj, z0: float, z1: float) -> float:
-    """Area da faixa horizontal [z0,z1] no plano XY: cabeca fina vs base larga."""
-    xs: list[float] = []
-    ys: list[float] = []
-    for v in obj.data.vertices:
-        co = obj.matrix_world @ v.co
-        if z0 <= co.z <= z1:
-            xs.append(co.x)
-            ys.append(co.y)
-    if not xs:
-        return 0.0
-    return (max(xs) - min(xs)) * (max(ys) - min(ys))
-
-
-def canonicalizar(obj, tipo: str | None = None) -> dict:
-    """Altura em Z, largura em X, profundidade em Y, base em Z=0 (tools/normalize_mesh.py).
-
-    Para humanoide/criatura, corrige o caso em que a cabeca (faixa estreita) caiu embaixo: espelha
-    Z, preservando frente e lados, e recalcula normais. Medido no sentinela da P3.5: o TripoSR
-    devolveu o corpo de cabeca para baixo e o G2 passava (altura certa) sem essa checagem.
-
-    GAP-048 (medido em 11/11/2026): com uma arma grande ao lado do corpo, a razao topo/base fica
-    ~1 (0,988) e o centro de area tambem e neutro (6,18/12), entao o asset saia de cabeca para
-    baixo com G1-G10 verdes. Terceiro sinal: a ponta CHATA (sola apoiada) tem area muito maior na
-    fatia fina que a ponta arredondada (cabeca/capuz) — no caso real, 0,1218 no topo contra 0,0174
-    na base (7x). Espelha quando o topo fino e o chato.
-    """
-    minimo, maximo = bbox_local()
-    extensao = maximo - minimo
-    ordem = sorted(range(3), key=lambda i: extensao[i])
-    profundidade = ordem[0]
-    sobra = [i for i in range(3) if i != profundidade]
-    quadrupede = (
-        tipo in ("criatura", "criatura_quadrupede", "montaria")
-        and extensao[2] >= 0.30 * max(extensao)
-        and max(extensao[0], extensao[1]) > 1.15 * extensao[2]
+    return _rp.decimar(
+        obj,
+        alvo_tris,
+        proteger_cabeca_maos=proteger_cabeca_maos,
+        taubin_fn=_suavizar_taubin_bm,
     )
-    criatura_alada = (
-        tipo == "criatura_alada"
-        and extensao[2] >= 0.30 * max(extensao)
-    )
-    # Em T-pose ou montaria alada, a envergadura horizontal (X) frequentemente >= altura (Z):
-    # preserva Z up (importado do glTF +Y up do TripoSR) em vez de tombar a asa/braco para cima.
-    if quadrupede:
-        altura = 2
-        profundidade = max((0, 1), key=lambda i: extensao[i])
-        largura = 1 - profundidade
-    elif criatura_alada:
-        altura = 2
-        largura, profundidade = 0, 1
-    elif (
-        tipo in TIPOS_ORGANICOS
-        and profundidade == 1
-        and extensao[2] >= 0.55 * extensao[0]
-    ):
-        altura, largura = 2, 0
-    else:
-        altura = max(sobra, key=lambda i: extensao[i])
-        largura = min(sobra, key=lambda i: extensao[i])
-    destinos = (largura, profundidade, altura)
-    linhas = []
-    for origem in destinos:
-        linha = [0.0, 0.0, 0.0]
-        linha[origem] = 1.0
-        linhas.append(linha)
-    if Matrix(linhas).determinant() < 0:
-        # permutacao impar espelharia a malha (logo/texto invertido)
-        linhas[1] = [-v for v in linhas[1]]
-    rot = Matrix(linhas).to_4x4()
-    obj.matrix_world = rot @ obj.matrix_world
-    _aplicar_transformes(obj)
-    minimo, maximo = bbox_local()
-    desloc = Vector(
-        (-(minimo.x + maximo.x) / 2.0, -(minimo.y + maximo.y) / 2.0, -minimo.z)
-    )
-    obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
-    _aplicar_transformes(obj)
-
-    info = {
-        "altura_eixo": "XYZ"[altura],
-        "largura_eixo": "XYZ"[largura],
-        "profundidade_eixo": "XYZ"[profundidade],
-    }
-    if quadrupede:
-        info["invertido"] = False
-        info["girado_frente"] = False
-        info["quadrupede"] = True
-        return info
-    if tipo in ("personagem_humanoide", "criatura"):
-        minimo, maximo = bbox_local()
-        altura_z = maximo.z - minimo.z
-        # perfil de area em 12 faixas: em T-pose os bracos/ombros puxam o centro para cima
-        n = 12
-        areas = []
-        for i in range(n):
-            z0 = minimo.z + altura_z * i / n
-            z1 = minimo.z + altura_z * (i + 1) / n
-            areas.append(_extensao_faixa(obj, z0, z1))
-        total = sum(areas)
-        centro = (
-            sum(a * (i + 0.5) for i, a in enumerate(areas)) / total if total else 0.0
-        )
-        info["centro_area"] = round(centro, 3)
-        info["areas"] = [round(a, 6) for a in areas]
-        razao_ends = (areas[-1] / areas[0]) if areas and areas[0] > 0 else 0.0
-        info["razao_topo_base"] = round(razao_ends, 3)
-        # GAP-048: a ponta que apoia no chao e chata (sola); a outra e arredondada (cabeca/capuz).
-        # A fatia fina denuncia o lado errado mesmo com prop grande, onde area e centro sao neutros.
-        fatia = max(altura_z * 0.02, 1e-6)
-        area_base_fina = _extensao_faixa(obj, minimo.z, minimo.z + fatia)
-        area_topo_fina = _extensao_faixa(obj, maximo.z - fatia, maximo.z)
-        invertido_contato = area_base_fina > 0 and area_topo_fina > 3.0 * area_base_fina
-        upright_contato = area_topo_fina > 0 and area_base_fina > 3.0 * area_topo_fina
-        info["contato_base"] = round(area_base_fina, 6)
-        info["contato_topo"] = round(area_topo_fina, 6)
-        info["invertido_contato"] = invertido_contato
-        # cabeca fina em cima => topo menor que a base; capa/saia longa pode puxar centro < 0,48*n
-        # mesmo com base firme e topo 10x menor (razao_ends << 0,5) -> nao inverter falso-positivo
-        deve_inverter = invertido_contato or (
-            not upright_contato
-            and (razao_ends > 1.5 or (centro < n * 0.48 and razao_ends >= 0.5))
-        )
-        if total > 0 and deve_inverter:
-            # rotacao pura 180 deg em X (det=+1): preserva lateralidade e winding sem espelhar
-            obj.matrix_world = Matrix.Rotation(math.pi, 4, "X") @ obj.matrix_world
-            _aplicar_transformes(obj)
-            minimo, maximo = bbox_local()
-            desloc = Vector(
-                (-(minimo.x + maximo.x) / 2.0, -(minimo.y + maximo.y) / 2.0, -minimo.z)
-            )
-            obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
-            _aplicar_transformes(obj)
-            info["invertido"] = True
-        else:
-            info["invertido"] = False
-
-        # EIXO-05: se os pes (0..6% Z) ficam atras das canelas (12..30% Z) em Y, esta de costas (-Y)
-        alinh = _alinhar_frente_humanoide(obj)
-        info.update(alinh)
-    return info
-
-
-def _medir_score_frente_humanoide(obj) -> float | None:
-    """Metrica identica ao qc._g2_orientacao: (pes - canelas) em Y local / altura_z."""
-    zs = [v.co.z for v in obj.data.vertices]
-    if not zs:
-        return None
-    z_min, z_max = min(zs), max(zs)
-    altura_z = z_max - z_min
-    if altura_z <= 1e-6:
-        return None
-    pes_ys = [v.co.y for v in obj.data.vertices if v.co.z <= z_min + 0.06 * altura_z]
-    canela_ys = [
-        v.co.y
-        for v in obj.data.vertices
-        if z_min + 0.12 * altura_z <= v.co.z <= z_min + 0.30 * altura_z
-    ]
-    if not pes_ys or not canela_ys:
-        return None
-    pes_mean = sum(pes_ys) / len(pes_ys)
-    pes_mid = 0.5 * (min(pes_ys) + max(pes_ys))
-    can_mean = sum(canela_ys) / len(canela_ys)
-    can_mid = 0.5 * (min(canela_ys) + max(canela_ys))
-    return 0.5 * ((pes_mean - can_mean) + (pes_mid - can_mid)) / altura_z
-
-
-def _alinhar_frente_humanoide(obj, limiar: float = LIMIAR_SCORE_FRENTE) -> dict:
-    """Gira 180 em Z quando score_frente < -limiar (mesmo limiar do G2) e recentra a base."""
-    score_frente = _medir_score_frente_humanoide(obj)
-    info: dict = {}
-    if score_frente is not None:
-        info["score_frente"] = round(score_frente, 5)
-    girado_frente = False
-    if score_frente is not None and score_frente < -limiar:
-        obj.matrix_world = Matrix.Rotation(math.pi, 4, "Z") @ obj.matrix_world
-        _aplicar_transformes(obj)
-        xs = [v.co.x for v in obj.data.vertices]
-        ys = [v.co.y for v in obj.data.vertices]
-        zs = [v.co.z for v in obj.data.vertices]
-        desloc = Vector((-(min(xs) + max(xs)) / 2.0, -(min(ys) + max(ys)) / 2.0, -min(zs)))
-        obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
-        _aplicar_transformes(obj)
-        girado_frente = True
-    info["girado_frente"] = girado_frente
-    return info
-
-def _resolver_config_suavizacao(job: dict, bruto: dict) -> dict:
-    """Resolve parametros de suavizacao de normais (organico 65 deg vs hard-surface 38 deg)."""
-    item = job.get("item") if isinstance(job.get("item"), dict) else {}
-    cfg_raw = job.get("suavizacao_normais") or item.get("suavizacao_normais") or {}
-    cfg = cfg_raw if isinstance(cfg_raw, dict) else {}
-    modo = str(cfg.get("modo") or "auto").strip().lower()
-    tipo = str(job.get("tipo") or item.get("tipo") or "").strip()
-    parte = str(item.get("parte") or "").strip().lower()
-    eh_armadura = bool(bruto.get("armadura_modular")) or (parte in PARTES_RIGIDAS)
-
-    if modo == "organico":
-        eh_organico = True
-    elif modo == "hard_surface":
-        eh_organico = False
-    else:
-        eh_organico = (tipo in TIPOS_ORGANICOS) and not eh_armadura
-
-    if "angulo_graus" in cfg and cfg["angulo_graus"] is not None:
-        angulo_graus = float(cfg["angulo_graus"])
-    elif eh_organico:
-        angulo_graus = 65.0
-    elif item.get("rota") == "import" and bruto.get("origem_nome") == "malha_colorida.glb" and not cfg:
-        angulo_graus = 45.0
-    else:
-        angulo_graus = 38.0
-
-    if "weighted_normals" in cfg and cfg["weighted_normals"] is not None:
-        weighted_normals = bool(cfg["weighted_normals"])
-    else:
-        weighted_normals = (not eh_organico) and (
-            tipo in ("prop_equipavel", "prop_estatico", "modulo_cenario")
-            or eh_armadura
-            or bruto.get("schema") == "forge3d/bruto-extrude@1"
-        )
-
-    if "corrective_smooth" in cfg and cfg["corrective_smooth"] is not None:
-        corrective_smooth = bool(cfg["corrective_smooth"])
-    else:
-        corrective_smooth = eh_organico
-
-    return {
-        "modo": "organico" if eh_organico else "hard_surface",
-        "eh_organico": eh_organico,
-        "angulo_graus": angulo_graus,
-        "weighted_normals": weighted_normals,
-        "corrective_smooth": corrective_smooth,
-        "soldar_componentes_organicos": bool(cfg.get("soldar_componentes_organicos", False)),
-    }
-
-
-def suavizar_por_angulo(obj, angulo_graus: float = 65.0) -> dict:
-    """Smooth shading real por angulo diedro + custom split normals ponderadas por angulo."""
-    if obj is None or obj.type != "MESH" or obj.data is None:
-        return {"angulo_graus": float(angulo_graus), "arestas_vivas": 0, "custom_normals": False}
-    me = obj.data
-    _selecionar(obj)
-    if getattr(me, "has_custom_normals", False):
-        try:
-            bpy.ops.mesh.customdata_custom_splitnormals_clear()
-        except Exception:
-            pass
-    for poly in me.polygons:
-        poly.use_smooth = True
-    me.shade_smooth()
-    rad = math.radians(float(angulo_graus))
-    me.set_sharp_from_angle(angle=rad)
-    me.update()
-
-    sharp_attr = me.attributes.get("sharp_edge")
-    sharp_indices = (
-        {i for i, d in enumerate(sharp_attr.data) if d.value}
-        if sharp_attr is not None
-        else set()
-    )
-
-    if len(me.loops) > 0 and len(me.polygons) > 0:
-        bm = bmesh.new()
-        try:
-            bm.from_mesh(me)
-            bm.faces.ensure_lookup_table()
-            bm.edges.ensure_lookup_table()
-            bm.verts.ensure_lookup_table()
-            bm.normal_update()
-            for e in bm.edges:
-                if e.index in sharp_indices:
-                    e.smooth = False
-                elif len(e.link_faces) == 2:
-                    n0 = e.link_faces[0].normal
-                    n1 = e.link_faces[1].normal
-                    if n0.length > 1e-8 and n1.length > 1e-8:
-                        cos_a = max(-1.0, min(1.0, n0.dot(n1)))
-                        if math.acos(cos_a) >= rad:
-                            e.smooth = False
-                            sharp_indices.add(e.index)
-                        else:
-                            e.smooth = True
-                    else:
-                        e.smooth = True
-                else:
-                    e.smooth = False
-                    sharp_indices.add(e.index)
-
-            loop_normals = [Vector((0.0, 0.0, 1.0))] * len(me.loops)
-            for v in bm.verts:
-                visitados: set = set()
-                for lp_ini in v.link_loops:
-                    if lp_ini in visitados:
-                        continue
-                    grupo = []
-                    fila = [lp_ini]
-                    visitados.add(lp_ini)
-                    while fila:
-                        atual = fila.pop()
-                        grupo.append(atual)
-                        for e_adj in (atual.edge, atual.link_loop_prev.edge):
-                            if e_adj.index in sharp_indices or not e_adj.smooth:
-                                continue
-                            for l_adj in e_adj.link_loops:
-                                for cand in (l_adj, l_adj.link_loop_next):
-                                    if cand.vert == v and cand not in visitados:
-                                        visitados.add(cand)
-                                        fila.append(cand)
-                    acum = Vector((0.0, 0.0, 0.0))
-                    for lp in grupo:
-                        peso = max(1e-6, lp.calc_angle())
-                        acum += lp.face.normal * peso
-                    if acum.length > 1e-8:
-                        n_final = acum.normalized()
-                    elif v.normal.length > 1e-8:
-                        n_final = v.normal.normalized()
-                    else:
-                        n_final = Vector((0.0, 0.0, 1.0))
-                    for lp in grupo:
-                        loop_normals[lp.index] = n_final
-        finally:
-            bm.free()
-        me.normals_split_custom_set(loop_normals)
-        me.update()
-
-    arestas_vivas = len(sharp_indices)
-    return {
-        "angulo_graus": float(angulo_graus),
-        "arestas_vivas": arestas_vivas,
-        "custom_normals": bool(getattr(me, "has_custom_normals", False)),
-    }
-
-
-def aplicar_weighted_normal(obj) -> dict:
-    """Aplica normais ponderadas por area/angulo em pecas hard-surface."""
-    _selecionar(obj)
-    mod = obj.modifiers.new(name="WeightedNormal", type="WEIGHTED_NORMAL")
-    mod.mode = "FACE_AREA_WITH_ANGLE"
-    mod.keep_sharp = True
-    bpy.ops.object.modifier_apply(modifier=mod.name)
-    obj.data.update()
-    return {"weighted_normal": True}
 
 
 def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
@@ -977,9 +123,9 @@ def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
         props = set(bpy.ops.object.quadriflow_remesh.get_rna_type().properties.keys())
         kw = {
             "use_mesh_symmetry": False,
-            "use_preserve_sharp": False,
+            "use_preserve_sharp": True,
             "use_preserve_boundary": True,
-            "preserve_attributes": False,
+            "preserve_attributes": True,
             "smooth_normals": True,
             "target_faces": alvos_quads,
             "seed": 0,
@@ -990,7 +136,8 @@ def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
             raise RuntimeError("quadriflow retornou 0 faces")
         bpy.data.meshes.remove(backup)
         return True
-    except Exception:
+    except (RuntimeError, TypeError, ValueError, AttributeError) as exc:
+        print(f"[postprocess] aviso quadriflow em {obj.name}: {exc}", file=sys.stderr)
         antiga = obj.data
         obj.data = backup
         if antiga.users == 0:
@@ -999,178 +146,7 @@ def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
 
 
 def desdobrar_uv(obj, margem: float = 0.02) -> str:
-    if obj is not None and obj.type == "MESH" and obj.data and len(obj.data.polygons) > 4:
-        bm = bmesh.new()
-        try:
-            bm.from_mesh(obj.data)
-            colapsadas = _colapsar_faces_degeneradas(bm, area_min=1e-9)
-            if colapsadas > 0:
-                bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-                bm.to_mesh(obj.data)
-                obj.data.update()
-        finally:
-            bm.free()
-    _selecionar(obj)
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(
-        angle_limit=1.15192,  # 66 graus
-        island_margin=max(0.02, float(margem)),
-        area_weight=0.5,
-        correct_aspect=True,
-        scale_to_bounds=False,
-    )
-    bpy.ops.object.mode_set(mode="OBJECT")
-    if not obj.data.uv_layers:
-        raise RuntimeError("smart_project nao criou camada UV")
-    return obj.data.uv_layers.active.name
-
-
-def gerar_uv_lightmap(obj) -> str:
-    """Gera UVMap_Lightmap (TEXCOORD_1) sem substituir o UV principal (TEXCOORD_0)."""
-    if not obj.data.uv_layers:
-        desdobrar_uv(obj)
-    nome_primario = obj.data.uv_layers[0].name
-    lm = obj.data.uv_layers.get("UVMap_Lightmap") or obj.data.uv_layers.new(name="UVMap_Lightmap")
-    obj.data.uv_layers.active = lm
-    _selecionar(obj)
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(
-        angle_limit=1.15192,
-        island_margin=0.03,
-        area_weight=0.5,
-        correct_aspect=True,
-        scale_to_bounds=True,
-    )
-    bpy.ops.object.mode_set(mode="OBJECT")
-    obj.data.uv_layers.active = obj.data.uv_layers[nome_primario]
-    obj.data.uv_layers[nome_primario].active_render = True
-    return lm.name
-
-
-def assar_cor_vertices(obj, png: str, px: int) -> dict:
-    """Bake DIFFUSE/COLOR da cor por vertice para PNG e troca o material por textura."""
-    if not obj.data.color_attributes:
-        raise RuntimeError("malha sem atributo de cor por vertice para assar")
-    nome_cor = obj.data.color_attributes[0].name
-    obj.data.materials.clear()
-    mat = bpy.data.materials.new("forge3d_bake")
-    mat.use_nodes = True
-    mat.use_backface_culling = True
-    nt = mat.node_tree
-    bsdf = nt.nodes.get("Principled BSDF")
-    if "Roughness" in bsdf.inputs:
-        bsdf.inputs["Roughness"].default_value = 0.85
-    if "Metallic" in bsdf.inputs:
-        bsdf.inputs["Metallic"].default_value = 0.0
-    vc = nt.nodes.new("ShaderNodeVertexColor")
-    vc.layer_name = nome_cor
-    nt.links.new(vc.outputs["Color"], bsdf.inputs["Base Color"])
-    img = bpy.data.images.new("forge3d_baseColor", width=px, height=px, alpha=False)
-    tex = nt.nodes.new("ShaderNodeTexImage")
-    tex.image = img
-    tex.select = True
-    nt.nodes.active = tex
-    obj.data.materials.append(mat)
-
-    cena = bpy.context.scene
-    cena.render.engine = "CYCLES"
-    cena.cycles.device = "CPU"
-    cena.cycles.samples = 1
-    cena.cycles.use_denoising = False
-    cena.render.bake.use_pass_direct = False
-    cena.render.bake.use_pass_indirect = False
-    cena.render.bake.use_pass_color = True
-    cena.render.bake.margin = max(4, px // 128)
-    cena.render.bake.use_clear = True
-    _selecionar(obj)
-    bpy.ops.object.bake(type="DIFFUSE")
-
-    img.filepath_raw = png
-    img.file_format = "PNG"
-    img.save()
-    img.pack()
-    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-    nt.nodes.remove(vc)
-    for atributo in list(obj.data.color_attributes):
-        obj.data.color_attributes.remove(atributo)
-    return {
-        "textura_px": px,
-        "cor_atributo": nome_cor,
-        "png_bytes": os.path.getsize(png),
-    }
-
-
-# ------------------------------------------------------------------ geometria
-
-
-def transformar_armadura(rig, escala: float, deslocamento: Vector) -> None:
-    """Ossos acompanham a geometria: skinning rigido exige osso e vertice no mesmo espaco."""
-    _aplicar_transformes(rig)
-    bpy.context.view_layer.objects.active = rig
-    rig.select_set(True)
-    bpy.ops.object.mode_set(mode="EDIT")
-    for osso in rig.data.edit_bones:
-        osso.head = (osso.head * escala) + deslocamento
-        osso.tail = (osso.tail * escala) + deslocamento
-    bpy.ops.object.mode_set(mode="OBJECT")
-    rig.select_set(False)
-
-
-def _imagens_exportaveis() -> list:
-    """Lista todas as imagens exportaveis carregadas na cena (exclui render targets)."""
-    imgs = []
-    for img in bpy.data.images:
-        if getattr(img, "type", "IMAGE") == "RENDER_TARGET":
-            continue
-        if img.name in ("Render Result", "Viewer Node"):
-            continue
-        w, h = int(img.size[0]), int(img.size[1])
-        if w <= 0 or h <= 0:
-            continue
-        imgs.append(img)
-    return imgs
-
-
-def _redimensionar_imagem(img, nw: int, nh: int) -> None:
-    """Redimensiona imagem para (nw, nh) substituindo buffer empacotado via user_remap."""
-    nome_orig = img.name
-    cs = img.colorspace_settings.name if hasattr(img, "colorspace_settings") else "sRGB"
-    img.scale(nw, nh)
-    px = list(img.pixels)
-    dst = bpy.data.images.new(name=f"{nome_orig}_r", width=nw, height=nh, alpha=True)
-    try:
-        dst.colorspace_settings.name = cs
-    except Exception:
-        pass
-    dst.pixels.foreach_set(px)
-    dst.pack()
-    img.user_remap(dst)
-    bpy.data.images.remove(img)
-    dst.name = nome_orig
-
-
-def _pot_abaixo(valor: int) -> int:
-    """Maior potencia de 2 menor ou igual a valor (minimo 4px) para G4."""
-    v = max(4, int(valor))
-    if (v & (v - 1)) == 0:
-        return v
-    return 1 << (v.bit_length() - 1)
-
-
-def _enquadrar_texturas_no_teto(textura_max: int) -> None:
-    """Redimensiona qualquer imagem em cena maior que textura_max preservando POT (G4)."""
-    if textura_max <= 0:
-        return
-    for img in _imagens_exportaveis():
-        w, h = int(img.size[0]), int(img.size[1])
-        maior = max(w, h)
-        if maior > textura_max:
-            fator = float(textura_max) / float(maior)
-            nw = _pot_abaixo(max(4, int(round(w * fator))))
-            nh = _pot_abaixo(max(4, int(round(h * fator))))
-            _redimensionar_imagem(img, nw, nh)
+    return _nuv.desdobrar_uv(obj, margem=margem)
 
 
 def _reduzir_imagens_embutidas_orcamento(
@@ -1178,501 +154,30 @@ def _reduzir_imagens_embutidas_orcamento(
     bytes_max: int,
     exportar_fn,
 ) -> None:
-    """Encolhe texturas embutidas (incluindo .mhclo) preservando POT quando GLB excede bytes_max (G9)."""
+    """Encolhe texturas embutidas (incluindo .mhclo) preservando POT e piso de 512px (G9)."""
     if bytes_max <= 0 or not os.path.isfile(caminho_glb):
         return
     if os.path.getsize(caminho_glb) <= bytes_max:
         return
-    for teto in (512, 256, 128):
+    piso_px = 512
+    for teto in (1024, piso_px):
         mudou = False
         for img in _imagens_exportaveis():
             w, h = int(img.size[0]), int(img.size[1])
             maior = max(w, h)
             if maior > teto:
                 fator = float(teto) / float(maior)
-                nw = _pot_abaixo(max(4, int(round(w * fator))))
-                nh = _pot_abaixo(max(4, int(round(h * fator))))
-                _redimensionar_imagem(img, nw, nh)
-                mudou = True
+                min_w = piso_px if w >= piso_px else w
+                min_h = piso_px if h >= piso_px else h
+                nw = _pot_abaixo(max(min_w, int(round(w * fator))))
+                nh = _pot_abaixo(max(min_h, int(round(h * fator))))
+                if nw != w or nh != h:
+                    _redimensionar_imagem(img, nw, nh)
+                    mudou = True
         if mudou:
             exportar_fn()
             if os.path.getsize(caminho_glb) <= bytes_max:
                 return
-
-
-def bbox_local() -> tuple[Vector, Vector]:
-    minimo = Vector((float("inf"),) * 3)
-    maximo = Vector((float("-inf"),) * 3)
-    for obj in objetos_malha():
-        for v in obj.data.vertices:
-            co = obj.matrix_world @ v.co
-            for i in range(3):
-                minimo[i] = min(minimo[i], co[i])
-                maximo[i] = max(maximo[i], co[i])
-    if minimo.x == float("inf"):
-        raise RuntimeError("nenhuma geometria para medir")
-    return minimo, maximo
-
-
-def transformar(escala: float, deslocamento: Vector) -> None:
-    for obj in objetos_malha():
-        for v in obj.data.vertices:
-            v.co = (v.co * escala) + deslocamento
-        obj.data.update()
-
-
-def calcular_pivo(regra: str, minimo: Vector, maximo: Vector, declarado) -> tuple[Vector, str]:
-    """Pivo pedido pela spec, ou a regra geometrica quando o provider nao declara."""
-    centro = (minimo + maximo) / 2
-    if declarado:
-        return Vector(declarado), "provider"
-    if regra == "base":
-        return Vector((centro.x, centro.y, minimo.z)), "regra"
-    if regra == "centro":
-        return centro, "regra"
-    if regra == "topo":
-        return Vector((centro.x, centro.y, maximo.z)), "regra"
-    if regra == "origem":
-        return Vector((0.0, 0.0, 0.0)), "regra"
-    if regra == "empunhadura":
-        # regra do contrato (D58): 20% da altura a partir da base, igual ao blocky
-        # (FRACAO_EMPUNHADURA em src/forge3d/profiles.py). Este script roda no Python do
-        # Blender e nao importa o pacote: a fracao fica literal de proposito.
-        z = minimo.z + 0.2 * (maximo.z - minimo.z)
-        return Vector((centro.x, centro.y, z)), "heuristica"
-    return Vector((centro.x, centro.y, minimo.z)), "regra"
-
-
-def malha_triangulada(obj) -> int:
-    return sum(max(len(p.vertices) - 2, 0) for p in obj.data.polygons)
-
-
-def medir_geometria(obj, *, permitir_bordas_abertas: bool = False) -> dict:
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    # glTF divide vertice em cada costura de UV/normal: solda apenas duplicatas exatas (1e-7),
-    # sem esconder fendas de 3e-6..9e-6 apos reducao de escala.
-    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-7)
-    bordas_abertas = sum(1 for e in bm.edges if len(e.link_faces) == 1)
-    arestas_t = sum(1 for e in bm.edges if len(e.link_faces) > 2)
-    nao_manifold = arestas_t if permitir_bordas_abertas else (bordas_abertas + arestas_t)
-    degeneradas = sum(1 for f in bm.faces if f.calc_area() < 1e-12)
-    bm.free()
-    return {
-        "nao_manifold": nao_manifold,
-        "bordas_abertas": bordas_abertas,
-        "arestas_t": arestas_t,
-        "degeneradas": degeneradas,
-    }
-
-
-# ------------------------------------------------------------------ LOD / colisor
-
-
-def clonar_malha(obj, nome: str):
-    novo = bpy.data.objects.new(nome, obj.data.copy())
-    bpy.context.collection.objects.link(novo)
-    for vg in obj.vertex_groups:
-        novo.vertex_groups.new(name=vg.name)
-    return novo
-
-
-def aplicar_decimate(obj, proporcao: float) -> None:
-    if proporcao >= 1.0:
-        return
-    mod = obj.modifiers.new("decimate_lod", "DECIMATE")
-    mod.ratio = max(0.01, min(1.0, proporcao))
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.modifier_apply(modifier=mod.name)
-
-
-def _componentes_indices(bm) -> list[list[int]]:
-    """Componentes conexas por aresta, como indices de vertice."""
-    vistos: set[int] = set()
-    grupos: list[list[int]] = []
-    for vertice in bm.verts:
-        if vertice.index in vistos:
-            continue
-        pilha = [vertice]
-        membros: list[int] = []
-        vistos.add(vertice.index)
-        while pilha:
-            atual = pilha.pop()
-            membros.append(atual.index)
-            for aresta in atual.link_edges:
-                outro = aresta.other_vert(atual)
-                if outro.index not in vistos:
-                    vistos.add(outro.index)
-                    pilha.append(outro)
-        grupos.append(membros)
-    return grupos
-
-
-def _volume_componente(bm, indices: list[int]) -> float:
-    xs = [bm.verts[i].co.x for i in indices]
-    ys = [bm.verts[i].co.y for i in indices]
-    zs = [bm.verts[i].co.z for i in indices]
-    return (max(xs) - min(xs)) * (max(ys) - min(ys)) * (max(zs) - min(zs))
-
-
-def aplicar_lod(obj, pct: float, *, blocky: bool | None = None) -> dict:
-    """LOD: blocky (muitas caixas) perde caixa inteira; malha orgânica/importada vai de decimate.
-
-    Medido em 11/11/2026 (GAP-013): o decimate cego num blocky de 300 tris virou espinhos
-    (IoU de silhueta 0,76 no LOD1 e 0,55 no LOD2). Caixa e a unidade de detalhe do blocky —
-    tirar a caixa inteira preserva o que sobrou e nao inventa geometria. Ja malhas multi-camadas
-    nao-blocky (humanoide CC0 vestido com tunica, botas, bracadeiras, cabelo, olhos) nao podem
-    descartar ilhas inteiras sob pena de amputar roupa/membros e derrubar IoU de silhueta (G9).
-    """
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    bm.verts.ensure_lookup_table()
-    grupos = _componentes_indices(bm)
-    total_tris = len(bm.faces)
-    usar_decimate = (
-        len(grupos) < 8
-        or blocky is False
-        or (blocky is None and total_tris > 1500)
-    )
-    if usar_decimate:
-        bm.free()
-        aplicar_decimate(obj, pct / 100.0)
-        return {"modo": "decimate", "ilhas": len(grupos)}
-
-    por_vertice = {}
-    medidas = []
-    for indice, membros in enumerate(grupos):
-        for v in membros:
-            por_vertice[v] = indice
-        coords = [bm.verts[i].co for i in membros]
-        minimo = [min(c[k] for c in coords) for k in range(3)]
-        maximo = [max(c[k] for c in coords) for k in range(3)]
-        medidas.append(
-            {
-                "indice": indice,
-                "volume": _volume_componente(bm, membros),
-                # area da maior face do bbox: e o que o jogador ve. Braco fino tem volume
-                # pequeno e area grande; visor tem o contrario. Volume como criterio sumia
-                # com o braco (medido no render do android).
-                "area": max(
-                    (maximo[0] - minimo[0]) * (maximo[1] - minimo[1]),
-                    (maximo[2] - minimo[2]) * (maximo[1] - minimo[1]),
-                    (maximo[0] - minimo[0]) * (maximo[2] - minimo[2]),
-                ),
-                "tris": 0,
-                "min": minimo,
-                "max": maximo,
-            }
-        )
-    for face in bm.faces:
-        dono = por_vertice.get(face.verts[0].index)
-        if dono is not None:
-            medidas[dono]["tris"] += 1
-
-    # envelope do asset: caixa que toca um extremo e obrigatoria. O LOD tira detalhe, nunca
-    # encolhe o bbox (medido: sem esta regra o LOD2 reprovava com -34% em X).
-    global_min = [min(m["min"][k] for m in medidas) for k in range(3)]
-    global_max = [max(m["max"][k] for m in medidas) for k in range(3)]
-
-    def toca_extremo(m: dict) -> bool:
-        for k in range(3):
-            if abs(m["min"][k] - global_min[k]) < 1e-6 or abs(m["max"][k] - global_max[k]) < 1e-6:
-                return True
-        return False
-
-    obrigatorias = [m for m in medidas if toca_extremo(m)]
-    opcionais = sorted(
-        (m for m in medidas if not toca_extremo(m)), key=lambda m: m["area"], reverse=True
-    )
-    alvo = max(1, int(round(total_tris * pct / 100.0)))
-    mantidas = list(obrigatorias)
-    acumulado = sum(m["tris"] for m in mantidas)
-    for medida in opcionais:
-        if acumulado >= alvo:
-            break
-        mantidas.append(medida)
-        acumulado += medida["tris"]
-    remover_indices = {m["indice"] for m in medidas} - {m["indice"] for m in mantidas}
-    remover = [bm.verts[i] for g in remover_indices for i in grupos[g]] if remover_indices else []
-    if remover_indices:
-        bmesh.ops.delete(bm, geom=remover, context="VERTS")
-    bm.to_mesh(obj.data)
-    bm.free()
-    obj.data.update()
-    return {
-        "modo": "ilhas",
-        "ilhas": len(grupos),
-        "mantidas": len(mantidas),
-        "obrigatorias": len(obrigatorias),
-        "alvo_pct": pct,
-        "triangulos": len(obj.data.polygons),
-    }
-
-
-def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
-    """Colisor convexo por peca; prefixo UCX_ (convencao do perfil)."""
-    if modo in ("none", None):
-        return []
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    resultados = []
-
-    if modo == "box":
-        minimo, maximo = bbox_local()
-        malha = bpy.data.meshes.new(f"{nome_base}_box")
-        v = [
-            (minimo.x, minimo.y, minimo.z),
-            (maximo.x, minimo.y, minimo.z),
-            (maximo.x, maximo.y, minimo.z),
-            (minimo.x, maximo.y, minimo.z),
-            (minimo.x, minimo.y, maximo.z),
-            (maximo.x, minimo.y, maximo.z),
-            (maximo.x, maximo.y, maximo.z),
-            (minimo.x, maximo.y, maximo.z),
-        ]
-        malha.from_pydata(v, [], list(FACES_CUBO))
-        malha.update()
-        col = bpy.data.objects.new(f"UCX_{nome_base}_00", malha)
-        bpy.context.collection.objects.link(col)
-        resultados.append(col)
-    else:
-        # convex hull (convex) ou um hull por ilha (ucx), limitado por max_partes
-        ilhas = _ilhas(bm)
-        if modo == "convex" or len(ilhas) > max_partes:
-            ilhas = [bm]
-        for indice, ilha in enumerate(ilhas[:max_partes]):
-            temp = bmesh.new()
-            temp.from_mesh(obj.data) if ilha is bm else None
-            if ilha is not bm:
-                for vertice in ilha.verts:
-                    temp.verts.new(vertice.co)
-                temp.verts.ensure_lookup_table()
-            # O `geom` do convex_hull carrega tambem faces de ENTRADA que ficam dentro do hull:
-            # medido em 11/11/2026, o colisor da malha gerada saiu com face interior e o G7
-            # reprovou (convexidade por componente). Alimentar o hull com uma NUVEM DE PONTOS
-            # (sem faces para herdar) resolve na origem: o hull de um conjunto de pontos e o
-            # mesmo, e o `geom` devolve so a superficie convexa.
-            nuvem = bmesh.new()
-            for vertice in temp.verts:
-                nuvem.verts.new(vertice.co)
-            nuvem.verts.ensure_lookup_table()
-            if nuvem.verts:
-                xs_n = [vv.co.x for vv in nuvem.verts]
-                ys_n = [vv.co.y for vv in nuvem.verts]
-                zs_n = [vv.co.z for vv in nuvem.verts]
-                dx_n = max(xs_n) - min(xs_n)
-                dy_n = max(ys_n) - min(ys_n)
-                dz_n = max(zs_n) - min(zs_n)
-                diag_n = math.sqrt(dx_n * dx_n + dy_n * dy_n + dz_n * dz_n)
-                esp_min = max(0.01, diag_n * 0.02)
-                pts_orig = [vv.co.copy() for vv in nuvem.verts]
-                for idx_ax, span_ax in enumerate((dx_n, dy_n, dz_n)):
-                    if span_ax < 1e-4:
-                        off = Vector((0.0, 0.0, 0.0))
-                        off[idx_ax] = esp_min * 0.5
-                        for p0 in pts_orig:
-                            nuvem.verts.new(p0 + off)
-                            nuvem.verts.new(p0 - off)
-                nuvem.verts.ensure_lookup_table()
-                dist_solda = (
-                    max(0.015, min(0.06, diag_n * 0.025))
-                    if len(nuvem.verts) > 64
-                    else max(0.002, min(0.008, diag_n * 0.0025))
-                )
-                if len(nuvem.verts) > 16:
-                    bmesh.ops.remove_doubles(nuvem, verts=list(nuvem.verts), dist=dist_solda)
-                    nuvem.verts.ensure_lookup_table()
-            hull = bmesh.ops.convex_hull(nuvem, input=list(nuvem.verts))
-            faces_hull = [g for g in hull["geom"] if isinstance(g, bmesh.types.BMFace)]
-            limpo = bmesh.new()
-            mapa_vert = {}
-            for face in faces_hull:
-                for vertice in face.verts:
-                    if vertice not in mapa_vert:
-                        mapa_vert[vertice] = limpo.verts.new(vertice.co)
-            limpo.verts.ensure_lookup_table()
-            for face in faces_hull:
-                try:
-                    limpo.faces.new([mapa_vert[v] for v in face.verts])
-                except ValueError:
-                    continue
-            if limpo.faces:
-                bmesh.ops.dissolve_degenerate(limpo, dist=1e-3, edges=list(limpo.edges))
-                bmesh.ops.triangulate(limpo, faces=list(limpo.faces))
-                bmesh.ops.dissolve_degenerate(limpo, dist=1e-3, edges=list(limpo.edges))
-            limpo.normal_update()
-            if limpo.faces:
-                bmesh.ops.recalc_face_normals(limpo, faces=list(limpo.faces))
-            malha = bpy.data.meshes.new(f"UCX_{nome_base}_{indice:02d}")
-            limpo.to_mesh(malha)
-            limpo.free()
-            nuvem.free()
-            temp.free()
-            malha.update()
-            col = bpy.data.objects.new(f"UCX_{nome_base}_{indice:02d}", malha)
-            bpy.context.collection.objects.link(col)
-            resultados.append(col)
-
-    bm.free()
-    return resultados
-
-
-def _ilhas(bm) -> list:
-    vistos = set()
-    ilhas = []
-    for vertice in bm.verts:
-        if vertice.index in vistos:
-            continue
-        pilha = [vertice]
-        membros = []
-        vistos.add(vertice.index)
-        while pilha:
-            atual = pilha.pop()
-            membros.append(atual)
-            for aresta in atual.link_edges:
-                outro = aresta.other_vert(atual)
-                if outro.index not in vistos:
-                    vistos.add(outro.index)
-                    pilha.append(outro)
-        ilha = bmesh.new()
-        mapa = {}
-        for v in membros:
-            mapa[v.index] = ilha.verts.new(v.co)
-        ilha.verts.ensure_lookup_table()
-        for v in membros:
-            for f in v.link_faces:
-                try:
-                    ilha.faces.new([mapa[x.index] for x in f.verts])
-                except ValueError:
-                    pass
-        ilhas.append(ilha)
-    return ilhas
-
-
-# ------------------------------------------------------------------ animacao base (D66/D69)
-
-
-def animar(rig_obj, clipes: list[dict]) -> list[dict]:
-    """Aplica as chaves dos clipes que vieram no job. O movimento nao e decidido aqui."""
-    return autorig.aplicar_animacoes_multi(rig_obj, clipes)
-
-
-# ------------------------------------------------------------------ export
-
-
-def _tem_normal_map(objetos: list) -> bool:
-    for obj in objetos:
-        if getattr(obj, "type", None) != "MESH" or not obj.data:
-            continue
-        for mat in obj.data.materials:
-            if mat and mat.use_nodes:
-                for node in mat.node_tree.nodes:
-                    if node.type == "BSDF_PRINCIPLED":
-                        inp = node.inputs.get("Normal")
-                        if inp is not None and inp.is_linked:
-                            return True
-    return False
-
-
-def exportar(
-    caminho: str,
-    objetos: list,
-    com_rig: bool,
-    com_animacao: bool = False,
-    export_tangents: bool = False,
-) -> None:
-    bpy.ops.object.select_all(action="DESELECT")
-    for obj in objetos:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = objetos[0]
-
-    kwargs: dict = {
-        "filepath": caminho,
-        "export_format": "GLB",
-        "use_selection": True,
-        "export_apply": False,
-        "export_yup": True,
-        "export_materials": "EXPORT",
-        "export_skins": com_rig,
-        "export_animations": com_animacao,
-        "export_animation_mode": "ACTIONS",
-        "export_rest_position_armature": True,
-        "export_texcoords": True,
-        "export_normals": True,
-        "export_draco_mesh_compression_enable": False,
-        "export_image_format": "AUTO",
-        "export_cameras": False,
-        "export_lights": False,
-    }
-    if export_tangents:
-        kwargs["export_tangents"] = True
-    props = set(bpy.ops.export_scene.gltf.get_rna_type().properties.keys())
-    kwargs = {k: v for k, v in kwargs.items() if k in props}
-    bpy.ops.export_scene.gltf(**kwargs)
-    for obj in objetos:
-        obj.select_set(False)
-
-
-# ------------------------------------------------------------------ pipeline
-
-
-def _resolver_opcional_bruto(bruto_dir: str, relativo: str | None) -> str | None:
-    if not relativo:
-        return None
-    caminho = str(relativo)
-    if not os.path.isabs(caminho):
-        caminho = os.path.join(bruto_dir, caminho)
-    return caminho if os.path.isfile(caminho) else None
-
-
-def _escrever_concept_sidecar(saida_dir: str, nome_base: str, concept: dict) -> dict | None:
-    """Grava sidecar de proveniencia do concept (D-06) e devolve o item de arquivo.
-
-    O prompt_final/negativo/modelo/seed/revisao/referencia nao viviam em arquivo publicado
-    (o concept_resultado.json e limpo do staging). Este sidecar preserva a proveniencia
-    junto do asset e entra no manifesto com papel ``concept``.
-    """
-    campos = (
-        "prompt_final",
-        "negativo",
-        "modelo",
-        "seed",
-        "revisao",
-        "versao",
-        "provider_conceito",
-        "largura_real",
-        "altura_real",
-        "referencia_estilo",
-        "referencia_estilo_sha256",
-    )
-    dado = {c: concept[c] for c in campos if c in concept}
-    if not dado:
-        return None
-    nome = f"{nome_base}_concept.json"
-    jsave(os.path.join(saida_dir, nome), dado)
-    return {
-        "caminho": nome,
-        "papel": "concept",
-        "bytes": os.path.getsize(os.path.join(saida_dir, nome)),
-    }
-
-
-def _detectar_esqueleto_pelos_ossos(rig_obj) -> str | None:
-    """Infere o esqueleto REAL pelos nomes dos ossos (D-03); None quando nao reconhece."""
-    if rig_obj is None:
-        return None
-    nomes = {b.name for b in rig_obj.data.bones}
-    if "WingShoulder.L" in nomes:
-        return "winged_mount@1"
-    if "FrontUpperLeg.L" in nomes:
-        return "quadruped@1"
-    if any(b in nomes for b in ("Thumb1.L", "Eye.L", "Cape")):
-        return "godot-humanoid-aa@1"
-    if "UpperTorso" in nomes:
-        return "r15@1"
-    if "Neck" in nomes and "Hand.L" in nomes:
-        return "godot-humanoid@1"
-    return None
 
 
 def processar(job: dict) -> dict:
@@ -1682,7 +187,6 @@ def processar(job: dict) -> dict:
     bruto = jload(os.path.join(bruto_dir, job["bruto_arquivo"]))
     perfil = job["perfil"]
     item = job["item"]
-
     limpar_cena()
 
     rig_obj = None
@@ -1707,304 +211,85 @@ def processar(job: dict) -> dict:
     angulo_smooth_final = 0.0
     weighted_normals_aplicado = False
     quadriflow_aplicado = False
-    esqueleto_efetivo: str | None = (
-        str(item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao"))
-        if (item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao"))
-        else None
-    )
+    esq_raw = item.get("esqueleto") or (perfil.get("rig") or {}).get("esqueleto_padrao")
+    esqueleto_efetivo: str | None = str(esq_raw) if esq_raw else None
     esqueleto_pedido: str | None = esqueleto_efetivo
+
+    high_obj_src = None
+    usar_bake_pendente = False
+    ctx_bruto: dict | None = None
+    rig_pre_existente = False
 
     if bruto["schema"] == "forge3d/bruto-blocky@1":
         obj, grupos = construir_blocky(bruto, bruto_dir)
         if bruto.get("ossos"):
             rig_obj = criar_armadura(bruto["ossos"])
     elif bruto["schema"] == "forge3d/bruto-extrude@1":
-        imagem_path = _resolver_opcional_bruto(
-            bruto_dir, bruto.get("origem_textura")
-        ) or os.path.join(bruto_dir, bruto["imagem"])
-        modo = str(bruto.get("modo", "arma"))
-        obj = extrude_2d.construir_malha_2d(
-            imagem_path,
-            modo=modo,
-            nome=nome_base,
-            saida_dir=saida_dir,
-            pivot=str(item.get("pivot") or "empunhadura"),
+        obj, grupos, smooth_normals_aplicado, angulo_smooth_final, weighted_normals_aplicado = (
+            _br._processar_bruto_extrude(
+                bruto, bruto_dir, saida_dir, nome_base, item, perfil, cfg_suav,
+                qualidade_item, alpha_cards_ativo, textura_max_perfil, info_gerada,
+                texturas_geradas, decimar,
+            )
         )
-        base_tex_path = os.path.join(saida_dir, f"{nome_base}_baseColor.png")
-        if os.path.isfile(base_tex_path):
-            texturas_geradas.append(
-                {
-                    "caminho": f"{nome_base}_baseColor.png",
-                    "papel": "textura",
-                    "bytes": os.path.getsize(base_tex_path),
-                }
-            )
-        grupos = {}
-        info_gerada["extrude_2d"] = {
-            "modo": modo,
-            "triangulos_iniciais": malha_triangulada(obj),
-        }
-        info_gerada["reparo_inicial"] = reparar_malha(
-            obj, permitir_bordas_abertas=alpha_cards_ativo
-        )
-        limite_tris = int(item["limite_triangulos"])
-        if malha_triangulada(obj) > limite_tris:
-            decimar(obj, limite_tris)
-            info_gerada["reparo_pos_decimate"] = reparar_malha(
-                obj, permitir_bordas_abertas=alpha_cards_ativo
-            )
-        angulo_smooth_final = float(cfg_suav["angulo_graus"])
-        info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth_final)
-        smooth_normals_aplicado = True
-        if cfg_suav["weighted_normals"]:
-            info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
-            weighted_normals_aplicado = True
-        met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
-        rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
-        if met_hint or rough_hint:
-            px_ext, _ = bake_pbr.px_bake_recomendado(
-                qualidade_item,
-                bruto.get("textura_px"),
-                teto_perfil=textura_max_perfil or None,
-            )
-            res_hints = bake_pbr.aplicar_hints_orm_em_material(
-                obj,
-                saida_dir,
-                nome_base,
-                px_ext,
-                metallic_hint_png=met_hint,
-                roughness_hint_png=rough_hint,
-                perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
-            )
-            if res_hints:
-                texturas_geradas.extend(res_hints["arquivos_textura"])
     elif bruto["schema"] == "forge3d/bruto-arquivo@1":
-        importar_fonte(os.path.join(bruto_dir, bruto["arquivo"]))
-        obj = unir_malhas()
-        grupos = {}
-        armatures = [o for o in bpy.data.objects if o.type == "ARMATURE"]
-        if armatures:
-            rig_obj = armatures[0]
-            _aplicar_transformes(rig_obj)
-            grupos = {vg.name: vg for vg in obj.vertex_groups}
-        if bruto.get("canonicalizar"):
-            info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
-        info_gerada["reparo_inicial"] = reparar_malha(
-            obj, permitir_bordas_abertas=alpha_cards_ativo
+        ctx_bruto = _br._preparar_bruto_arquivo(
+            job, bruto, bruto_dir, item, cfg_suav, qualidade_item, alpha_cards_ativo,
+            textura_max_perfil, detalhe_alto_cfg, pbr_zonas_cfg, info_gerada,
         )
+        obj, rig_obj, grupos = ctx_bruto["obj"], ctx_bruto["rig_obj"], ctx_bruto["grupos"]
+        rig_pre_existente = rig_obj is not None
+        angulo_smooth_final = ctx_bruto["angulo_smooth"]
 
-        mat_proc = str(
-            job.get("material_procedural")
-            or item.get("material_procedural")
-            or bruto.get("material_procedural")
-            or ""
-        ).strip()
-        if bruto.get("arquivo") == "template_body.glb" and mat_proc == "pele_humana":
-            # Preserva a textura vestida/armadurada projetada pelo template MPFB2/concept
-            mat_proc = ""
-        retopologia_pedida = str(
-            item.get("retopologia") or bruto.get("retopologia") or "padrao"
-        ).strip().lower()
-        quadriflow_faces = int(
-            item.get("quadriflow_faces") or bruto.get("quadriflow_faces") or 0
-        )
-
-        # Soldagem voxel organica (Deliverable 4) antes de retopologia/bake/rig
-        deve_soldar = bool(cfg_suav["soldar_componentes_organicos"]) or bool(
-            bruto.get("soldar_componentes_organicos")
-        )
-        if (
-            not deve_soldar
-            and cfg_suav["eh_organico"]
-            and rig_obj is None
-            and item.get("tipo") in ("criatura", "criatura_quadrupede", "criatura_alada", "montaria")
-            and (bool(mat_proc) or bool(obj.data.color_attributes))
-            and organic_sculpt.contar_componentes(obj) > 1
-        ):
-            deve_soldar = True
-        if deve_soldar and rig_obj is None and bruto.get("arquivo") != "template_body.glb":
-            info_solda = organic_sculpt.soldar_componentes_organicos(obj)
-            info_gerada["soldagem_organica"] = info_solda
-            if info_solda.get("soldado"):
-                info_gerada["reparo_pos_solda"] = reparar_malha(
-                    obj, permitir_bordas_abertas=alpha_cards_ativo
+        if ctx_bruto["usar_bake_high_low"]:
+            if not rig_pre_existente:
+                _br._prealinhar_se_criatura_rig(obj, job, item, perfil, autorig_mod=autorig)
+            high_obj_src = _br._clonar_high_nao_linkado(obj, nome_base)
+            smooth_normals_aplicado, weighted_normals_aplicado, qf_ok = (
+                _br._preparar_low_antes_escala(
+                    obj,
+                    ctx_bruto,
+                    info_gerada,
+                    alpha_cards_ativo,
+                    bruto,
+                    rig_obj,
+                    cfg_suav,
+                    retopologizar_quadriflow,
+                    decimar,
+                    desdobrar_uv,
                 )
-
-        proteger = bool(bruto.get("proteger_decimate", False)) or cfg_suav["eh_organico"]
-        angulo_smooth = float(cfg_suav["angulo_graus"])
-        angulo_smooth_final = angulo_smooth
-        limite_tris = int(item["limite_triangulos"])
-        px, px_sub = bake_pbr.px_bake_recomendado(
-            qualidade_item,
-            bruto.get("textura_px"),
-            teto_perfil=textura_max_perfil or None,
-        )
-
-        def _reduzir_low(alvo_o, lim_t: int) -> int:
-            nonlocal quadriflow_aplicado
-            if retopologia_pedida == "quadriflow":
-                if retopologizar_quadriflow(alvo_o, lim_t, alvo_faces=quadriflow_faces):
-                    quadriflow_aplicado = True
-                    info_gerada["retopologia"] = "quadriflow"
-                    if malha_triangulada(alvo_o) > lim_t:
-                        decimar(alvo_o, lim_t, proteger_cabeca_maos=proteger)
-                elif malha_triangulada(alvo_o) > lim_t:
-                    decimar(alvo_o, lim_t, proteger_cabeca_maos=proteger)
-            elif malha_triangulada(alvo_o) > lim_t:
-                decimar(alvo_o, lim_t, proteger_cabeca_maos=proteger)
-            if cfg_suav["corrective_smooth"] and malha_triangulada(alvo_o) >= 120:
-                info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
-                    alvo_o, iteracoes=2, fator=0.35
-                )
-            return malha_triangulada(alvo_o)
-
-        eh_template_ou_armadura = (
-            bruto.get("arquivo") == "template_body.glb" or bool(bruto.get("armadura_modular"))
-        )
-        item_bake_check = dict(item)
-        if mat_proc:
-            item_bake_check["material_procedural"] = mat_proc
-        if detalhe_alto_cfg:
-            item_bake_check["detalhe_alto"] = detalhe_alto_cfg
-        if pbr_zonas_cfg:
-            item_bake_check["pbr_zonas"] = pbr_zonas_cfg
-        if retopologia_pedida:
-            item_bake_check["retopologia"] = retopologia_pedida
-        if eh_template_ou_armadura and not (mat_proc or pbr_zonas_cfg or detalhe_alto_cfg):
-            item_bake_check.pop("material", None)
-        usar_bake_high_low = bake_pbr.deve_ativar_bake_high_low(
-            item_bake_check,
-            tem_cor_vertice=bool(obj.data.color_attributes),
-            tem_uv=bool(obj.data.uv_layers),
-            tem_materiais=bool(obj.data.materials),
-        )
-        if usar_bake_high_low:
-            origem_tex = _resolver_opcional_bruto(bruto_dir, bruto.get("origem_textura"))
-            met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
-            rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
-            res_bake = bake_pbr.executar_bake_high_low(
-                obj,
-                saida_dir,
-                nome_base,
-                px,
-                limite_tris,
-                lambda o: reparar_malha(o, permitir_bordas_abertas=alpha_cards_ativo),
-                _reduzir_low,
-                lambda o, a=angulo_smooth: suavizar_por_angulo(o, angulo_graus=a),
-                desdobrar_uv,
-                origem_textura=origem_tex,
-                metallic_hint_png=met_hint,
-                roughness_hint_png=rough_hint,
-                proteger_superficie=proteger,
-                perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
-                material_procedural=mat_proc or None,
-                permitir_sem_cor_vertice=bool(
-                    mat_proc
-                    or pbr_zonas_cfg
-                    or detalhe_alto_cfg
-                    or str(item_bake_check.get("material") or "").strip().lower() == "pbr"
-                    or retopologia_pedida == "quadriflow"
-                ),
-                detalhe_alto=detalhe_alto_cfg if isinstance(detalhe_alto_cfg, dict) else None,
-                pbr_zonas=list(pbr_zonas_cfg) if isinstance(pbr_zonas_cfg, list) else None,
-                px_sub=px_sub,
-                qualidade=qualidade_item or None,
             )
-            bake_meta = res_bake["bake"]
-            info_gerada["triangulos_antes_decimate"] = bake_meta["triangulos_high"]
-            info_gerada["triangulos_pos_decimate"] = bake_meta["triangulos_low"]
-            info_gerada["reparo_pos_decimate"] = bake_meta["reparo"]
-            info_gerada["smooth"] = bake_meta["smooth"]
-            info_gerada["uv"] = bake_meta["uv"]
-            info_gerada["bake"] = bake_meta
-            if mat_proc:
-                info_gerada["material_procedural"] = mat_proc
-            smooth_normals_aplicado = True
-            texturas_geradas.extend(res_bake["arquivos_textura"])
-            if cfg_suav["weighted_normals"] and rig_obj is None and not bruto.get("armadura_modular"):
-                info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
-                weighted_normals_aplicado = True
-        elif not obj.data.uv_layers:
-            raise RuntimeError(
-                "malha importada sem UV e sem cor por vertice: nao ha como assar textura"
-            )
+            if qf_ok:
+                quadriflow_aplicado = True
+            usar_bake_pendente = True
         else:
-            tris_antes = malha_triangulada(obj)
-            info_gerada["triangulos_antes_decimate"] = tris_antes
-            if retopologia_pedida == "quadriflow":
-                if retopologizar_quadriflow(obj, limite_tris, alvo_faces=quadriflow_faces):
-                    quadriflow_aplicado = True
-                    info_gerada["retopologia"] = "quadriflow"
-                    desdobrar_uv(obj)
-            if malha_triangulada(obj) > limite_tris:
-                decimar(obj, limite_tris, proteger_cabeca_maos=proteger)
-                info_gerada["reparo_pos_decimate"] = reparar_malha(
-                    obj, permitir_bordas_abertas=alpha_cards_ativo
+            smooth_normals_aplicado, weighted_normals_aplicado, qf_ok = (
+                _br._reduzir_e_suavizar_sem_bake(
+                    obj, rig_obj, bruto, ctx_bruto, cfg_suav, alpha_cards_ativo, info_gerada,
+                    retopologizar_quadriflow, decimar, desdobrar_uv,
                 )
-                if cfg_suav["corrective_smooth"] and malha_triangulada(obj) >= 120:
-                    info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
-                        obj, iteracoes=2, fator=0.35
-                    )
-            elif bruto.get("armadura_modular"):
-                info_gerada["reparo_pos_decimate"] = reparar_malha(
-                    obj, permitir_bordas_abertas=alpha_cards_ativo
-                )
-            info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth)
-            smooth_normals_aplicado = True
-            if (
-                rig_obj is None
-                and cfg_suav["weighted_normals"]
-                and not bruto.get("armadura_modular")
-            ):
-                info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
-                weighted_normals_aplicado = True
-            info_gerada["triangulos_pos_decimate"] = malha_triangulada(obj)
+            )
+            if qf_ok:
+                quadriflow_aplicado = True
 
-        if bruto.get("canonicalizar") and item.get("tipo") == "personagem_humanoide":
-            info_gerada["alinhamento_frente_pos_decimate"] = _alinhar_frente_humanoide(obj)
-        if bool(item.get("auto_rig")) and item.get("tipo") in TIPOS_ORGANICOS:
-            tipo_item = str(job.get("tipo") or item.get("tipo") or "personagem_humanoide")
-            esq_padrao = (perfil.get("rig") or {}).get("esqueleto_padrao") or "godot-humanoid@1"
-            if not item.get("esqueleto"):
-                mapas_rig = (perfil.get("rig") or {}).get("mapas") or {}
-                if tipo_item == "criatura_quadrupede" and (
-                    "quadruped@1" in mapas_rig or str(perfil.get("perfil", "")).startswith("godot")
-                ):
-                    esq_padrao = "quadruped@1"
-                elif tipo_item in ("criatura_alada", "montaria") and (
-                    "winged_mount@1" in mapas_rig or str(perfil.get("perfil", "")).startswith("godot")
-                ):
-                    esq_padrao = "winged_mount@1"
-            esq = str(item.get("esqueleto") or esq_padrao)
-            esqueleto_pedido = esq
-            esqueleto_efetivo = esq
-            fn_rig_tipo = getattr(autorig, "auto_rigar_por_tipo", None)
-            if callable(fn_rig_tipo):
-                rig_obj, grupos = fn_rig_tipo(obj, esq, criar_armadura, tipo=tipo_item)
-            else:
-                rig_obj, grupos = autorig.auto_rigar_humanoide(obj, esq, criar_armadura)
-            if rig_obj is not None:
-                # D-03: o esqueleto REAL e detectado pelos ossos, nunca assumido como o pedido.
-                detectado = _detectar_esqueleto_pelos_ossos(rig_obj)
-                if detectado is not None:
-                    esqueleto_efetivo = detectado
+        rig_obj, grupos, esqueleto_pedido, esqueleto_efetivo = _br._aplicar_rig_bruto_arquivo(
+            obj, rig_obj, grupos, job, item, perfil, bruto, info_gerada,
+            esqueleto_pedido, esqueleto_efetivo, autorig_mod=autorig,
+        )
+        if high_obj_src is not None:
+            _br._sincronizar_high_pos_rig(
+                high_obj_src,
+                obj,
+                info_gerada,
+                rig_criado_agora=(not rig_pre_existente and rig_obj is not None),
+            )
     else:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
-
-    if bruto["schema"] != "forge3d/bruto-blocky@1" and item.get("tipo") in (
-        "modulo_cenario",
-        "prop_estatico",
-    ):
-        gerar_uv_lightmap(obj)
 
     obj.name = nome_base
     if obj.data is not None:
         obj.data.name = nome_base
 
-    # --- normalizacao de escala e pivo ---
-    # D62: a geometria e construida em metros. No perfil roblox-r15 o arquivo exportado tem que
-    # sair em studs porque o importador do Studio le 1 unidade glTF = 1 stud; o fator vem do
-    # perfil (`unidades.escala_saida`) e vale 1.0 nos perfis que exportam em metros.
     escala_saida = float((perfil.get("unidades") or {}).get("escala_saida", 1.0))
     if escala_saida <= 0:
         raise RuntimeError(f"escala_saida invalida no perfil: {escala_saida}")
@@ -2018,75 +303,111 @@ def processar(job: dict) -> dict:
         pivo = Vector((0.0, 0.0, 0.0))
         origem_regra = "preservada"
     else:
-        alvo = float(item["altura_metros"])
+        raw_alt = item.get("altura_metros")
+        alvo = float(raw_alt) if raw_alt is not None else altura_atual
         escala = (alvo / altura_atual) * escala_saida
-
-        pivo_declarado = (bruto.get("pivos") or {}).get(item["pivot"])
+        pivot_nome = item.get("pivot", "base")
+        pivo_declarado = (bruto.get("pivos") or {}).get(pivot_nome)
         pivo, origem_regra = calcular_pivo(
-            item["pivot"], minimo * escala, maximo * escala, pivo_declarado
+            pivot_nome, minimo * escala, maximo * escala, pivo_declarado
         )
         if pivo_declarado:
             pivo = Vector(pivo_declarado) * escala
 
     transformar(escala, -pivo)
+    if str(item.get("colisao") or "none").strip().lower() == "ucx":
+        transformar_colisores_ucx(escala, -pivo)
     if rig_obj is not None:
         transformar_armadura(rig_obj, escala, -pivo)
+    if high_obj_src is not None:
+        _br._transformar_high_escala(high_obj_src, escala, -pivo)
 
-    geom_pos_escala = medir_geometria(obj, permitir_bordas_abertas=alpha_cards_ativo)
-    if (
-        geom_pos_escala["nao_manifold"] > 0
-        or geom_pos_escala["degeneradas"] > 0
-        or escala < 0.999
-    ):
-        info_gerada["reparo_pos_escala"] = reparar_malha(
-            obj, permitir_bordas_abertas=alpha_cards_ativo
+    if usar_bake_pendente and ctx_bruto is not None and high_obj_src is not None:
+        _ep._reparar_e_suavizar_pos_escala(
+            obj,
+            rig_obj,
+            escala,
+            alpha_cards_ativo,
+            smooth_normals_aplicado,
+            angulo_smooth_final,
+            weighted_normals_aplicado,
+            info_gerada,
+            rig_pre_existente=rig_pre_existente,
         )
-        if smooth_normals_aplicado:
-            info_gerada["smooth_pos_escala"] = suavizar_por_angulo(
-                obj, angulo_graus=angulo_smooth_final
+        origem_tex = _resolver_opcional_bruto(bruto_dir, bruto.get("origem_textura"))
+        met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
+        rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
+        vistas_orto = _sc._resolver_vistas_ortograficas(bruto_dir, bruto, job, item)
+        mat_proc = ctx_bruto["mat_proc"]
+        bake_ctx, decimar_cb, reparo_cb, suavizar_cb, uv_cb = (
+            _nuv._preparar_contexto_bake_pos_escala(
+                obj,
+                high_obj_src,
+                pbr_zonas_cfg,
+                info_gerada,
+                alpha_cards_ativo,
+                angulo_smooth_final,
+                desdobrar_uv,
+                bake_pbr,
             )
-            if weighted_normals_aplicado and rig_obj is None:
-                aplicar_weighted_normal(obj)
-
-    smart_fit_cfg = job.get("smart_fit") or item.get("smart_fit") or bruto.get("smart_fit")
-    if smart_fit_cfg:
+        )
         try:
-            import smart_fit  # type: ignore[import-not-found]
+            res_bake = bake_pbr.executar_bake_high_low(
+                obj,
+                saida_dir,
+                nome_base,
+                ctx_bruto["px"],
+                ctx_bruto["limite_tris"],
+                reparo_cb,
+                decimar_cb,
+                suavizar_cb,
+                uv_cb,
+                origem_textura=origem_tex,
+                metallic_hint_png=met_hint,
+                roughness_hint_png=rough_hint,
+                proteger_superficie=ctx_bruto["proteger"],
+                perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
+                material_procedural=mat_proc or None,
+                permitir_sem_cor_vertice=bool(
+                    mat_proc
+                    or pbr_zonas_cfg
+                    or detalhe_alto_cfg
+                    or str(ctx_bruto["item_bake_check"].get("material") or "").strip().lower() == "pbr"
+                    or ctx_bruto["retopologia_pedida"] == "quadriflow"
+                ),
+                detalhe_alto=detalhe_alto_cfg if isinstance(detalhe_alto_cfg, dict) else None,
+                pbr_zonas=list(pbr_zonas_cfg) if isinstance(pbr_zonas_cfg, list) else None,
+                px_sub=ctx_bruto["px_sub"],
+                qualidade=qualidade_item or None,
+                vistas_ortograficas=vistas_orto,
+            )
+        finally:
+            _nuv._finalizar_contexto_bake_pos_escala(bake_ctx)
 
-            fn_sf = getattr(smart_fit, "aplicar_smart_fit_job", None)
-            if callable(fn_sf):
-                job_sf = dict(job)
-                job_sf.setdefault("smart_fit", smart_fit_cfg)
-                info_sf = fn_sf(obj, job_sf, corpo_obj=None, rig_obj=rig_obj)
-                if isinstance(info_sf, dict):
-                    info_gerada["smart_fit"] = info_sf
-        except ImportError:
-            info_gerada["smart_fit"] = {"aplicado": False, "motivo": "modulo_ausente"}
+        bake_meta = res_bake["bake"]
+        info_gerada["triangulos_antes_decimate"] = bake_meta["triangulos_high"]
+        info_gerada["triangulos_pos_decimate"] = bake_meta["triangulos_low"]
+        info_gerada["reparo_pos_decimate"] = bake_meta["reparo"]
+        info_gerada["smooth"] = bake_meta["smooth"]
+        info_gerada["uv"] = bake_meta["uv"]
+        info_gerada["bake"] = bake_meta
+        if mat_proc:
+            info_gerada["material_procedural"] = mat_proc
+        smooth_normals_aplicado = True
+        texturas_geradas.extend(res_bake["arquivos_textura"])
 
-    if rig_obj is not None and grupos:
-        if obj.parent is not rig_obj:
-            obj.parent = rig_obj
-        if not any(m.type == "ARMATURE" for m in obj.modifiers):
-            mod = obj.modifiers.new("armature", "ARMATURE")
-            mod.object = rig_obj
+    if bruto["schema"] != "forge3d/bruto-blocky@1" and item.get("tipo") in (
+        "modulo_cenario",
+        "prop_estatico",
+        "mapa_setor",
+    ):
+        gerar_uv_lightmap(obj)
 
-    # --- animacao base (D66/D69) ---
-    animacoes_geradas: list[dict] = []
-    if rig_obj is not None and job.get("clipes"):
-        animacoes_geradas = animar(rig_obj, job["clipes"])
-
-    sockets_extraidos: list[dict] = []
-    if rig_obj is not None:
-        fn_sockets = getattr(autorig, "extrair_sockets", None)
-        if callable(fn_sockets):
-            solicitados_sockets = job.get("sockets") or item.get("sockets")
-            try:
-                sockets_extraidos = list(
-                    fn_sockets(rig_obj, mesh_obj=obj, solicitados=solicitados_sockets) or []
-                )
-            except TypeError:
-                sockets_extraidos = list(fn_sockets(rig_obj) or [])
-
+    animacoes_geradas, sockets_extraidos = _ep._pos_escala_rig_e_animacao(
+        obj, rig_obj, grupos, job, item, bruto, escala, alpha_cards_ativo,
+        smooth_normals_aplicado, angulo_smooth_final, weighted_normals_aplicado,
+        info_gerada, autorig_mod=autorig, pular_reparo_pos_escala=usar_bake_pendente,
+    )
     sombreamento_meta = {
         "smooth_normals": bool(smooth_normals_aplicado),
         "angulo_graus": round(float(angulo_smooth_final), 2),
@@ -2099,193 +420,23 @@ def processar(job: dict) -> dict:
         "direita_gltf": "+X",
         "det_matriz": 1,
     }
-
-    # --- medicao do LOD0 ---
-    # A malha neste ponto esta na unidade do ARQUIVO (studs no roblox-r15). O relatorio guarda as
-    # duas: `bbox_export` na unidade do arquivo e `bbox_m` em metros, porque o contrato manda
-    # `geometry.bbox_m` em metros e a unidade do arquivo vai em `unidades_export` (D62).
-    minimo, maximo = bbox_local()
-    bbox_export = [maximo.x - minimo.x, maximo.z - minimo.z, maximo.y - minimo.y]
-    medidas_base = {
-        "triangulos": malha_triangulada(obj),
-        "vertices": len(obj.data.vertices),
-        # eixos glTF: [largura x, altura y, profundidade z]
-        "bbox_export": bbox_export,
-        "bbox_m": [v / escala_saida for v in bbox_export],
-        "escala_saida": escala_saida,
-        "materiais": len(obj.data.materials),
-        "ossos": len(rig_obj.data.bones) if rig_obj is not None else 0,
-        "animacoes": animacoes_geradas,
-        "pivo_regra": origem_regra,
-        "escala_preservada": escala_preservada,
-        "aabb_min": [minimo.x / escala_saida, minimo.z / escala_saida, -maximo.y / escala_saida],
-        "aabb_max": [maximo.x / escala_saida, maximo.z / escala_saida, -minimo.y / escala_saida],
-        "sombreamento": sombreamento_meta,
-        "orientacao_export": orientacao_export_meta,
-    }
-    if sockets_extraidos:
-        medidas_base["sockets"] = sockets_extraidos
-    if rig_obj is not None and esqueleto_efetivo:
-        medidas_base["esqueleto"] = esqueleto_efetivo
-    if esqueleto_pedido:
-        medidas_base["esqueleto_pedido"] = esqueleto_pedido
-    medidas_base.update(medir_geometria(obj, permitir_bordas_abertas=alpha_cards_ativo))
-
-    if textura_max_perfil > 0:
-        _enquadrar_texturas_no_teto(textura_max_perfil)
-
-    arquivos: list[dict] = []
-
-    # --- LODs ---
-    lods = item.get("lod") or [100]
-    for nivel, pct in enumerate(lods):
-        if nivel == 0:
-            alvo_obj = obj
-        else:
-            alvo_obj = clonar_malha(obj, f"{nome_base}_LOD{nivel}")
-            if alvo_obj.data is not None:
-                alvo_obj.data.name = f"{nome_base}_LOD{nivel}"
-            if rig_obj is not None and grupos:
-                alvo_obj.parent = rig_obj
-                mod_lod = alvo_obj.modifiers.new("armature", "ARMATURE")
-                mod_lod.object = rig_obj
-            info_lod = aplicar_lod(
-                alvo_obj,
-                pct,
-                blocky=(bruto["schema"] == "forge3d/bruto-blocky@1"),
-            )
-            reparar_malha(alvo_obj, permitir_bordas_abertas=alpha_cards_ativo)
-            if smooth_normals_aplicado:
-                suavizar_por_angulo(alvo_obj, angulo_graus=angulo_smooth_final)
-            medidas_base.setdefault("lod_modo", {})[str(nivel)] = info_lod
-        nome = job["nome_arquivo"] if nivel == 0 else f"{job['nome_base']}_LOD{nivel}.glb"
-        caminho = os.path.join(saida_dir, nome)
-        selecionados = [alvo_obj] + ([rig_obj] if rig_obj is not None else [])
-        usar_tangents = _tem_normal_map([alvo_obj])
-        exportar(
-            caminho,
-            selecionados,
-            rig_obj is not None,
-            com_animacao=bool(animacoes_geradas),
-            export_tangents=usar_tangents,
-        )
-        bytes_max_kb = int((perfil.get("validacao") or {}).get("bytes_max_kb") or 0)
-        if qualidade_item in ("hero", "ultra") and bytes_max_kb > 0:
-            bytes_max_kb = max(bytes_max_kb, 4096)
-        if nivel == 0 and bytes_max_kb > 0:
-            if texturas_geradas:
-                bake_pbr.ajustar_resolucao_orcamento(
-                    alvo_obj,
-                    saida_dir,
-                    texturas_geradas,
-                    caminho,
-                    bytes_max_kb * 1024,
-                    lambda c=caminho, s=selecionados, t=usar_tangents: exportar(
-                        c,
-                        s,
-                        rig_obj is not None,
-                        com_animacao=bool(animacoes_geradas),
-                        export_tangents=t,
-                    ),
-                )
-            _reduzir_imagens_embutidas_orcamento(
-                caminho,
-                bytes_max_kb * 1024,
-                lambda c=caminho, s=selecionados, t=usar_tangents: exportar(
-                    c,
-                    s,
-                    rig_obj is not None,
-                    com_animacao=bool(animacoes_geradas),
-                    export_tangents=t,
-                ),
-            )
-        arquivos.append(
-            {
-                "caminho": nome,
-                "papel": "mesh" if nivel == 0 else "lod",
-                "nivel": nivel,
-                "triangulos": malha_triangulada(alvo_obj),
-            }
-        )
-        if nivel > 0:
-            bpy.data.objects.remove(alvo_obj, do_unlink=True)
-
-    # --- colisor ---
-    colisores = criar_colisor(obj, item.get("colisao"), job["nome_base"], perfil["colisao"]["max_partes"])
-    arquivo_colisor = None
-    if colisores:
-        arquivo_colisor = f"{job['nome_base']}_colisao.glb"
-        exportar(os.path.join(saida_dir, arquivo_colisor), colisores, False)
-        arquivos.append(
-            {"caminho": arquivo_colisor, "papel": "colisor", "partes": len(colisores)}
-        )
-
-    # --- atlas (vai junto como arquivo irmao se nao houver baseColor gerada pelo bake) ---
-    caminhos_gerados = {t["caminho"] for t in texturas_geradas}
-    nome_atlas_saida = f"{job['nome_base']}_baseColor.png"
-    if bruto.get("atlas") and nome_atlas_saida not in caminhos_gerados:
-        import shutil
-
-        destino_atlas = os.path.join(saida_dir, nome_atlas_saida)
-        shutil.copyfile(os.path.join(bruto_dir, bruto["atlas"]), destino_atlas)
-        arquivos.append(
-            {
-                "caminho": nome_atlas_saida,
-                "papel": "textura",
-                "bytes": os.path.getsize(destino_atlas),
-            }
-        )
-
-    for tex in texturas_geradas:
-        arquivos.append(
-            {
-                "caminho": tex["caminho"],
-                "papel": tex["papel"],
-                "bytes": int(
-                    tex.get("bytes")
-                    or os.path.getsize(os.path.join(saida_dir, tex["caminho"]))
-                ),
-            }
-        )
-
-    if info_gerada:
-        medidas_base["gerada"] = info_gerada
-    if isinstance(detalhe_alto_cfg, dict) and detalhe_alto_cfg:
-        medidas_base["detalhe_alto"] = dict(detalhe_alto_cfg)
-    if isinstance(pbr_zonas_cfg, list) and pbr_zonas_cfg:
-        medidas_base["pbr_zonas"] = list(pbr_zonas_cfg)
-    if isinstance(info_gerada.get("smart_fit"), dict) and info_gerada["smart_fit"]:
-        medidas_base["smart_fit"] = dict(info_gerada["smart_fit"])
-    medidas_base["partes_colisao"] = len(colisores)
-    medidas_base["esqueleto"] = esqueleto_efetivo if rig_obj is not None else None
-    medidas_base["lod"] = [{"nivel": a["nivel"], "triangulos": a["triangulos"]} for a in arquivos if a["papel"] in ("mesh", "lod")]
-
-    if bruto.get("concept"):
-        sidecar_concept = _escrever_concept_sidecar(saida_dir, nome_base, bruto["concept"])
-        if sidecar_concept is not None:
-            arquivos.append(sidecar_concept)
-
-    resultado = {
-        "ok": True,
-        "medidas": medidas_base,
-        "arquivos": arquivos,
-        # o fator aplicado volta no relatorio: e o que o manifesto declara em unidades_export
-        "escala_saida": escala_saida,
-        "sombreamento": sombreamento_meta,
-        "orientacao_export": orientacao_export_meta,
-    }
-    if sockets_extraidos:
-        resultado["sockets"] = sockets_extraidos
-    if isinstance(medidas_base.get("detalhe_alto"), dict):
-        resultado["detalhe_alto"] = medidas_base["detalhe_alto"]
-    if isinstance(medidas_base.get("pbr_zonas"), list):
-        resultado["pbr_zonas"] = medidas_base["pbr_zonas"]
-    if isinstance(medidas_base.get("smart_fit"), dict):
-        resultado["smart_fit"] = medidas_base["smart_fit"]
-    if bruto.get("concept"):
-        # proveniencia do estagio text-to-image; o manifest grava em providers.texture
-        resultado["concept"] = bruto["concept"]
-    return resultado
+    medidas_base = _ep._montar_medidas_lod0(
+        obj, rig_obj, escala_saida, origem_regra, escala_preservada,
+        animacoes_geradas, sockets_extraidos, esqueleto_efetivo, esqueleto_pedido,
+        alpha_cards_ativo, sombreamento_meta, orientacao_export_meta, textura_max_perfil,
+    )
+    arquivos = _ep._exportar_lods(
+        obj, rig_obj, grupos, job, item, perfil, bruto, saida_dir, nome_base,
+        qualidade_item, alpha_cards_ativo, smooth_normals_aplicado, angulo_smooth_final,
+        animacoes_geradas, texturas_geradas, medidas_base,
+        _reduzir_imagens_embutidas_orcamento,
+    )
+    return _ep._finalizar_colisor_e_resultado(
+        obj, rig_obj, job, item, perfil, bruto, bruto_dir, saida_dir, nome_base,
+        escala_saida, esqueleto_efetivo, info_gerada, detalhe_alto_cfg, pbr_zonas_cfg,
+        texturas_geradas, sockets_extraidos, sombreamento_meta, orientacao_export_meta,
+        medidas_base, arquivos,
+    )
 
 
 def main() -> int:

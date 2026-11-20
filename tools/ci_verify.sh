@@ -113,8 +113,35 @@ if [ -n "$GODOT_BIN" ]; then
     "$GODOT_BIN" --headless --path tools/godot_project --check-only --quit --script "$(pwd)/addons/forge3d/post_import.gd"
     "$GODOT_BIN" --headless --path tools/godot_project --check-only --quit --script "$(pwd)/addons/forge3d/plugin.gd"
     "$GODOT_BIN" --headless --path tools/godot_project --script "$(pwd)/tools/godot_post_import_check.gd" -- "$GLB"
-    if [ -f "tools/godot_axes_check.gd" ]; then
-        "$GODOT_BIN" --headless --path tools/godot_project --script "$(pwd)/tools/godot_axes_check.gd"
+    if [ -f "tools/godot_rig_axes_check.gd" ]; then
+        DESTINO_RIG="$RAIZ/saida_rig"
+        cat > "$RAIZ/lote/rig.yaml" <<YAML
+schema: forge3d/spec@4
+projeto: ci_rig
+perfil: godot4
+destino_exportacao: $DESTINO_RIG
+estilo_global: blocky_voxel
+politica:
+  falha: abortar
+  custo_max_min: 5
+lote:
+  - id: ci.rig.01
+    tipo: personagem_humanoide
+    rota: blocky
+    prompt: sentinela blocky para portao ci
+    altura_metros: 1.80
+    limite_triangulos: 3000
+    auto_rig: true
+    esqueleto: godot-humanoid@1
+    animacoes_base: [idle, jump]
+    lod: [100]
+    tags: [ci]
+YAML
+        run allowlist add "$DESTINO_RIG" > /dev/null
+        run run "$RAIZ/lote/rig.yaml" --json > "$RAIZ/run_rig.json"
+        RIG_GLB="$(find "$DESTINO_RIG" -name '*.glb' ! -name '*_colisao.glb' -print -quit)"
+        [ -n "$RIG_GLB" ] || { echo "FALHA: nenhum .glb rigged gerado" >&2; exit 1; }
+        "$GODOT_BIN" --headless --path tools/godot_project --script "$(pwd)/tools/godot_rig_axes_check.gd" -- "$RIG_GLB"
     fi
 fi
 

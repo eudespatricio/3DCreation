@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from forge3d import profiles, rbx
+from forge3d import animacao, profiles, rbx
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -413,3 +413,79 @@ with open(out_json, "w", encoding="utf-8") as fh:
     assert abs(lx_l[0] - lx_r[0]) < 0.05
     assert abs(lx_l[1] + lx_r[1]) < 0.05
     assert abs(lx_l[2] + lx_r[2]) < 0.05
+
+
+@pytest.mark.blender
+def test_wing_roll_near_xz_y_perturbation_simetria(tmp_path: Path):
+    """F20a: perturbacao de +-2mm em Y em asa near-XZ (e fronteira 0.25) nao inverte roll em 180 deg."""
+    blender = _blender_bin()
+    clipes_json = tmp_path / "clipes_flap.json"
+    out_json = tmp_path / "wing_perturb.json"
+    clipes_json.write_text(
+        json.dumps(animacao.clipes(profiles.carregar("godot4"), "winged_mount@1", ["wing_flap"])),
+        encoding="utf-8",
+    )
+    expr = """
+import json, sys, bpy
+from mathutils import Vector
+argv = sys.argv[sys.argv.index("--") + 1 :]
+blender_dir, clipes_path, out_path = argv[0], argv[1], argv[2]
+sys.path.insert(0, blender_dir)
+import autorig
+clipes = json.loads(open(clipes_path, encoding="utf-8").read())
+casos = [
+    ("L-2mm_R0", 1.2, -0.002, 0.0, 0.8),
+    ("L-2mm_R+2mm", 1.2, -0.002, 0.002, 0.8),
+    ("straddle_0.25", 1.0, -0.17, -0.15, 0.4),
+]
+saida = {}
+for nome, arm_z, p3_ly, p3_ry, fore_z in casos:
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    arm = bpy.data.armatures.new("WingRig")
+    rig = bpy.data.objects.new("WingRig", arm)
+    bpy.context.collection.objects.link(rig)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    eb = arm.edit_bones
+    def mk(n, h, t, p=None):
+        b = eb.new(n); b.head = Vector(h); b.tail = Vector(t)
+        if p: b.parent = p
+        return b
+    root = mk("Root", (0, 0, 0), (0, 0, 0.5))
+    shl = mk("WingShoulder.L", (0.05, 0, 1.0), (0.2, 0, 1.0), root)
+    wal = mk("WingArm.L", (0.2, 0, 1.0), (1.0, 0, arm_z), shl)
+    wfl = mk("WingForearm.L", (1.0, 0, arm_z), (1.6, p3_ly, fore_z), wal)
+    mk("WingTip.L", (1.6, p3_ly, fore_z), (1.9, p3_ly, fore_z - 0.1), wfl)
+    shr = mk("WingShoulder.R", (-0.05, 0, 1.0), (-0.2, 0, 1.0), root)
+    war = mk("WingArm.R", (-0.2, 0, 1.0), (-1.0, 0, arm_z), shr)
+    wfr = mk("WingForearm.R", (-1.0, 0, arm_z), (-1.6, p3_ry, fore_z), war)
+    mk("WingTip.R", (-1.6, p3_ry, fore_z), (-1.9, p3_ry, fore_z - 0.1), wfr)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    autorig._alinhar_roll_ossos(rig)
+    b = rig.data.bones
+    dot_l = float(b["WingArm.L"].matrix_local.to_3x3().col[0].dot(b["WingForearm.L"].matrix_local.to_3x3().col[0]))
+    dot_r = float(b["WingArm.R"].matrix_local.to_3x3().col[0].dot(b["WingForearm.R"].matrix_local.to_3x3().col[0]))
+    zl = [float(v) for v in b["WingArm.L"].matrix_local.to_3x3().col[2]]
+    zr = [float(v) for v in b["WingArm.R"].matrix_local.to_3x3().col[2]]
+    autorig.aplicar_animacoes_multi(rig, clipes)
+    rig.animation_data.action = bpy.data.actions["wing_flap"]
+    bpy.context.scene.frame_set(1); bpy.context.view_layer.update()
+    frame1_dy = float(abs(rig.pose.bones["WingTip.L"].tail.y - rig.pose.bones["WingTip.R"].tail.y))
+    max_asym_z = 0.0
+    for fr in range(1, 26):
+        bpy.context.scene.frame_set(fr); bpy.context.view_layer.update()
+        max_asym_z = max(max_asym_z, float(abs(rig.pose.bones["WingTip.L"].tail.z - rig.pose.bones["WingTip.R"].tail.z)))
+    saida[nome] = {"dot_l": dot_l, "dot_r": dot_r, "zl": zl, "zr": zr, "frame1_dy": frame1_dy, "max_asym_z": max_asym_z}
+open(out_path, "w", encoding="utf-8").write(json.dumps(saida))
+"""
+    proc = subprocess.run(
+        [blender, "-b", "--factory-startup", "--python-exit-code", "1", "--python-expr", expr, "--", str(RAIZ / "blender"), str(clipes_json), str(out_json)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    res = json.loads(out_json.read_text(encoding="utf-8"))
+    for nome, d in res.items():
+        assert abs(d["dot_l"]) > 0.98 and abs(d["dot_r"]) > 0.98, (nome, d)
+        assert d["zl"][2] * d["zr"][2] > 0.8, (nome, d["zl"], d["zr"])
+        assert d["frame1_dy"] <= 0.05, (nome, d["frame1_dy"])
+        assert d["max_asym_z"] <= 0.05, (nome, d["max_asym_z"])

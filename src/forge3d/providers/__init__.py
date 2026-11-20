@@ -65,7 +65,20 @@ def registrar(rota: str, fabrica) -> None:
 
 
 def registrados() -> dict[str, object]:
-    return {rota: _estado(rota) for rota in ("blocky", "import", "mesh", "modular", "concept")}
+    return {
+        rota: _estado(rota)
+        for rota in (
+            "blocky",
+            "import",
+            "mesh",
+            "i23d",
+            "template",
+            "procedural",
+            "extrude_2d",
+            "modular",
+            "concept",
+        )
+    }
 
 
 def _estado(rota: str) -> str:
@@ -109,12 +122,22 @@ def _carregar() -> None:
     from .blocky import BlockyProvider
     from .concept import ConceptProvider
     from .importer import ImportProvider
-    from .mesh import MeshProvider
+    from .mesh import (
+        Extrude2DProvider,
+        I23DProvider,
+        MeshProvider,
+        ProceduralProvider,
+        TemplateProvider,
+    )
     from .modular import ModularProvider
 
     registrar("blocky", BlockyProvider)
     registrar("import", ImportProvider)
     registrar("mesh", MeshProvider)
+    registrar("i23d", I23DProvider)
+    registrar("template", TemplateProvider)
+    registrar("procedural", ProceduralProvider)
+    registrar("extrude_2d", Extrude2DProvider)
     registrar("modular", ModularProvider)
     # estagio interno do mesh; nao e rota valida de spec, mas aparece no doctor
     registrar("concept", ConceptProvider)

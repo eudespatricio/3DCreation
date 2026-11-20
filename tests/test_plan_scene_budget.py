@@ -467,3 +467,18 @@ def test_regressao_calibracao_tres_lotes_erro_abaixo_50_pct(tmp_path):
     assert _err_pct(est_roblox["triangulos_cena"], 6000) < 50.0
     assert _err_pct(est_roblox["draw_calls_estimados"], 14) < 50.0
     assert _err_pct(est_roblox["vram_texturas_mb"], 34.68) < 50.0
+
+
+def test_plan_budget_conta_partes_e_preserva_fachada() -> None:
+    for attr in ("estimar_orcamento_cena", "montar", "perfil_resolvido", "resumo", "_estimar_item_calibrado", "_estimar_item_teto", "_inspecionar_arquivo_3d"):
+        assert hasattr(plan, attr)
+    perfil = profiles.carregar("roblox-r15")
+    item = {
+        "id": "boss.r15.crowd", "tipo": "criatura", "rota": "mesh", "limite_triangulos": 4000,
+        "partes": [{"nome": f"P{i}"} for i in range(15)], "rig": {"modo": "motor6d", "esqueleto": "r15@1"},
+        "quantidade_cena": 30,
+    }
+    orc = plan.estimar_orcamento_cena({"schema": "forge3d/spec@6", "orcamento_cena": {"triangulos_max": 400000, "draw_calls_max": 400, "vram_mb_max": 200}, "lote": [item]}, perfil)
+    _assert_teto_domina_estimativa(orc)
+    assert orc["estimativa"]["draw_calls_estimados"] == 450
+    assert orc["teto_pior_caso"]["status"] == "falhou"

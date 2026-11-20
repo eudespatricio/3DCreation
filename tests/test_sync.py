@@ -326,3 +326,39 @@ def test_gerar_assets_gd_deterministico_e_sync_godot(tmp_path, monkeypatch):
             timeout=60,
         )
         assert chk.returncode == 0, chk.stdout + chk.stderr
+
+
+def test_sync_rojo_lua_isola_multi_role_pbr_e_destino_conflitante(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "config"))
+
+    origem_a = _publicar_valido(tmp_path / "a", asset_id="armadura.peito.01")
+    origem_b = _publicar_valido(tmp_path / "b", asset_id="armadura.elmo.01")
+
+    # Ledger global contem multi-role de origem_a e multi-role de origem_b (plus destino conflitante)
+    publish.registrar_ledger(
+        {"evento": "upload", "id": "armadura.peito.01", "role": "mesh", "asset_id": "3001", "origem": str(origem_a)}
+    )
+    publish.registrar_ledger(
+        {"evento": "upload", "id": "armadura.peito.01", "role": "ColorMap", "asset_id": "3002", "origem": str(origem_a)}
+    )
+    publish.registrar_ledger(
+        {"evento": "upload", "id": "armadura.peito.01", "role": "mesh", "asset_id": "9999", "destino": str(tmp_path / "outro_dest")}
+    )
+    publish.registrar_ledger(
+        {"evento": "upload", "id": "armadura.elmo.01", "role": "mesh", "asset_id": "4001", "origem": str(origem_b)}
+    )
+    publish.registrar_ledger(
+        {"evento": "upload", "id": "armadura.elmo.01", "role": "NormalMap", "asset_id": "4002", "origem": str(origem_b)}
+    )
+
+    lua_a = tmp_path / "sync_a" / "Assets.lua"
+    rel = sync.executar(origem_a, tmp_path / "sync_a", rojo_lua=lua_a)
+    assert rel["ok"] is True
+    assert rel["rojo_assets"] == 1
+    txt = lua_a.read_text(encoding="utf-8")
+    assert "armadura.peito.01" in txt
+    assert '["mesh"] = "rbxassetid://3001"' in txt
+    assert '["ColorMap"] = "rbxassetid://3002"' in txt
+    assert "9999" not in txt
+    assert "armadura.elmo.01" not in txt

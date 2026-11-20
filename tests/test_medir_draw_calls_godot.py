@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import struct
 import subprocess
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from forge3d import canonical, pipeline, profiles, publish, qc
 
@@ -27,30 +29,23 @@ def _carregar_modulo_medidor():
 def _glb_multi_primitivas(num_prims: int, altura: float = 1.0) -> bytes:
     """Constroi um cubo fechado dividido em ``num_prims`` primitivas/materiais distintos."""
     hx, hz = 0.25, 0.25
-    verts = [
-        (-hx, 0.0, -hz),
-        (hx, 0.0, -hz),
-        (hx, altura, -hz),
-        (-hx, altura, -hz),
-        (-hx, 0.0, hz),
-        (hx, 0.0, hz),
-        (hx, altura, hz),
-        (-hx, altura, hz),
+    faces = [
+        [(-hx, 0.0, -hz), (-hx, altura, -hz), (hx, altura, -hz), (hx, 0.0, -hz)],
+        [(-hx, 0.0, hz), (hx, 0.0, hz), (hx, altura, hz), (-hx, altura, hz)],
+        [(-hx, 0.0, -hz), (hx, 0.0, -hz), (hx, 0.0, hz), (-hx, 0.0, hz)],
+        [(-hx, altura, -hz), (-hx, altura, hz), (hx, altura, hz), (hx, altura, -hz)],
+        [(-hx, 0.0, -hz), (-hx, 0.0, hz), (-hx, altura, hz), (-hx, altura, -hz)],
+        [(hx, 0.0, -hz), (hx, altura, -hz), (hx, altura, hz), (hx, 0.0, hz)],
     ]
-    tris_base = [
-        (0, 2, 1),
-        (0, 3, 2),
-        (4, 5, 6),
-        (4, 6, 7),
-        (0, 1, 5),
-        (0, 5, 4),
-        (2, 3, 7),
-        (2, 7, 6),
-        (0, 4, 7),
-        (0, 7, 3),
-        (1, 2, 6),
-        (1, 6, 5),
-    ]
+    verts, tris_base, uvs = [], [], []
+    du, dv, pad = 0.9 / 3.0, 0.9 / 2.0, 0.02
+    for k, q in enumerate(faces):
+        b = len(verts)
+        verts.extend(q)
+        tris_base.extend([(b, b + 1, b + 2), (b, b + 2, b + 3)])
+        cu, cv = 0.05 + (k % 3) * du, 0.05 + (k // 3) * dv
+        uvs.extend([(cu + pad, cv + pad), (cu + du - pad, cv + pad), (cu + du - pad, cv + dv - pad), (cu + pad, cv + dv - pad)])
+
     n_prims = max(1, min(num_prims, len(tris_base)))
     fatias: list[list[tuple[int, int, int]]] = [[] for _ in range(n_prims)]
     for idx_t, tri in enumerate(tris_base):
@@ -58,10 +53,7 @@ def _glb_multi_primitivas(num_prims: int, altura: float = 1.0) -> bytes:
 
     pos_bytes = b"".join(struct.pack("<3f", *v) for v in verts)
     norm_bytes = b"".join(struct.pack("<3f", 0.0, 1.0, 0.0) for _ in verts)
-    uv_bytes = b"".join(
-        struct.pack("<2f", 0.1 if i % 2 == 0 else 0.9, 0.1 if i < 4 else 0.9)
-        for i in range(len(verts))
-    )
+    uv_bytes = b"".join(struct.pack("<2f", *uv) for uv in uvs)
 
     buf = bytearray()
     bvs: list[dict] = []
@@ -115,10 +107,22 @@ def _glb_multi_primitivas(num_prims: int, altura: float = 1.0) -> bytes:
         mats_gltf.append(
             {
                 "name": f"mat_{s_idx}",
-                "pbrMetallicRoughness": {"baseColorFactor": [0.7, 0.7, 0.75, 1.0]},
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.7, 0.7, 0.75, 1.0],
+                    "baseColorTexture": {"index": 0},
+                },
             }
         )
 
+    while len(buf) % 4 != 0:
+        buf.append(0)
+    png_buf = io.BytesIO()
+    Image.new("RGB", (32, 32), (180, 180, 190)).save(png_buf, format="PNG")
+    img_bytes = png_buf.getvalue()
+    img_off = len(buf)
+    buf.extend(img_bytes)
+    bvs.append({"buffer": 0, "byteOffset": img_off, "byteLength": len(img_bytes)})
+    img_bv = len(bvs) - 1
     while len(buf) % 4 != 0:
         buf.append(0)
 
@@ -128,6 +132,8 @@ def _glb_multi_primitivas(num_prims: int, altura: float = 1.0) -> bytes:
         "scenes": [{"nodes": [0]}],
         "nodes": [{"name": "multi_prim_node", "mesh": 0}],
         "meshes": [{"primitives": prims_gltf}],
+        "images": [{"bufferView": img_bv, "mimeType": "image/png"}],
+        "textures": [{"source": 0}],
         "materials": mats_gltf,
         "accessors": accs,
         "bufferViews": bvs,

@@ -21,6 +21,7 @@ import gc
 import inspect
 import json
 import os
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -232,7 +233,11 @@ def _criar_sessao_rembg(modelo_nome: str = "birefnet-general") -> tuple[Any, str
             opts.enable_mem_pattern = False
             opts.enable_cpu_mem_arena = False
             sess_kwargs["sess_opts"] = opts
-        except Exception:  # noqa: BLE001 - fallback sem SessionOptions se onnxruntime indisponivel
+        except (ImportError, AttributeError, RuntimeError, OSError) as exc:
+            print(
+                f"[i23d] aviso onnxruntime SessionOptions indisponivel: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
             sess_kwargs = {}
 
     try:
@@ -240,9 +245,17 @@ def _criar_sessao_rembg(modelo_nome: str = "birefnet-general") -> tuple[Any, str
     except ValueError as exc:
         if "No session class found" in str(exc) or alvo == "u2net":
             raise
-    except Exception:  # noqa: BLE001 - fallback offline para u2net em cache
+        print(
+            f"[i23d] aviso rembg '{alvo}' falhou ({type(exc).__name__}: {exc}); fallback para 'u2net'",
+            file=sys.stderr,
+        )
+    except (OSError, RuntimeError, ImportError, LookupError) as exc:
         if alvo == "u2net":
             raise
+        print(
+            f"[i23d] aviso rembg '{alvo}' falhou ({type(exc).__name__}: {exc}); fallback para 'u2net'",
+            file=sys.stderr,
+        )
     return rembg.new_session("u2net", **sess_kwargs), "u2net", True
 
 
@@ -301,13 +314,16 @@ def _suavizar_malha_taubin(
     nu: float = -0.47,
 ) -> dict[str, Any]:
     """Suavizacao Taubin preservadora de volume para remover degraus do Marching Cubes."""
+    erros: list[str] = []
     try:
         import trimesh.smoothing as _tsmooth
 
         _tsmooth.filter_taubin(malha, lamb=lamb, nu=nu, iterations=int(iteracoes))
         return {"aplicado": True, "modo": "trimesh_taubin", "iteracoes": int(iteracoes)}
-    except Exception:
-        pass
+    except (ImportError, AttributeError, TypeError, ValueError, RuntimeError) as exc:
+        msg = f"trimesh: {type(exc).__name__}: {exc}"
+        erros.append(msg)
+        print(f"[i23d] aviso Taubin trimesh falhou ({msg}), tentando fallback numpy", file=sys.stderr)
     try:
         import numpy as np
 
@@ -329,9 +345,16 @@ def _suavizar_malha_taubin(
                 media = soma / graus
                 verts = verts + passo * (media - verts)
         malha.vertices = verts
-        return {"aplicado": True, "modo": "numpy_taubin", "iteracoes": int(iteracoes)}
-    except Exception:
-        pass
+        return {
+            "aplicado": True,
+            "modo": "numpy_taubin",
+            "iteracoes": int(iteracoes),
+            **({"avisos": erros} if erros else {}),
+        }
+    except (ImportError, AttributeError, TypeError, ValueError, IndexError, RuntimeError) as exc:
+        msg = f"numpy: {type(exc).__name__}: {exc}"
+        erros.append(msg)
+        print(f"[i23d] aviso Taubin numpy falhou ({msg}), tentando fallback Python", file=sys.stderr)
     try:
         verts_py = [[float(c) for c in v] for v in malha.vertices]
         faces_py = [[int(i) for i in f] for f in malha.faces]
@@ -364,9 +387,17 @@ def _suavizar_malha_taubin(
                     )
                 verts_py = novos
         malha.vertices = verts_py
-        return {"aplicado": True, "modo": "python_taubin", "iteracoes": int(iteracoes)}
-    except Exception:
-        return {"aplicado": False, "iteracoes": 0}
+        return {
+            "aplicado": True,
+            "modo": "python_taubin",
+            "iteracoes": int(iteracoes),
+            **({"avisos": erros} if erros else {}),
+        }
+    except (AttributeError, TypeError, ValueError, IndexError) as exc:
+        erros.append(f"python: {type(exc).__name__}: {exc}")
+        detalhe = "; ".join(erros)
+        print(f"[i23d] aviso suavizacao Taubin falhou: {detalhe}", file=sys.stderr)
+        return {"aplicado": False, "iteracoes": 0, "erro": detalhe}
 
 
 def _extrair_malha_com_fallback_oom(
@@ -395,8 +426,11 @@ def _extrair_malha_com_fallback_oom(
             try:
                 if torch_mod.cuda.is_available():
                     torch_mod.cuda.empty_cache()
-            except Exception:
-                pass
+            except (RuntimeError, AttributeError, OSError) as exc:
+                print(
+                    f"[i23d] aviso cuda.empty_cache falhou no fallback OOM: {type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
         malhas = modelo.extract_mesh(codigos, True, resolution=256)
         return malhas[0], 256, True
 

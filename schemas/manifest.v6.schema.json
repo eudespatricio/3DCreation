@@ -58,7 +58,11 @@
         "blocky",
         "import",
         "mesh",
-        "modular"
+        "modular",
+        "i23d",
+        "template",
+        "procedural",
+        "extrude_2d"
       ]
     },
     "tags": {
@@ -315,6 +319,23 @@
             "motor6d",
             "bone"
           ]
+        },
+        "modo": {
+          "enum": [
+            "motor6d",
+            "skinned"
+          ]
+        },
+        "ancoras": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          }
         }
       }
     },
@@ -446,7 +467,8 @@
               "lod",
               "animacao",
               "manifesto",
-              "concept"
+              "concept",
+              "parte"
             ]
           },
           "sha256": {
@@ -484,7 +506,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^(G[1-9]|G1[01])$"
+                "pattern": "^(G[1-9]|G1[0-5])$"
               },
               "status": {
                 "enum": [
@@ -684,6 +706,61 @@
     "smart_fit": {
       "type": "object",
       "additionalProperties": true
+    },
+    "partes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nome"
+        ],
+        "properties": {
+          "nome": {
+            "type": "string",
+            "minLength": 1
+          },
+          "papel": {
+            "type": "string"
+          },
+          "junta": {
+            "type": "string"
+          },
+          "pivo": {
+            "type": "string"
+          },
+          "ancora": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "triangulos": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "arquivos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "arquivo": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   },
   "$defs": {

@@ -19,6 +19,7 @@ import argparse
 import gc
 import hashlib
 import json
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -84,6 +85,16 @@ def truncar_prompt(
         ids[-1] = eos
     novo = tokenizer.decode(ids, skip_special_tokens=True).strip()
     return novo, antes, len(ids)
+
+
+def _carregar_com_fallback_fp16(loader, *args, avisos: list[str], label: str, **kwargs):
+    try:
+        return loader.from_pretrained(*args, variant="fp16", **kwargs)
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        msg = f"{label}: fallback sem variant=fp16 ({type(exc).__name__}: {exc})"
+        avisos.append(msg)
+        print(f"[concept_infer] aviso {msg}", file=sys.stderr)
+        return loader.from_pretrained(*args, **kwargs)
 
 
 def main() -> int:
@@ -161,6 +172,7 @@ def main() -> int:
                     (args.largura, args.altura), Image.Resampling.LANCZOS
                 )
 
+        avisos: list[str] = []
         t0 = time.monotonic()
         comuns = {
             "torch_dtype": dtype,
@@ -171,62 +183,46 @@ def main() -> int:
             from diffusers import ControlNetModel, StableDiffusionControlNetImg2ImgPipeline
 
             modo = "controlnet_img2img"
-            try:
-                controlnet = ControlNetModel.from_pretrained(
-                    args.controlnet, torch_dtype=dtype, variant="fp16"
-                )
-            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
-                controlnet = ControlNetModel.from_pretrained(
-                    args.controlnet, torch_dtype=dtype
-                )
-            try:
-                pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
-                    args.modelo, controlnet=controlnet, variant="fp16", **comuns
-                )
-            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
-                pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
-                    args.modelo, controlnet=controlnet, **comuns
-                )
+            controlnet = _carregar_com_fallback_fp16(
+                ControlNetModel, args.controlnet, avisos=avisos, label="controlnet", torch_dtype=dtype
+            )
+            pipe = _carregar_com_fallback_fp16(
+                StableDiffusionControlNetImg2ImgPipeline,
+                args.modelo,
+                avisos=avisos,
+                label="controlnet_img2img",
+                controlnet=controlnet,
+                **comuns,
+            )
         elif args.controlnet:
             from diffusers import ControlNetModel, StableDiffusionControlNetPipeline
 
             modo = "controlnet_txt2img"
-            try:
-                controlnet = ControlNetModel.from_pretrained(
-                    args.controlnet, torch_dtype=dtype, variant="fp16"
-                )
-            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
-                controlnet = ControlNetModel.from_pretrained(
-                    args.controlnet, torch_dtype=dtype
-                )
-            try:
-                pipe = StableDiffusionControlNetPipeline.from_pretrained(
-                    args.modelo, controlnet=controlnet, variant="fp16", **comuns
-                )
-            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
-                pipe = StableDiffusionControlNetPipeline.from_pretrained(
-                    args.modelo, controlnet=controlnet, **comuns
-                )
+            controlnet = _carregar_com_fallback_fp16(
+                ControlNetModel, args.controlnet, avisos=avisos, label="controlnet", torch_dtype=dtype
+            )
+            pipe = _carregar_com_fallback_fp16(
+                StableDiffusionControlNetPipeline,
+                args.modelo,
+                avisos=avisos,
+                label="controlnet_txt2img",
+                controlnet=controlnet,
+                **comuns,
+            )
         elif init_img is not None:
             from diffusers import StableDiffusionImg2ImgPipeline
 
             modo = "img2img"
-            try:
-                pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-                    args.modelo, variant="fp16", **comuns
-                )
-            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
-                pipe = StableDiffusionImg2ImgPipeline.from_pretrained(args.modelo, **comuns)
+            pipe = _carregar_com_fallback_fp16(
+                StableDiffusionImg2ImgPipeline, args.modelo, avisos=avisos, label="img2img", **comuns
+            )
         else:
             modo = "txt2img"
-            try:
-                # no CPU os pesos fp16 sao carregados e convertidos para float32; evita baixar
-                # uma segunda copia (~3,4 GB) so para o fallback
-                pipe = StableDiffusionPipeline.from_pretrained(
-                    args.modelo, variant="fp16", **comuns
-                )
-            except Exception:  # noqa: BLE001 - fallback para checkpoint sem variant fp16
-                pipe = StableDiffusionPipeline.from_pretrained(args.modelo, **comuns)
+            # no CPU os pesos fp16 sao carregados e convertidos para float32; evita baixar
+            # uma segunda copia (~3,4 GB) so para o fallback
+            pipe = _carregar_com_fallback_fp16(
+                StableDiffusionPipeline, args.modelo, avisos=avisos, label="txt2img", **comuns
+            )
         resultado["modo"] = modo
 
         pipe.set_progress_bar_config(disable=True)
@@ -273,12 +269,19 @@ def main() -> int:
                 try:
                     livre_bytes, _ = torch.cuda.mem_get_info()
                     use_offload = livre_bytes < 6500 * 1024 * 1024
-                except Exception:  # noqa: BLE001 - ambiente sem driver ou mock simples
+                except (RuntimeError, OSError, AttributeError, TypeError, ValueError) as exc:
+                    msg = f"cuda.mem_get_info indisponivel ({type(exc).__name__}: {exc}); cpu_offload desativado"
+                    avisos.append(msg)
+                    print(f"[concept_infer] aviso {msg}", file=sys.stderr)
                     use_offload = False
         if use_offload:
             try:
                 pipe.enable_model_cpu_offload()
-            except Exception:  # noqa: BLE001 - fallback sem accelerate
+            except (ImportError, RuntimeError, ValueError, AttributeError) as exc:
+                msg = f"enable_model_cpu_offload falhou ({type(exc).__name__}: {exc}); usando pipe.to({args.device})"
+                avisos.append(msg)
+                print(f"[concept_infer] aviso {msg}", file=sys.stderr)
+                resultado["cpu_offload"] = False
                 pipe.to(args.device)
         else:
             pipe.to(args.device)
@@ -343,6 +346,8 @@ def main() -> int:
                 },
             }
         )
+        if avisos:
+            resultado["avisos"] = avisos
         if torch.cuda.is_available():
             resultado["vram_pico_mb"] = round(
                 torch.cuda.max_memory_allocated() / (1024**2), 1

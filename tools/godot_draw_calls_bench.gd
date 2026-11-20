@@ -9,6 +9,8 @@ extends SceneTree
 ##   godot --path tools/godot_project --rendering-driver vulkan --windowed --resolution 320x240 \
 ##     --script "$PWD/tools/godot_draw_calls_bench.gd" -- --input in.json --output out.json
 
+const PostImport := preload("../addons/forge3d/post_import.gd")
+
 var _input_path := ""
 var _output_path := ""
 var _cfg: Dictionary = {}
@@ -140,13 +142,20 @@ func _strip_ucx_nodes(root: Node) -> void:
 		n.free()
 
 
+func _eh_lod_secundario(nome: String) -> bool:
+	for lvl in range(1, 10):
+		if nome.begins_with("LOD%d_" % lvl) or nome.contains("_LOD%d" % lvl):
+			return true
+	return false
+
+
 func _inspect_template(root: Node3D) -> Dictionary:
 	var mesh_nodes: Array[MeshInstance3D] = []
 	for n in root.find_children("*", "MeshInstance3D", true, false):
 		var mi := n as MeshInstance3D
-		if mi != null and mi.mesh != null:
+		if mi != null and mi.mesh != null and not _eh_lod_secundario(String(mi.name)):
 			mesh_nodes.append(mi)
-	if root is MeshInstance3D and (root as MeshInstance3D).mesh != null:
+	if root is MeshInstance3D and (root as MeshInstance3D).mesh != null and not _eh_lod_secundario(String(root.name)):
 		mesh_nodes.push_front(root as MeshInstance3D)
 
 	var skels := root.find_children("*", "Skeleton3D", true, false)
@@ -251,6 +260,7 @@ func _populate_scene() -> bool:
 		if scene_node == null:
 			_fail("generate_scene nulo: " + glb_path)
 			return false
+		PostImport.aplicar(scene_node, glb_path)
 		_strip_ucx_nodes(scene_node)
 		var info := _inspect_template(scene_node)
 		var bmin: Vector3 = info["bmin"]

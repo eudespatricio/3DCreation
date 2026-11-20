@@ -140,10 +140,10 @@ def _cubo_fechado_glb(altura: float = 1.0) -> bytes:
     return _glb_minimo(verts, tris)
 
 
-def test_versao_0_9_3_e_consistente():
-    assert forge3d.__version__ == "0.9.3"
+def test_versao_0_9_5_e_consistente():
+    assert forge3d.__version__ == "0.9.5"
     pyproject = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.9.3"' in pyproject
+    assert 'version = "0.9.5"' in pyproject
 
 
 def test_perfis_aa_e_56_ossos_exatos():

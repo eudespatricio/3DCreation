@@ -24,6 +24,10 @@ _MOORE_DIRS = (
     (-1, -1),
 )
 
+_UV_FRONT = (0.02, 0.46, 0.02, 0.98)
+_UV_RIM = (0.475, 0.525, 0.02, 0.98)
+_UV_BACK = (0.54, 0.98, 0.02, 0.98)
+
 
 def _prox_pot(n: int, minimo: int = 64, maximo: int = 1024) -> int:
     """Retorna potencia de 2 valida mais proxima/teto dentro de ``[minimo, maximo]``."""
@@ -660,37 +664,35 @@ def _construir_malha_solida(
     """Triangula ``poly`` 2D (com eventuais recortes) e constroi casca dupla fechada estanque."""
     bm_2d = bmesh.new()
     try:
-        construido_com_buracos = False
-        if holes:
-            from mathutils import Vector
-            from mathutils.geometry import tessellate_polygon
+        from mathutils import Vector
+        from mathutils.geometry import tessellate_polygon
 
-            outer_ccw = list(poly)
-            if _area_assinada(outer_ccw) < 0.0:
-                outer_ccw.reverse()
-            loops_3d = [[Vector((px, pz, 0.0)) for px, pz in outer_ccw]]
-            pts_flat = [bm_2d.verts.new((px, 0.0, pz)) for px, pz in outer_ccw]
-            for h in holes:
-                hcw = list(h)
-                if _area_assinada(hcw) > 0.0:
-                    hcw.reverse()
-                loops_3d.append([Vector((hx, hz, 0.0)) for hx, hz in hcw])
-                pts_flat.extend(bm_2d.verts.new((hx, 0.0, hz)) for hx, hz in hcw)
-            tris = tessellate_polygon(loops_3d)
-            if tris:
-                for i0, i1, i2 in tris:
-                    try:
-                        bm_2d.faces.new((pts_flat[i0], pts_flat[i1], pts_flat[i2]))
-                    except ValueError:
-                        pass
-                construido_com_buracos = len(bm_2d.faces) > 0
-            if not construido_com_buracos:
-                bm_2d.clear()
-        if not construido_com_buracos:
+        outer_ccw = list(poly)
+        if _area_assinada(outer_ccw) < 0.0:
+            outer_ccw.reverse()
+        loops_3d = [[Vector((px, pz, 0.0)) for px, pz in outer_ccw]]
+        pts_flat = [bm_2d.verts.new((px, 0.0, pz)) for px, pz in outer_ccw]
+        for h in holes or []:
+            hcw = list(h)
+            if _area_assinada(hcw) > 0.0:
+                hcw.reverse()
+            loops_3d.append([Vector((hx, hz, 0.0)) for hx, hz in hcw])
+            pts_flat.extend(bm_2d.verts.new((hx, 0.0, hz)) for hx, hz in hcw)
+        tris = tessellate_polygon(loops_3d)
+        construido = False
+        if tris:
+            for i0, i1, i2 in tris:
+                try:
+                    bm_2d.faces.new((pts_flat[i0], pts_flat[i1], pts_flat[i2]))
+                except ValueError:
+                    pass
+            construido = len(bm_2d.faces) > 0
+        if not construido:
+            bm_2d.clear()
             verts_2d = [bm_2d.verts.new((px, 0.0, pz)) for px, pz in poly]
             face_2d = bm_2d.faces.new(verts_2d)
             bmesh.ops.triangulate(
-                bm_2d, faces=[face_2d], quad_method="BEAUTY", ngon_method="BEAUTY"
+                bm_2d, faces=[face_2d], quad_method="BEAUTY", ngon_method="CLIP"
             )
 
         # Subdivide arestas internas (e de borda na capa) para espinha/curvatura suave
@@ -727,6 +729,9 @@ def _construir_malha_solida(
 
         bm = bmesh.new()
         try:
+            role_lay = bm.faces.layers.int.new("f3d_role")
+            uv_layer = bm.loops.layers.uv.new("UVMap")
+
             frente_v: dict[int, bmesh.types.BMVert] = {}
             tras_v: dict[int, bmesh.types.BMVert] = {}
             for v in bm_2d.verts:
@@ -766,26 +771,61 @@ def _construir_malha_solida(
                 vf = [frente_v[v.index] for v in f.verts]
                 vb = [tras_v[v.index] for v in reversed(f.verts)]
                 try:
-                    bm.faces.new(vf)
+                    ff = bm.faces.new(vf)
+                    ff[role_lay] = 1
                 except ValueError:
                     pass
                 try:
-                    bm.faces.new(vb)
+                    fb_f = bm.faces.new(vb)
+                    fb_f[role_lay] = 2
                 except ValueError:
                     pass
 
-            for borda in _ciclos_borda_bmesh(bm_2d):
+            ciclos = _ciclos_borda_bmesh(bm_2d)
+            ru0, ru1, rv0, rv1 = _UV_RIM
+            n_ciclos = len(ciclos)
+            gap_v = 0.01 if n_ciclos > 1 else 0.0
+            total_span_v = max(1e-4, (rv1 - rv0) - gap_v * max(0, n_ciclos - 1))
+            perims: list[float] = []
+            for borda in ciclos:
+                n_b = len(borda)
+                per = 0.0
+                for i in range(n_b):
+                    va = borda[i]
+                    vb = borda[(i + 1) % n_b]
+                    per += math.hypot(vb.co.x - va.co.x, vb.co.z - va.co.z)
+                perims.append(max(per, 1e-6))
+            perim_total = max(sum(perims), 1e-6)
+            v_cursor = rv0
+            for idx_c, borda in enumerate(ciclos):
+                v_span_c = total_span_v * (perims[idx_c] / perim_total)
+                per_c = perims[idx_c]
+                acc_len = 0.0
                 n_b = len(borda)
                 for i in range(n_b):
                     va = borda[i]
                     vb = borda[(i + 1) % n_b]
+                    seg_len = math.hypot(vb.co.x - va.co.x, vb.co.z - va.co.z)
+                    s0 = v_cursor + (acc_len / per_c) * v_span_c
+                    acc_len += seg_len
+                    s1 = v_cursor + (acc_len / per_c) * v_span_c
                     fa, fb = frente_v[va.index], frente_v[vb.index]
                     ba, bb = tras_v[va.index], tras_v[vb.index]
+                    uv_by_v = {
+                        fa: (ru0, s0),
+                        ba: (ru1, s0),
+                        bb: (ru1, s1),
+                        fb: (ru0, s1),
+                    }
                     for tri in ((fa, ba, bb), (fa, bb, fb)):
                         try:
-                            bm.faces.new(tri)
+                            fr = bm.faces.new(tri)
+                            fr[role_lay] = 3
+                            for lp in fr.loops:
+                                lp[uv_layer].uv = uv_by_v[lp.vert]
                         except ValueError:
                             pass
+                v_cursor += v_span_c + gap_v
 
             bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-6)
             bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=list(bm.edges))
@@ -803,13 +843,16 @@ def _construir_malha_solida(
             dx = max(x_max - x_min, 1e-6)
             dz = max(z_max - z_min, 1e-6)
             u0, u1, v0, v1 = uv_bbox
+            fu0, fu1, fv0, fv1 = _UV_FRONT
+            bu0, bu1, bv0, bv1 = _UV_BACK
 
-            uv_layer = bm.loops.layers.uv.new("UVMap")
-            u_ctr = 0.5 * (u0 + u1)
-            v_ctr = 0.5 * (v0 + v1)
             for f in bm.faces:
-                f.normal_update()
-                eh_borda_lateral = abs(f.normal.y) < 0.35
+                role = f[role_lay]
+                if role not in (1, 2):
+                    continue
+                ru_0, ru_1, rv_0, rv_1 = (
+                    (fu0, fu1, fv0, fv1) if role == 1 else (bu0, bu1, bv0, bv1)
+                )
                 for loop in f.loops:
                     co = loop.vert.co
                     nx = (x_max - co.x) / dx
@@ -826,12 +869,13 @@ def _construir_malha_solida(
                     else:
                         tx = nx
                         tz = nz
-                    u = max(0.0, min(1.0, u0 + tx * (u1 - u0)))
-                    v_uv = max(0.0, min(1.0, v0 + tz * (v1 - v0)))
-                    if eh_borda_lateral and co.y < 0.0:
-                        u = max(0.0, min(1.0, u + (u_ctr - u) * 0.008))
-                        v_uv = max(0.0, min(1.0, v_uv + (v_ctr - v_uv) * 0.008))
+                    u_src = max(0.0, min(1.0, u0 + tx * (u1 - u0)))
+                    v_src = max(0.0, min(1.0, v0 + tz * (v1 - v0)))
+                    u = ru_0 + u_src * (ru_1 - ru_0)
+                    v_uv = rv_0 + v_src * (rv_1 - rv_0)
                     loop[uv_layer].uv = (u, v_uv)
+
+            bm.faces.layers.int.remove(role_lay)
 
             malha = bpy.data.meshes.new(nome)
             bm.to_mesh(malha)
@@ -934,12 +978,119 @@ def _preparar_textura(img_orig, nome: str, usa_alfa: bool):
                 buf[pi + 2] = media[2]
             buf[pi + 3] = 1.0
     else:
-        for i in range(3, total, 4):
-            buf[i] = 1.0
+        orig_ativo = [True] * (w * h)
+        sr = sg = sb = 0.0
+        for i in range(0, total, 4):
+            sr += buf[i]
+            sg += buf[i + 1]
+            sb += buf[i + 2]
+            buf[i + 3] = 1.0
+        inv_tot = 1.0 / float(max(1, w * h))
+        media = (sr * inv_tot, sg * inv_tot, sb * inv_tot)
 
-    img_out = bpy.data.images.new(f"{nome}_tex", width=w, height=h, alpha=False)
+    # Cor media por linha para a faixa da borda lateral (_UV_RIM)
+    if usa_alfa:
+        # Considera opacos originais/dilatados antes do preenchimento uniforme de fundo?
+        # Como `ativo` ja inclui dilatacao de 3px das bordas opacas, usamos pixels onde `ativo` eh True
+        # e, se vazio na linha, caímos para `media`.
+        orig_ativo = ativo
+
+    row_colors: list[tuple[float, float, float]] = []
+    for y in range(h):
+        rr = rg = rb = 0.0
+        cnt_r = 0
+        row_base = y * w
+        for x in range(w):
+            p = row_base + x
+            if orig_ativo[p]:
+                pi = p * 4
+                rr += buf[pi]
+                rg += buf[pi + 1]
+                rb += buf[pi + 2]
+                cnt_r += 1
+        if cnt_r > 0:
+            inv_r = 1.0 / float(cnt_r)
+            row_colors.append((rr * inv_r, rg * inv_r, rb * inv_r))
+        else:
+            row_colors.append(media)
+
+    atlas_w = min(1024, max(128, w * 2))
+    atlas_h = h
+    atlas_buf = array("f", [0.0]) * (atlas_w * atlas_h * 4)
+
+    fu0, fu1, fv0, fv1 = _UV_FRONT
+    bu0, bu1, bv0, bv1 = _UV_BACK
+    f_span_u = fu1 - fu0
+    b_span_u = bu1 - bu0
+    v_span = fv1 - fv0
+
+    col_map: list[tuple[int, int, int, float, float]] = []
+    for ax in range(atlas_w):
+        u_atlas = (ax + 0.5) / float(atlas_w)
+        if u_atlas <= 0.4675:
+            u_src = max(0.0, min(1.0, (u_atlas - fu0) / f_span_u))
+            fx = max(0.0, min(float(w - 1), u_src * float(w) - 0.5))
+            x0 = int(math.floor(fx))
+            x1 = min(w - 1, x0 + 1)
+            tx = fx - x0
+            col_map.append((1, x0, x1, tx, 1.0 - tx))
+        elif u_atlas >= 0.5325:
+            u_src = max(0.0, min(1.0, (u_atlas - bu0) / b_span_u))
+            fx = max(0.0, min(float(w - 1), u_src * float(w) - 0.5))
+            x0 = int(math.floor(fx))
+            x1 = min(w - 1, x0 + 1)
+            tx = fx - x0
+            col_map.append((1, x0, x1, tx, 1.0 - tx))
+        else:
+            col_map.append((0, 0, 0, 0.0, 0.0))
+
+    for ay in range(atlas_h):
+        v_atlas = (ay + 0.5) / float(atlas_h)
+        v_src = max(0.0, min(1.0, (v_atlas - fv0) / v_span))
+        fy = max(0.0, min(float(h - 1), v_src * float(h) - 0.5))
+        y0 = int(math.floor(fy))
+        y1 = min(h - 1, y0 + 1)
+        ty = fy - y0
+        inv_ty = 1.0 - ty
+        row0_off = y0 * w
+        row1_off = y1 * w
+        sy = max(0, min(h - 1, int(round(v_src * float(h - 1)))))
+        rim_r, rim_g, rim_b = row_colors[sy]
+        dst_row_off = ay * atlas_w
+        for ax, (regiao, x0, x1, tx, inv_tx) in enumerate(col_map):
+            di = (dst_row_off + ax) * 4
+            if regiao == 0:
+                atlas_buf[di] = rim_r
+                atlas_buf[di + 1] = rim_g
+                atlas_buf[di + 2] = rim_b
+                atlas_buf[di + 3] = 1.0
+            else:
+                w00 = inv_tx * inv_ty
+                w10 = tx * inv_ty
+                w01 = inv_tx * ty
+                w11 = tx * ty
+                i00 = (row0_off + x0) * 4
+                i10 = (row0_off + x1) * 4
+                i01 = (row1_off + x0) * 4
+                i11 = (row1_off + x1) * 4
+                atlas_buf[di] = buf[i00] * w00 + buf[i10] * w10 + buf[i01] * w01 + buf[i11] * w11
+                atlas_buf[di + 1] = (
+                    buf[i00 + 1] * w00
+                    + buf[i10 + 1] * w10
+                    + buf[i01 + 1] * w01
+                    + buf[i11 + 1] * w11
+                )
+                atlas_buf[di + 2] = (
+                    buf[i00 + 2] * w00
+                    + buf[i10 + 2] * w10
+                    + buf[i01 + 2] * w01
+                    + buf[i11 + 2] * w11
+                )
+                atlas_buf[di + 3] = 1.0
+
+    img_out = bpy.data.images.new(f"{nome}_tex", width=atlas_w, height=atlas_h, alpha=False)
     img_out.colorspace_settings.name = "sRGB"
-    img_out.pixels.foreach_set(buf)
+    img_out.pixels.foreach_set(atlas_buf)
     img_out.pack()
     if img_orig.users == 0:
         bpy.data.images.remove(img_orig)

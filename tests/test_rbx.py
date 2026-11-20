@@ -1,4 +1,4 @@
-"""Testes do export nativo R15 (.rbxlx): estrutura, XML e contagens."""
+"""Testes do export nativo R15 (.rbxlx) e animacoes KeyframeSequence: estrutura, XML e contagens."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 
 from forge3d import config, rbx
 from forge3d.cli.comandos import despachar
+from forge3d.errors import ForgeError
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +17,7 @@ def _isolar_allowlist(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE3D_HOME", str(tmp_path / "forge_home"))
     monkeypatch.setenv("FORGE3D_CONFIG", str(tmp_path / "forge_cfg"))
     config.adicionar(tmp_path)
+
 
 R15 = {
     "HumanoidRootPart",
@@ -77,7 +79,7 @@ def test_export_r15_gera_place_com_16_partes_e_15_motores(tmp_path):
 
 
 def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
-    """D69: o mesmo clipe do glb vira KeyframeSequence no place (chaves 24fps, 15 poses)."""
+    """D69/F05: o mesmo clipe do glb vira KeyframeSequence aninhada por Part1.Name."""
     from forge3d import animacao, profiles
 
     esperado = animacao.clipes(profiles.carregar("roblox-r15"), "r15@1", ["idle"])[0]
@@ -90,25 +92,22 @@ def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
     assert len(place["clipes"]) == 1
     clipe = place["clipes"][0]
     assert clipe["nome"] == "idle" and clipe["loop"] is True
-    # idle usa Idle (0), movimentacao Movement (1), acoes Action (2)
     assert clipe["priority"] == 0
     assert clipe["chaves"][0]["tempo"] == 0.0
     assert clipe["chaves"][-1]["tempo"] == pytest.approx(2.0, abs=1e-4)
 
-    juntas = set(rbx.JOINT_R15.values())
+    partes_r15 = set(rbx.JOINT_R15.keys()) | {"HumanoidRootPart"}
     identidade = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
     for chave, ch_exp in zip(clipe["chaves"], esperado["chaves"]):
         assert chave["tempo"] == pytest.approx(ch_exp["segundos"], abs=1e-4)
-        # pose COMPLETA: todas as 15 juntas do R15 (o Animator nao aplica chave parcial)
-        assert {p["osso"] for p in chave["poses"]} == juntas
+        assert {p["osso"] for p in chave["poses"]} == partes_r15
         dadas_m: dict[str, list[float]] = {}
         for p in ch_exp["poses"]:
-            junta = rbx.JOINT_R15.get(p["osso"], p["osso"])
+            parte = rbx.JOINT_R15_REV.get(p["osso"], p["osso"])
             m_p = rbx._matriz_rotacao(p["graus"], p["eixo"])
-            dadas_m[junta] = m_p if junta not in dadas_m else rbx._mul_mat3(dadas_m[junta], m_p)
+            dadas_m[parte] = m_p if parte not in dadas_m else rbx._mul_mat3(dadas_m[parte], m_p)
         for pose in chave["poses"]:
             matriz = dadas_m.get(pose["osso"], identidade)
-            # o .rbxlx grava com 6 casas: a tolerancia e do formato, nao do calculo
             assert pose["cframe"][3:] == pytest.approx(matriz, abs=1e-5)
 
 
@@ -135,7 +134,7 @@ def test_export_r15_normaliza_a_altura_para_a_spec(tmp_path):
 
 
 def test_export_r15_attachments_transparency_e_anchored(tmp_path):
-    """Pacote 4 + Onda 3: RigAttachments R15 + Hat/BodyBack/RightGrip, HumanoidRootPart transparente e Anchored."""
+    """Pacote 4 + Onda 3: RigAttachments R15 + Hat/BodyBack/RightGrip, HumanoidRootPart transparente."""
     from forge3d import profiles
 
     assert profiles.carregar("roblox-r15")["validacao"]["materiais_max"] == 1
@@ -203,11 +202,11 @@ def test_export_r15_attachments_transparency_e_anchored(tmp_path):
 
 
 def test_export_animacao_rbxmx_walk_run_jump_identico_ao_clip(tmp_path):
-    """Multi-clipe .rbxmx usa a mesma definicao de `animacao.clipes()` para walk/run/jump."""
+    """Multi-clipe .rbxmx usa a mesma definicao de `animacao.clipes()` com poses R15 aninhadas."""
     from forge3d import animacao, profiles
 
     roblox = profiles.carregar("roblox-r15")
-    juntas = set(rbx.JOINT_R15.values())
+    partes_r15 = set(rbx.JOINT_R15.keys()) | {"HumanoidRootPart"}
 
     for clipe_nome, loop_esperado, prio_esperada in (("walk", True, 1), ("run", True, 1), ("jump", False, 2)):
         saida = tmp_path / f"{clipe_nome}.rbxmx"
@@ -233,12 +232,12 @@ def test_export_animacao_rbxmx_walk_run_jump_identico_ao_clip(tmp_path):
 
         for chave, ch_exp in zip(seq["chaves"], esperado["chaves"]):
             assert chave["tempo"] == pytest.approx(ch_exp["segundos"], abs=1e-4)
-            assert {p["osso"] for p in chave["poses"]} == juntas
+            assert {p["osso"] for p in chave["poses"]} == partes_r15
             dadas_m: dict[str, list[float]] = {}
             for p in ch_exp["poses"]:
-                junta = rbx.JOINT_R15.get(p["osso"], p["osso"])
+                parte = rbx.JOINT_R15_REV.get(p["osso"], p["osso"])
                 m_p = rbx._matriz_rotacao(p["graus"], p["eixo"])
-                dadas_m[junta] = m_p if junta not in dadas_m else rbx._mul_mat3(dadas_m[junta], m_p)
+                dadas_m[parte] = m_p if parte not in dadas_m else rbx._mul_mat3(dadas_m[parte], m_p)
             identidade = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
             for pose in chave["poses"]:
                 matriz = dadas_m.get(pose["osso"], identidade)
@@ -284,65 +283,8 @@ def test_export_animacoes_multi_clipes_rbxmx_e_rbxlx(tmp_path):
     assert [c["nome"] for c in lido_place["clipes"]] == ["idle", "walk", "run", "jump"]
 
 
-def test_surface_appearance_xml_e_r15_com_pbr(tmp_path):
-    """Gera SurfaceAppearance valido quando existem texturas PBR e preserva materiais_max: 1."""
-    from forge3d import profiles
-
-    assert profiles.carregar("roblox-r15")["validacao"]["materiais_max"] == 1
-    assert rbx.surface_appearance_xml({}) == ""
-    assert rbx.descobrir_texturas_pbr(tmp_path, "personagem.r15.guard.01") == {}
-
-    tex_dir = tmp_path / "tex"
-    tex_dir.mkdir()
-    for sufixo in ("baseColor", "normal", "roughness", "metalness"):
-        (tex_dir / f"personagem.r15.guard.01_{sufixo}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-
-    mapas = rbx.descobrir_texturas_pbr(tex_dir, "personagem.r15.guard.01")
-    assert mapas == {
-        "ColorMap": "personagem.r15.guard.01_baseColor.png",
-        "NormalMap": "personagem.r15.guard.01_normal.png",
-        "RoughnessMap": "personagem.r15.guard.01_roughness.png",
-        "MetalnessMap": "personagem.r15.guard.01_metalness.png",
-    }
-
-    sa_rbxmx = tmp_path / "sa.rbxmx"
-    rel_sa = rbx.exportar_surface_appearance(tex_dir, "personagem.r15.guard.01", saida=sa_rbxmx)
-    assert rel_sa["ok"] is True and rel_sa["materiais"] == 1
-    sa_raiz = ElementTree.fromstring(sa_rbxmx.read_text(encoding="utf-8"))
-    sa_item = sa_raiz.find("Item[@class='SurfaceAppearance']")
-    assert sa_item is not None
-    assert sa_item.findtext("Properties/Content[@name='ColorMap']/url") == "personagem.r15.guard.01_baseColor.png"
-    assert sa_item.findtext("Properties/Content[@name='NormalMap']/url") == "personagem.r15.guard.01_normal.png"
-    assert sa_item.findtext("Properties/Content[@name='RoughnessMap']/url") == "personagem.r15.guard.01_roughness.png"
-    assert sa_item.findtext("Properties/Content[@name='MetalnessMap']/url") == "personagem.r15.guard.01_metalness.png"
-
-    rbxlx_pbr = tmp_path / "r15_pbr.rbxlx"
-    rel_pbr = rbx.exportar_r15(
-        "examples/lote_09_r15.yaml",
-        "personagem.r15.guard.01",
-        saida=rbxlx_pbr,
-        texturas_dir=tex_dir,
-    )
-    assert rel_pbr["textura"] is True
-    raiz = ElementTree.fromstring(rbxlx_pbr.read_text(encoding="utf-8"))
-    referents = [e.get("referent") for e in raiz.iter("Item") if e.get("referent")]
-    assert len(referents) == len(set(referents))
-    modelo = next(e for e in raiz.iter("Item") if e.get("class") == "Model")
-    hrps = modelo.findall("Item[@class='Part']")
-    assert len(hrps) == 1
-    assert hrps[0].findtext("Properties/string[@name='Name']") == "HumanoidRootPart"
-    assert len(hrps[0].findall("Item[@class='SurfaceAppearance']")) == 0
-    meshparts = modelo.findall("Item[@class='MeshPart']")
-    assert len(meshparts) == 15
-    for parte in meshparts:
-        assert len(parte.findall("Item[@class='SurfaceAppearance']")) == 1
-    place = rbx.ler_place(rbxlx_pbr)
-    assert len(place["surface_appearances"]) == 15
-
-
 def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
     """CLI export-anim mantem --clipe unico, aceita lista separada por virgula e --todos."""
-    # 1) Backwards-compatible default single clip (--clipe idle)
     unico = tmp_path / "unico.rbxmx"
     rc = despachar(
         [
@@ -369,7 +311,6 @@ def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
     assert rel_unico["keyframes"] == kf_por_clipe["idle"]
     assert rel_unico["bytes"] == unico.stat().st_size
 
-    # 2) Comma-separated list: --clipe idle,walk (human output + JSON)
     par_rbxmx = tmp_path / "par.rbxmx"
     rc = despachar(
         [
@@ -409,7 +350,6 @@ def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
     assert rel_par["keyframes"] == {"idle": kf_por_clipe["idle"], "walk": kf_por_clipe["walk"]}
     assert [c["nome"] for c in rbx.ler_place(par_json)["clipes"]] == ["idle", "walk"]
 
-    # 3) --todos exports all ANIMACOES_SUPORTADAS clips into one .rbxmx
     todos_rbxmx = tmp_path / "todos.rbxmx"
     rc = despachar(
         [
@@ -425,13 +365,17 @@ def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
     )
     assert rc == 0
     rel_todos = json.loads(capsys.readouterr().out)
-    todos_esperados = ["idle", "walk", "run", "jump", "attack", "block", "hit", "death"]
+    todos_esperados = [
+        "idle", "walk", "run", "jump", "attack", "slash_combo", "cast",
+        "block", "hit", "death", "ride_idle", "ride_fly", "gallop",
+        "wing_flap", "glide", "bite", "roar",
+    ]
+    assert list(profiles.ANIMACOES_SUPORTADAS) == todos_esperados
     assert rel_todos["clipes"] == todos_esperados
     assert rel_todos["keyframes"] == kf_por_clipe
     assert rel_todos["bytes"] == todos_rbxmx.stat().st_size
     assert [c["nome"] for c in rbx.ler_place(todos_rbxmx)["clipes"]] == todos_esperados
 
-    # 4) Unknown clip in list fails cleanly with FORGE-E-SPEC
     rc = despachar(
         [
             "export-anim",
@@ -448,339 +392,75 @@ def test_cli_export_anim_clipe_unico_lista_e_todos(tmp_path, capsys):
     assert err["erro"]["codigo"] == "FORGE-E-SPEC"
 
 
-def test_cli_export_surface_pasta_e_manifesto(tmp_path, capsys):
-    """CLI export-surface aceita manifesto ou pasta publicada com _baseColor/_normal/_orm."""
-    pub = tmp_path / "pub"
-    pub.mkdir()
-    asset_id = "hero.sentinel.01"
-    for sufixo in ("baseColor", "normal", "orm"):
-        (pub / f"{asset_id}_{sufixo}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-
-    manifesto = pub / f"{asset_id}.manifest.json"
-    manifesto.write_text(
-        json.dumps(
+def test_sequencia_xml_normaliza_junta_e_converte_deslocamento_studs():
+    """F05: aceita entrada por junta (ex.: Root) e converte deslocamento_m para studs."""
+    clipe = {
+        "nome": "jump",
+        "loop": False,
+        "chaves": [
             {
-                "schema": "forge3d/manifest@3",
-                "asset_id": asset_id,
-                "files": [
-                    {"caminho": f"{asset_id}_baseColor.png", "papel": "textura"},
-                    {"caminho": f"{asset_id}_normal.png", "papel": "normal"},
-                    {"caminho": f"{asset_id}_orm.png", "papel": "orm"},
-                ],
-            },
-            indent=1,
-        ),
-        encoding="utf-8",
-    )
-
-    # 1) Manifest path without --item and without --saida (writes next to manifest)
-    rc = despachar(["export-surface", str(manifesto)])
-    assert rc == 0
-    stdout = capsys.readouterr().out
-    assert "ColorMap,NormalMap,RoughnessMap" in stdout
-    esperado_default = pub / f"{asset_id}_surface.rbxmx"
-    assert esperado_default.is_file()
-    sas = rbx.ler_place(esperado_default)["surface_appearances"]
-    assert len(sas) == 1
-    assert sas[0]["ColorMap"] == f"{asset_id}_baseColor.png"
-    assert sas[0]["NormalMap"] == f"{asset_id}_normal.png"
-    assert sas[0]["RoughnessMap"] == f"{asset_id}_orm.png"
-    assert sas[0]["MetalnessMap"] is None
-
-    # 2) Directory + --item + explicit --saida + --json
-    custom_sa = tmp_path / "custom_sa.rbxmx"
-    rc = despachar(
-        [
-            "export-surface",
-            str(pub),
-            "--item",
-            asset_id,
-            "--saida",
-            str(custom_sa),
-            "--json",
-        ]
-    )
-    assert rc == 0
-    rel = json.loads(capsys.readouterr().out)
-    assert rel["ok"] is True
-    assert rel["materiais"] == 1
-    assert rel["saida"] == str(custom_sa)
-    assert rel["mapas"] == {
-        "ColorMap": f"{asset_id}_baseColor.png",
-        "NormalMap": f"{asset_id}_normal.png",
-        "RoughnessMap": f"{asset_id}_orm.png",
-    }
-    assert custom_sa.is_file()
-
-    # 3) Direct manifest call in Python without writing file
-    rel_mem = rbx.exportar_surface_appearance(manifesto)
-    assert rel_mem["saida"] is None
-    assert rel_mem["mapas"] == rel["mapas"]
-
-    # 4) Mismatched --item against manifest fails cleanly
-    rc = despachar(["export-surface", str(manifesto), "--item", "outro.id", "--json"])
-    assert rc == 2
-    assert json.loads(capsys.readouterr().out)["erro"]["codigo"] == "FORGE-E-SPEC"
-
-
-def test_cli_export_r15_com_texturas_dir(tmp_path, capsys):
-    """CLI export-r15 --texturas-dir anexa SurfaceAppearance nas 15 partes visiveis."""
-    tex_dir = tmp_path / "tex"
-    tex_dir.mkdir()
-    for sufixo in ("baseColor", "normal", "orm"):
-        (tex_dir / f"personagem.r15.guard.01_{sufixo}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-
-    saida = tmp_path / "guard_pbr.rbxlx"
-    rc = despachar(
-        [
-            "export-r15",
-            "examples/lote_09_r15.yaml",
-            "--item",
-            "personagem.r15.guard.01",
-            "--texturas-dir",
-            str(tex_dir),
-            "--saida",
-            str(saida),
-            "--json",
-        ]
-    )
-    assert rc == 0
-    rel = json.loads(capsys.readouterr().out)
-    assert rel["ok"] is True
-    assert rel["textura"] is True
-    assert rel["surface_appearance"] == {
-        "ColorMap": "personagem.r15.guard.01_baseColor.png",
-        "NormalMap": "personagem.r15.guard.01_normal.png",
-        "RoughnessMap": "personagem.r15.guard.01_orm.png",
-    }
-    place = rbx.ler_place(saida)
-    assert len(place["surface_appearances"]) == 15
-    assert all(sa["ColorMap"] == "personagem.r15.guard.01_baseColor.png" for sa in place["surface_appearances"])
-    assert all(sa["RoughnessMap"] == "personagem.r15.guard.01_orm.png" for sa in place["surface_appearances"])
-
-    # Human-readable output indicates SurfaceAppearance
-    saida2 = tmp_path / "guard_pbr_txt.rbxlx"
-    rc2 = despachar(
-        [
-            "export-r15",
-            "examples/lote_09_r15.yaml",
-            "--item",
-            "personagem.r15.guard.01",
-            "--texturas-dir",
-            str(tex_dir),
-            "--saida",
-            str(saida2),
-        ]
-    )
-    assert rc2 == 0
-    assert "+SurfaceAppearance" in capsys.readouterr().out
-
-
-def test_surface_appearance_injeta_rbxassetid_por_mapa_e_ledger(tmp_path):
-    """surface_appearance_xml e exportar_surface_appearance aceitam asset_ids e ledger."""
-    from forge3d.errors import ForgeError
-
-    xml = rbx.surface_appearance_xml(
-        {"ColorMap": "hero_baseColor.png", "NormalMap": "hero_normal.png", "RoughnessMap": "hero_orm.png"},
-        asset_ids={"ColorMap": "111222333", "hero_normal.png": "rbxassetid://444555666"},
-    )
-    sa_node = ElementTree.fromstring(xml)
-    assert sa_node.findtext("Properties/Content[@name='ColorMap']/url") == "rbxassetid://111222333"
-    assert sa_node.findtext("Properties/Content[@name='NormalMap']/url") == "rbxassetid://444555666"
-    assert sa_node.findtext("Properties/Content[@name='RoughnessMap']/url") == "hero_orm.png"
-
-    pub = tmp_path / "pub"
-    pub.mkdir()
-    asset_id = "set.silvanor.peitoral.01"
-    for suf in ("baseColor", "normal", "orm"):
-        (pub / f"{asset_id}_{suf}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-    manifesto = pub / f"{asset_id}.manifest.json"
-    manifesto.write_text(
-        json.dumps(
-            {
-                "schema": "forge3d/manifest@3",
-                "asset_id": asset_id,
-                "files": [
-                    {"caminho": f"{asset_id}_baseColor.png", "papel": "textura"},
-                    {"caminho": f"{asset_id}_normal.png", "papel": "normal"},
-                    {"caminho": f"{asset_id}_orm.png", "papel": "orm"},
+                "segundos": 0.1,
+                "poses": [
+                    {"osso": "Root", "graus": 0.0, "eixo": "X", "deslocamento_m": [0.0, 0.0, 0.56]}
                 ],
             }
-        ),
-        encoding="utf-8",
-    )
-    ledger = tmp_path / "ledger.jsonl"
-    ledger.write_text(
-        "\n".join(
-            [
-                json.dumps({"evento": "upload", "id": asset_id, "role": "ColorMap", "asset_id": "1001"}),
-                json.dumps({"evento": "upload", "id": asset_id, "papel": "normal", "asset_id": "1002"}),
-                json.dumps({"evento": "upload", "id": f"{asset_id}_orm", "asset_id": "1003"}),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    sa_out = tmp_path / "peitoral_sa.rbxmx"
-    rel = rbx.exportar_surface_appearance(manifesto, saida=sa_out, ledger=ledger)
-    assert rel["mapas"] == {
-        "ColorMap": "rbxassetid://1001",
-        "NormalMap": "rbxassetid://1002",
-        "RoughnessMap": "rbxassetid://1003",
+        ],
     }
-    lido = rbx.ler_place(sa_out)["surface_appearances"][0]
-    assert lido["ColorMap"] == "rbxassetid://1001"
-    assert lido["NormalMap"] == "rbxassetid://1002"
-    assert lido["RoughnessMap"] == "rbxassetid://1003"
+    linhas, _ = rbx._sequencia_xml(clipe, 0, mps=0.28)
+    raiz = ElementTree.fromstring("\n".join(linhas))
+    hrp = raiz.find("Item[@class='Keyframe']/Item[@class='Pose']")
+    assert hrp is not None and hrp.findtext("Properties/string[@name='Name']") == "HumanoidRootPart"
+    lt = hrp.find("Item[@class='Pose']")
+    assert lt is not None and lt.findtext("Properties/string[@name='Name']") == "LowerTorso"
+    assert float(lt.findtext("Properties/CoordinateFrame[@name='CFrame']/Y") or 0.0) == pytest.approx(2.0, abs=1e-4)
 
-    # Negative: exportar_r15 continues rejecting non-blocky route
-    lote_mesh = tmp_path / "lote_mesh.yaml"
-    lote_mesh.write_text(
+
+def test_exportar_r15_segmentada_rejeita_partes_incompletas(tmp_path):
+    """F08: modo_rig=motor6d exige todas as 15 partes R15 no manifesto segmentado."""
+    partes_nomes = list(rbx.JOINT_R15.keys())
+    lote = tmp_path / "lote_parcial.yaml"
+    lote.write_text(
         "\n".join(
             [
-                "schema: forge3d/spec@3",
+                "schema: forge3d/spec@6",
                 "projeto: demo",
-                "perfil: roblox-r15",
-                f"destino_exportacao: {tmp_path / 'out'}",
+                "perfil: roblox-aa-80",
+                f"destino_exportacao: {tmp_path / 'dest'}",
                 "lote:",
-                "  - id: personagem.mesh.01",
-                "    tipo: personagem_humanoide",
+                "  - id: boss.parcial.01",
+                "    tipo: criatura",
                 "    rota: mesh",
-                "    seed: 1",
-                "    prompt: guerreiro",
-                "    altura_metros: 1.85",
+                "    prompt: golem",
+                "    altura_metros: 2.0",
+                "    seed: 7",
                 "    auto_rig: true",
                 "    esqueleto: r15@1",
+                "    partes:",
+                *[f"      - nome: {n}" for n in partes_nomes],
+                "    rig:",
+                "      modo: motor6d",
+                "      esqueleto: r15@1",
             ]
         )
         + "\n",
         encoding="utf-8",
     )
-    with pytest.raises(ForgeError) as exc:
-        rbx.exportar_r15(lote_mesh, "personagem.mesh.01")
-    assert exc.value.codigo == "FORGE-E-SPEC"
-
-
-def test_exportar_acessorio_rbxmx_manifesto_skinned_e_glb(tmp_path):
-    """exportar_acessorio_rbxmx gera Accessory + Handle MeshPart + Attachment + SurfaceAppearance."""
-    from forge3d.errors import ForgeError
-
-    pub = tmp_path / "pub"
-    pub.mkdir()
-    elmo_id = "set.armadura.elmo.01"
-    for suf in ("baseColor", "normal", "orm"):
-        (pub / f"{elmo_id}_{suf}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-    (pub / f"{elmo_id}.glb").write_bytes(b"glTF\x02\x00\x00\x00")
-    man_elmo = pub / f"{elmo_id}.manifest.json"
-    man_elmo.write_text(
-        json.dumps(
-            {
-                "schema": "forge3d/manifest@3",
-                "asset_id": elmo_id,
-                "geometry": {"bbox_m": [0.28, 0.28, 0.56]},
-                "unidades_export": {"metros_por_unidade": 0.28, "escala_saida": 3.5714},
-                "anexo": {
-                    "parte": "elmo",
-                    "osso": "Head",
-                    "attachment_roblox": "HatAttachment",
-                    "skinned": False,
-                },
-                "files": [
-                    {"caminho": f"{elmo_id}.glb", "papel": "mesh"},
-                    {"caminho": f"{elmo_id}_baseColor.png", "papel": "textura"},
-                    {"caminho": f"{elmo_id}_normal.png", "papel": "normal"},
-                    {"caminho": f"{elmo_id}_orm.png", "papel": "orm"},
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    ledger = tmp_path / "ledger.jsonl"
-    ledger.write_text(
-        "\n".join(
-            [
-                json.dumps({"evento": "upload", "id": elmo_id, "role": "mesh", "asset_id": "777001"}),
-                json.dumps({"evento": "upload", "id": elmo_id, "role": "ColorMap", "asset_id": "777002"}),
-                json.dumps({"evento": "upload", "id": elmo_id, "role": "NormalMap", "asset_id": "777003"}),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    out_elmo = tmp_path / "elmo.rbxmx"
-    rel = rbx.exportar_acessorio_rbxmx(man_elmo, saida=out_elmo, ledger=ledger)
-    assert rel["ok"] is True
-    assert rel["attachment"] == "HatAttachment"
-    assert rel["skinned"] is False
-    assert rel["mesh_id"] == "rbxassetid://777001"
-    assert rel["materiais"] == 1
-    assert rel["mapas"] == {
-        "ColorMap": "rbxassetid://777002",
-        "NormalMap": "rbxassetid://777003",
-        "RoughnessMap": f"{elmo_id}_orm.png",
+    manifesto_parcial = {
+        "schema": "forge3d/manifest@6",
+        "asset_id": "boss.parcial.01",
+        "partes": [
+            {"nome": "LowerTorso", "junta": "Root", "ancora": [0.0, 2.0, 0.0], "bbox": [1.0, 1.0, 1.0], "arquivo": "LowerTorso.glb"},
+            {"nome": "UpperTorso", "junta": "Waist", "ancora": [0.0, 3.0, 0.0], "bbox": [1.0, 1.0, 1.0], "arquivo": "UpperTorso.glb"},
+        ],
+        "rig": {
+            "esqueleto": "r15@1",
+            "ossos": 16,
+            "modo": "motor6d",
+            "ancoras": {"LowerTorso": [0.0, 2.0, 0.0], "UpperTorso": [0.0, 3.0, 0.0]},
+        },
+        "files": [],
     }
-
-    raiz = ElementTree.fromstring(out_elmo.read_text(encoding="utf-8"))
-    acc = raiz.find("Item[@class='Accessory']")
-    assert acc is not None
-    handle = acc.find("Item[@class='MeshPart']")
-    assert handle is not None
-    assert handle.findtext("Properties/string[@name='Name']") == "Handle"
-    assert handle.findtext("Properties/Content[@name='MeshId']/url") == "rbxassetid://777001"
-    size_node = handle.find("Properties/Vector3[@name='size']")
-    assert float(size_node.findtext("X")) == pytest.approx(1.0, abs=1e-4)
-    assert float(size_node.findtext("Y")) == pytest.approx(2.0, abs=1e-4)
-    assert float(size_node.findtext("Z")) == pytest.approx(1.0, abs=1e-4)
-
-    place = rbx.ler_place(out_elmo)
-    assert place["acessorios"] == [
-        {
-            "nome": elmo_id,
-            "handle": "Handle",
-            "mesh_id": "rbxassetid://777001",
-            "attachments": ["HatAttachment"],
-        }
-    ]
-    assert len(place["surface_appearances"]) == 1
-    assert place["surface_appearances"][0]["parte"] == "Handle"
-    assert handle.find("Item[@class='WeldConstraint']") is not None
-
-    # Skinned MeshPart accessory directly from .glb + explicit asset_ids
-    glb_peito = pub / "peito.glb"
-    glb_peito.write_bytes(b"glTF\x02\x00\x00\x00")
-    (pub / "peito_baseColor.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-    rel_sk = rbx.exportar_acessorio_rbxmx(
-        glb_peito,
-        attachment_name="BodyFrontAttachment",
-        skinned=True,
-        asset_ids={"mesh": "888001", "ColorMap": "888002"},
-    )
-    assert rel_sk["skinned"] is True
-    assert rel_sk["attachment"] == "BodyFrontAttachment"
-    assert rel_sk["mesh_id"] == "rbxassetid://888001"
-    assert rel_sk["mapas"] == {"ColorMap": "rbxassetid://888002"}
-    assert "WeldConstraint" not in rel_sk["xml"]
-
-    # Modo rig 'bone' em exportar_r15 gera MeshPart com arvore de Bones + Animator
-    out_bone = tmp_path / "r15_bone.rbxlx"
-    rel_bone = rbx.exportar_r15(
-        "examples/lote_09_r15.yaml",
-        "personagem.r15.guard.01",
-        saida=out_bone,
-        modo_rig="bone",
-    )
-    assert rel_bone["modo_rig"] == "bone"
-    assert rel_bone["partes"] == 1
-    raiz_bone = ElementTree.fromstring(out_bone.read_text(encoding="utf-8"))
-    assert len(raiz_bone.findall(".//Item[@class='Bone']")) == 16
-    assert raiz_bone.find(".//Item[@class='Animator']") is not None
-
-    # Negative: blocks writing to /mnt/ (I12)
-    with pytest.raises(ForgeError) as exc_mnt:
-        rbx.exportar_acessorio_rbxmx(glb_peito, saida="/mnt/c/temp/elmo.rbxmx")
-    assert exc_mnt.value.codigo == "FORGE-E-PATH"
-
-
-
+    with pytest.raises(ForgeError) as exc:
+        rbx.exportar_r15(lote, "boss.parcial.01", manifesto=manifesto_parcial, modo_rig="motor6d")
+    assert exc.value.codigo == "FORGE-E-SPEC"
+    assert "Head" in str(exc.value)

@@ -211,7 +211,7 @@ def test_clipes_combate_e_deslocamento_quadril():
     walk_r15 = animacao.clipes(ROBLOX, "r15@1", ["walk"])[0]
     assert walk_r15["loop"] is True
     xml = "\n".join(rbx._sequencia_xml(walk_r15, 10)[0])
-    assert "<Y>0.025000</Y>" in xml
+    assert "<Y>0.089286</Y>" in xml
     assert "<Z>0</Z>" in xml
 
 

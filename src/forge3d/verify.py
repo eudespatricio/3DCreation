@@ -9,6 +9,11 @@ from pathlib import Path
 from . import paths
 from .canonical import sha256_arquivo
 from .errors import ForgeError, erro_manifesto, erro_spec
+from .verify_g11 import (
+    _medir_manifesto_g11,
+    _validar_partes_manifesto,
+    _verificar_g11_destino,
+)
 
 __all__ = [
     "CAMPOS_PROVENIENCIA",
@@ -111,6 +116,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
     faltando: list[dict] = []
     deltas_escala: list[float] = []
     deltas_pivo: list[float] = []
+    avaliados_g11: list[tuple[dict, dict, dict]] = []
     referenciados: set[Path] = {m.resolve(strict=False) for m in manifestos}
     for caminho in manifestos:
         try:
@@ -259,6 +265,11 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                 tipo_inferido = "criatura_quadrupede"
             else:
                 tipo_inferido = "personagem_humanoide"
+        exigir_orientacao = (versao in ("5", "6")) or (
+            versao == "4" and _versao_maior_igual(man.get("pipeline_version"), "0.6.1")
+        )
+        medido_g3 = (gates_antigos.get("G3") or {}).get("medido") or {}
+        medido_g5 = (gates_antigos.get("G5") or {}).get("medido") or {}
         item = {
             "id": man["asset_id"],
             "altura_metros": medido_g2.get("esperado_m"),
@@ -276,8 +287,22 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             **({"anexo": anexo_man, "parte": anexo_man.get("parte")} if isinstance(anexo_man, dict) else {}),
             **({"qualidade": qualidade_item} if qualidade_item else {}),
             **({"alpha_cards": bool(man["alpha_cards"])} if "alpha_cards" in man else {}),
+            **({"partes": man["partes"]} if man.get("partes") else {}),
+            **({"rig": man["rig"]} if man.get("rig") else {}),
+            **({"pbr_zonas": man["pbr_zonas"]} if man.get("pbr_zonas") else {}),
+            **({"detalhe_alto": man["detalhe_alto"]} if isinstance(man.get("detalhe_alto"), dict) else {}),
+            **({"smart_fit": man["smart_fit"]} if isinstance(man.get("smart_fit"), dict) else {}),
+            **({"lod": man["lod"]} if exigir_orientacao and man.get("lod") else {}),
+            **({"quantidade_cena": int(man["quantidade_cena"])} if "quantidade_cena" in man else {}),
+            **({"permitir_tiling": True} if medido_g3.get("permitir_tiling") else {}),
+            **(
+                {"material": "pbr"}
+                if (medido_g5.get("material") == "pbr" or medido_g5.get("exige_textura_pbr"))
+                else {}
+            ),
         }
-        if item["altura_metros"] is None or item["limite_triangulos"] is None:
+        exige_altura = tipo_inferido not in ("mapa_setor", "textura")
+        if (exige_altura and item["altura_metros"] is None) or item["limite_triangulos"] is None:
             erros.append(
                 {"manifesto": caminho.name, "erro": "manifesto sem G2/G9 para revalidar escala"}
             )
@@ -316,11 +341,25 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             "licenca": man.get("licenca") or {},
             "determinism": man.get("determinism"),
             **({"sockets": man["sockets"]} if "sockets" in man else {}),
+            **({"partes": man["partes"]} if man.get("partes") else {}),
+            **(
+                {"ancoras": (man.get("rig") or {}).get("ancoras")}
+                if isinstance((man.get("rig") or {}).get("ancoras"), dict)
+                else {}
+            ),
         }
-        try:
-            exigir_orientacao = (versao in ("5", "6")) or (
-                versao == "4" and _versao_maior_igual(man.get("pipeline_version"), "0.6.1")
+        prim_partes = 0
+        tris_partes = 0
+        if pedidos is None or "gates" in pedidos:
+            prim_partes, tris_partes = _validar_partes_manifesto(
+                man,
+                destino,
+                perfil,
+                bool(item.get("alpha_cards")),
+                caminho.name,
+                erros,
             )
+        try:
             revalidado = qc.verificar(
                 item,
                 perfil,
@@ -333,6 +372,16 @@ def verificar(destino: Path, only: str | None = None) -> dict:
         except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto
             erros.append({"manifesto": caminho.name, "erro": f"QC reexecutado falhou: {exc}"})
             continue
+        if pedidos is None or "gates" in pedidos:
+            avaliados_g11.append(
+                (
+                    man,
+                    perfil,
+                    _medir_manifesto_g11(
+                        man, destino, revalidado, item, prim_partes, tris_partes
+                    ),
+                )
+            )
         gates_revalidados = {g["id"]: g for g in revalidado["gates"]}
         medido_g2_novo = (gates_revalidados.get("G2") or {}).get("medido") or {}
         if (pedidos is None or "gates" in pedidos) and not revalidado["aprovado"]:
@@ -386,12 +435,17 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                     }
                 )
 
+    rel_g11: dict | None = None
+    if (pedidos is None or "gates" in pedidos) and avaliados_g11:
+        rel_g11 = _verificar_g11_destino(avaliados_g11, destino.name, erros)
+
     relatorio: dict = {
         "ok": not erros,
         "destino": str(destino),
         "total": len(itens),
         "itens": itens,
         "erros": erros,
+        **({"orcamento_cena": rel_g11} if rel_g11 is not None else {}),
     }
     if pedidos is not None:
         if "manifesto" in pedidos:

@@ -1,489 +1,94 @@
-"""Rota ``mesh`` — image-to-3D local na venv de GPU (P3).
+"""Rota ``mesh`` e sub-rotas explicitas (``i23d``, ``template``, ``procedural``, ``extrude_2d``).
 
-O núcleo não importa ``torch``: a inferência roda em **subprocesso** dentro da venv de i23d,
-selecionável por ``FORGE3D_VENV_I23D``. O canal é JSON em disco (mesma regra do Blender, I9).
-
-Cadeia implementada nesta fase:
-
-    imagem PNG ──► TripoSR (GPU) ──► GLB com COLOR_0 ──► bake de UV/textura no bpy
-                                                   ──► pós-processo/QC/publicação
-
-O provider de *concept* (text-to-image) roda **internamente** quando o item não declara
-``origem`` (D35): o prompt vira imagem (SD1.5 local ou Gemini) e ``origem`` continua sendo a
-alternativa PNG para pular o concept. A licença é gate (D18) e a GPU é serializada pelo lock do
-pipeline (D11).
+Fachada modular (<= 500L) que delega diagnosticos, templates e inferencia i23d mantendo
+compatibilidade integral de monkeypatch e contratos AST em ``forge3d.providers.mesh``.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from .. import locks, paths
+from . import mesh_armor_proc as _armor_proc
+from . import mesh_diag as _diag
+from . import mesh_i23d as _i23d
+from . import mesh_pose_concept as _pose_concept
+from . import mesh_subrotas as _sub
+from . import mesh_templates as _tmpl
 from .base import RawAsset
 
-VERSAO = "0.1.10"
-MODELO_PADRAO = "triposr"
-MODELO_HF = "stabilityai/TripoSR"
-VRAM_MINIMA_MB = 3500
-TIMEOUT_S = 900
+VERSAO = _diag.VERSAO
+MODELO_PADRAO = _diag.MODELO_PADRAO
+MODELO_HF = _diag.MODELO_HF
+VRAM_MINIMA_MB = _diag.VRAM_MINIMA_MB
+TIMEOUT_S = _diag.TIMEOUT_S
+SUBROTAS_EXPLICITAS = _diag.SUBROTAS_EXPLICITAS
+_DIAGNOSTICO = _diag._DIAGNOSTICO
+
+_REEXPORTS = (locks, paths, subprocess)
+
+_device = _diag._device
+modelo_escolhido = _diag.modelo_escolhido
+dir_venv = _diag.dir_venv
+dir_vendor = _diag.dir_vendor
+dir_modelos = _diag.dir_modelos
+pesos_triposr = _diag.pesos_triposr
+_cache_hf = _diag._cache_hf
+script_inferencia = _diag.script_inferencia
+script_pose_guard = _diag.script_pose_guard
+script_delight = _diag.script_delight
+script_template_prep = _diag.script_template_prep
+script_template_body = _diag.script_template_body
+script_modular_armor = _diag.script_modular_armor
+script_organic_sculpt = _diag.script_organic_sculpt
+_python_imagem = _diag._python_imagem
+_rembg_modelo = _diag._rembg_modelo
+_pose_guard_modo = _diag._pose_guard_modo
+_qualidade = _diag._qualidade
+_delight_ativo = _diag._delight_ativo
+_usar_extrude_2d = _diag._usar_extrude_2d
+_extrair_estilo_makehuman = _diag._extrair_estilo_makehuman
+_usar_makehuman_cabelo = _diag._usar_makehuman_cabelo
+_usar_modular_armor = _diag._usar_modular_armor
+mpfb2_cc0_disponivel = _diag.mpfb2_cc0_disponivel
+_usar_template_humanoide = _diag._usar_template_humanoide
+_usar_template_criatura = _diag._usar_template_criatura
+_vram_livre_mb = _diag._vram_livre_mb
+_diagnostico = _diag._diagnostico
+_politica_rembg = _diag._politica_rembg
+_alfa_util = _diag._alfa_util
+_decidir_rembg = _diag._decidir_rembg
+_preflight_concept_item = _diag._preflight_concept_item
+_resolver_subrota = _sub.resolver_subrota
+_validar_subrota_item = _sub.validar_subrota_item
+
+
+def _preflight_blender_binario() -> tuple[bool, str]:
+    from .. import post
+    from ..errors import ForgeError
 
-#: diagnóstico da venv é caro (importa torch); cache por processo e por venv
-_DIAGNOSTICO: dict[tuple[str, str], dict] = {}
-
-
-def _device() -> str:
-    """cuda:0 (default) ou cpu; CPU e fallback lento para quando a GPU esta ocupada."""
-    return os.environ.get(
-        "FORGE3D_I23D_DEVICE", os.environ.get("FORGE3D_DEVICE", "cuda:0")
-    ).strip().lower()
-
-
-def modelo_escolhido() -> str:
-    """Modelo de image-to-3D. Env permite trocar sem tocar em código; licença é gate (D18)."""
-    return os.environ.get("FORGE3D_MODELO_MESH", MODELO_PADRAO).strip().lower()
-
-
-def dir_venv() -> Path:
-    """Venv única de i23d. GAP-031: uma só, selecionada por ``FORGE3D_VENV_I23D``."""
-    env = os.environ.get("FORGE3D_VENV_I23D")
-    if env:
-        return Path(env).expanduser().resolve()
-    return Path.home() / ".cache" / "forge3d" / "venv-i23d"
-
-
-def dir_vendor() -> Path:
-    env = os.environ.get("FORGE3D_TRIPOSR")
-    if env:
-        return Path(env).expanduser().resolve()
-    return Path.home() / ".cache" / "forge3d" / "vendor" / "TripoSR"
-
-
-def dir_modelos() -> Path:
-    env = os.environ.get("FORGE3D_MODELOS")
-    if env:
-        return Path(env).expanduser().resolve()
-    return Path.home() / ".cache" / "forge3d" / "modelos"
-
-
-def pesos_triposr() -> Path | None:
-    """Onde os pesos do TripoSR estao de fato (GAP-040/C10).
-
-    O preflight olhava so o cache HF e dizia "ausentes" com os pesos no disco apontado
-    por ``FORGE3D_MODELOS``. A ordem e: caminho explicito do env, cache HF e, por
-    ultimo, o diretorio padrao de modelos do Forge3D.
-    """
-    candidatos: list[Path] = []
-    explicito = os.environ.get("FORGE3D_MODELOS")
-    if explicito:
-        base = dir_modelos()
-        candidatos += [base / "TripoSR", base / "models--stabilityai--TripoSR"]
-        candidatos += sorted(p for p in base.glob("*TripoSR*") if p.is_dir())
-    candidatos.append(_cache_hf() / "models--stabilityai--TripoSR")
-    if not explicito:
-        base = dir_modelos()
-        candidatos += [base / "TripoSR", base / "models--stabilityai--TripoSR"]
-    vistos: set[Path] = set()
-    for caminho in candidatos:
-        if caminho in vistos:
-            continue
-        vistos.add(caminho)
-        if caminho.is_dir():
-            return caminho
-    return None
-
-
-def _cache_hf() -> Path:
-    env = os.environ.get("HF_HOME")
-    base = Path(env).expanduser().resolve() if env else Path.home() / ".cache" / "huggingface"
-    return base / "hub"
-
-
-def script_inferencia() -> Path:
-    """Script que roda dentro da venv. Vive no repo, não no pacote instalado."""
-    env = os.environ.get("FORGE3D_I23D_SCRIPT")
-    if env:
-        return Path(env).expanduser().resolve()
-    return paths.raiz_dados() / "tools" / "i23d_infer.py"
-
-
-def script_pose_guard() -> Path:
-    env = os.environ.get("FORGE3D_POSE_GUARD_SCRIPT")
-    if env:
-        return Path(env).expanduser().resolve()
-    return paths.raiz_dados() / "tools" / "pose_guard.py"
-
-
-def script_delight() -> Path:
-    env = os.environ.get("FORGE3D_DELIGHT_SCRIPT")
-    if env:
-        return Path(env).expanduser().resolve()
-    return paths.raiz_dados() / "tools" / "delight.py"
-
-
-def script_template_prep() -> Path:
-    env = os.environ.get("FORGE3D_TEMPLATE_PREP_SCRIPT")
-    if env:
-        return Path(env).expanduser().resolve()
-    return paths.raiz_dados() / "tools" / "template_prep.py"
-
-
-def script_template_body() -> Path:
-    env = os.environ.get("FORGE3D_TEMPLATE_BODY_SCRIPT")
-    if env and Path(env).is_file():
-        return Path(env).expanduser().resolve()
-    for base in (paths.raiz_dados(), Path(__file__).resolve().parents[1] / "data"):
-        alvo = base / "blender" / "template_body.py"
-        if alvo.is_file():
-            return alvo
-    return paths.raiz_dados() / "blender" / "template_body.py"
-
-
-def script_modular_armor() -> Path:
-    env = os.environ.get("FORGE3D_MODULAR_ARMOR_SCRIPT")
-    if env and Path(env).is_file():
-        return Path(env).expanduser().resolve()
-    for base in (paths.raiz_dados(), Path(__file__).resolve().parents[1] / "data"):
-        alvo = base / "blender" / "modular_armor.py"
-        if alvo.is_file():
-            return alvo
-    return paths.raiz_dados() / "blender" / "modular_armor.py"
-
-
-def script_organic_sculpt() -> Path:
-    env = os.environ.get("FORGE3D_ORGANIC_SCULPT_SCRIPT")
-    if env and Path(env).is_file():
-        return Path(env).expanduser().resolve()
-    for base in (paths.raiz_dados(), Path(__file__).resolve().parents[1] / "data"):
-        alvo = base / "blender" / "organic_sculpt.py"
-        if alvo.is_file():
-            return alvo
-    return paths.raiz_dados() / "blender" / "organic_sculpt.py"
-
-
-def _python_imagem() -> Path:
-    """Python da venv-i23d ou venv-concept (que ja possuem cv2/numpy/PIL)."""
-    py_i23d = dir_venv() / "bin" / "python"
-    if py_i23d.is_file():
-        return py_i23d
-    from . import concept as _concept
-
-    py_concept = _concept.dir_venv() / "bin" / "python"
-    if py_concept.is_file():
-        return py_concept
-    return Path(sys.executable)
-
-
-def _rembg_modelo() -> str:
-    env = os.environ.get("FORGE3D_REMBG_MODELO", "").strip()
-    if env:
-        return env
-    u2net_home = Path(os.environ.get("U2NET_HOME", str(Path.home() / ".u2net"))).expanduser()
-    if (u2net_home / "birefnet-general-lite.onnx").is_file():
-        return "birefnet-general-lite"
-    return "birefnet-general"
-
-
-def _pose_guard_modo(item: dict | None = None) -> str:
-    raw = str((item or {}).get("pose_guard") or os.environ.get("FORGE3D_POSE_GUARD", "auto"))
-    modo = raw.strip().lower()
-    return modo if modo in ("off", "auto", "repose") else "auto"
-
-
-def _qualidade(item: dict | None = None) -> str:
-    raw = str((item or {}).get("qualidade") or os.environ.get("FORGE3D_QUALIDADE", "standard"))
-    val = raw.strip().lower()
-    return val or "standard"
-
-
-def _delight_ativo(item: dict | None = None) -> bool:
-    env = os.environ.get("FORGE3D_DELIGHT", "").strip().lower()
-    if env in ("0", "false", "nao", "off"):
-        return False
-    if env in ("1", "true", "sim", "on"):
-        return True
-    return _qualidade(item) in ("standard", "hero")
-
-
-def _usar_extrude_2d(item: dict) -> bool:
-    if item.get("extrudir_2d") is True:
-        return True
-    if item.get("extrudir_2d") is False:
-        return False
-    return item.get("parte") in ("arma", "escudo")
-
-
-def _extrair_estilo_makehuman(item: dict) -> str | None:
-    bruto = str(item.get("makehuman_cabelo") or "").strip()
-    if bruto:
-        return bruto
-    origem = str(item.get("origem") or "").strip()
-    if origem.startswith("makehuman://"):
-        corpo = origem[len("makehuman://"):].strip("/")
-        if corpo.startswith("hair/"):
-            corpo = corpo[len("hair/"):].strip("/")
-        return corpo or None
-    return None
-
-
-def _usar_makehuman_cabelo(item: dict) -> bool:
-    raw_origem = str(item.get("origem") or "").strip()
-    if raw_origem.startswith("makehuman://hair/"):
-        return True
-    if raw_origem.startswith("makehuman://") and not raw_origem.startswith("makehuman://clothes/"):
-        if item.get("parte") in ("cabelo", None):
-            return True
-    if bool(item.get("makehuman_cabelo")) and (
-        item.get("parte") == "cabelo" or item.get("tipo") == "prop_estatico"
-    ):
-        return True
-    return False
-
-
-def _usar_modular_armor(item: dict) -> bool:
-    if item.get("extrudir_2d") is True:
-        return False
-    raw_origem = str(item.get("origem") or "").strip()
-    if raw_origem.startswith("makehuman://clothes/"):
-        return True
-    parte = str(item.get("parte") or "").strip().lower()
-    if parte in (
-        "elmo",
-        "ombreiras",
-        "peitoral",
-        "luvas",
-        "calcas",
-        "calças",
-        "botas",
-        "escudo",
-        "mochila",
-        "orbe",
-        "sela",
-    ):
-        return True
-    if parte in ("capa", "arma") and item.get("extrudir_2d") is False and not raw_origem:
-        return True
-    return False
-
-
-def mpfb2_cc0_disponivel() -> tuple[bool, str]:
-    """Verifica se o addon MPFB2 e o pacote CC0 (makehuman_system_assets_cc0.zip) estao instalados."""
-    zip_env = os.environ.get("FORGE3D_MPFB_ASSETS_ZIP", "").strip()
-    if zip_env:
-        zip_path = Path(zip_env).expanduser()
-    else:
-        zip_path = (
-            Path.home()
-            / ".cache"
-            / "forge3d"
-            / "mpfb_assets"
-            / "makehuman_system_assets_cc0.zip"
-        )
-    if not zip_path.is_file():
-        return False, f"pacote CC0 ausente em {zip_path}"
-
-    mpfb_env = os.environ.get("FORGE3D_MPFB_DIR", "").strip()
-    raizes_ext: list[Path] = []
-    if mpfb_env:
-        raizes_ext.append(Path(mpfb_env).expanduser())
-    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
-    if xdg:
-        raizes_ext.append(Path(xdg).expanduser() / "blender" / "4.2" / "extensions")
-    raizes_ext.append(Path.home() / ".config" / "blender" / "4.2" / "extensions")
-
-    tem_addon = any(
-        raiz.is_dir() and ((raiz / "__init__.py").is_file() or any(raiz.glob("**/mpfb/__init__.py")))
-        for raiz in raizes_ext
-    )
-    if not tem_addon:
-        return False, "extensao Blender MPFB2 ausente em ~/.config/blender/4.2/extensions"
-    return True, f"pronto (MPFB2 + {zip_path.name})"
-
-
-def _usar_template_humanoide(item: dict) -> bool:
-    if _usar_makehuman_cabelo(item):
-        return False
-    if item.get("tipo") != "personagem_humanoide":
-        return False
-    if item.get("parte") and item.get("parte") != "corpo":
-        return False
-    if item.get("template_humanoide") is True:
-        return True
-    if item.get("template_humanoide") is False:
-        return False
-    if item.get("makehuman_cabelo"):
-        return True
-    env_flag = os.environ.get("FORGE3D_HUMANOIDE_TEMPLATE", "").strip().lower()
-    if env_flag in ("0", "false", "nao", "off"):
-        return False
-    if env_flag in ("1", "true", "sim", "on"):
-        return True
-    if "pose_guard" in item:
-        return False
-    ok_mpfb, _ = mpfb2_cc0_disponivel()
-    return ok_mpfb
-
-
-def _usar_template_criatura(item: dict) -> bool:
-    tipo = str(item.get("tipo") or "").strip()
-    if tipo not in ("criatura_alada", "criatura_quadrupede", "montaria"):
-        return False
-    if item.get("origem"):
-        return False
-    if item.get("template_humanoide") is False:
-        return False
-    env_flag = os.environ.get("FORGE3D_CRIATURA_TEMPLATE", "").strip().lower()
-    if env_flag in ("0", "false", "nao", "off"):
-        return False
-    return True
-
-
-def _vram_livre_mb() -> int | None:
-    return locks.vram_livre_mb()
-
-
-def _diagnostico() -> dict:
-    """Importa ``torch`` e ``tsr`` NA venv, via subprocesso. Nunca no processo do núcleo."""
-    venv = dir_venv()
-    vendor = dir_vendor()
-    chave = (str(venv), str(vendor))
-    if chave in _DIAGNOSTICO:
-        return _DIAGNOSTICO[chave]
-
-    python = venv / "bin" / "python"
-    if not python.is_file():
-        resultado = {
-            "ok": False,
-            "razao": (
-                f"P3: venv de i23d ausente em {venv} — defina FORGE3D_VENV_I23D "
-                "(docs/dependencias.md §4)"
-            ),
-        }
-    elif not vendor.is_dir():
-        resultado = {"ok": False, "razao": f"P3: vendor do TripoSR ausente em {vendor}"}
-    elif not script_inferencia().is_file():
-        resultado = {
-            "ok": False,
-            "razao": f"P3: script de inferência ausente em {script_inferencia()}",
-        }
-    else:
-        env = dict(os.environ)
-        env["PYTHONPATH"] = str(vendor) + (
-            os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
-        )
-        codigo = (
-            "import json, torch, tsr; "
-            "print(json.dumps({'torch': torch.__version__, "
-            "'cuda': bool(torch.cuda.is_available())}))"
-        )
-        try:
-            proc = subprocess.run(
-                [str(python), "-c", codigo],
-                capture_output=True,
-                text=True,
-                timeout=180,
-                env=env,
-            )
-            linha = next(
-                (ln for ln in reversed(proc.stdout.splitlines()) if ln.strip().startswith("{")),
-                "",
-            )
-            info = json.loads(linha) if linha else {}
-            if proc.returncode != 0 or not info:
-                detalhe = (proc.stderr or proc.stdout or "").strip().splitlines()
-                resultado = {
-                    "ok": False,
-                    "razao": (
-                        "P3: falha ao importar torch/tsr na venv de i23d: "
-                        + (detalhe[-1] if detalhe else f"exit {proc.returncode}")
-                    ),
-                }
-            elif not info.get("cuda") and not _device().startswith("cpu"):
-                resultado = {"ok": False, "razao": "P3: venv de i23d sem CUDA disponível"}
-            else:
-                resultado = {"ok": True, "torch": info.get("torch"), "cuda": True}
-        except (OSError, subprocess.SubprocessError, ValueError) as exc:
-            resultado = {"ok": False, "razao": f"P3: falha ao diagnosticar a venv de i23d: {exc}"}
-
-    _DIAGNOSTICO[chave] = resultado
-    return resultado
-
-
-def _politica_rembg() -> str:
-    """Politica de remocao de fundo que entra na versao/cache (C9).
-
-    ``auto2`` decide por procedencia e canal alfa; ``on``/``off`` sao override explicito
-    por ``FORGE3D_I23D_REMOVER_FUNDO``.
-    """
-    bruto = os.environ.get("FORGE3D_I23D_REMOVER_FUNDO", "").strip().lower()
-    if bruto in ("1", "true", "sim"):
-        return "on"
-    if bruto in ("0", "false", "nao"):
-        return "off"
-    return "auto2"
-
-
-def _alfa_util(imagem: Path) -> tuple[bool, str]:
-    """A imagem ja tem fundo transparente? Le o canal alfa e o metadado do PNG (GAP-039)."""
     try:
-        from PIL import Image
-    except ImportError:  # pragma: no cover - Pillow e dependencia do nucleo (D26)
-        return False, "sem-pillow"
-    try:
-        with Image.open(imagem) as img:
-            tem_alfa = img.mode in ("RGBA", "LA", "PA") or "transparency" in img.info
-            if not tem_alfa:
-                return False, "sem-alfa"
-            alfa = img.convert("RGBA").getchannel("A")
-            histograma = alfa.histogram()
-            total = sum(histograma) or 1
-            fracao = sum(histograma[:250]) / total
-    except (OSError, ValueError):
-        return False, "ilegivel"
-    return fracao >= 0.01, f"alfa={fracao:.1%}"
-
-
-def _decidir_rembg(imagem: Path, concept_meta: dict | None) -> tuple[bool, str]:
-    """Decide remover fundo por procedencia/alfa, com override explicito por env (C9)."""
-    politica = _politica_rembg()
-    if politica == "on":
-        return True, "env=1"
-    if politica == "off":
-        return False, "env=0"
-    if concept_meta is not None:
-        return True, "concept"
-    tem_alfa, detalhe = _alfa_util(imagem)
-    if tem_alfa:
-        return False, f"imagem com fundo transparente ({detalhe})"
-    return True, f"fundo opaco ({detalhe})"
-
-
-def _preflight_concept_item(item: dict) -> tuple[bool, str]:
-    from .concept import ConceptProvider
-
-    cp = ConceptProvider()
-    if item.get("provider_conceito") or os.environ.get("FORGE3D_PROVIDER_CONCEITO"):
-        try:
-            return cp.preflight(item)
-        except TypeError:
-            return cp.preflight()
-    return cp.preflight()
+        post.binario()
+    except ForgeError as exc:
+        return False, exc.mensagem
+    return True, "ok"
 
 
 class MeshProvider:
     nome = "mesh"
-    determinism = "D2"  # image-to-3D nunca é D1 (D7)
+    determinism = "D2"  # image-to-3D nunca e D1 (D7)
     usa_gpu = True
+    _rota_explicita: str | None = None
 
     @property
     def versao(self) -> str:
         """Versao efetiva: entra na chave de cache (D6) e muda com as opcoes de env."""
+        from . import concept as _concept
+
         rembg = _politica_rembg()
         rembg_mod = _rembg_modelo().replace("/", "_").replace(":", "_")
         pg_mode = _pose_guard_modo(None)
@@ -491,13 +96,7 @@ class MeshProvider:
         qualidade = _qualidade(None)
         mc = os.environ.get("FORGE3D_MC_RESOLUTION", "256").strip()
         tex = os.environ.get("FORGE3D_TEX_PX", "1024").strip()
-        from . import concept as _concept
-
-        concept = (
-            os.environ.get("FORGE3D_MODELO_CONCEPT", "sd15").strip().replace("/", "_")
-        )
-        c_ver = _concept.VERSAO
-        c_pose = _concept.estado_pose_cache()
+        concept_mod = os.environ.get("FORGE3D_MODELO_CONCEPT", "sd15").strip().replace("/", "_")
         c_step = os.environ.get("FORGE3D_CONCEPT_PASSOS", "25").strip()
         c_w = os.environ.get("FORGE3D_CONCEPT_LARGURA", "512").strip()
         c_h = os.environ.get("FORGE3D_CONCEPT_ALTURA", "512").strip()
@@ -507,8 +106,8 @@ class MeshProvider:
         return (
             f"{VERSAO}+mc{mc}+tex{tex}+rembg{rembg}"
             f"+rm{rembg_mod}+pg{pg_mode}+dl{delight}+q{qualidade}"
-            f"+concept{concept}@{c_ver}"
-            f"+p{c_pose}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+tx2+tmpl2_{tmpl}+mh1+dev{dev}"
+            f"+concept{concept_mod}@{_concept.VERSAO}"
+            f"+p{_concept.estado_pose_cache()}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+tx2+tmpl2_{tmpl}+mh1+dev{dev}"
         )
 
     def _licenca(self) -> dict:
@@ -532,7 +131,31 @@ class MeshProvider:
     def capabilities(self) -> set[str]:
         return {"organic", "riggable", "pbr", "detail"}
 
+    def _custo_i23d(self, item: dict) -> dict:
+        tem_origem = bool(str(item.get("origem") or "").strip())
+        if _device().startswith("cpu"):
+            return {"segundos_estimados": 220.0 if not tem_origem else 200.0, "vram_mb": 0, "disco_mb": 4500}
+        if not tem_origem:
+            return {"segundos_estimados": 40.0, "vram_mb": 3500, "disco_mb": 4500}
+        return {"segundos_estimados": 25.0, "vram_mb": 3200, "disco_mb": 250}
+
     def custo(self, item: dict, perfil: dict) -> dict:
+        tem_origem = bool(str(item.get("origem") or "").strip())
+        subrota = _resolver_subrota(item, self._rota_explicita)
+        if subrota == "i23d":
+            return self._custo_i23d(item)
+        if subrota == "procedural":
+            return {"segundos_estimados": 12.0, "vram_mb": 0, "disco_mb": 60}
+        if subrota == "extrude_2d":
+            return {"segundos_estimados": 10.0, "vram_mb": 0, "disco_mb": 50}
+        if subrota == "template":
+            if _usar_makehuman_cabelo(item):
+                return {"segundos_estimados": 6.0, "vram_mb": 0, "disco_mb": 20}
+            if _usar_modular_armor(item):
+                return {"segundos_estimados": 10.0, "vram_mb": 0, "disco_mb": 50}
+            vram_tmpl = 0 if (tem_origem or _device().startswith("cpu")) else 3500
+            return {"segundos_estimados": 18.0 if tem_origem else 35.0, "vram_mb": vram_tmpl, "disco_mb": 120}
+
         if _usar_makehuman_cabelo(item):
             return {"segundos_estimados": 6.0, "vram_mb": 0, "disco_mb": 20}
         if _usar_modular_armor(item):
@@ -540,23 +163,14 @@ class MeshProvider:
         if _usar_template_criatura(item):
             return {"segundos_estimados": 12.0, "vram_mb": 0, "disco_mb": 60}
         if _usar_template_humanoide(item):
-            vram_tmpl = 0 if (item.get("origem") or _device().startswith("cpu")) else 3500
-            return {
-                "segundos_estimados": 18.0 if item.get("origem") else 35.0,
-                "vram_mb": vram_tmpl,
-                "disco_mb": 120,
-            }
+            vram_tmpl = 0 if (tem_origem or _device().startswith("cpu")) else 3500
+            return {"segundos_estimados": 18.0 if tem_origem else 35.0, "vram_mb": vram_tmpl, "disco_mb": 120}
         if _usar_extrude_2d(item):
             return {"segundos_estimados": 10.0, "vram_mb": 0, "disco_mb": 50}
-        # [estimado] mesh medido (23,3 s) + concept SD1.5 (a medir); vram no pico do i23d
-        if _device().startswith("cpu"):
-            return {"segundos_estimados": 220.0 if not item.get("origem") else 200.0, "vram_mb": 0, "disco_mb": 4500}
-        if not item.get("origem"):
-            return {"segundos_estimados": 40.0, "vram_mb": 3500, "disco_mb": 4500}
-        return {"segundos_estimados": 25.0, "vram_mb": 3200, "disco_mb": 250}
+        return self._custo_i23d(item)
 
     def preflight(self) -> tuple[bool, str]:
-        """Diagnóstico nomeado: cada falta vira uma frase que diz o que instalar."""
+        """Diagnostico nomeado: cada falta vira uma frase que diz o que instalar."""
         from ..errors import ForgeError
 
         try:
@@ -566,10 +180,7 @@ class MeshProvider:
 
         modelo = modelo_escolhido()
         if modelo == "sf3d":
-            return False, (
-                "P3: SF3D encerrado em 6 GB (GAP-035: ~8 min/imagem); "
-                "use FORGE3D_MODELO_MESH=triposr"
-            )
+            return False, "P3: SF3D encerrado em 6 GB (GAP-035: ~8 min/imagem); use FORGE3D_MODELO_MESH=triposr"
         if modelo != "triposr":
             return False, f"P3: modelo '{modelo}' reconhecido na licença, mas sem provider implementado"
 
@@ -582,28 +193,19 @@ class MeshProvider:
             if livre is not None and livre < VRAM_MINIMA_MB:
                 return False, f"P3: VRAM livre {livre} MiB < {VRAM_MINIMA_MB} MiB exigidos"
 
-        pesos = pesos_triposr()
-        if pesos is None:
+        if pesos_triposr() is None:
             return False, (
                 f"P3: pesos do TripoSR ausentes em "
                 f"{_cache_hf() / 'models--stabilityai--TripoSR'} e em {dir_modelos()} "
                 "(GAP-040: o preflight respeita FORGE3D_MODELOS)"
             )
+        return True, f"pronto (TripoSR, torch {diagnostico.get('torch', '?')}, venv {dir_venv().name})"
 
-        return True, (
-            f"pronto (TripoSR, torch {diagnostico.get('torch', '?')}, venv {dir_venv().name})"
-        )
-
-    def preflight_item(self, item: dict) -> tuple[bool, str]:
-        """Preflight do item: sem `origem`, o estagio concept tambem precisa estar pronto."""
-        if _usar_makehuman_cabelo(item):
-            from ..errors import ForgeError
-            from ..post import binario
-
-            try:
-                binario()
-            except ForgeError as exc:
-                return False, exc.mensagem
+    def _preflight_modo(self, modo: str, item: dict) -> tuple[bool, str]:
+        if modo == "cabelo":
+            ok_b, msg_b = _preflight_blender_binario()
+            if not ok_b:
+                return False, msg_b
             if not script_template_body().is_file():
                 return False, "script blender/template_body.py ausente"
             estilo = _extrair_estilo_makehuman(item)
@@ -611,989 +213,162 @@ class MeshProvider:
                 return False, "makehuman_cabelo / origem makehuman://hair/<estilo> vazio"
             return True, f"pronto (cabelo MakeHuman/MPFB2 CC0: {estilo})"
 
-        if _usar_modular_armor(item):
-            from ..errors import ForgeError
-            from ..post import binario
-
-            try:
-                binario()
-            except ForgeError as exc:
-                return False, exc.mensagem
+        if modo == "armor":
+            ok_b, msg_b = _preflight_blender_binario()
+            if not ok_b:
+                return False, msg_b
             if not script_modular_armor().is_file():
                 return False, "script blender/modular_armor.py ausente"
             return True, f"pronto (modular armor MakeHuman/MPFB2 CC0: {item.get('parte')})"
 
-        if _usar_template_criatura(item):
-            from ..errors import ForgeError
-            from ..post import binario
-
-            try:
-                binario()
-            except ForgeError as exc:
-                return False, exc.mensagem
+        if modo == "criatura":
+            ok_b, msg_b = _preflight_blender_binario()
+            if not ok_b:
+                return False, msg_b
             if not script_organic_sculpt().is_file():
                 return False, "script blender/organic_sculpt.py ausente"
             return True, f"pronto (criatura anatomica 4-patas: {item.get('tipo')})"
 
-        if _usar_template_humanoide(item):
-            from ..errors import ForgeError
-            from ..post import binario
-
-            try:
-                binario()
-            except ForgeError as exc:
-                return False, exc.mensagem
+        if modo in ("humanoide", "extrude"):
+            ok_b, msg_b = _preflight_blender_binario()
+            if not ok_b:
+                return False, msg_b
             if not _python_imagem().is_file():
                 return False, f"P3: venv de imagem ausente em {dir_venv()}"
-            if not script_template_prep().is_file() or not script_template_body().is_file():
-                return False, "scripts de template MPFB2 ausentes"
-            if item.get("origem"):
-                return True, "pronto (template MPFB2 com origem)"
+            if modo == "humanoide":
+                if not script_template_prep().is_file() or not script_template_body().is_file():
+                    return False, "scripts de template MPFB2 ausentes"
+                rotulo = "template MPFB2"
+            else:
+                if not script_pose_guard().is_file():
+                    return False, f"script tools/pose_guard.py ausente em {script_pose_guard()}"
+                rotulo = "extrude 2D"
+            if str(item.get("origem") or "").strip():
+                return True, f"pronto ({rotulo} com origem)"
             c_pronto, c_razao = _preflight_concept_item(item)
-            if not c_pronto:
-                return False, c_razao
-            return True, f"pronto (template MPFB2); concept: {c_razao}"
-
-        if _usar_extrude_2d(item):
-            from ..errors import ForgeError
-            from ..post import binario
-
-            try:
-                binario()
-            except ForgeError as exc:
-                return False, exc.mensagem
-            if not _python_imagem().is_file():
-                return False, f"P3: venv de imagem ausente em {dir_venv()}"
-            if not script_pose_guard().is_file():
-                return False, f"script tools/pose_guard.py ausente em {script_pose_guard()}"
-            if item.get("origem"):
-                return True, "pronto (extrude 2D com origem)"
-            c_pronto, c_razao = _preflight_concept_item(item)
-            if not c_pronto:
-                return False, c_razao
-            return True, f"pronto (extrude 2D); concept: {c_razao}"
+            return (True, f"pronto ({rotulo}); concept: {c_razao}") if c_pronto else (False, c_razao)
 
         pronto, razao = self.preflight()
-        if not pronto:
+        if not pronto or str(item.get("origem") or "").strip():
             return pronto, razao
-        if item.get("origem"):
-            return True, razao
         c_pronto, c_razao = _preflight_concept_item(item)
-        if not c_pronto:
-            return False, c_razao
-        return True, f"{razao}; concept: {c_razao}"
+        return (True, f"{razao}; concept: {c_razao}") if c_pronto else (False, c_razao)
 
-    def _executar_pose_guard(
-        self, item: dict, imagem: Path, destino: Path, env: dict[str, str]
-    ) -> tuple[Path, dict[str, Any]]:
-        from . import concept as _concept
+    def preflight_item(self, item: dict) -> tuple[bool, str]:
+        """Preflight do item: respeita sub-rotas explicitas ou preserva cascata legada ``mesh``."""
+        subrota = _resolver_subrota(item, self._rota_explicita)
+        erro = _validar_subrota_item(subrota, item, self._rota_explicita)
+        if erro:
+            return False, erro
 
-        pg_mode = _pose_guard_modo(item)
-        report: dict[str, Any] = {
-            "modo": pg_mode,
-            "executado": False,
-            "repose_aplicado": False,
-        }
-        if not item.get("origem"):
-            report["motivo"] = "sem origem (concept direto)"
-            return imagem, report
-        if item.get("tipo") != "personagem_humanoide":
-            report["motivo"] = "tipo nao humanoide"
-            return imagem, report
-        if pg_mode not in ("auto", "repose"):
-            report["motivo"] = "pose_guard desabilitado"
-            return imagem, report
-        if not _concept.controlnet_disponivel():
-            report["motivo"] = "controlnet indisponivel"
-            return imagem, report
-        pg_script = script_pose_guard()
-        if not pg_script.is_file():
-            report["motivo"] = "pose_guard.py ausente"
-            return imagem, report
+        if subrota == "i23d":
+            return self._preflight_modo("i23d", item)
+        if subrota == "procedural":
+            return self._preflight_modo("criatura", item)
+        if subrota == "extrude_2d":
+            return self._preflight_modo("extrude", item)
+        if subrota == "template":
+            if _usar_makehuman_cabelo(item):
+                return self._preflight_modo("cabelo", item)
+            if _usar_modular_armor(item):
+                return self._preflight_modo("armor", item)
+            return self._preflight_modo("humanoide", item)
 
-        pg_json = destino / "pose_guard_resultado.json"
-        proc = subprocess.run(
-            [
-                str(_python_imagem()),
-                str(pg_script),
-                "--imagem",
-                str(imagem),
-                "--resultado",
-                str(pg_json),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=TIMEOUT_S,
-            env=env,
+        if _usar_makehuman_cabelo(item):
+            return self._preflight_modo("cabelo", item)
+        if _usar_modular_armor(item):
+            return self._preflight_modo("armor", item)
+        if _usar_template_criatura(item):
+            return self._preflight_modo("criatura", item)
+        if _usar_template_humanoide(item):
+            return self._preflight_modo("humanoide", item)
+        if _usar_extrude_2d(item):
+            return self._preflight_modo("extrude", item)
+        return self._preflight_modo("i23d", item)
+
+    def _executar_pose_guard(self, item: dict, imagem: Path, destino: Path, env: dict[str, str]) -> tuple[Path, dict[str, Any]]:
+        return _pose_concept.executar_pose_guard(item, imagem, destino, env)
+
+    def _executar_cutout_2d(self, imagem: Path, destino: Path, env: dict[str, str], item_id: Any) -> tuple[Path, dict[str, Any]]:
+        return _i23d.executar_cutout_2d(imagem, destino, env, item_id)
+
+    def _executar_delight(self, entrada_png: Path, destino: Path, env: dict[str, str]) -> dict[str, Any]:
+        return _i23d.executar_delight(entrada_png, destino, env)
+
+    def _raw_de_tupla(self, destino: Path, dados: tuple[str, list[Path], dict[str, Any]]) -> RawAsset:
+        schema, arquivos, meta = dados
+        return RawAsset(dir=destino, schema=schema, determinism=self.determinism, arquivos=arquivos, meta=meta)
+
+    def _gerar_template_humanoide(self, item: dict, perfil: dict, destino: Path, imagem: Path, concept_meta: dict | None, env: dict[str, str], t0: float) -> RawAsset:
+        return self._raw_de_tupla(destino, _tmpl.gerar_template_humanoide(item, perfil, destino, imagem, concept_meta, env, t0))
+
+    def _gerar_makehuman_cabelo(self, item: dict, perfil: dict, destino: Path, env: dict[str, str], t0: float) -> RawAsset:
+        return self._raw_de_tupla(destino, _tmpl.gerar_makehuman_cabelo(item, perfil, destino, env, t0))
+
+    def _gerar_modular_armor(self, item: dict, perfil: dict, destino: Path, env: dict[str, str], t0: float) -> RawAsset:
+        return self._raw_de_tupla(destino, _armor_proc.gerar_modular_armor(item, perfil, destino, env, t0))
+
+    def _gerar_criatura_anatomica(self, item: dict, perfil: dict, destino: Path, env: dict[str, str], t0: float) -> RawAsset:
+        return self._raw_de_tupla(destino, _armor_proc.gerar_criatura_anatomica(item, perfil, destino, env, t0))
+
+    def _gerar_extrude_2d(self, item: dict, destino: Path, imagem: Path, concept_meta: dict | None, env: dict[str, str], t0: float) -> RawAsset:
+        return self._raw_de_tupla(destino, _i23d.executar_extrude_2d(item, destino, imagem, concept_meta, env, t0, self._executar_cutout_2d, self._executar_delight))
+
+    def _gerar_concept_com_retry(self, item: dict, destino: Path, env: dict[str, str], max_tentativas: int = 3) -> tuple[Path, dict[str, Any]]:
+        return _pose_concept.gerar_concept_com_retry(item, destino, env, max_tentativas=max_tentativas)
+
+    def _resolver_entrada(self, item: dict, destino: Path, env: dict[str, str]) -> tuple[Path, dict[str, Any] | None]:
+        if str(item.get("origem") or "").strip():
+            return _i23d.resolver_imagem_origem(item), None
+        return self._gerar_concept_com_retry(item, destino, env)
+
+    def _gerar_triposr_i23d(self, item: dict, destino: Path, imagem: Path, concept_meta: dict | None, env: dict[str, str], t0: float) -> RawAsset:
+        dados = _i23d.executar_i23d_step(
+            item, destino, imagem, concept_meta, env, t0, self._executar_pose_guard, self._executar_delight
         )
-        if proc.returncode != 0 or not pg_json.is_file():
-            report["motivo"] = f"falha pose_guard (exit {proc.returncode})"
-            return imagem, report
-        try:
-            pg_data = json.loads(pg_json.read_text(encoding="utf-8"))
-        except ValueError:
-            report["motivo"] = "pose_guard_resultado.json ilegivel"
-            return imagem, report
-
-        report.update(pg_data)
-        report["executado"] = bool(pg_data.get("ok"))
-
-        deve_repose = (pg_mode == "repose") or (
-            pg_mode == "auto"
-            and os.environ.get("FORGE3D_POSE_GUARD_REPOSE", "").strip() == "1"
-        )
-        if pg_data.get("pose") != "arms_down" or not deve_repose:
-            return imagem, report
-
-        pose_raw = os.environ.get("FORGE3D_CONCEPT_POSE", "tpose").strip().lower().replace("-", "")
-        pose_alvo = pose_raw if pose_raw in ("tpose", "apose") else "tpose"
-        largura = int(os.environ.get("FORGE3D_CONCEPT_LARGURA", "512").strip() or "512")
-        altura = int(os.environ.get("FORGE3D_CONCEPT_ALTURA", "512").strip() or "512")
-        pose_png = destino / f"pose_{pose_alvo}.png"
-        _concept._gerar_pose_png(pose_alvo, pose_png, largura, altura)
-
-        prompt_base = (item.get("prompt") or "").strip() or (
-            "full body front view of game character, T-pose, arms extended"
-        )
-        sufixo = os.environ.get("FORGE3D_CONCEPT_SUFIXO", _concept.SUFIXO_PADRAO).strip()
-        prompt_final = _concept.combinar_prompt(prompt_base, sufixo)
-        negative_final = _concept.negativo_efetivo(item)
-        repose_png = destino / "origem_repose.png"
-        repose_json = destino / "repose_resultado.json"
-        strength = os.environ.get("FORGE3D_POSE_GUARD_STRENGTH", "0.45").strip() or "0.45"
-        cn_scale = os.environ.get("FORGE3D_CONCEPT_CONTROLNET_SCALE", "0.85").strip() or "0.85"
-
-        cmd_repose = [
-            str(_concept.dir_venv() / "bin" / "python"),
-            str(_concept.script_inferencia()),
-            "--prompt",
-            prompt_final,
-            "--negative",
-            negative_final,
-            "--seed",
-            str(int(item.get("seed", 20261110))),
-            "--saida",
-            str(repose_png),
-            "--resultado",
-            str(repose_json),
-            "--modelo",
-            _concept.modelo_escolhido(),
-            "--largura",
-            str(largura),
-            "--altura",
-            str(altura),
-            "--passos",
-            os.environ.get("FORGE3D_CONCEPT_PASSOS", "25").strip() or "25",
-            "--guidance",
-            os.environ.get("FORGE3D_CONCEPT_GUIDANCE", "7.5").strip() or "7.5",
-            "--device",
-            _concept._device(),
-            "--controlnet",
-            _concept.controlnet_modelo_escolhido(),
-            "--pose-imagem",
-            str(pose_png),
-            "--controlnet-scale",
-            cn_scale,
-            "--init-imagem",
-            str(imagem),
-            "--strength",
-            strength,
-        ]
-        proc_rp = subprocess.run(
-            cmd_repose, capture_output=True, text=True, timeout=TIMEOUT_S, env=env
-        )
-        if proc_rp.returncode == 0 and repose_png.is_file():
-            report["repose_aplicado"] = True
-            report["pose_alvo"] = pose_alvo
-            report["origem_repose"] = str(repose_png)
-            if repose_json.is_file():
-                try:
-                    report["repose_meta"] = json.loads(repose_json.read_text(encoding="utf-8"))
-                except ValueError:
-                    pass
-            return repose_png, report
-
-        report["repose_erro"] = (proc_rp.stderr or proc_rp.stdout or f"exit {proc_rp.returncode}")[
-            -500:
-        ]
-        return imagem, report
-
-    def _executar_cutout_2d(
-        self, imagem: Path, destino: Path, env: dict[str, str], item_id: Any
-    ) -> tuple[Path, dict[str, Any]]:
-        from ..errors import erro_provider_run
-
-        cutout_png = destino / "input_cutout.png"
-        cutout_json = destino / "cutout_resultado.json"
-        pg_script = script_pose_guard()
-        if not pg_script.is_file():
-            raise erro_provider_run(f"pose_guard.py ausente em {pg_script}", id=item_id)
-
-        try:
-            proc = subprocess.run(
-                [
-                    str(_python_imagem()),
-                    str(pg_script),
-                    "--acao",
-                    "decompor",
-                    "--imagem",
-                    str(imagem),
-                    "--saida-png",
-                    str(cutout_png),
-                    "--resultado",
-                    str(cutout_json),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=TIMEOUT_S,
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
-            raise erro_provider_run(
-                f"timeout de {TIMEOUT_S}s no recorte 2D", id=item_id
-            ) from None
-        except OSError as exc:
-            raise erro_provider_run(f"falha ao executar recorte 2D: {exc}", id=item_id) from exc
-
-        if proc.returncode != 0:
-            raise erro_provider_run(
-                "falha no recorte 2D (pose_guard --acao decompor)",
-                id=item_id,
-                exit=proc.returncode,
-                stderr=(proc.stderr or proc.stdout or "")[-1500:],
-            )
-        info: dict[str, Any] = {}
-        if cutout_json.is_file():
-            try:
-                info = json.loads(cutout_json.read_text(encoding="utf-8"))
-            except ValueError:
-                info = {}
-            if info and not info.get("ok"):
-                raise erro_provider_run(
-                    f"recorte 2D falhou: {info.get('erro')}", id=item_id
-                )
-        if not cutout_png.is_file():
-            raise erro_provider_run(
-                f"recorte 2D nao produziu {cutout_png.name} em {destino}", id=item_id
-            )
-        return cutout_png, info
-
-    def _executar_delight(
-        self, entrada_png: Path, destino: Path, env: dict[str, str]
-    ) -> dict[str, Any]:
-        dl_script = script_delight()
-        albedo_png = destino / "input_delit.png"
-        metallic_png = destino / "metallic_hint.png"
-        roughness_png = destino / "roughness_hint.png"
-        delight_json = destino / "delight_resultado.json"
-
-        proc = subprocess.run(
-            [
-                str(_python_imagem()),
-                str(dl_script),
-                "--imagem",
-                str(entrada_png),
-                "--saida-albedo",
-                str(albedo_png),
-                "--saida-metallic",
-                str(metallic_png),
-                "--saida-roughness",
-                str(roughness_png),
-                "--resultado",
-                str(delight_json),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=TIMEOUT_S,
-            env=env,
-        )
-        report: dict[str, Any] = {"ativo": True, "executado": False}
-        if delight_json.is_file():
-            try:
-                report.update(json.loads(delight_json.read_text(encoding="utf-8")))
-            except ValueError:
-                pass
-        arquivos_extras: list[Path] = []
-        if proc.returncode == 0 and albedo_png.is_file():
-            report["executado"] = True
-            arquivos_extras.append(albedo_png)
-        if proc.returncode == 0 and metallic_png.is_file():
-            arquivos_extras.append(metallic_png)
-        if proc.returncode == 0 and roughness_png.is_file():
-            arquivos_extras.append(roughness_png)
-        return {
-            "report": report,
-            "albedo": "input_delit.png" if albedo_png in arquivos_extras else "",
-            "metallic_hint": "metallic_hint.png" if metallic_png in arquivos_extras else "",
-            "roughness_hint": "roughness_hint.png" if roughness_png in arquivos_extras else "",
-            "arquivos": arquivos_extras,
-        }
-
-    def _gerar_template_humanoide(
-        self,
-        item: dict,
-        perfil: dict,
-        destino: Path,
-        imagem: Path,
-        concept_meta: dict | None,
-        env: dict[str, str],
-        t0: float,
-    ) -> RawAsset:
-        from ..errors import erro_provider_run
-        from ..post import binario
-
-        remover_fundo, motivo_rembg = _decidir_rembg(imagem, concept_meta)
-        prep_json = destino / "template_prep.json"
-        cmd_prep = [
-            str(_python_imagem()),
-            str(script_template_prep()),
-            "--imagem",
-            str(imagem),
-            "--saida-dir",
-            str(destino),
-            "--resultado",
-            str(prep_json),
-        ]
-        if remover_fundo:
-            cmd_prep.extend(["--remover-fundo", "--rembg-modelo", _rembg_modelo()])
-        if _delight_ativo(item):
-            cmd_prep.append("--delight")
-
-        try:
-            proc_p = subprocess.run(
-                cmd_prep, capture_output=True, text=True, timeout=TIMEOUT_S, env=env
-            )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            raise erro_provider_run(f"falha template_prep: {exc}", id=item.get("id")) from exc
-        if proc_p.returncode != 0 or not prep_json.is_file():
-            raise erro_provider_run(
-                "template_prep falhou",
-                id=item.get("id"),
-                exit=proc_p.returncode,
-                stderr=(proc_p.stderr or proc_p.stdout or "")[-2000:],
-            )
-        prep_data = json.loads(prep_json.read_text(encoding="utf-8"))
-
-        tex_max = int((perfil.get("material") or {}).get("textura_max") or 1024)
-        mat_max = int((perfil.get("validacao") or {}).get("materiais_max") or 8)
-        qualidade = _qualidade(item)
-        usar_grip_padrao = bool(
-            qualidade == "hero" or item.get("sockets") or item.get("auto_rig", True)
-        )
-        pose_mao_r = str(
-            item.get("pose_mao_r") or ("grip" if usar_grip_padrao else "relaxed")
-        ).strip()
-        pose_mao_l = str(
-            item.get("pose_mao_l") or ("cupped" if usar_grip_padrao else "relaxed")
-        ).strip()
-        job_path = destino / "template_job.json"
-        job_data: dict[str, Any] = {
-            "foto": prep_data["foto_template"],
-            "saida": str(destino),
-            "marcos": prep_data.get("marcos") or {},
-            "textura": max(256, min(tex_max, 2048)),
-            "materiais_max": mat_max,
-            "limite_triangulos": int(item.get("limite_triangulos") or 12000),
-            "rig": False,
-            "projetar_foto_2d": bool(item.get("projetar_foto_2d") is True),
-            "corpo_nu": bool(item.get("corpo_nu") is True),
-            "qualidade": qualidade,
-            "pose_mao_r": pose_mao_r,
-            "pose_mao_l": pose_mao_l,
-        }
-        if item.get("macro"):
-            job_data["macro"] = dict(item["macro"])
-        mh_cabelo = _extrair_estilo_makehuman(item)
-        if mh_cabelo:
-            job_data["makehuman_cabelo"] = mh_cabelo
-        if item.get("cor_cabelo"):
-            job_data["cor_cabelo"] = str(item["cor_cabelo"]).strip()
-        if item.get("prompt"):
-            job_data["prompt"] = str(item["prompt"]).strip()
-        if item.get("paleta"):
-            job_data["paleta"] = list(item["paleta"])
-        if item.get("cor"):
-            job_data["cor"] = str(item["cor"]).strip()
-        job_path.write_text(json.dumps(job_data, indent=1) + "\n", encoding="utf-8")
-
-        try:
-            proc_b = subprocess.run(
-                [binario(), "-b", "--python", str(script_template_body()), "--", str(job_path)],
-                capture_output=True,
-                text=True,
-                timeout=TIMEOUT_S,
-                env=env,
-            )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            raise erro_provider_run(f"falha blender template_body: {exc}", id=item.get("id")) from exc
-
-        glb = destino / "template_body.glb"
-        rel_path = destino / "relatorio.json"
-        if proc_b.returncode != 0 or not glb.is_file() or not rel_path.is_file():
-            raise erro_provider_run(
-                "blender template_body nao produziu template_body.glb",
-                id=item.get("id"),
-                exit=proc_b.returncode,
-                stderr=(proc_b.stderr or proc_b.stdout or "")[-2000:],
-            )
-
-        rel_tmpl = json.loads(rel_path.read_text(encoding="utf-8"))
-        metallic_hint = str(prep_data.get("metallic_hint") or "").strip()
-        if not metallic_hint and (destino / "metallic_hint.png").is_file():
-            metallic_hint = "metallic_hint.png"
-        roughness_hint = str(prep_data.get("roughness_hint") or "").strip()
-        if not roughness_hint and (destino / "roughness_hint.png").is_file():
-            roughness_hint = "roughness_hint.png"
-
-        modelo: dict[str, Any] = {
-            "schema": "forge3d/bruto-arquivo@1",
-            "arquivo": "template_body.glb",
-            "atlas": "baseColor.png",
-            "origem_nome": imagem.name,
-            "canonicalizar": False,
-            "suavizar": True,
-            "pivos": {},
-            "concept": concept_meta,
-            "proteger_decimate": True,
-        }
-        if metallic_hint:
-            modelo["metallic_hint"] = metallic_hint
-        if roughness_hint:
-            modelo["roughness_hint"] = roughness_hint
-        arq_modelo = destino / "modelo.json"
-        arq_modelo.write_text(
-            json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        resultado_path = destino / "i23d_resultado.json"
-        resultado = {
-            "ok": True,
-            "modo": "mpfb2_template",
-            "modelo": "mpfb2",
-            "rembg": remover_fundo,
-            "rembg_motivo": motivo_rembg,
-            "rembg_modelo": prep_data.get("rembg_modelo"),
-            "rembg_fallback": prep_data.get("rembg_fallback", False),
-            "delight": prep_data.get("delight", {}),
-            "template": rel_tmpl,
-            "tempo_provider_s": round(time.monotonic() - t0, 3),
-        }
-        resultado_path.write_text(
-            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-        )
-        extras = [
-            p
-            for p in (
-                destino / "baseColor.png",
-                destino / "hair_baseColor.png",
-                destino / "input_template.png",
-                destino / "metallic_hint.png",
-                destino / "roughness_hint.png",
-            )
-            if p.is_file()
-        ]
+        res = dados["resultado"]
         return RawAsset(
             dir=destino,
-            schema=str(modelo["schema"]),
+            schema=str(dados["schema"]),
             determinism=self.determinism,
-            arquivos=[arq_modelo, glb, resultado_path, *extras],
+            arquivos=dados["arquivos"],
             meta={
-                "modelo": "mpfb2",
-                "modo": "mpfb2_template",
-                "rembg": remover_fundo,
-                "rembg_motivo": motivo_rembg,
-                "rembg_modelo": prep_data.get("rembg_modelo"),
-                "template": rel_tmpl,
+                # chave da allowlist (pipeline.licenca_de); o repo HF fica so como proveniencia
+                "modelo": modelo_escolhido(),
+                "modelo_hf": MODELO_HF,
+                "torch": res.get("torch"),
+                "mc_resolution": res.get("mc_resolution"),
+                "tempos_s": res.get("tempos_s"),
+                "vram_pico_mb": res.get("vram_pico_mb"),
+                "faces": res.get("faces"),
+                "rembg": dados["remover_fundo"],
+                "rembg_motivo": dados["motivo_rembg"],
+                "rembg_modelo": res.get("rembg_modelo"),
+                "rembg_fallback": res.get("rembg_fallback"),
+                "pose_guard": dados["pose_guard_report"],
+                "delight": dados["delight_report"],
                 "concept": concept_meta,
+                **(
+                    {"vistas_ortograficas": dados["vistas_ortograficas"]}
+                    if dados.get("vistas_ortograficas")
+                    else {}
+                ),
             },
         )
-
-    def _gerar_makehuman_cabelo(
-        self,
-        item: dict,
-        perfil: dict,
-        destino: Path,
-        env: dict[str, str],
-        t0: float,
-    ) -> RawAsset:
-        from ..errors import erro_provider_run
-        from ..post import binario
-
-        estilo = _extrair_estilo_makehuman(item)
-        if not estilo:
-            raise erro_provider_run("makehuman_cabelo vazio", id=item.get("id"))
-
-        tex_max = int((perfil.get("material") or {}).get("textura_max") or 1024)
-        job_path = destino / "template_job.json"
-        job_data: dict[str, Any] = {
-            "modo": "cabelo",
-            "makehuman_cabelo": estilo,
-            "saida": str(destino),
-            "limite_triangulos": int(item.get("limite_triangulos") or 6000),
-            "textura": max(256, min(tex_max, 2048)),
-            "material": str(item.get("material") or "alpha_clip"),
-        }
-        if item.get("cor_cabelo"):
-            job_data["cor_cabelo"] = str(item["cor_cabelo"]).strip()
-        if item.get("macro"):
-            job_data["macro"] = dict(item["macro"])
-        job_path.write_text(json.dumps(job_data, indent=1) + "\n", encoding="utf-8")
-
-        try:
-            proc_b = subprocess.run(
-                [binario(), "-b", "--python", str(script_template_body()), "--", str(job_path)],
-                capture_output=True,
-                text=True,
-                timeout=TIMEOUT_S,
-                env=env,
-            )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            raise erro_provider_run(f"falha blender makehuman_cabelo: {exc}", id=item.get("id")) from exc
-
-        glb = destino / "template_hair.glb"
-        rel_path = destino / "relatorio.json"
-        if proc_b.returncode != 0 or not glb.is_file() or not rel_path.is_file():
-            raise erro_provider_run(
-                "blender template_body (modo cabelo) nao produziu template_hair.glb",
-                id=item.get("id"),
-                exit=proc_b.returncode,
-                stderr=(proc_b.stderr or proc_b.stdout or "")[-2000:],
-            )
-
-        rel_tmpl = json.loads(rel_path.read_text(encoding="utf-8"))
-        estilo_norm = str(rel_tmpl.get("estilo") or estilo)
-        pivos_cabelo: dict[str, Any] = {}
-        if isinstance(rel_tmpl.get("pivos"), dict):
-            pivos_cabelo.update(rel_tmpl["pivos"])
-        if rel_tmpl.get("cabeca"):
-            pivos_cabelo["cabeca"] = rel_tmpl["cabeca"]
-        if rel_tmpl.get("encaixe_cabeca"):
-            pivos_cabelo["encaixe_cabeca"] = rel_tmpl["encaixe_cabeca"]
-
-        modelo: dict[str, Any] = {
-            "schema": "forge3d/bruto-arquivo@1",
-            "arquivo": "template_hair.glb",
-            "atlas": "baseColor.png",
-            "origem_nome": f"makehuman://hair/{estilo_norm}",
-            "canonicalizar": False,
-            "suavizar": False,
-            "pivos": pivos_cabelo,
-            "concept": None,
-            "proteger_decimate": False,
-        }
-        arq_modelo = destino / "modelo.json"
-        arq_modelo.write_text(
-            json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        resultado_path = destino / "i23d_resultado.json"
-        resultado = {
-            "ok": True,
-            "modo": "mpfb2_cabelo",
-            "modelo": "mpfb2",
-            "estilo": estilo_norm,
-            "template": rel_tmpl,
-            "tempo_provider_s": round(time.monotonic() - t0, 3),
-        }
-        resultado_path.write_text(
-            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-        )
-        extras = [p for p in (destino / "baseColor.png",) if p.is_file()]
-        return RawAsset(
-            dir=destino,
-            schema=str(modelo["schema"]),
-            determinism=self.determinism,
-            arquivos=[arq_modelo, glb, resultado_path, *extras],
-            meta={
-                "modelo": "mpfb2",
-                "modo": "mpfb2_cabelo",
-                "estilo": estilo_norm,
-                "template": rel_tmpl,
-                "concept": None,
-            },
-        )
-
-    def _gerar_modular_armor(
-        self,
-        item: dict,
-        perfil: dict,
-        destino: Path,
-        env: dict[str, str],
-        t0: float,
-    ) -> RawAsset:
-        from ..errors import erro_provider_run
-        from ..post import binario
-
-        parte = str(item.get("parte") or "peitoral").strip()
-        if parte == "calças":
-            parte = "calcas"
-
-        limite_tri = int(item.get("limite_triangulos") or 10000)
-        tex_teto = 2048 if _qualidade(item) == "hero" else 1024
-        tex_max = int((perfil.get("material") or {}).get("textura_max") or tex_teto)
-        if _qualidade(item) == "hero":
-            tex_max = max(tex_max, 2048)
-        esqueleto = str(
-            item.get("esqueleto")
-            or (perfil.get("rig") or {}).get("esqueleto_padrao")
-            or "godot-humanoid@1"
-        )
-        job_path = destino / "modular_armor_job.json"
-        job_data: dict[str, Any] = {
-            "saida": str(destino),
-            "id": item.get("id"),
-            "parte": parte,
-            "origem": str(item.get("origem") or "").strip(),
-            "altura_metros": float(item.get("altura_metros") or 1.72),
-            "esqueleto": esqueleto,
-            "limite_triangulos": limite_tri,
-            "textura": max(64, min(tex_max, 2048)),
-            "pivot": str(item.get("pivot") or "base"),
-        }
-        if item.get("prompt"):
-            job_data["prompt"] = str(item["prompt"]).strip()
-        if item.get("paleta"):
-            job_data["paleta"] = list(item["paleta"])
-        if item.get("cor"):
-            job_data["cor"] = str(item["cor"]).strip()
-        if item.get("skinned") is not None:
-            job_data["skinned"] = bool(item["skinned"])
-        if item.get("macro"):
-            job_data["macro"] = dict(item["macro"])
-        if item.get("osso"):
-            job_data["osso"] = str(item["osso"])
-
-        job_path.write_text(json.dumps(job_data, indent=1) + "\n", encoding="utf-8")
-
-        try:
-            proc_b = subprocess.run(
-                [binario(), "-b", "--python", str(script_modular_armor()), "--", str(job_path)],
-                capture_output=True,
-                text=True,
-                timeout=TIMEOUT_S,
-                env=env,
-            )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            raise erro_provider_run(f"falha blender modular_armor: {exc}", id=item.get("id")) from exc
-
-        glb = destino / "template_armor.glb"
-        rel_path = destino / "relatorio.json"
-        if proc_b.returncode != 0 or not glb.is_file() or not rel_path.is_file():
-            raise erro_provider_run(
-                f"blender modular_armor nao produziu template_armor.glb para parte '{parte}'",
-                id=item.get("id"),
-                exit=proc_b.returncode,
-                stderr=(proc_b.stderr or proc_b.stdout or "")[-2000:],
-            )
-
-        rel_armor = json.loads(rel_path.read_text(encoding="utf-8"))
-        modelo: dict[str, Any] = {
-            "schema": "forge3d/bruto-arquivo@1",
-            "arquivo": "template_armor.glb",
-            "origem_nome": str(item.get("origem") or f"modular_armor://{parte}"),
-            "canonicalizar": False,
-            "suavizar": False,
-            "armadura_modular": bool(rel_armor.get("armadura_modular", True)),
-            "escala_preservada": bool(rel_armor.get("escala_preservada", False)),
-            "retopologia": str(item.get("retopologia") or "auto"),
-            "pivos": {},
-            "concept": None,
-            "proteger_decimate": False,
-        }
-        arq_modelo = destino / "modelo.json"
-        arq_modelo.write_text(
-            json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        resultado_path = destino / "i23d_resultado.json"
-        resultado = {
-            "ok": True,
-            "modo": "modular_armor",
-            "modelo": "mpfb2",
-            "parte": parte,
-            "skinned": rel_armor.get("skinned", False),
-            "armadura_modular": True,
-            "template": rel_armor,
-            "tempo_provider_s": round(time.monotonic() - t0, 3),
-        }
-        resultado_path.write_text(
-            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-        )
-        return RawAsset(
-            dir=destino,
-            schema=str(modelo["schema"]),
-            determinism=self.determinism,
-            arquivos=[arq_modelo, glb, resultado_path],
-            meta={
-                "modelo": "mpfb2",
-                "modo": "modular_armor",
-                "parte": parte,
-                "skinned": rel_armor.get("skinned", False),
-                "armadura_modular": True,
-                "template": rel_armor,
-                "concept": None,
-            },
-        )
-
-    def _gerar_criatura_anatomica(
-        self,
-        item: dict,
-        perfil: dict,
-        destino: Path,
-        env: dict[str, str],
-        t0: float,
-    ) -> RawAsset:
-        from ..errors import erro_provider_run
-        from ..post import binario
-
-        tipo = str(item.get("tipo") or "criatura_alada").strip()
-        esqueleto = str(item.get("esqueleto") or "").strip()
-        com_asas = bool(
-            item.get("asas", tipo == "criatura_alada" or esqueleto == "winged_mount@1")
-        )
-        glb = destino / "bruto.glb"
-        arq_modelo = destino / "modelo.json"
-        job_path = destino / "criatura_anatomica_job.json"
-        job_data: dict[str, Any] = {
-            "acao": "gerar_criatura",
-            "id": item.get("id"),
-            "tipo": tipo,
-            "esqueleto": esqueleto,
-            "asas": com_asas,
-            "saida_dir": str(destino),
-            "saida_glb": str(glb),
-            "saida_meta": str(arq_modelo),
-        }
-        job_path.write_text(json.dumps(job_data, indent=1) + "\n", encoding="utf-8")
-
-        try:
-            proc_b = subprocess.run(
-                [
-                    binario(),
-                    "-b",
-                    "--factory-startup",
-                    "--python",
-                    str(script_organic_sculpt()),
-                    "--",
-                    "--modo",
-                    "criatura",
-                    str(job_path),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=TIMEOUT_S,
-                env=env,
-            )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            raise erro_provider_run(
-                f"falha blender organic_sculpt: {exc}", id=item.get("id")
-            ) from exc
-
-        if proc_b.returncode != 0 or not glb.is_file() or not arq_modelo.is_file():
-            raise erro_provider_run(
-                f"blender organic_sculpt nao produziu bruto.glb para tipo '{tipo}'",
-                id=item.get("id"),
-                exit=proc_b.returncode,
-                stderr=(proc_b.stderr or proc_b.stdout or "")[-2000:],
-            )
-
-        meta_criatura = json.loads(arq_modelo.read_text(encoding="utf-8"))
-        resultado_path = destino / "i23d_resultado.json"
-        resultado = {
-            "ok": True,
-            "modo": "anatomical_creature_sculpt",
-            "modelo": "procedural",
-            "tipo": tipo,
-            "asas": com_asas,
-            "criatura": meta_criatura,
-            "tempo_provider_s": round(time.monotonic() - t0, 3),
-        }
-        resultado_path.write_text(
-            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-        )
-        return RawAsset(
-            dir=destino,
-            schema=str(meta_criatura.get("schema", "forge3d/bruto-arquivo@1")),
-            determinism=self.determinism,
-            arquivos=[arq_modelo, glb, resultado_path],
-            meta={
-                "modelo": "procedural",
-                "modo": "anatomical_creature_sculpt",
-                "tipo": tipo,
-                "asas": com_asas,
-                "criatura": meta_criatura,
-                "concept": None,
-            },
-        )
-
-    def _gerar_extrude_2d(
-        self,
-        item: dict,
-        destino: Path,
-        imagem: Path,
-        concept_meta: dict | None,
-        env: dict[str, str],
-        t0: float,
-    ) -> RawAsset:
-        cutout_png, cutout_info = self._executar_cutout_2d(
-            imagem, destino, env, item.get("id")
-        )
-        delight_ativo = _delight_ativo(item)
-        delight_meta: dict[str, Any] = {"ativo": delight_ativo, "executado": False}
-        arquivos_extras: list[Path] = []
-        metallic_hint = ""
-        roughness_hint = ""
-        origem_textura = ""
-        if delight_ativo and script_delight().is_file() and cutout_png.is_file():
-            dl = self._executar_delight(cutout_png, destino, env)
-            delight_meta = dl["report"]
-            origem_textura = dl["albedo"]
-            metallic_hint = dl["metallic_hint"]
-            roughness_hint = dl["roughness_hint"]
-            arquivos_extras = dl["arquivos"]
-
-        modelo: dict[str, Any] = {
-            "schema": "forge3d/bruto-extrude@1",
-            "modo": str(item.get("parte") or "arma"),
-            "imagem": "input_cutout.png",
-            "origem_nome": imagem.name,
-            "pivos": {},
-            "concept": concept_meta,
-        }
-        if origem_textura:
-            modelo["origem_textura"] = origem_textura
-        if metallic_hint:
-            modelo["metallic_hint"] = metallic_hint
-        if roughness_hint:
-            modelo["roughness_hint"] = roughness_hint
-
-        arq_modelo = destino / "modelo.json"
-        arq_modelo.write_text(
-            json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        resultado_path = destino / "i23d_resultado.json"
-        resultado: dict[str, Any] = {
-            "ok": True,
-            "modo": "extrude_2d",
-            "modelo": "procedural",
-            "parte": modelo["modo"],
-            "cutout": cutout_info,
-            "delight": delight_meta,
-            "tempo_provider_s": round(time.monotonic() - t0, 3),
-        }
-        resultado_path.write_text(
-            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-        )
-        return RawAsset(
-            dir=destino,
-            schema="forge3d/bruto-extrude@1",
-            determinism=self.determinism,
-            arquivos=[arq_modelo, cutout_png, resultado_path, *arquivos_extras],
-            meta={
-                "modelo": "procedural",
-                "modo": modelo["modo"],
-                "cutout": cutout_info,
-                "delight": delight_meta,
-                "concept": concept_meta,
-            },
-        )
-
-    def _gerar_concept_com_retry(
-        self,
-        item: dict,
-        destino: Path,
-        env: dict[str, str],
-        max_tentativas: int = 3,
-    ) -> tuple[Path, dict[str, Any]]:
-        from .concept import ConceptProvider
-
-        prov = ConceptProvider()
-        eh_rigged = item.get("tipo") == "personagem_humanoide" and bool(item.get("auto_rig"))
-        tentativas = max(1, int(max_tentativas)) if eh_rigged else 1
-        if tentativas == 1:
-            concept = prov.gerar(item, destino)
-            return concept["png"], concept["meta"]
-
-        pg_script = script_pose_guard()
-        py_img = _python_imagem()
-        melhor_score = -1.0
-        melhor: tuple[Path, dict[str, Any]] | None = None
-        seed_base = int(item.get("seed", 20261110))
-        historico: list[dict[str, Any]] = []
-
-        for i in range(tentativas):
-            sub_dir = destino / f"concept_try_{i}"
-            sub_item = dict(item)
-            sub_item["seed"] = seed_base + i * 101
-            concept = prov.gerar(sub_item, sub_dir)
-            png_i: Path = concept["png"]
-            meta_i: dict[str, Any] = dict(concept["meta"])
-
-            score = 0.0
-            apto = False
-            if pg_script.is_file() and py_img.is_file():
-                res_pg = sub_dir / "pose_detect.json"
-                try:
-                    proc = subprocess.run(
-                        [
-                            str(py_img),
-                            str(pg_script),
-                            "--acao",
-                            "detectar",
-                            "--imagem",
-                            str(png_i),
-                            "--resultado",
-                            str(res_pg),
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                        env=env,
-                        check=False,
-                    )
-                    if proc.returncode == 0 and res_pg.is_file():
-                        info_pg = json.loads(res_pg.read_text(encoding="utf-8"))
-                        score = float(info_pg.get("score_pose", 0.0))
-                        apto = bool(info_pg.get("apto_rig", False))
-                except (OSError, subprocess.SubprocessError, ValueError):
-                    pass
-
-            historico.append({"tentativa": i + 1, "seed": sub_item["seed"], "score_pose": score, "apto_rig": apto})
-            if melhor is None or score > melhor_score:
-                melhor_score = score
-                melhor = (png_i, meta_i)
-            if apto or score >= 0.72:
-                break
-
-        assert melhor is not None
-        png_escolhido, meta_escolhido = melhor
-        destino_png = destino / png_escolhido.name
-        if png_escolhido != destino_png:
-            shutil.copyfile(png_escolhido, destino_png)
-        meta_escolhido["concept_tentativas"] = len(historico)
-        meta_escolhido["concept_score_pose"] = round(max(0.0, melhor_score), 4)
-        meta_escolhido["concept_historico"] = historico
-        return destino_png, meta_escolhido
 
     def gerar(self, item: dict, perfil: dict, destino: Path) -> RawAsset:
-        from ..errors import erro_provider_run
+        from ..errors import erro_provider_run, erro_recurso
+
+        subrota = _resolver_subrota(item, self._rota_explicita)
+        erro_sub = _validar_subrota_item(subrota, item, self._rota_explicita)
+        if erro_sub:
+            raise erro_provider_run(erro_sub, id=item.get("id"), modelo=modelo_escolhido())
 
         pronto, razao = self.preflight_item(item)
         if not pronto:
             if "VRAM" in razao:
-                from ..errors import erro_recurso
-
-                raise erro_recurso(
-                    f"rota mesh sem VRAM: {razao}",
-                    id=item.get("id"),
-                    modelo=modelo_escolhido(),
-                )
-            raise erro_provider_run(
-                f"rota mesh indisponivel: {razao}",
-                id=item.get("id"),
-                modelo=modelo_escolhido(),
-            )
+                raise erro_recurso(f"rota {subrota} sem VRAM: {razao}", id=item.get("id"), modelo=modelo_escolhido())
+            raise erro_provider_run(f"rota {subrota} indisponivel: {razao}", id=item.get("id"), modelo=modelo_escolhido())
 
         destino.mkdir(parents=True, exist_ok=True)
         resultado_path = destino / "i23d_resultado.json"
@@ -1601,197 +376,82 @@ class MeshProvider:
             resultado_path.unlink()
 
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(dir_vendor()) + (
-            os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
-        )
+        env["PYTHONPATH"] = str(dir_vendor()) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         env.setdefault("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
         env.setdefault("TORCH_HOME", str(Path.home() / ".cache" / "torch"))
         env.setdefault("PYTHONUNBUFFERED", "1")
-
         t0 = time.monotonic()
+
+        if subrota == "i23d":
+            imagem, concept_meta = self._resolver_entrada(item, destino, env)
+            return self._gerar_triposr_i23d(item, destino, imagem, concept_meta, env, t0)
+        if subrota == "procedural":
+            return self._gerar_criatura_anatomica(item, perfil, destino, env, t0)
+        if subrota == "extrude_2d":
+            imagem, concept_meta = self._resolver_entrada(item, destino, env)
+            return self._gerar_extrude_2d(item, destino, imagem, concept_meta, env, t0)
+        if subrota == "template":
+            if _usar_makehuman_cabelo(item):
+                return self._gerar_makehuman_cabelo(item, perfil, destino, env, t0)
+            if _usar_modular_armor(item):
+                return self._gerar_modular_armor(item, perfil, destino, env, t0)
+            imagem, concept_meta = self._resolver_entrada(item, destino, env)
+            return self._gerar_template_humanoide(item, perfil, destino, imagem, concept_meta, env, t0)
 
         if _usar_makehuman_cabelo(item):
             return self._gerar_makehuman_cabelo(item, perfil, destino, env, t0)
-
         if _usar_modular_armor(item):
             return self._gerar_modular_armor(item, perfil, destino, env, t0)
-
         if _usar_template_criatura(item):
             return self._gerar_criatura_anatomica(item, perfil, destino, env, t0)
-
-        origem = item.get("origem")
-        concept_meta = None
-        if origem:
-            imagem = Path(str(origem)).expanduser()
-            if not imagem.is_file():
-                raise erro_provider_run(
-                    f"imagem de concept inexistente: {imagem}", id=item.get("id")
-                )
-            if imagem.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
-                raise erro_provider_run(
-                    f"formato de concept não suportado: {imagem.suffix}", id=item.get("id")
-                )
-        else:
-            imagem, concept_meta = self._gerar_concept_com_retry(item, destino, env)
-
+        imagem, concept_meta = self._resolver_entrada(item, destino, env)
         if _usar_template_humanoide(item):
-            return self._gerar_template_humanoide(
-                item, perfil, destino, imagem, concept_meta, env, t0
-            )
-
+            return self._gerar_template_humanoide(item, perfil, destino, imagem, concept_meta, env, t0)
         if _usar_extrude_2d(item):
             return self._gerar_extrude_2d(item, destino, imagem, concept_meta, env, t0)
+        return self._gerar_triposr_i23d(item, destino, imagem, concept_meta, env, t0)
 
-        imagem, pose_guard_report = self._executar_pose_guard(item, imagem, destino, env)
 
-        mc_default = "320" if _qualidade(item) == "hero" else "256"
-        resolucao = os.environ.get("FORGE3D_MC_RESOLUTION", mc_default)
-        rembg_mod = _rembg_modelo()
-        comando = [
-            str(dir_venv() / "bin" / "python"),
-            str(script_inferencia()),
-            "--imagem",
-            str(imagem),
-            "--saida-dir",
-            str(destino),
-            "--resultado",
-            str(resultado_path),
-            "--modelo",
-            MODELO_HF,
-            "--mc-resolution",
-            str(int(resolucao)),
-            "--device",
-            _device(),
-        ]
-        remover_fundo, motivo_rembg = _decidir_rembg(imagem, concept_meta)
-        if remover_fundo:
-            comando.extend(["--remover-fundo", "--rembg-modelo", rembg_mod])
+class I23DProvider(MeshProvider):
+    nome = "i23d"
+    _rota_explicita = "i23d"
 
-        try:
-            proc = subprocess.run(
-                comando, capture_output=True, text=True, timeout=TIMEOUT_S, env=env
-            )
-        except subprocess.TimeoutExpired:
-            raise erro_provider_run(
-                f"timeout de {TIMEOUT_S}s na inferência i23d", id=item.get("id")
-            ) from None
-        except OSError as exc:
-            raise erro_provider_run(
-                f"falha ao executar a venv de i23d: {exc}", id=item.get("id")
-            ) from exc
 
-        if not resultado_path.is_file():
-            raise erro_provider_run(
-                "i23d não escreveu resultado.json",
-                id=item.get("id"),
-                exit=proc.returncode,
-                stderr=(proc.stderr or proc.stdout or "")[-2000:],
-            )
-        try:
-            resultado = json.loads(resultado_path.read_text(encoding="utf-8"))
-        except ValueError as exc:
-            raise erro_provider_run(f"resultado.json do i23d ilegível: {exc}") from exc
-        if not resultado.get("ok"):
-            raise erro_provider_run(
-                f"i23d falhou: {resultado.get('erro')}",
-                id=item.get("id"),
-                stderr=(resultado.get("traceback") or "")[-2000:],
-            )
+class TemplateProvider(MeshProvider):
+    nome = "template"
+    _rota_explicita = "template"
 
-        glb = destino / "modelo.glb"
-        if not glb.is_file():
-            raise erro_provider_run(
-                f"i23d não produziu modelo.glb em {destino}", id=item.get("id")
-            )
+    def preflight(self) -> tuple[bool, str]:
+        ok_b, msg_b = _preflight_blender_binario()
+        if not ok_b:
+            return False, msg_b
+        if not script_template_body().is_file() or not script_modular_armor().is_file():
+            return False, "scripts de template MPFB2/modular_armor ausentes"
+        return True, "pronto (template)"
 
-        input_png = destino / "input.png"
-        input_rgba_png = destino / "input_rgba.png"
-        entrada_tex = input_rgba_png if input_rgba_png.is_file() else input_png
-        delight_ativo = _delight_ativo(item)
-        delight_report: dict[str, Any] = {"ativo": delight_ativo, "executado": False}
-        origem_textura = entrada_tex.name
-        metallic_hint = ""
-        roughness_hint = ""
-        arquivos_extras = [input_rgba_png] if input_rgba_png.is_file() else []
-        if delight_ativo and script_delight().is_file() and entrada_tex.is_file():
-            dl = self._executar_delight(entrada_tex, destino, env)
-            delight_report = dl["report"]
-            if dl["albedo"]:
-                origem_textura = dl["albedo"]
-            metallic_hint = dl["metallic_hint"]
-            roughness_hint = dl["roughness_hint"]
-            arquivos_extras = [*arquivos_extras, *dl["arquivos"]]
 
-        tex_default = (
-            ("1024" if item.get("material_procedural") else "2048")
-            if _qualidade(item) == "hero"
-            else "1024"
-        )
-        tex_max_lim = 2048 if _qualidade(item) == "hero" else 1024
-        textura_px = int(os.environ.get("FORGE3D_TEX_PX", tex_default))
-        modelo: dict[str, Any] = {
-            "schema": "forge3d/bruto-arquivo@1",
-            "arquivo": "modelo.glb",
-            "origem_nome": imagem.name,
-            "canonicalizar": True,
-            "textura_px": max(64, min(textura_px, tex_max_lim)),
-            "retopologia": str(item.get("retopologia") or "auto"),
-            "pivos": {},
-            "concept": concept_meta,
-            "proteger_decimate": item.get("tipo")
-            in (
-                "personagem_humanoide",
-                "criatura",
-                "criatura_quadrupede",
-                "criatura_alada",
-                "montaria",
-            ),
-        }
-        if item.get("material_procedural"):
-            modelo["material_procedural"] = str(item["material_procedural"])
-        if item.get("quadriflow_faces"):
-            modelo["quadriflow_faces"] = int(item["quadriflow_faces"])
-        if entrada_tex.is_file() or not delight_ativo:
-            modelo["origem_textura"] = origem_textura
-        if metallic_hint:
-            modelo["metallic_hint"] = metallic_hint
-        if roughness_hint:
-            modelo["roughness_hint"] = roughness_hint
+class ProceduralProvider(MeshProvider):
+    nome = "procedural"
+    usa_gpu = False
+    _rota_explicita = "procedural"
 
-        arq_modelo = destino / "modelo.json"
-        arq_modelo.write_text(
-            json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+    def preflight(self) -> tuple[bool, str]:
+        ok_b, msg_b = _preflight_blender_binario()
+        if not ok_b:
+            return False, msg_b
+        if not script_organic_sculpt().is_file():
+            return False, "script blender/organic_sculpt.py ausente"
+        return True, "pronto (procedural)"
 
-        resultado["rembg"] = remover_fundo
-        resultado["rembg_motivo"] = motivo_rembg
-        resultado["pose_guard"] = pose_guard_report
-        resultado["delight"] = delight_report
-        resultado["tempo_provider_s"] = round(time.monotonic() - t0, 3)
-        resultado_path.write_text(
-            json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-        )
-        return RawAsset(
-            dir=destino,
-            schema=str(modelo["schema"]),
-            determinism=self.determinism,
-            arquivos=[arq_modelo, glb, resultado_path, input_png, *arquivos_extras],
-            meta={
-                # chave da allowlist (pipeline.licenca_de); o repo HF fica so como proveniencia
-                "modelo": modelo_escolhido(),
-                "modelo_hf": MODELO_HF,
-                "torch": resultado.get("torch"),
-                "mc_resolution": resultado.get("mc_resolution"),
-                "tempos_s": resultado.get("tempos_s"),
-                "vram_pico_mb": resultado.get("vram_pico_mb"),
-                "faces": resultado.get("faces"),
-                "rembg": remover_fundo,
-                "rembg_motivo": motivo_rembg,
-                "rembg_modelo": resultado.get("rembg_modelo"),
-                "rembg_fallback": resultado.get("rembg_fallback"),
-                "pose_guard": pose_guard_report,
-                "delight": delight_report,
-                "concept": concept_meta,
-            },
-        )
+
+class Extrude2DProvider(MeshProvider):
+    nome = "extrude_2d"
+    _rota_explicita = "extrude_2d"
+
+    def preflight(self) -> tuple[bool, str]:
+        ok_b, msg_b = _preflight_blender_binario()
+        if not ok_b:
+            return False, msg_b
+        if not script_pose_guard().is_file():
+            return False, f"script tools/pose_guard.py ausente em {script_pose_guard()}"
+        return True, "pronto (extrude_2d)"

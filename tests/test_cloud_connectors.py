@@ -27,8 +27,7 @@ def _png_bytes_rgba(cor: tuple[int, int, int, int] = (90, 140, 210, 255)) -> byt
 
 
 def test_cloud_ai_usa_apenas_stdlib_d26():
-    """Garante zero dependencias externas de pip em cloud_ai.py (D26)."""
-    arvore = ast.parse((RAIZ / "src" / "forge3d" / "providers" / "cloud_ai.py").read_text("utf-8"))
+    """Garante zero dependencias externas de pip em cloud_*.py (D26)."""
     permitidos = {
         "__future__",
         "base64",
@@ -42,14 +41,18 @@ def test_cloud_ai_usa_apenas_stdlib_d26():
         "typing",
         "urllib",
     }
-    for node in ast.walk(arvore):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                mod = alias.name.split(".")[0]
-                assert mod in permitidos, f"import externo proibido em cloud_ai.py: {mod}"
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            mod = node.module.split(".")[0]
-            assert mod in permitidos, f"from-import externo proibido em cloud_ai.py: {mod}"
+    alvos = sorted((RAIZ / "src" / "forge3d" / "providers").glob("cloud_*.py"))
+    assert alvos
+    for arq in alvos:
+        arvore = ast.parse(arq.read_text("utf-8"))
+        for node in ast.walk(arvore):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    mod = alias.name.split(".")[0]
+                    assert mod in permitidos, f"import externo proibido em {arq.name}: {mod}"
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                mod = node.module.split(".")[0]
+                assert mod in permitidos, f"from-import externo proibido em {arq.name}: {mod}"
 
 
 def test_licencas_comerciais_gemini_e_higgsfield_registradas():
@@ -314,11 +317,9 @@ def test_doctor_conectores_ia_e_zero_vazamento_de_segredos(monkeypatch, tmp_path
     monkeypatch.delenv("FORGE3D_GEMINI_MODELO", raising=False)
     k_gem = "GEM_SUPER_SECRET_TOKEN_ABC123XYZ"
     k_hig = "HIG_SUPER_SECRET_TOKEN_DEF456UVW"
-    k_fal = "FAL_SUPER_SECRET_TOKEN_JKL012MNO"
     k_rbx = "RBX_SUPER_SECRET_TOKEN_GHI789RST"
     monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", k_gem)
     monkeypatch.setenv("FORGE3D_HIGGSFIELD_API_KEY", k_hig)
-    monkeypatch.setenv("FORGE3D_FAL_API_KEY", k_fal)
     monkeypatch.setenv("FORGE3D_ROBLOX_API_KEY", k_rbx)
 
     rel = doctor.checar()
@@ -339,8 +340,10 @@ def test_doctor_conectores_ia_e_zero_vazamento_de_segredos(monkeypatch, tmp_path
     serializado = json.dumps(rel)
     assert k_gem not in serializado
     assert k_hig not in serializado
-    assert k_fal not in serializado
     assert k_rbx not in serializado
+    serial_low = serializado.lower()
+    for proibido in ("fal" + ".run", "fal" + ".ai", "fal" + ".key", "forge3d_" + "fal_api_key"):
+        assert proibido not in serial_low
 
     # Sanitizacao também em erros HTTP
     def fake_err(req, timeout=120):
@@ -503,31 +506,51 @@ def test_avaliar_qualidade_visual_gemini_mock(monkeypatch, tmp_path):
 
 
 def test_trellis_connector_mock(monkeypatch, tmp_path):
-    cfg_dir = tmp_path / "cfg_fal"
-    cfg_dir.mkdir()
-    monkeypatch.setenv("FORGE3D_CONFIG", str(cfg_dir))
-    monkeypatch.delenv("FORGE3D_FAL_API_KEY", raising=False)
-
-    ok0, det0 = cloud_ai.trellis_disponivel()
-    assert ok0 is False
-    assert "FORGE3D_FAL_API_KEY" in det0
-
-    segredo = "fal_key_secret_654321"
-    (cfg_dir / "fal.key").write_text(segredo + "\n", encoding="utf-8")
     ok1, det1 = cloud_ai.trellis_disponivel()
     assert ok1 is True
-    assert "arquivo:fal.key" in det1
-    assert segredo not in det1
+    assert "colab_trellis_worker" in det1
+    assert "TRELLIS.2-4B" in det1
+    for proibido in ("fal" + ".run", "fal" + ".ai", "fal" + ".key", "forge3d_" + "fal_api_key"):
+        assert proibido not in det1.lower()
 
-    png_in = tmp_path / "concept.png"
-    png_in.write_bytes(_png_bytes_rgba((120, 150, 180, 255)))
-    glb_fake = b"glTF\x02\x00\x00\x00FAKE_TRELLIS_GLB"
+    assert not hasattr(cloud_ai, "gerar_malha_trellis")
+    assert not hasattr(cloud_ai, "URL_TRELLIS_PADRAO")
+    assert not hasattr(cloud_ai, "_ler_chave_fal")
+
+    vazio_root = tmp_path / "sem_worker"
+    (vazio_root / "schemas").mkdir(parents=True)
+    monkeypatch.setenv("FORGE3D_ROOT", str(vazio_root))
+    ok0, det0 = cloud_ai.trellis_disponivel()
+    assert ok0 is False
+    assert "colab_trellis_worker.py" in det0
+
+
+def test_ler_arquivo_chave_falha_explicita_em_oserror_e_gemini_disponivel_reporta(monkeypatch, tmp_path):
+    cfg_dir = tmp_path / "cfg_perm"
+    cfg_dir.mkdir()
+    monkeypatch.setenv("FORGE3D_CONFIG", str(cfg_dir))
+    monkeypatch.delenv("FORGE3D_GEMINI_API_KEY", raising=False)
+    chave_path = cfg_dir / "gemini.key"
+    chave_path.write_text("segredo\n", encoding="utf-8")
+
+    def _boom_read_text(self, *args, **kwargs):
+        raise PermissionError("sem permissao de leitura")
+
+    monkeypatch.setattr(Path, "read_text", _boom_read_text)
+    with pytest.raises(PermissionError):
+        cloud_ai._ler_arquivo_chave("gemini.key")
+    ok, det = cloud_ai.gemini_disponivel()
+    assert ok is False
+    assert "erro ao ler chave Gemini" in det
+
+
+def test_concept_4_vistas_sem_referencia_usa_front_como_ancora_com_sha_nulo(monkeypatch, tmp_path):
+    monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", "gem_4v_noref_secret")
+    monkeypatch.delenv("FORGE3D_GEMINI_MODELO", raising=False)
     chamadas: list[dict] = []
+    b64_out = base64.b64encode(_png_bytes_rgba((180, 120, 90, 255))).decode("ascii")
 
     class _FakeResp:
-        def __init__(self, raw: bytes):
-            self._raw = raw
-
         def __enter__(self):
             return self
 
@@ -535,42 +558,119 @@ def test_trellis_connector_mock(monkeypatch, tmp_path):
             return False
 
         def read(self) -> bytes:
-            return self._raw
+            return json.dumps(
+                {"steps": [{"type": "model_output", "content": [{"type": "image", "data": b64_out}]}]}
+            ).encode("utf-8")
 
-    def fake_urlopen(req, timeout=180):
-        chamadas.append(
-            {
-                "url": req.full_url,
-                "method": req.get_method(),
-                "headers": {k.lower(): v for k, v in req.header_items()},
-            }
-        )
-        if req.get_method() == "POST":
-            return _FakeResp(
-                json.dumps({"model_mesh": {"url": "https://cdn.fal.example/out.glb"}}).encode("utf-8")
-            )
-        return _FakeResp(glb_fake)
+    def fake_urlopen(req, timeout=120):
+        chamadas.append(json.loads(req.data.decode("utf-8")))
+        return _FakeResp()
 
     monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_urlopen)
-    destino_glb = tmp_path / "out" / "hero.glb"
-    meta = cloud_ai.gerar_malha_trellis(png_in, destino_glb, seed=7)
-    assert destino_glb.read_bytes() == glb_fake
-    assert chamadas[0]["url"] == "https://fal.run/fal-ai/trellis"
-    assert chamadas[0]["headers"]["authorization"] == f"Key {segredo}"
-    assert chamadas[1]["url"] == "https://cdn.fal.example/out.glb"
-    assert meta["ok"] is True
-    assert meta["provider_mesh"] == "trellis"
-    assert meta["licenca"]["uso_comercial"] is True
-    assert segredo not in json.dumps(meta)
+    out_dir = tmp_path / "c4v_noref"
+    res = concept.ConceptProvider().gerar(
+        {
+            "id": "prop.shield.01",
+            "tipo": "prop_equipavel",
+            "prompt": "ornate dwarven shield",
+            "provider_conceito": "gemini",
+            "vistas": 4,
+            "seed": 50,
+        },
+        out_dir,
+    )
+    assert len(chamadas) == 4
+    assert not any(p.get("type") == "image" for p in chamadas[0]["input"])
+    assert all(any(p.get("type") == "image" for p in c["input"]) for c in chamadas[1:])
+    assert res["meta"]["referencia_estilo"] is None
+    assert res["meta"]["referencia_estilo_sha256"] is None
+    assert (out_dir / "concept.json").is_file()
+    cjson = json.loads((out_dir / "concept.json").read_text(encoding="utf-8"))
+    assert cjson["prompt_final"]
+    assert set(cjson["vistas"]) == {"front", "back", "left", "right"}
+    for p_str in cjson["vistas"].values():
+        assert Path(p_str).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
-    def fake_err(req, timeout=180):
-        raise urllib.error.URLError(f"Authorization Key {segredo} denied")
 
-    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_err)
-    with pytest.raises(ForgeError) as exc_info:
-        cloud_ai.gerar_malha_trellis(png_in, tmp_path / "fail.glb", seed=1)
-    assert segredo not in str(exc_info.value)
-    assert "REDACTED" in str(exc_info.value)
+def test_spec_v6_subrotas_vistas_plan_budget_e_post_forward(tmp_path):
+    from forge3d import plan_budget, post, profiles, spec
+
+    ref_png = tmp_path / "ref.png"
+    ref_png.write_bytes(_png_bytes_rgba((10, 20, 30, 255)))
+    doc = {
+        "schema": "forge3d/spec@6",
+        "projeto": "m4_subrotas",
+        "perfil": "godot4",
+        "destino_exportacao": "~/.local/state/forge3d/saida/m4_sub",
+        "lote": [
+            {
+                "id": "sub.i23d.01",
+                "tipo": "prop_equipavel",
+                "parte": "elmo",
+                "rota": "i23d",
+                "origem": str(ref_png),
+                "prompt": "winged paladin helm",
+                "seed": 11,
+                "altura_metros": 0.35,
+                "pivot": "base",
+            },
+            {
+                "id": "sub.tmpl.01",
+                "tipo": "personagem_humanoide",
+                "rota": "template",
+                "prompt": "paladin knight",
+                "seed": 12,
+                "altura_metros": 1.8,
+                "pivot": "base",
+                "vistas": 4,
+                "referencia_estilo": str(ref_png),
+            },
+            {
+                "id": "sub.proc.01",
+                "tipo": "criatura_quadrupede",
+                "rota": "procedural",
+                "prompt": "stone hound",
+                "seed": 13,
+                "altura_metros": 1.2,
+                "pivot": "base",
+            },
+            {
+                "id": "sub.ext2d.01",
+                "tipo": "prop_equipavel",
+                "parte": "arma",
+                "rota": "extrude_2d",
+                "origem": str(ref_png),
+                "prompt": "runed sword",
+                "seed": 14,
+                "altura_metros": 1.0,
+                "pivot": "empunhadura",
+            },
+        ],
+    }
+    prep, perfil, _avisos = spec.preparar(doc)
+    assert [it["rota"] for it in prep["lote"]] == ["i23d", "template", "procedural", "extrude_2d"]
+    res_tmpl = spec.resolver_item(prep["lote"][1])
+    assert res_tmpl["vistas"] == 4
+    res_i23d = spec.resolver_item(prep["lote"][0])
+    assert "origem_hash" in res_i23d
+
+    orc = plan_budget.estimar_orcamento_cena(prep, perfil)
+    fontes = {it["id"]: it["fonte"] for it in orc["estimativa"]["itens"]}
+    assert fontes["sub.i23d.01"] == "i23d_heuristica"
+    assert fontes["sub.tmpl.01"] == "template_humanoide"
+    assert fontes["sub.proc.01"].startswith("procedural_")
+    assert fontes["sub.ext2d.01"] == "extrude_2d"
+
+    job_prep = post._preparar_job(
+        {
+            "saida_dir": str(tmp_path),
+            "item": {"id": "sub.tmpl.01", "vistas": 4, "vistas_ortograficas": {"front": "a.png"}},
+        }
+    )
+    assert job_prep["vistas"] == 4
+    assert job_prep["vistas_ortograficas"] == {"front": "a.png"}
+    assert post.PIPELINE_VERSION == "0.9.5"
+    assert profiles.carregar("godot4")["perfil"] == "godot4"
 
 
 def _desenhar_turntable_sintetico(
@@ -708,3 +808,232 @@ def test_colab_trellis_worker_gera_spec_v5_valido(tmp_path):
     doc_v6 = yaml.safe_load(yaml_str_v6)
     assert doc_v6["schema"] == "forge3d/spec@6"
     assert doc_v6["lote"][0]["qualidade"] == "hero"
+
+
+def test_spec_v6_origem_espacos_em_branco_rejeitada(tmp_path):
+    from forge3d import profiles, spec, spec_regras
+
+    for rota in ("i23d", "extrude_2d", "template", "import"):
+        doc = {
+            "schema": "forge3d/spec@6",
+            "projeto": "p_ws",
+            "perfil": "godot4",
+            "destino_exportacao": str(tmp_path / "out"),
+            "lote": [
+                {
+                    "id": f"a.{rota}",
+                    "tipo": "prop_estatico",
+                    "rota": rota,
+                    "altura_metros": 1.0,
+                    "origem": "   ",
+                }
+            ],
+        }
+        with pytest.raises(ForgeError) as exc:
+            spec.preparar(doc)
+        assert exc.value.codigo == "FORGE-E-SPEC"
+
+        perfil = profiles.carregar("godot4")
+        with pytest.raises(ForgeError) as exc_reg:
+            spec_regras.regras_negocio(doc, perfil)
+        assert exc_reg.value.codigo == "FORGE-E-SPEC"
+
+
+def test_concept_preflight_1arg_monkeypatch_e_vistas4_imagen(monkeypatch, tmp_path):
+    monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", "test_key_preflight")
+    monkeypatch.setenv("FORGE3D_GEMINI_MODELO", "imagen-3.0-generate-002")
+    ok_v4, razao_v4 = concept.ConceptProvider().preflight(
+        {"id": "v4.img", "prompt": "knight", "provider_conceito": "gemini", "vistas": 4}
+    )
+    assert ok_v4 is False
+    assert "gemini-*" in razao_v4
+
+    monkeypatch.setattr(concept, "preflight", lambda item: (True, f"ok:{item}"))
+    assert concept.ConceptProvider().preflight() == (True, "ok:None")
+
+    def fake_run(comando, **_kwargs):
+        saida = Path(comando[comando.index("--saida") + 1])
+        res_path = Path(comando[comando.index("--resultado") + 1])
+        Image.new("RGB", (32, 32), (100, 120, 140)).save(saida)
+        res_path.write_text(json.dumps({"ok": True, "modelo": "sd15", "seed": 1}), encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(concept.subprocess, "run", fake_run)
+    res = concept.ConceptProvider().gerar(
+        {"id": "c.sd15", "prompt": "knight", "provider_conceito": "sd15"},
+        tmp_path / "sd15_1arg",
+    )
+    assert res["png"].is_file()
+
+
+def test_concept_negativo_map_invalido_sem_id_seed_nulo_e_mime_magic(monkeypatch, tmp_path):
+    monkeypatch.setenv("FORGE3D_CONCEPT_NEGATIVO_MAP", "{bad_json")
+    with pytest.raises(ValueError, match="FORGE3D_CONCEPT_NEGATIVO_MAP"):
+        concept.negativo_efetivo({"prompt": "knight"})
+
+    monkeypatch.setenv("FORGE3D_CONCEPT_NEGATIVO_MAP", "[1, 2, 3]")
+    with pytest.raises(ValueError, match="objeto JSON"):
+        concept.negativo_efetivo({"prompt": "knight"})
+
+    monkeypatch.delenv("FORGE3D_CONCEPT_NEGATIVO_MAP", raising=False)
+    monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", "AIza_TEST_SEED_MIME")
+    monkeypatch.delenv("FORGE3D_GEMINI_MODELO", raising=False)
+
+    with pytest.raises(ForgeError) as exc_seed:
+        concept.ConceptProvider().gerar(
+            {"prompt": "knight", "provider_conceito": "gemini", "seed": None},
+            tmp_path / "seed_none",
+        )
+    assert exc_seed.value.codigo == "FORGE-E-PROVIDER-RUN"
+
+    b64_out = base64.b64encode(_png_bytes_rgba((50, 100, 150, 255))).decode("ascii")
+    mimes: list[str] = []
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {"steps": [{"type": "model_output", "content": [{"type": "image", "data": b64_out}]}]}
+            ).encode("utf-8")
+
+    def fake_urlopen(req, timeout=120):
+        body = json.loads(req.data.decode("utf-8"))
+        mimes.append(body["input"][1]["mime_type"])
+        return _FakeResp()
+
+    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_urlopen)
+    jpg_ref = tmp_path / "ref.jpg"
+    buf_jpg = io.BytesIO()
+    Image.new("RGB", (16, 16), (20, 30, 40)).save(buf_jpg, format="JPEG")
+    jpg_ref.write_bytes(buf_jpg.getvalue())
+    cloud_ai.gerar_conceito_gemini("knight", "", 1, tmp_path / "o1.png", referencia_png=jpg_ref)
+
+    webp_ref = tmp_path / "ref.webp"
+    webp_ref.write_bytes(b"RIFF\x10\x00\x00\x00WEBPVP8 ")
+    cloud_ai.gerar_conceito_gemini("knight", "", 2, tmp_path / "o2.png", referencia_png=webp_ref)
+    assert mimes == ["image/jpeg", "image/webp"]
+
+
+def test_plan_budget_rig_modo_none_e_template_nao_organico(tmp_path):
+    from forge3d import plan_budget, profiles, spec
+
+    doc = {
+        "schema": "forge3d/spec@6",
+        "projeto": "p_rig_none",
+        "perfil": "godot4-aa",
+        "destino_exportacao": str(tmp_path / "out"),
+        "orcamento_cena": {"triangulos_max": 400000, "draw_calls_max": 50, "vram_mb_max": 200},
+        "lote": [
+            {
+                "id": "prop.crate.01",
+                "tipo": "prop_estatico",
+                "rota": "blocky",
+                "altura_metros": 1.0,
+                "quantidade_cena": 100,
+                "rig": {"modo": "none"},
+            }
+        ],
+    }
+    s, p, _ = spec.preparar(doc)
+    orc = plan_budget.estimar_orcamento_cena(s, p)
+    assert orc["estimativa"]["itens"][0]["skinned"] is False
+    assert orc["estimativa"]["draw_calls_estimados"] == 1
+    assert orc["estimativa"]["status"] == "ok"
+
+    perfil = profiles.carregar("godot4-aa")
+    est_prop = plan_budget._estimar_item_calibrado(
+        {"id": "t.prop", "tipo": "prop_estatico", "rota": "template", "limite_triangulos": 1000},
+        {"schema": "forge3d/spec@6"},
+        perfil,
+    )
+    assert est_prop["skinned"] is False
+    est_hum_none = plan_budget._estimar_item_calibrado(
+        {
+            "id": "t.hum",
+            "tipo": "personagem_humanoide",
+            "rota": "template",
+            "limite_triangulos": 1000,
+            "rig": {"modo": "none"},
+        },
+        {"schema": "forge3d/spec@6"},
+        perfil,
+    )
+    assert est_hum_none["skinned"] is False
+
+
+def test_sd15_seed_nulo_preflight_item_b23_whitespace_e_qa_mime(monkeypatch, tmp_path):
+    from forge3d import profiles, spec_regras
+
+    # 1) ConceptProvider.gerar com sd15 passa item ao preflight (nao cai no Gemini mesmo com chave ativa)
+    monkeypatch.setenv("FORGE3D_GEMINI_API_KEY", "AIza_SHOULD_NOT_BYPASS_SD15_PREFLIGHT")
+    monkeypatch.setenv("FORGE3D_VENV_CONCEPT", str(tmp_path / "venv_inexistente"))
+    with pytest.raises(ForgeError) as exc_pf:
+        concept.ConceptProvider().gerar(
+            {"id": "c.sd15.pf", "prompt": "knight", "provider_conceito": "sd15"},
+            tmp_path / "sd15_pf",
+        )
+    assert exc_pf.value.codigo == "FORGE-E-PROVIDER-RUN"
+    assert "venv" in str(exc_pf.value).lower()
+
+    # 2) {"seed": None} em sd15 levanta ForgeError FORGE-E-PROVIDER-RUN (simetrico a gemini/higgsfield)
+    monkeypatch.setattr(concept, "preflight", lambda item=None: (True, "ok"))
+    with pytest.raises(ForgeError) as exc_seed_sd15:
+        concept.ConceptProvider().gerar(
+            {"id": "c.sd15.seed", "prompt": "knight", "provider_conceito": "sd15", "seed": None},
+            tmp_path / "sd15_seed_none",
+        )
+    assert exc_seed_sd15.value.codigo == "FORGE-E-PROVIDER-RUN"
+
+    # 3) B23 direta em regras_negocio com origem whitespace + referencia_estilo valida nao gera falso B23
+    ref_png = tmp_path / "ref_b23.png"
+    ref_png.write_bytes(_png_bytes_rgba((40, 80, 120, 255)))
+    perfil = profiles.carregar("godot4")
+    spec_regras.regras_negocio(
+        {
+            "lote": [
+                {
+                    "id": "mesh.b23.ws",
+                    "tipo": "prop_estatico",
+                    "rota": "mesh",
+                    "seed": 7,
+                    "origem": "   ",
+                    "referencia_estilo": str(ref_png),
+                }
+            ]
+        },
+        perfil,
+    )
+
+    # 4) avaliar_qualidade_visual_gemini usa _inferir_mime_imagem para JPEG
+    jpg_qa = tmp_path / "render.jpg"
+    buf_qa = io.BytesIO()
+    Image.new("RGB", (16, 16), (90, 90, 90)).save(buf_qa, format="JPEG")
+    jpg_qa.write_bytes(buf_qa.getvalue())
+    mimes_qa: list[str] = []
+
+    class _FakeRespQA:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {"outputs": [{"text": '{"aprovado": true, "nota": 9.0, "defeitos": []}'}]}
+            ).encode("utf-8")
+
+    def fake_urlopen_qa(req, timeout=120):
+        body = json.loads(req.data.decode("utf-8"))
+        mimes_qa.append(body["input"][1]["mime_type"])
+        return _FakeRespQA()
+
+    monkeypatch.setattr(cloud_ai.urllib.request, "urlopen", fake_urlopen_qa)
+    res_qa = cloud_ai.avaliar_qualidade_visual_gemini(jpg_qa)
+    assert res_qa["aprovado"] is True
+    assert mimes_qa == ["image/jpeg"]

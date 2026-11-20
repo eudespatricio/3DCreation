@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Worker autossuficiente para rodar JeffreyXiang/TRELLIS (MIT) no Google Colab AI Ultra.
+"""Worker autossuficiente para rodar TRELLIS.2-4B e Pixal3D (MIT) no Google Colab AI Ultra.
 
-Pensado para GPUs de 24-40 GB VRAM (NVIDIA L4 / A100 no Colab) sobre uma pasta de
-conceitos PNG, exportando ativos ``.glb`` e um snippet YAML ``forge3d/spec@5`` com
-``requisicao.base_externa`` e hashes ``sha256`` pronto para importacao no Forge3D.
+Pensado para GPUs de 24-40 GB VRAM (NVIDIA L4 / A100 no Colab) sobre uma pasta com
+conceitos PNG individuais (single-view) ou subpastas 4-vistas ortograficas
+(``front.png``, ``back.png``, ``left.png``, ``right.png``), exportando ativos ``.glb``
+e um snippet YAML ``forge3d/spec@6`` (ou ``spec@5``) com ``requisicao.base_externa``
+e hashes ``sha256`` pronto para ``rota: "import"`` no Forge3D.
 
 Setup rapido no Google Colab (GPU L4/A100)::
 
-    !git clone --recurse-submodules https://github.com/JeffreyXiang/TRELLIS.git
-    %cd TRELLIS
+    !git clone --recurse-submodules https://github.com/microsoft/TRELLIS.2.git
+    %cd TRELLIS.2
     !pip install -q pillow pyyaml imageio trimesh xatlas easydict
     !python colab_trellis_worker.py \\
         --input-dir ./concepts \\
         --output-dir ./glbs \\
         --yaml-out ./spec_trellis.yaml
 
-O YAML gerado segue o contrato ``forge3d/spec@5`` sem caminhos pessoais fixos ou
+O YAML gerado segue o contrato ``forge3d/spec@6`` sem caminhos pessoais fixos ou
 nomes de projeto especificos (I15).
 """
 
@@ -23,13 +25,40 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
+import json
 import os
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
-MODELO_TRELLIS_PADRAO = "JeffreyXiang/TRELLIS-image-large"
+MODELO_TRELLIS_PADRAO = "microsoft/TRELLIS.2-4B"
+
+MODELOS_TRELLIS_MIT: dict[str, str] = {
+    "microsoft/TRELLIS.2-4B": "microsoft/TRELLIS.2-4B",
+    "TRELLIS.2-4B": "microsoft/TRELLIS.2-4B",
+    "microsoft/TRELLIS.2": "microsoft/TRELLIS.2-4B",
+    "JeffreyXiang/TRELLIS.2-4B": "JeffreyXiang/TRELLIS.2-4B",
+    "TencentARC/Pixal3D": "TencentARC/Pixal3D",
+    "Pixal3D": "TencentARC/Pixal3D",
+    "microsoft/TRELLIS-image-large": "microsoft/TRELLIS-image-large",
+    "JeffreyXiang/TRELLIS-image-large": "JeffreyXiang/TRELLIS-image-large",
+    "TRELLIS-image-large": "microsoft/TRELLIS-image-large",
+}
+
+VISTAS_MULTIVIEW = ("front.png", "back.png", "left.png", "right.png")
+
+
+def validar_modelo_trellis(modelo: str) -> str:
+    """Valida que ``modelo`` pertence a allowlist comercial MIT/Apache suportada."""
+    chave = str(modelo or "").strip()
+    if chave in MODELOS_TRELLIS_MIT:
+        return MODELOS_TRELLIS_MIT[chave]
+    aceitos = ", ".join(sorted(MODELOS_TRELLIS_MIT))
+    raise ValueError(
+        f"modelo '{modelo}' fora da allowlist comercial MIT (TRELLIS.2-4B / Pixal3D). Aceitos: {aceitos}"
+    )
 
 
 def sha256_arquivo(caminho: Path) -> str:
@@ -43,15 +72,38 @@ def sha256_arquivo(caminho: Path) -> str:
     return f"sha256:{h.hexdigest()}"
 
 
+def _validar_seed(seed: int) -> int:
+    val = int(seed)
+    if val < 0 or val > 4294967295:
+        raise ValueError(f"seed fora do intervalo valido [0, 4294967295]: {seed}")
+    return val
+
+
 def _slug_item(stem: str) -> str:
     limpo = re.sub(r"[^a-z0-9_]+", "_", stem.lower()).strip("_")
+    limpo = limpo[:64].strip("_")
     return limpo or "asset"
+
+
+def _deduplicar_stem(stem: str, usados_lower: set[str]) -> str:
+    base = stem.strip() or "asset"
+    cand = base
+    sufixo = 2
+    while cand.lower() in usados_lower:
+        cand = f"{base}_{sufixo}"
+        sufixo += 1
+    usados_lower.add(cand.lower())
+    return cand
+
+
+def _yaml_str(valor: Any) -> str:
+    return json.dumps(str(valor), ensure_ascii=False)
 
 
 def gerar_yaml_spec(
     entradas: list[dict[str, Any]],
     *,
-    schema_version: int = 5,
+    schema_version: int = 6,
     perfil: str = "godot4",
     tipo: str = "personagem_humanoide",
     altura_metros: float = 1.8,
@@ -59,41 +111,54 @@ def gerar_yaml_spec(
     projeto: str = "trellis_colab",
     qualidade: str = "standard",
 ) -> str:
-    """Constroi documento ``forge3d/spec@5`` ou ``forge3d/spec@6`` valido com ``requisicao.base_externa``."""
-    ver = 6 if int(schema_version) == 6 else 5
+    """Constroi documento ``forge3d/spec@6`` ou ``forge3d/spec@5`` valido com ``requisicao.base_externa``."""
+    ver = int(schema_version)
+    if ver not in (5, 6):
+        raise ValueError(f"schema_version invalido: {schema_version} (aceitos: 5, 6)")
+    if not entradas:
+        raise ValueError("entradas nao pode ser vazio para gerar spec YAML")
+
+    primeira = entradas[0]
+    seed_base = _validar_seed(primeira["seed"])
     linhas: list[str] = [
         f'schema: "forge3d/spec@{ver}"',
-        f'projeto: "{projeto}"',
-        f'perfil: "{perfil}"',
-        f'destino_exportacao: "{destino_exportacao}"',
+        f"projeto: {_yaml_str(projeto)}",
+        f"perfil: {_yaml_str(perfil)}",
+        f"destino_exportacao: {_yaml_str(destino_exportacao)}",
+        "requisicao:",
+        "  base_externa:",
+        f"    tipo: {_yaml_str(tipo)}",
+        f"    origem: {_yaml_str(primeira['glb_rel'])}",
+        f"    sha256: {_yaml_str(primeira['sha256'])}",
+        f"    seed: {seed_base}",
+        "lote:",
     ]
-    if entradas:
-        primeira = entradas[0]
-        linhas.extend(
-            [
-                "requisicao:",
-                "  base_externa:",
-                f'    tipo: "{tipo}"',
-                f'    origem: "{primeira["glb_rel"]}"',
-                f'    sha256: "{primeira["sha256"]}"',
-                f'    seed: {int(primeira["seed"])}',
-            ]
-        )
-    linhas.append("lote:")
+    slugs_usados: set[str] = set()
     for ent in entradas:
-        slug = _slug_item(ent["stem"])
+        if "seed" in ent:
+            _validar_seed(ent["seed"])
+        base_slug = _slug_item(str(ent["stem"]))
+        slug = base_slug
+        sufixo = 2
+        while slug in slugs_usados:
+            suf_str = f"_{sufixo}"
+            raiz_slug = (base_slug[: max(1, 72 - len(suf_str))].rstrip("_")) or "asset"
+            slug = f"{raiz_slug}{suf_str}"
+            sufixo += 1
+        slugs_usados.add(slug)
+
         linhas.extend(
             [
-                f'  - id: "trellis.{slug}"  # {ent["sha256"]}',
-                f'    tipo: "{tipo}"',
+                f"  - id: {_yaml_str(f'trellis.{slug}')}  # {ent['sha256']}",
+                f"    tipo: {_yaml_str(tipo)}",
                 '    rota: "import"',
-                f'    origem: "{ent["glb_rel"]}"',
+                f"    origem: {_yaml_str(ent['glb_rel'])}",
                 f"    altura_metros: {float(altura_metros):.2f}",
                 '    estilo: "stylized_pbr"',
             ]
         )
         if ver == 6 and qualidade and qualidade != "standard":
-            linhas.append(f'    qualidade: "{qualidade}"')
+            linhas.append(f"    qualidade: {_yaml_str(qualidade)}")
     return "\n".join(linhas) + "\n"
 
 
@@ -141,18 +206,129 @@ def gerar_yaml_spec_v6(
     )
 
 
+def _candidatos_pipeline(modelo_id: str) -> list[tuple[str, str]]:
+    baixo = modelo_id.lower()
+    if "pixal3d" in baixo:
+        return [
+            ("pixal3d.pipelines", "Pixal3DPipeline"),
+            ("trellis.pipelines", "Pixal3DPipeline"),
+            ("trellis.pipelines", "TrellisImageTo3DPipeline"),
+        ]
+    if "trellis.2" in baixo:
+        return [
+            ("trellis2.pipelines", "Trellis2ImageTo3DPipeline"),
+            ("trellis.pipelines", "Trellis2ImageTo3DPipeline"),
+            ("trellis.pipelines", "TrellisImageTo3DPipeline"),
+        ]
+    return [("trellis.pipelines", "TrellisImageTo3DPipeline")]
+
+
 def carregar_pipeline_trellis(modelo: str) -> Any:
-    """Importa e instancia ``TrellisImageTo3DPipeline`` sob demanda no ambiente Colab."""
+    """Importa e instancia pipeline MIT (``TRELLIS.2-4B``, ``Pixal3D`` ou fallback ``TRELLIS``)."""
+    modelo_id = validar_modelo_trellis(modelo)
     os.environ.setdefault("SPCONV_ALGO", "native")
-    try:
-        from trellis.pipelines import TrellisImageTo3DPipeline  # type: ignore[import-not-found]
-    except ImportError as exc:  # pragma: no cover - depende de ambiente GPU Colab
-        raise RuntimeError(
-            "Pacote 'trellis' nao encontrado. Clone JeffreyXiang/TRELLIS e adicione ao PYTHONPATH."
-        ) from exc
-    pipeline = TrellisImageTo3DPipeline.from_pretrained(modelo)
-    pipeline.cuda()
-    return pipeline
+    ultimo_erro: Exception | None = None
+    for mod_nome, cls_nome in _candidatos_pipeline(modelo_id):
+        try:
+            modulo = importlib.import_module(mod_nome)
+            cls = getattr(modulo, cls_nome, None)
+            if cls is None:
+                ultimo_erro = AttributeError(f"{mod_nome}.{cls_nome} ausente")
+                continue
+            pipeline = cls.from_pretrained(modelo_id)
+        except ImportError as exc:
+            ultimo_erro = exc
+            continue
+        if hasattr(pipeline, "cuda"):
+            pipeline.cuda()
+        return pipeline
+    raise RuntimeError(
+        f"Nenhum pipeline compativel encontrado para '{modelo_id}' (instale TRELLIS.2, Pixal3D ou TRELLIS)."
+    ) from ultimo_erro
+
+
+def _resolver_postprocessing(modelo_id: str) -> Any:
+    baixo = modelo_id.lower()
+    if "pixal3d" in baixo:
+        modulos = (
+            "pixal3d.utils.postprocessing_utils",
+            "trellis.utils.postprocessing_utils",
+            "trellis2.utils.postprocessing_utils",
+        )
+    elif "trellis.2" in baixo:
+        modulos = (
+            "trellis2.utils.postprocessing_utils",
+            "trellis.utils.postprocessing_utils",
+            "pixal3d.utils.postprocessing_utils",
+        )
+    else:
+        modulos = (
+            "trellis.utils.postprocessing_utils",
+            "trellis2.utils.postprocessing_utils",
+            "pixal3d.utils.postprocessing_utils",
+        )
+    ultimo_erro: Exception | None = None
+    for mod_nome in modulos:
+        try:
+            return importlib.import_module(mod_nome)
+        except ImportError as exc:
+            ultimo_erro = exc
+    raise RuntimeError("Modulo 'postprocessing_utils' indisponivel.") from ultimo_erro
+
+
+def _exportar_saida_pipeline(
+    outputs: Any,
+    modelo_id: str,
+    *,
+    simplify: float,
+    texture_size: int,
+) -> Any:
+    if isinstance(outputs, dict) and "gaussian" in outputs and "mesh" in outputs:
+        pp = _resolver_postprocessing(modelo_id)
+        return pp.to_glb(
+            outputs["gaussian"][0],
+            outputs["mesh"][0],
+            simplify=float(simplify),
+            texture_size=int(texture_size),
+        )
+    if hasattr(outputs, "export"):
+        return outputs
+    if isinstance(outputs, (list, tuple)) and outputs and hasattr(outputs[0], "export"):
+        return outputs[0]
+    raise RuntimeError(f"Saida inesperada do pipeline '{modelo_id}': {type(outputs).__name__}")
+
+
+def _coletar_jobs(input_dir: Path) -> list[tuple[str, list[Path]]]:
+    if not input_dir.is_dir():
+        raise FileNotFoundError(f"pasta de entrada inexistente: {input_dir}")
+
+    jobs: list[tuple[str, list[Path]]] = []
+    stems_usados: set[str] = set()
+    for entry in sorted(input_dir.iterdir(), key=lambda p: p.name.lower()):
+        if entry.is_file() and entry.suffix.lower() == ".png":
+            stem = _deduplicar_stem(entry.stem, stems_usados)
+            jobs.append((stem, [entry]))
+        elif entry.is_dir():
+            por_nome = {p.name.lower(): p for p in entry.iterdir() if p.is_file()}
+            encontradas = [por_nome[vista] for vista in VISTAS_MULTIVIEW if vista in por_nome]
+            if len(encontradas) == 4:
+                stem = _deduplicar_stem(entry.name, stems_usados)
+                jobs.append((stem, encontradas))
+            elif encontradas:
+                faltando = [v for v in VISTAS_MULTIVIEW if v not in por_nome]
+                raise FileNotFoundError(
+                    f"pasta multivista incompleta '{entry}': faltando {', '.join(faltando)}"
+                )
+            elif any(p.suffix.lower() == ".png" for p in por_nome.values()):
+                raise FileNotFoundError(
+                    f"pasta multivista '{entry}' sem vistas padrao ({', '.join(VISTAS_MULTIVIEW)})"
+                )
+
+    if not jobs:
+        raise FileNotFoundError(
+            f"nenhum PNG ou subpasta 4-vistas ({', '.join(VISTAS_MULTIVIEW)}) encontrado em {input_dir}"
+        )
+    return jobs
 
 
 def processar_pasta(
@@ -165,45 +341,58 @@ def processar_pasta(
     texture_size: int = 1024,
     pipeline: Any = None,
 ) -> list[dict[str, Any]]:
-    """Converte todos os ``*.png`` de ``input_dir`` em ``.glb`` via TRELLIS (MIT)."""
+    """Converte PNGs (1-view) e subpastas 4-vistas de ``input_dir`` em ``.glb`` via TRELLIS.2/Pixal3D (MIT)."""
     from PIL import Image
 
-    pngs = sorted(p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() == ".png")
-    if not pngs:
-        raise FileNotFoundError(f"nenhum PNG encontrado em {input_dir}")
+    modelo_id = validar_modelo_trellis(modelo)
+    seed_inicial = _validar_seed(seed)
+    jobs = _coletar_jobs(input_dir)
+    _validar_seed(seed_inicial + len(jobs) - 1)
+
+    jobs_carregados: list[tuple[str, list[Path], list[Any]]] = []
+    for stem, paths in jobs:
+        imagens: list[Any] = []
+        for p in paths:
+            with Image.open(p) as im:
+                im.load()
+                imagens.append(im.convert("RGBA"))
+        jobs_carregados.append((stem, paths, imagens))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     if pipeline is None:
-        pipeline = carregar_pipeline_trellis(modelo)
-
-    try:
-        from trellis.utils import postprocessing_utils  # type: ignore[import-not-found]
-    except ImportError as exc:  # pragma: no cover - depende de ambiente GPU Colab
-        raise RuntimeError("Modulo 'trellis.utils.postprocessing_utils' indisponivel.") from exc
+        pipeline = carregar_pipeline_trellis(modelo_id)
 
     resultados: list[dict[str, Any]] = []
-    for idx, png_path in enumerate(pngs):
-        item_seed = int(seed) + idx
-        with Image.open(png_path) as im:
-            imagem = im.convert("RGBA")
-        outputs = pipeline.run(imagem, seed=item_seed)
-        glb = postprocessing_utils.to_glb(
-            outputs["gaussian"][0],
-            outputs["mesh"][0],
-            simplify=float(simplify),
-            texture_size=int(texture_size),
+    glbs_escritos: set[Path] = set()
+    for idx, (stem, paths, imagens) in enumerate(jobs_carregados):
+        item_seed = seed_inicial + idx
+        entrada_pipe: Any = imagens[0] if len(imagens) == 1 else imagens
+        outputs = pipeline.run(entrada_pipe, seed=item_seed)
+        glb = _exportar_saida_pipeline(
+            outputs,
+            modelo_id,
+            simplify=simplify,
+            texture_size=texture_size,
         )
-        destino_glb = output_dir / f"{png_path.stem}.glb"
+        stem_final = stem
+        sufixo = 2
+        while (output_dir / f"{stem_final}.glb") in glbs_escritos:
+            stem_final = f"{stem}_{sufixo}"
+            sufixo += 1
+        destino_glb = output_dir / f"{stem_final}.glb"
+        glbs_escritos.add(destino_glb)
         glb.export(str(destino_glb))
         digest = sha256_arquivo(destino_glb)
         resultados.append(
             {
-                "stem": png_path.stem,
-                "png": str(png_path),
+                "stem": stem_final,
+                "png": str(paths[0]),
+                "vistas": [str(p) for p in paths],
                 "glb": str(destino_glb),
                 "glb_rel": str(destino_glb),
                 "sha256": digest,
                 "seed": item_seed,
+                "modelo": modelo_id,
             }
         )
     return resultados
@@ -211,12 +400,27 @@ def processar_pasta(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Batch JeffreyXiang/TRELLIS (MIT) para Google Colab AI Ultra -> GLB + spec@5/spec@6"
+        description=(
+            "Batch TRELLIS.2-4B / Pixal3D (MIT) para Google Colab AI Ultra "
+            "(single-view e 4-vistas) -> GLB + forge3d/spec@6"
+        )
     )
-    parser.add_argument("--input-dir", type=Path, required=True, help="Pasta com imagens PNG")
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        required=True,
+        help="Pasta com PNGs ou subpastas 4-vistas (front.png, back.png, left.png, right.png)",
+    )
     parser.add_argument("--output-dir", type=Path, required=True, help="Pasta de saida dos GLBs")
     parser.add_argument("--yaml-out", type=Path, default=None, help="Arquivo YAML spec de saida")
-    parser.add_argument("--model", default=MODELO_TRELLIS_PADRAO, help="Checkpoint HuggingFace TRELLIS")
+    parser.add_argument(
+        "--model",
+        default=MODELO_TRELLIS_PADRAO,
+        help=(
+            "Modelo comercial MIT (padrao: microsoft/TRELLIS.2-4B; "
+            "aceitos: TRELLIS.2-4B, Pixal3D, TencentARC/Pixal3D, TRELLIS-image-large)"
+        ),
+    )
     parser.add_argument("--seed", type=int, default=1, help="Seed inicial deterministica")
     parser.add_argument("--simplify", type=float, default=0.95, help="Taxa de simplificacao da malha")
     parser.add_argument("--texture-size", type=int, default=1024, help="Resolucao da textura bakeada")
@@ -238,22 +442,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    entradas = processar_pasta(
-        args.input_dir,
-        args.output_dir,
-        modelo=args.model,
-        seed=args.seed,
-        simplify=args.simplify,
-        texture_size=args.texture_size,
-    )
-    yaml_txt = gerar_yaml_spec(
-        entradas,
-        schema_version=args.schema_version,
-        perfil=args.perfil,
-        tipo=args.tipo,
-        altura_metros=args.altura,
-        qualidade=args.qualidade,
-    )
+    try:
+        validar_modelo_trellis(args.model)
+        _validar_seed(args.seed)
+        entradas = processar_pasta(
+            args.input_dir,
+            args.output_dir,
+            modelo=args.model,
+            seed=args.seed,
+            simplify=args.simplify,
+            texture_size=args.texture_size,
+        )
+        yaml_txt = gerar_yaml_spec(
+            entradas,
+            schema_version=args.schema_version,
+            perfil=args.perfil,
+            tipo=args.tipo,
+            altura_metros=args.altura,
+            qualidade=args.qualidade,
+        )
+    except ValueError as exc:
+        print(f"ERRO: {exc}", file=sys.stderr)
+        return 2
+    except (FileNotFoundError, OSError, RuntimeError) as exc:
+        print(f"ERRO: {exc}", file=sys.stderr)
+        return 1
+
     if args.yaml_out is not None:
         args.yaml_out.parent.mkdir(parents=True, exist_ok=True)
         args.yaml_out.write_text(yaml_txt, encoding="utf-8")

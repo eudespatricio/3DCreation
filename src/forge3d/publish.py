@@ -214,6 +214,18 @@ def montar_manifesto(
         if modo_rig in ("motor6d", "bone"):
             rig["modo_rig_roblox"] = str(modo_rig)
 
+    # F2: modo de rig pedido + ancoras medidas por parte (o consumidor monta por junta)
+    modo_pedido = str((item.get("rig") or {}).get("modo") or "")
+    if modo_pedido:
+        if rig is None:
+            rig = {"esqueleto": esqueleto_alvo, "ossos": max(1, int(medidas.get("ossos") or 0))}
+        rig["modo"] = modo_pedido
+    ancoras = resultado.get("ancoras")
+    if rig is not None and isinstance(ancoras, dict) and ancoras:
+        rig["ancoras"] = {
+            str(k): [float(v[0]), float(v[1]), float(v[2])] for k, v in ancoras.items()
+        }
+
     orientacao_export = resultado.get("orientacao_export") or medidas.get("orientacao_export")
     sockets_meta = (
         resultado.get("sockets") if "sockets" in resultado else medidas.get("sockets")
@@ -225,6 +237,7 @@ def montar_manifesto(
         "asset_id": item["id"],
         "projeto": spec_doc["projeto"],
         "perfil": perfil_nome,
+        **({"tipo": str(item["tipo"])} if item.get("tipo") else {}),
         "rota": item["rota"],
         "tags": list(item.get("tags") or []),
         "spec_hash": spec_hash,
@@ -289,6 +302,7 @@ def montar_manifesto(
             for c in medidas.get("animacoes") or []
         ],
         "rig": rig,
+        **({"partes": list(resultado["partes"])} if resultado.get("partes") else {}),
         **({"anexo": anexo} if anexo is not None else {}),
         "lod": lods,
         "colisao": {

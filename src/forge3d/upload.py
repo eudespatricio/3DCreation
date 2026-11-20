@@ -9,39 +9,36 @@ from __future__ import annotations
 
 import json
 import os
-import struct
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from . import paths
 from .errors import erro_recurso, erro_upload
+from .upload_glb import (
+    _CHUNK_BIN,
+    _CHUNK_JSON,
+    _GLB_MAGIC,
+    _SUFIXOS_PBR_CANAL,
+    inferir_papel_textura_roblox,
+    remover_imagens_embutidas_glb,
+)
+from .upload_ledger import (
+    TIPOS_ANIMACAO,
+    TIPOS_IMAGEM,
+    TIPOS_MODEL,
+    _extrair_entradas_ledger,
+    _inferir_role_e_base,
+    asset_ids_do_ledger,
+    formatar_rbxassetid,
+    resolver_ledger,
+)
 
 API_PADRAO = "https://apis.roblox.com"
 TAMANHO_MAX = 20 * 1024 * 1024
-TIPOS_MODEL = {
-    ".glb": "model/gltf-binary",
-    ".gltf": "model/gltf+json",
-    ".fbx": "model/fbx",
-    ".rbxm": "model/x-rbxm",
-    ".rbxmx": "model/x-rbxm",
-}
-TIPOS_ANIMACAO = {
-    ".rbxm": "model/x-rbxm",
-    ".rbxmx": "model/x-rbxm",
-}
-TIPOS_IMAGEM = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".bmp": "image/bmp",
-    ".tga": "image/tga",
-}
 
 __all__ = [
     "asset_ids_do_ledger",
@@ -53,257 +50,15 @@ __all__ = [
     "resolver_ledger",
 ]
 
-
-_SUFIXOS_PBR_CANAL = (
-    ("_basecolor", "ColorMap"),
-    ("_albedo", "ColorMap"),
-    ("_colormap", "ColorMap"),
-    ("_normalmap", "NormalMap"),
-    ("_normal", "NormalMap"),
-    ("_roughnessmap", "RoughnessMap"),
-    ("_roughness", "RoughnessMap"),
-    ("_orm", "OrmPacked"),
-    ("_metalnessmap", "MetalnessMap"),
-    ("_metalness", "MetalnessMap"),
-    ("_metallic", "MetalnessMap"),
+# Re-exports internos mantidos para compatibilidade com callers/testes legados.
+_COMPAT_INTERNOS = (
+    _CHUNK_BIN,
+    _CHUNK_JSON,
+    _GLB_MAGIC,
+    _SUFIXOS_PBR_CANAL,
+    _extrair_entradas_ledger,
+    _inferir_role_e_base,
 )
-
-_GLB_MAGIC = 0x46546C67
-_CHUNK_JSON = 0x4E4F534A
-_CHUNK_BIN = 0x004E4942
-
-
-def inferir_papel_textura_roblox(
-    caminho: str | Path,
-    papel_manifesto: str | None = None,
-) -> str | None:
-    """Resolve o canal Roblox de uma textura PBR sem mapear ``_orm`` para ``RoughnessMap``."""
-    p_low = str(papel_manifesto or "").strip().lower()
-    if p_low in ("orm", "ormpacked"):
-        return "OrmPacked"
-    aliases_estritos = {
-        "textura": "ColorMap",
-        "basecolor": "ColorMap",
-        "albedo": "ColorMap",
-        "colormap": "ColorMap",
-        "color_map": "ColorMap",
-        "normal": "NormalMap",
-        "normalmap": "NormalMap",
-        "normal_map": "NormalMap",
-        "roughness": "RoughnessMap",
-        "roughnessmap": "RoughnessMap",
-        "roughness_map": "RoughnessMap",
-        "metallic": "MetalnessMap",
-        "metalness": "MetalnessMap",
-        "metalnessmap": "MetalnessMap",
-        "metalness_map": "MetalnessMap",
-    }
-    if p_low in aliases_estritos and p_low != "textura":
-        return aliases_estritos[p_low]
-
-    nome = str(caminho or "").replace("\\", "/").rsplit("/", 1)[-1]
-    stem = nome.rsplit(".", 1)[0].lower()
-    if stem.endswith("_orm") or stem == "orm":
-        return "OrmPacked"
-    for sufixo, canal in _SUFIXOS_PBR_CANAL:
-        if stem.endswith(sufixo) or stem == sufixo.lstrip("_"):
-            return canal
-    return aliases_estritos.get(p_low)
-
-
-def remover_imagens_embutidas_glb(glb_bytes: bytes) -> tuple[bytes, dict[str, Any]]:
-    """Remove imagens PNG/JPEG embutidas do GLB em memoria mantendo UVs, Tangents e geometria."""
-    if len(glb_bytes) < 12:
-        raise ValueError("GLB truncado (< 12 bytes)")
-    magic, versao, _tam = struct.unpack_from("<III", glb_bytes, 0)
-    if magic != _GLB_MAGIC:
-        raise ValueError("Arquivo nao possui cabecalho glTF binary (GLB)")
-
-    offset = 12
-    json_raw: bytes | None = None
-    bin_raw = b""
-    outros_chunks: list[tuple[int, bytes]] = []
-    while offset + 8 <= len(glb_bytes):
-        tam_chunk, tipo_chunk = struct.unpack_from("<II", glb_bytes, offset)
-        offset += 8
-        dados = glb_bytes[offset : offset + tam_chunk]
-        offset += tam_chunk
-        if tipo_chunk == _CHUNK_JSON and json_raw is None:
-            json_raw = dados
-        elif tipo_chunk == _CHUNK_BIN and not bin_raw:
-            bin_raw = dados
-        else:
-            outros_chunks.append((tipo_chunk, dados))
-
-    if json_raw is None:
-        raise ValueError("GLB sem chunk JSON")
-
-    gltf = json.loads(json_raw.decode("utf-8"))
-    imgs_removidas = len(gltf.get("images") or [])
-    texs_removidas = len(gltf.get("textures") or [])
-    gltf.pop("images", None)
-    gltf.pop("textures", None)
-    gltf.pop("samplers", None)
-
-    for mat in gltf.get("materials") or []:
-        pbr = mat.get("pbrMetallicRoughness")
-        if isinstance(pbr, dict):
-            pbr.pop("baseColorTexture", None)
-            pbr.pop("metallicRoughnessTexture", None)
-        for campo in ("normalTexture", "occlusionTexture", "emissiveTexture"):
-            mat.pop(campo, None)
-
-    json_bytes = json.dumps(gltf, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    pad_json = (4 - (len(json_bytes) % 4)) % 4
-    json_bytes_padded = json_bytes + (b" " * pad_json)
-
-    chunks: list[tuple[int, bytes]] = [(_CHUNK_JSON, json_bytes_padded)]
-    if bin_raw:
-        pad_bin = (4 - (len(bin_raw) % 4)) % 4
-        chunks.append((_CHUNK_BIN, bin_raw + (b"\x00" * pad_bin)))
-    for tc, dc in outros_chunks:
-        pad_o = (4 - (len(dc) % 4)) % 4
-        chunks.append((tc, dc + (b"\x00" * pad_o)))
-
-    total_bytes = 12 + sum(8 + len(d) for _, d in chunks)
-    saida = bytearray(struct.pack("<III", magic, versao, total_bytes))
-    for tc, dc in chunks:
-        saida.extend(struct.pack("<II", len(dc), tc))
-        saida.extend(dc)
-
-    return bytes(saida), {
-        "imagens_removidas": imgs_removidas,
-        "texturas_removidas": texs_removidas,
-        "bytes_antes": len(glb_bytes),
-        "bytes_depois": len(saida),
-    }
-
-
-def formatar_rbxassetid(valor: str | int) -> str:
-    """Normaliza um ID numerico ou URI para ``rbxassetid://<id>``."""
-    limpo = str(valor).strip()
-    if not limpo:
-        return ""
-    if limpo.startswith("rbxassetid://"):
-        return limpo
-    return f"rbxassetid://{limpo}"
-
-
-def _inferir_role_e_base(rec: Mapping, logical_id: str, arquivo: str) -> tuple[str, str | None]:
-    role = str(rec.get("role") or rec.get("papel") or rec.get("canal") or "").strip()
-    if role.lower() == "orm":
-        role = "OrmPacked"
-    base_id: str | None = None
-    nome_arq = Path(arquivo).name.lower() if arquivo else ""
-    id_low = logical_id.lower()
-
-    for sufixo, canal in _SUFIXOS_PBR_CANAL:
-        if id_low.endswith(sufixo) and len(logical_id) > len(sufixo):
-            base_id = logical_id[: -len(sufixo)]
-            if not role:
-                role = canal
-            break
-
-    if not role and nome_arq:
-        stem_arq = Path(nome_arq).stem
-        for sufixo, canal in _SUFIXOS_PBR_CANAL:
-            if stem_arq.endswith(sufixo) or stem_arq == sufixo.lstrip("_"):
-                role = canal
-                break
-        if not role:
-            ext = Path(nome_arq).suffix
-            if ext in TIPOS_MODEL:
-                role = "mesh"
-            elif ext in TIPOS_IMAGEM:
-                role = "textura"
-
-    if not role:
-        asset_type = str(rec.get("asset_type") or rec.get("assetType") or "").strip().lower()
-        if asset_type == "model":
-            role = "mesh"
-        elif asset_type == "animation":
-            role = "animacao"
-        elif asset_type in ("image", "decal"):
-            role = "textura"
-
-    return role, base_id
-
-
-def _extrair_entradas_ledger(rec: object) -> list[tuple[str, str, str]]:
-    if not isinstance(rec, Mapping) or rec.get("evento") == "run":
-        return []
-    raw_rbx = (
-        rec.get("rbxassetid")
-        or rec.get("roblox_asset_id")
-        or rec.get("asset_id")
-        or rec.get("assetId")
-        or (rec.get("roblox") or {}).get("asset_id")
-        or (rec.get("roblox") or {}).get("assetId")
-        or (rec.get("upload") or {}).get("asset_id")
-        or (rec.get("upload") or {}).get("assetId")
-    )
-    if raw_rbx is None or not str(raw_rbx).strip():
-        return []
-    uri = formatar_rbxassetid(str(raw_rbx))
-
-    arquivo = str(rec.get("arquivo") or "").strip()
-    logical_id = str(
-        rec.get("id")
-        or rec.get("item_id")
-        or rec.get("forge3d_id")
-        or rec.get("nome")
-        or rec.get("name")
-        or rec.get("displayName")
-        or ""
-    ).strip()
-    if not logical_id and arquivo:
-        logical_id = Path(arquivo).stem
-    if not logical_id:
-        return []
-
-    role, base_id = _inferir_role_e_base(rec, logical_id, arquivo)
-    saidas = [(logical_id, role, uri)]
-    if role == "OrmPacked":
-        saidas.append((logical_id, "orm", uri))
-    if base_id and base_id != logical_id and role:
-        saidas.append((base_id, role, uri))
-        if role == "OrmPacked":
-            saidas.append((base_id, "orm", uri))
-    return saidas
-
-
-def resolver_ledger(
-    ledger: str | Path | None = None,
-    *,
-    asset_id: str | None = None,
-) -> dict[tuple[str, str], str]:
-    """Resolve mapeamentos ``(asset_id, role) -> rbxassetid://<id>`` a partir de ``ledger.jsonl``."""
-    caminho = paths.arquivo_ledger() if ledger is None else Path(ledger).expanduser()
-    if not caminho.is_file():
-        return {}
-    mapa: dict[tuple[str, str], str] = {}
-    for linha in caminho.read_text(encoding="utf-8").splitlines():
-        texto = linha.strip()
-        if not texto:
-            continue
-        try:
-            rec = json.loads(texto)
-        except ValueError:
-            continue
-        for lid, role, uri in _extrair_entradas_ledger(rec):
-            if asset_id is not None and lid != asset_id:
-                continue
-            mapa[(lid, role)] = uri
-    return mapa
-
-
-def asset_ids_do_ledger(
-    item_id: str,
-    ledger: str | Path | None = None,
-) -> dict[str, str]:
-    """Retorna ``{role: rbxassetid://<id>}`` para ``item_id`` lido do ledger de uploads."""
-    entradas = resolver_ledger(ledger, asset_id=item_id)
-    return {role: uri for (_lid, role), uri in entradas.items() if role}
 
 
 def _arquivo_chave() -> Path | None:
@@ -362,7 +117,10 @@ def _multipart(
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"request\"\r\n\r\n".encode(),
         request_json.encode("utf-8"),
         b"\r\n",
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"fileContent\"; filename=\"{arquivo.name}\"\r\nContent-Type: {content_type}\r\n\r\n".encode(),
+        (
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"fileContent\"; "
+            f"filename=\"{arquivo.name}\"\r\nContent-Type: {content_type}\r\n\r\n"
+        ).encode(),
         payload,
         f"\r\n--{boundary}--\r\n".encode(),
     ]
@@ -397,7 +155,7 @@ def _http(
                     try:
                         espera = min(10.0, max(0.1, float(retry_after)))
                     except ValueError:
-                        pass
+                        espera = float(2**tentativa)
                 time.sleep(espera)
                 continue
             if exc.code == 429:

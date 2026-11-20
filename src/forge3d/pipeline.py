@@ -1,4 +1,4 @@
-"""Orquestracao de ``run``: plano -> gerar -> pos-processar -> QC -> cache -> publicar.
+"""Orquestracao de ``run``: plano -> gerar -> pos-processar -> segmentar -> QC -> cache -> publicar.
 
 Regras que moram aqui: falha e local ao item (P6), bloqueio nao e falha (D11), QC reprovado nao
 publica (D9) e nada escreve no destino fora de ``publish`` (I3).
@@ -6,39 +6,25 @@ publica (D9) e nada escreve no destino fora de ``publish`` (I3).
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (
-    __version__,
-    animacao,
-    config,
-    doctor,
-    locks,
-    paths,
-    plan,
-    post,
-    profiles,
-    providers,
-    publish,
-    qc,
-    spec,
-)
-from .canonical import canon, sha256_arquivo, sha256_bytes
-from .errors import (
-    EXIT_AMBIENTE,
-    EXIT_OK,
-    EXIT_PARCIAL,
-    EXIT_PROVIDER,
-    EXIT_QC,
-    EXIT_RECURSO,
-    PRECEDENCIA,
-    ForgeError,
+from . import __version__, config, doctor, paths, plan, profiles, providers, publish, qc, spec
+from .canonical import canon, sha256_bytes
+from .errors import EXIT_AMBIENTE, EXIT_OK, EXIT_PROVIDER, EXIT_QC, EXIT_RECURSO, ForgeError
+from .pipeline_item import _clipes_pedidos, _esqueleto_divergente, _pos_processar, executar_item
+from .pipeline_report import (
+    _agregar,
+    _escrever_json,
+    _estado_por_codigo,
+    _medir_item_g11,
+    _resumo,
 )
 
 __all__ = ["novo_id", "executar", "verificar"]
+
+_REEXPORTS = (_clipes_pedidos, _esqueleto_divergente, providers)
 
 
 def novo_id() -> str:
@@ -57,78 +43,6 @@ def _runs(run_id: str) -> Path:
     return d
 
 
-def _escrever_json(caminho: Path, obj: dict) -> None:
-    caminho.write_text(
-        json.dumps(obj, sort_keys=True, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
-
-
-# ---------------------------------------------------------------- item
-
-
-def _esqueleto_divergente(medidas: dict) -> tuple[str, str] | None:
-    """D-03: devolve (pedido, real) quando o esqueleto medido difere do pedido; None quando ok."""
-    pedido = medidas.get("esqueleto_pedido")
-    real = medidas.get("esqueleto")
-    if pedido and real and str(pedido) != str(real):
-        return str(pedido), str(real)
-    return None
-
-
-def _clipes_pedidos(item: dict) -> list[str] | None:
-    bruto = [*(item.get("animacoes_base") or []), *(item.get("clipes") or [])]
-    if not bruto:
-        return None
-    return list(dict.fromkeys(str(c) for c in bruto))
-
-
-def _pos_processar(item: dict, perfil: dict, bruto, run_id: str) -> dict:
-    final = paths.dir_staging() / run_id / item["id"] / "final"
-    final.mkdir(parents=True, exist_ok=True)
-    job: dict = {
-        "bruto_dir": str(bruto.dir),
-        "bruto_arquivo": "modelo.json",
-        "saida_dir": str(final),
-        "saida_resultado": str(final / "resultado.json"),
-        "perfil": plan.perfil_resolvido(perfil),
-        "item": {k: v for k, v in item.items() if not k.startswith("_")},
-        "nome_base": item["id"],
-        "nome_arquivo": f"{item['id']}.glb",
-        # D66/D69: o clipe viaja pronto (chaves em espaco semantico ja resolvidas para o esqueleto).
-        # O bpy nao decide movimento: aplica as chaves; o .rbxlx usa a mesma definicao.
-        "clipes": animacao.clipes(
-            perfil,
-            profiles.esqueleto_para_item(perfil, item),
-            _clipes_pedidos(item),
-        ),
-    }
-    for chave_opt in (
-        "material_procedural",
-        "suavizacao_normais",
-        "provider_conceito",
-        "template_humanoide",
-        "sockets",
-        "detalhe_alto",
-        "pbr_zonas",
-        "quantidade_cena",
-        "render_fidelity_roblox",
-        "alpha_cards",
-        "smart_fit",
-    ):
-        if chave_opt in item:
-            job[chave_opt] = item[chave_opt]
-    if "clipes" in item:
-        job["clipes_pedidos"] = list(item["clipes"])
-
-    resultado = post.executar(job)
-    for arq in resultado.get("arquivos", []):
-        caminho = final / arq["caminho"]
-        arq["bytes"] = caminho.stat().st_size if caminho.is_file() else 0
-        arq["sha256"] = sha256_arquivo(caminho) if caminho.is_file() else "sha256:" + "0" * 64
-    resultado["dir_final"] = str(final)
-    return resultado
-
-
 def _executar_item(
     item: dict,
     tarefa: dict,
@@ -142,182 +56,19 @@ def _executar_item(
     no_cache: bool = False,
     adiar_publicacao: bool = False,
 ) -> dict:
-    from . import qc as qc_mod
-
-    chave = tarefa["chave"]
-    entrada_cache = None if no_cache else publish.ler_cache(chave)
-
-    if entrada_cache is not None:
-        origem, entrada = entrada_cache
-        resultado = entrada["resultado"]
-        relatorio_qc = entrada["qc"]
-        provedor = entrada["provider"]
-        licenca = entrada["licenca"]
-        estado = "cache_hit" if publicar_arquivos else "aprovado_nao_publicado"
-    else:
-        provider = providers.obter(item["rota"])
-        staging = paths.dir_staging() / run_id / item["id"] / "bruto"
-        staging.mkdir(parents=True, exist_ok=True)
-        if getattr(provider, "usa_gpu", False):
-            # D11/I6: um job de GPU por vez; o segundo falha com exit 6 em vez de CUDA OOM
-            with locks.lock_gpu(run_id, esperar=False):
-                bruto = provider.gerar(item, perfil, staging)
-        else:
-            bruto = provider.gerar(item, perfil, staging)
-
-        resultado = _pos_processar(item, perfil, bruto, run_id)
-        resultado["determinism"] = provider.determinism
-        # cada provider declara a propria licenca: blocky/import sao procedurais, mesh e o modelo
-        modelo_meta = str((bruto.meta or {}).get("modelo") or "").strip()
-        if modelo_meta:
-            licenca = providers.licenca_de(modelo_meta)
-        else:
-            licenca = dict(provider.licenca)
-        if not licenca.get("uso_comercial", False):
-            from .errors import erro_licenca
-
-            raise erro_licenca(
-                f"provider '{provider.nome}' sem uso comercial permitido (I7)",
-                modelo=licenca.get("modelo", modelo_meta or provider.nome),
-            )
-        resultado["licenca"] = licenca
-
-        # D-03: esqueleto real medido tem que bater com o pedido; nunca publicar divergente.
-        divergencia = _esqueleto_divergente(resultado.get("medidas") or {})
-        if divergencia:
-            pedido, real = divergencia
-            raise ForgeError(
-                "FORGE-E-QC",
-                f"esqueleto pedido '{pedido}' difere do real medido '{real}'",
-                EXIT_QC,
-                {"esqueleto_pedido": pedido, "esqueleto_real": real},
-            )
-
-        relatorio_qc = qc_mod.verificar(item, perfil, Path(resultado["dir_final"]), resultado)
-        if not relatorio_qc["aprovado"]:
-            falhou = [g["id"] for g in relatorio_qc["gates"] if g["status"] == "falhou"]
-            raise ForgeError(
-                "FORGE-E-QC",
-                f"QC reprovou: {', '.join(falhou)}",
-                EXIT_QC,
-                {"gates": falhou, "relatorio": relatorio_qc},
-            )
-
-        provedor = {
-            "nome": provider.nome,
-            "versao": provider.versao,
-            "determinism": provider.determinism,
-        }
-        publish.salvar_cache(
-            chave,
-            Path(resultado["dir_final"]),
-            {
-                "resultado": resultado,
-                "qc": relatorio_qc,
-                "provider": provedor,
-                "licenca": licenca,
-                "item": spec.resolver_item(item),
-            },
-        )
-        origem = Path(resultado["dir_final"])
-        estado = "publicado" if publicar_arquivos else "aprovado_nao_publicado"
-
-    manifesto = publish.montar_manifesto(
-        item=item,
+    return executar_item(
+        item,
+        tarefa,
         spec_doc=spec_doc,
-        spec_hash=spec_hash,
-        perfil_nome=spec_doc["perfil"],
         perfil=perfil,
-        provider=provedor,
-        resultado=resultado,
-        relatorio_qc=relatorio_qc,
-        licenca=licenca,
+        spec_hash=spec_hash,
+        destino=destino,
         run_id=run_id,
+        publicar_arquivos=publicar_arquivos,
+        no_cache=no_cache,
+        adiar_publicacao=adiar_publicacao,
+        pos_processar_fn=_pos_processar,
     )
-
-    artefatos: list[dict] = []
-    if publicar_arquivos and not adiar_publicacao:
-        artefatos = publish.publicar(origem, destino, manifesto, run_id)
-
-    saida_item: dict = {
-        "id": item["id"],
-        "estado": estado,
-        "rota": item["rota"],
-        "determinism": resultado.get("determinism", "D1"),
-        "qc": "aprovado" if relatorio_qc["aprovado"] else "reprovado",
-        "cache_hit": entrada_cache is not None,
-        "trabalho_executado": entrada_cache is None,
-        "triangulos": relatorio_qc["medidas"]["triangulos"],
-        "artefatos": artefatos,
-        "manifesto": f"{item['id']}.manifest.json" if (publicar_arquivos and not adiar_publicacao) else None,
-        "manifesto_doc": manifesto if (publicar_arquivos and not adiar_publicacao) else None,
-    }
-    if adiar_publicacao:
-        saida_item["_staging"] = {
-            "origem": origem,
-            "manifesto": manifesto,
-            "resultado": resultado,
-            "relatorio_qc": relatorio_qc,
-            "eh_cache_hit": entrada_cache is not None,
-        }
-    for chave_meta in ("orientacao_export", "sockets", "sombreamento"):
-        valor_meta = resultado.get(chave_meta)
-        if valor_meta:
-            saida_item[chave_meta] = valor_meta
-    return saida_item
-
-
-def _medir_item_g11(item: dict, staging: dict) -> dict:
-    """Extrai metricas reais do item staged para avaliacao do Gate G11."""
-    iid = str(item["id"])
-    origem: Path = staging["origem"]
-    resultado: dict = staging["resultado"]
-    relatorio_qc: dict = staging["relatorio_qc"]
-    manifesto: dict = staging["manifesto"]
-
-    texturas: list[dict] = []
-    for arq in resultado.get("arquivos", []):
-        papel = str(arq.get("papel") or "")
-        if papel not in qc.PAPEIS_TEXTURA:
-            continue
-        p_tex = origem / str(arq.get("caminho") or "")
-        px = 1024
-        if p_tex.is_file():
-            dims = qc._validar_bytes_imagem(p_tex.read_bytes())
-            if dims:
-                px = max(dims)
-        canais = 1 if papel in ("roughness", "metallic") else 4
-        texturas.append({"id": f"{iid}:{arq['caminho']}", "px": px, "canais": canais})
-
-    g4 = next((g for g in relatorio_qc.get("gates", []) if g.get("id") == "G4"), None)
-    for idx, emb in enumerate(((g4 or {}).get("medido") or {}).get("embutidas") or []):
-        px_list = emb.get("px")
-        if isinstance(px_list, list) and px_list:
-            texturas.append({"id": f"{iid}:emb:{idx}", "px": max(int(x) for x in px_list), "canais": 4})
-
-    eh_pbr = (
-        item.get("material") == "pbr"
-        or bool(item.get("pbr_zonas"))
-        or bool(item.get("material_procedural"))
-    )
-    skinned = (
-        bool(item.get("auto_rig"))
-        or bool(item.get("skinned"))
-        or bool((manifesto.get("anexo") or {}).get("skinned"))
-    )
-    return {
-        "id": iid,
-        "tris": int(relatorio_qc["medidas"]["triangulos"]),
-        "primitivas": max(1, int(relatorio_qc["medidas"].get("primitivas") or 1)),
-        "quantidade_cena": int(item.get("quantidade_cena", 1)),
-        "mesh_key": str(item.get("mesh_key") or iid),
-        "material_key": f"pbr:{iid}" if eh_pbr else "palette_padrao",
-        "skinned": skinned,
-        "texturas": texturas,
-    }
-
-
-# ---------------------------------------------------------------- lote
 
 
 def executar(
@@ -412,7 +163,9 @@ def executar(
                     "razao": tarefa["razao"],
                 }
             )
-            codigos.append(EXIT_RECURSO if tarefa.get("codigo") == "FORGE-E-RECURSO" else EXIT_PROVIDER)
+            codigos.append(
+                EXIT_RECURSO if tarefa.get("codigo") == "FORGE-E-RECURSO" else EXIT_PROVIDER
+            )
             continue
 
         try:
@@ -521,46 +274,6 @@ def executar(
         }
     )
     return relatorio, codigo_saida
-
-
-def _estado_por_codigo(codigo: str) -> str:
-    if codigo in ("FORGE-E-PROVIDER", "FORGE-E-RECURSO", "FORGE-E-LICENCA"):
-        return "bloqueado"
-    if codigo == "FORGE-E-QC":
-        return "reprovado"
-    return "falhou"
-
-
-def _agregar(codigos: list[int], itens: list[dict]) -> int:
-    """Nada publicado => exit da causa mais grave; mistura => parcial (docs/contratos.md §5)."""
-    publicados = sum(
-        1 for i in itens if i["estado"] in ("publicado", "cache_hit", "aprovado_nao_publicado")
-    )
-    erros = [c for c in codigos if c != EXIT_OK]
-    if not erros:
-        return EXIT_OK
-    if publicados == 0:
-        for code in PRECEDENCIA:
-            if code in erros and code != EXIT_OK:
-                return code
-        return erros[0]
-    return EXIT_PARCIAL
-
-
-def _resumo(itens: list[dict], resumo_plano: dict) -> dict:
-    def contar(estado: str) -> int:
-        return sum(1 for i in itens if i["estado"] == estado)
-
-    return {
-        "total": len(itens),
-        "publicados": contar("publicado"),
-        "cache_hits": contar("cache_hit"),
-        "reprovados": contar("reprovado"),
-        "bloqueados": contar("bloqueado"),
-        "falhas": contar("falhou"),
-        "trabalho_executado": sum(1 for i in itens if i.get("trabalho_executado")),
-        "segundos_estimados": resumo_plano.get("segundos_estimados", 0),
-    }
 
 
 def verificar(destino: str | Path, only: str | None = None) -> dict:

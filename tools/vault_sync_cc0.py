@@ -568,8 +568,13 @@ def sincronizar_embeddings_vault(
                     texto_doc,
                     task_type="RETRIEVAL_DOCUMENT",
                 )
-            except Exception:
+            except (ForgeError, OSError, ValueError, TypeError, RuntimeError) as exc:
                 vetor = None
+                print(
+                    f"[vault_sync_cc0] aviso embedding Gemini falhou para {ativo['asset_id']} "
+                    f"({type(exc).__name__}: {exc}); usando fallback offline-sha256",
+                    file=sys.stderr,
+                )
         if vetor is None:
             vetor = embedding_deterministico_offline(texto_doc, dimensao=dimensao_offline)
             modelo_emb = "offline-sha256-embedding"

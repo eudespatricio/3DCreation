@@ -92,6 +92,13 @@ def test_doctor_expoe_blender_e_modelos_aptos():
     assert all("hunyuan" not in modelo.lower() for modelo in resultado["modelos_aptos"])
 
 
+def test_doctor_valida_schemas_v1_a_v6():
+    resultado = doctor.checar()
+    checks = {c["nome"]: c for c in resultado["checks"]}
+    assert checks["schemas"]["ok"] is True
+    assert checks["schemas"]["detalhe"] == "spec@1..@6 e manifest@1..@6 validos"
+
+
 def test_sem_blender_o_doctor_responde_em_vez_de_derrubar(monkeypatch):
     """D17: ambiente faltando vira razao legivel. `erro_ambiente` e funcao, nao excecao — o
     `except erro_ambiente` dava TypeError e o doctor morria justamente no caso sem Blender."""
@@ -346,6 +353,8 @@ def test_verify_orientacao_legado_emite_warn_e_061_falha(tmp_path):
         )
         man["schema"] = schema
         man["pipeline_version"] = pipeline_version
+        if schema in ("forge3d/manifest@1", "forge3d/manifest@2", "forge3d/manifest@3", "forge3d/manifest@4"):
+            man.pop("tipo", None)
         if schema == "forge3d/manifest@3":
             # Reusa EXEMPLO v3 minimo valido e troca mesh/asset
             man3 = json.loads(json.dumps(EXEMPLO))
@@ -381,3 +390,102 @@ def test_verify_orientacao_legado_emite_warn_e_061_falha(tmp_path):
     rel_v4_061 = publish.verificar(dest_v4_061)
     assert rel_v4_061["ok"] is False
     assert any("G2" in str(e) for e in rel_v4_061["erros"])
+
+
+def _montar_dest_partes_v6(dest: Path) -> tuple[Path, dict]:
+    import struct
+    from forge3d import profiles, qc
+    from forge3d.canonical import sha256_arquivo
+    from tests.test_red_r2_roblox import _R15_15, _box_glb
+    from tests.test_seguranca_e_qc import _editar_gltf_glb
+
+    perfil = profiles.carregar("roblox-r15")
+    escala = float(perfil["unidades"]["escala_saida"])
+    dest.mkdir(parents=True, exist_ok=True)
+
+    def _add_r15_skin(g: dict, b: bytearray) -> None:
+        ossos = ("HumanoidRootPart", *_R15_15)
+        n_v = g["accessors"][0]["count"]
+        while len(b) % 4:
+            b.append(0)
+        off_j = len(b)
+        b.extend(b"".join(struct.pack("<4H", 1 + (vi % len(_R15_15)), 0, 0, 0) for vi in range(n_v)))
+        off_w = len(b)
+        b.extend(struct.pack("<4f", 1.0, 0.0, 0.0, 0.0) * n_v)
+        bv_j, bv_w = len(g["bufferViews"]), len(g["bufferViews"]) + 1
+        g["bufferViews"].append({"buffer": 0, "byteOffset": off_j, "byteLength": n_v * 8})
+        g["bufferViews"].append({"buffer": 0, "byteOffset": off_w, "byteLength": n_v * 16})
+        acc_j, acc_w = len(g["accessors"]), len(g["accessors"]) + 1
+        g["accessors"].append({"bufferView": bv_j, "componentType": 5123, "count": n_v, "type": "VEC4"})
+        g["accessors"].append({"bufferView": bv_w, "componentType": 5126, "count": n_v, "type": "VEC4"})
+        g["meshes"][0]["primitives"][0]["attributes"].update({"JOINTS_0": acc_j, "WEIGHTS_0": acc_w})
+        base_node = len(g["nodes"])
+        for n in ossos:
+            g["nodes"].append({"name": n})
+        g["nodes"][0]["skin"] = 0
+        g["skins"] = [{"joints": list(range(base_node, base_node + len(ossos)))}]
+        g["buffers"][0]["byteLength"] = len(b)
+
+    main_glb, part_glb = dest / "char.glb", dest / "Head.glb"
+    main_glb.write_bytes(_editar_gltf_glb(_box_glb(center=(0.0, 0.5 * escala, 0.0), half=(0.25 * escala, 0.5 * escala, 0.25 * escala)), _add_r15_skin))
+    part_glb.write_bytes(_box_glb(center=(0.0, 0.1 * escala, 0.0), half=(0.1 * escala, 0.1 * escala, 0.1 * escala)))
+    item = {"id": "char.01", "tipo": "criatura", "rota": "mesh", "seed": 42, "altura_metros": 1.0, "pivot": "base", "limite_triangulos": 500, "colisao": "none", "lod": [100], "tags": ["teste"], "partes": [{"nome": "Head", "junta": "Neck", "ancora": [0.0, 0.0, 0.0], "bbox": [0.2 * escala, 0.2 * escala, 0.2 * escala], "triangulos": 12, "arquivo": "Head.glb"}], "rig": {"modo": "motor6d", "esqueleto": "r15@1"}}
+    res = {
+        "determinism": "D2", "licenca": {"modelo": "MIT", "uso_comercial": True, "notice": "MIT"},
+        "medidas": {**qc.topologia(*qc.ler_glb_bin(main_glb)), "partes_colisao": 0},
+        "partes": item["partes"], "ancoras": {"Neck": [0.0, 0.0, 0.0]},
+        "arquivos": [
+            {"caminho": "char.glb", "papel": "mesh", "sha256": sha256_arquivo(main_glb), "bytes": main_glb.stat().st_size, "nivel": 0, "triangulos": 12},
+            {"caminho": "Head.glb", "papel": "parte", "sha256": sha256_arquivo(part_glb), "bytes": part_glb.stat().st_size},
+        ],
+    }
+    rel_qc = qc.verificar(item, perfil, dest, res, escala_saida=escala)
+    assert rel_qc["aprovado"] is True, rel_qc
+    man = publish.montar_manifesto(item=item, spec_doc={"projeto": "demo", "perfil": "roblox-r15"}, spec_hash="sha256:" + "a" * 64, perfil_nome="roblox-r15", perfil=perfil, provider={"nome": "mesh", "versao": "1.0", "determinism": "D2"}, resultado=res, relatorio_qc=rel_qc, licenca=res["licenca"], run_id="r-seg")
+    (dest / "char.01.manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    return part_glb, man
+
+
+def test_verify_valida_partes_glb_e_rejeita_vazia_ou_referencia_ausente(tmp_path: Path) -> None:
+    from forge3d.canonical import sha256_arquivo
+    from tests.test_red_r2_roblox import _box_glb
+    from tests.test_seguranca_e_qc import _editar_gltf_glb
+
+    dest = tmp_path / "seg_ok"
+    part_glb, man = _montar_dest_partes_v6(dest)
+    rel_ok = publish.verificar(dest)
+    assert rel_ok["ok"] is True, rel_ok["erros"]
+
+    part_glb.unlink()
+    assert publish.verificar(dest, only="manifesto")["ok"] is True
+
+    sem_mesh = _editar_gltf_glb(_box_glb(), lambda g, _b: g.update({"meshes": [], "nodes": [{"name": "empty"}]}))
+    part_glb.write_bytes(sem_mesh)
+    man["files"][1].update({"sha256": sha256_arquivo(part_glb), "bytes": len(sem_mesh)})
+    (dest / "char.01.manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    assert publish.verificar(dest)["ok"] is False
+
+    man["files"] = [f for f in man["files"] if f["papel"] != "parte"]
+    (dest / "char.01.manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    assert publish.verificar(dest)["ok"] is False
+
+
+def test_verify_parte_accessor_invalido_reprova_sem_crash(tmp_path: Path) -> None:
+    from forge3d.canonical import sha256_arquivo
+    from tests.test_red_r2_roblox import _box_glb
+    from tests.test_seguranca_e_qc import _editar_gltf_glb
+
+    for nome_caso, mut in (
+        ("bv_99", lambda g, _b: g["accessors"][0].update({"bufferView": 99})),
+        ("acc_none", lambda g, _b: g.update({"accessors": [None]})),
+    ):
+        dest = tmp_path / nome_caso
+        part_glb, man = _montar_dest_partes_v6(dest)
+        assert man["schema"] == "forge3d/manifest@6"
+        part_glb.write_bytes(_editar_gltf_glb(_box_glb(), mut))
+        man["files"][1].update({"sha256": sha256_arquivo(part_glb), "bytes": part_glb.stat().st_size})
+        (dest / "char.01.manifest.json").write_text(json.dumps(man), encoding="utf-8")
+        rel = publish.verificar(dest)
+        assert rel["ok"] is False
+        assert not any(e.get("erro") == "schema" for e in rel["erros"]), rel["erros"]
+        assert any("Head.glb" in str(e) and "ilegivel" in str(e) for e in rel["erros"]), rel["erros"]

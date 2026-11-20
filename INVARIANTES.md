@@ -3,8 +3,7 @@
 **Regra:** quebrar qualquer item é **bug**, não escolha. Cada item tem comando de verificação.
 **Base:** P0 (documentos e contratos), 10/11/2026.
 
-Legenda: `[P0]` documental · `[P1]`–`[P5]` fase em que o item entrou · `[P3]` depende de GPU. A
-tabela do fim diz, item a item, o que já é teste automatizado e o que ainda é manual.
+Legenda: `[P0]` documental · `[P1]`–`[P5]` entrada · `[P3]` GPU · tabela final mostra automação v0.9.5.
 
 ---
 
@@ -37,13 +36,12 @@ Arquivo só aparece na pasta do jogo no passo `publish`, vindo de staging por `r
 ```bash
 forge3d run examples/lote_01.yaml --nao-publicar --json | python3 -c "import json,sys;print(json.load(sys.stdin)['resumo']['publicados'])"
 ```
-Esperado: `0` (os itens ficam `aprovado_nao_publicado`). `tests/test_atomico.py` prova as três coisas: thread observadora não vê
-arquivo parcial, `spy` em `os.replace` encontra o destino vazio antes do rename e falha no meio não
-deixa arquivo final (GAP-014 fechado na C14).
+Esperado: `0` (`aprovado_nao_publicado`). `tests/test_atomico.py` prova thread observadora, `spy` em
+`os.replace` e falha sem lixo (GAP-014/C14).
 
 ## I4 — Todo artefato publicado tem manifesto válido `[P1]`
 
-`verify` recalcula o `sha256` de cada arquivo e compara com o manifesto; manifesto ausente, schema
+`verify` recalcula `sha256` e reexecuta `G1–G13` + `G11` (`partes[]`); manifesto ausente, schema
 errado ou hash divergente = falha.
 
 ```bash
@@ -56,7 +54,7 @@ Esperado: `exit=0` íntegro · `exit=3` com `FORGE-E-MANIFEST` após corromper.
 
 ## I5 — QC é portão, não aviso `[P1]`
 
-Reprovação em qualquer gate G1–G10 impede publicação. **Não existe flag de bypass.**
+Reprovação em qualquer gate `G1–G15` (`G12–G14` Roblox, `G15` concept→3D) impede publicação. **Não existe flag de bypass.**
 
 ```bash
 grep -rnE "force|skip.?qc|--no-verify" src/forge3d/cli/ || echo "OK: sem bypass"
@@ -72,8 +70,7 @@ estourar VRAM.
 ```bash
 python -m pytest tests/test_locks.py -k concorrencia; echo "exit=$?"
 ```
-Esperado: o lock recusa a segunda entrada (teste verde). Num host com GPU, dois `run` de rota `mesh`
-ao mesmo tempo dão um `exit=0` e outro `exit=6` (`FORGE-E-RECURSO`), com a VRAM de pico no manifesto.
+Esperado: lock recusa 2ª entrada; com GPU, dois `run` `mesh` simultâneos dão `exit=0` e `exit=6` (`FORGE-E-RECURSO`).
 
 ## I7 — Licença é gate `[P3]`
 
@@ -127,9 +124,8 @@ Esperado: igual ao total de tarefas; `trabalho_executado: 0`.
 
 ## I12 — Dados só em ext4, nunca em `/mnt/c` `[P0]`
 
-O repo **mora** em ext4 sob `/home`; a sessão que roda no Windows o vê montado por UNC — esse é o
-acesso normal, não violação (custos medidos em `AGENTS.md` §Ambiente). Violação é spec, perfil,
-destino ou comando apontando para `/mnt/<letra>/`.
+Repo em ext4 sob `/home` (UNC no Windows é normal, `AGENTS.md` §Ambiente). Violação: spec, perfil,
+destino ou comando com `/mnt/<letra>/`.
 
 ```bash
 grep -rnE '/mnt/[a-z]/|\\\\wsl' examples/ profiles/ schemas/ || echo "OK: nenhum caminho /mnt"
@@ -160,9 +156,8 @@ com aviso de depreciação, e nunca aparece em manifesto publicado.
 
 ## I15 — Projeto de jogo não entra no pipeline `[P1]`
 
-O Forge3D é genérico: `src/`, `profiles/`, `examples/` e `schemas/` não citam nome de projeto de
-jogo nem caminho pessoal fixo (`/home/<user>/`). Projeto entra por **perfil** (plataforma), **spec**
-(o lote dele) e **allowlist** (o destino autorizado) — nunca por código, preset ou exemplo.
+`src/`, `profiles/`, `examples/` e `schemas/` não citam projeto de jogo nem `/home/<user>/`; projeto
+entra só por **perfil**, **spec** e **allowlist**.
 
 ```bash
 python tools/conformidade.py; echo "exit=$?"
@@ -170,20 +165,20 @@ python tools/conformidade.py; echo "exit=$?"
 Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparecer em `DECISOES.md`
 (ledger de fato medido) e em `pendencias.md` (ação do operador), não nos contratos.
 
-## Estado da automação (v0.8.0, 15/11/2026)
+## Estado da automação (v0.9.5, 19/11/2026)
 
-| Invariante | Como está (medido em 15/11/2026) |
+| Invariante | Como está (medido em 19/11/2026) |
 |---|---|
 | I1 determinismo | **automatizado** — `test_i1_determinismo` compara sha256 de 12 artefatos em 2 runs com cache limpo |
 | I2 spec inválida | **automatizado** — `test_i2_spec_invalida_sai_2_sem_tocar_provider` |
 | I3 publish atômico | **automatizado** — `tests/test_atomico.py`: thread observadora, `spy` em `os.replace`, falha no meio (GAP-014/C14) |
-| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (G1–G10, `@1`–`@5`) |
-| I5 QC sem bypass | **automatizado** — `test_i5_qc_nao_tem_bypass` (varre a fonte) |
+| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (`G1–G13 + G11`, `@1–@6`) + `test_i4_verify_detects_1byte_glb_tamper_and_missing_manifest` |
+| I5 QC sem bypass | **automatizado** — `test_i5_qc_nao_tem_bypass` + `test_qc_f26_hardening` + `test_red_r5_qc` + E2E `test_i5_*` (`G1–G15`) |
 | I6 lock de GPU | **parcial** — `test_locks.py` cobre recusa e liberação; falta teste com dois *jobs* reais |
 | I7 licença | **parcial** — a allowlist comercial é asseverada em `test_concept.py`; falta exercitar a recusa |
 | I8 escala e pivô | **automatizado** — `test_i8_escala_e_pivo_conforme_perfil` |
 | I9 Blender pinado | **automatizado no CI** — `doctor` mede, `post.py` recusa ≠ 4.2.x e o job `verificar` baixa 4.2.0 conferindo sha256; `tools/ci_verify.sh` confere a versão no PATH |
-| I10 proveniência | **parcial** — o schema exige os campos; falta teste de campo nulo |
+| I10 proveniência | **automatizado** — schema + E2E `test_i10_verify_only_manifesto_provenance` |
 | I11 idempotência | **automatizado** — `test_i11_idempotencia_rerun_nao_trabalha` |
 | I12 caminhos proibidos | **automatizado** — `test_i12_recusa_mnt_e_unc` |
 | I13 allowlist | **automatizado** — `test_i13_destino_fora_da_allowlist_falha` e `..._sai_2` |
@@ -192,9 +187,7 @@ Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparec
 
 ## Ciclo de vida deste arquivo
 
-Já cumpriu a função de artefato de transição: nasceu à frente da implementação e hoje cada item
-aponta para o teste que o cobre (tabela acima). Regra em vigor:
-
-1. a prosa do item **encurta** quando o teste entra: sobra a definição em 2–3 linhas e o comando;
-2. item sem teste em duas fases seguidas é **pergunta**, não dogma (vai para `DECISOES.md` §4);
-3. o arquivo não cresce: teto 200 linhas; o que passa disso é verificação substituída por prosa.
+Artefato de transição já ligado aos testes acima. Regra:
+1. prosa do item **encurta** quando o teste entra (2–3 linhas + comando);
+2. item sem teste em duas fases seguidas vira pergunta em `DECISOES.md` §4;
+3. teto **200 linhas**: o que passa disso é verificação substituída por prosa.

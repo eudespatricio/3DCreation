@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import locks, paths
+from . import concept_views_origem as _views_origem
 from . import mesh_armor_proc as _armor_proc
 from . import mesh_diag as _diag
 from . import mesh_i23d as _i23d
@@ -117,7 +118,7 @@ class MeshProvider:
             f"{VERSAO}+mc{mc}+tex{tex}+rembg{rembg}"
             f"+rm{rembg_mod}+pg{pg_mode}+dl{delight}+q{qualidade}"
             f"+concept{concept_mod}@{_concept.VERSAO}"
-            f"+p{_concept.estado_pose_cache()}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+tx2+tmpl2_{tmpl}+mh1+dev{dev}{suf_ep}"
+            f"+p{_concept.estado_pose_cache()}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+tx3+tmpl2_{tmpl}+mh1+dev{dev}{suf_ep}"
         )
 
     def _licenca(self) -> dict:
@@ -267,13 +268,15 @@ class MeshProvider:
                 if not script_pose_guard().is_file():
                     return False, f"script tools/pose_guard.py ausente em {script_pose_guard()}"
                 rotulo = "extrude 2D"
-            if str(item.get("origem") or "").strip():
+            tem_orig_v1 = bool(str(item.get("origem") or "").strip()) and item.get("vistas") in (None, 1, "1") and not isinstance(item.get("vistas"), bool)
+            if tem_orig_v1:
                 return True, f"pronto ({rotulo} com origem)"
             c_pronto, c_razao = _preflight_concept_item(item)
             return (True, f"pronto ({rotulo}); concept: {c_razao}") if c_pronto else (False, c_razao)
 
         pronto, razao = self.preflight()
-        if not pronto or str(item.get("origem") or "").strip():
+        tem_orig_v1 = bool(str(item.get("origem") or "").strip()) and item.get("vistas") in (None, 1, "1") and not isinstance(item.get("vistas"), bool)
+        if not pronto or tem_orig_v1:
             return pronto, razao
         c_pronto, c_razao = _preflight_concept_item(item)
         return (True, f"{razao}; concept: {c_razao}") if c_pronto else (False, c_razao)
@@ -343,7 +346,12 @@ class MeshProvider:
 
     def _resolver_entrada(self, item: dict, destino: Path, env: dict[str, str]) -> tuple[Path, dict[str, Any] | None]:
         if str(item.get("origem") or "").strip():
-            return _i23d.resolver_imagem_origem(item), None
+            origem_png = _i23d.resolver_imagem_origem(item)
+            if item.get("vistas") is not None and str(item.get("vistas")).strip() not in ("", "1"):
+                meta = _views_origem.gerar_vistas_de_origem(item, origem_png, destino, env)
+                front_png = destino / "concept_front.png"
+                return (front_png if front_png.is_file() else origem_png), meta
+            return origem_png, None
         return self._gerar_concept_com_retry(item, destino, env)
 
     def _gerar_triposr_i23d(self, item: dict, destino: Path, imagem: Path, concept_meta: dict | None, env: dict[str, str], t0: float) -> RawAsset:
@@ -381,11 +389,7 @@ class MeshProvider:
                 "pose_guard": dados["pose_guard_report"],
                 "delight": dados["delight_report"],
                 "concept": concept_meta,
-                **(
-                    {"vistas_ortograficas": dados["vistas_ortograficas"]}
-                    if dados.get("vistas_ortograficas")
-                    else {}
-                ),
+                **({"vistas_ortograficas": dados["vistas_ortograficas"]} if dados.get("vistas_ortograficas") else {}),
             },
         )
 

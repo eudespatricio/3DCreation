@@ -95,6 +95,7 @@ def _preparar_projecao_high(
     img_met,
     img_rough,
     imgs_vistas: dict[str, object],
+    imgs_hints_vistas: dict[str, tuple[object | None, object | None]] | None = None,
 ):
     """Projeta UVs ortograficas 4-vistas ou 1-vista (fallback) + oclusao BVH em ``high_obj``."""
     cam_obj = cam_data = nome_visivel = None
@@ -102,25 +103,36 @@ def _preparar_projecao_high(
     if tem_zonas:
         return cam_obj, cam_data, nome_visivel, vistas_dados
 
-    precisa_hints = img_met is not None or img_rough is not None
-    if imgs_vistas:
+    precisa_hints = img_met is not None or img_rough is not None or bool(imgs_hints_vistas)
+    if imgs_vistas or imgs_hints_vistas:
         min_v, max_v = _cfg._calcular_bbox_mundo(high_obj)
         cam_obj, cam_data = _proj._criar_camera_ortografica_frontal(
             f"{nome_base}_cam_proj_tmp", min_v, max_v, colecao
         )
-        uvs_necessarias = [_proj._VISTAS_ORTO_DEF[vk]["uv"] for vk in imgs_vistas]
+        chaves_proj = list(dict.fromkeys([*imgs_vistas.keys(), *(imgs_hints_vistas or {}).keys()]))
+        uvs_necessarias = [
+            _proj._VISTAS_ORTO_DEF[vk]["uv"] for vk in chaves_proj if vk in _proj._VISTAS_ORTO_DEF
+        ]
         if precisa_hints and "UV_Camera_Front" not in uvs_necessarias:
             uvs_necessarias.append("UV_Camera_Front")
         _proj._podar_uv_layers_high(high_obj, uvs_necessarias)
-        for vista_key, img_v in imgs_vistas.items():
+        for vista_key in chaves_proj:
+            if vista_key not in _proj._VISTAS_ORTO_DEF:
+                continue
             meta_v = _proj._VISTAS_ORTO_DEF[vista_key]
-            uv_bbox = _proj._detectar_bbox_uv_foreground(img_v)
+            img_v = imgs_vistas.get(vista_key)
+            uv_bbox = (
+                _proj._detectar_bbox_uv_foreground(img_v)
+                if img_v is not None
+                else (0.0, 1.0, 0.0, 1.0)
+            )
             _proj._projetar_uv_ortografica_bmesh(high_obj, vista_key, min_v, max_v, uv_bbox, meta_v["uv"])
             vis_attr = _proj._calcular_oclusao_direcao_bmesh(high_obj, meta_v["dir"], meta_v["vis"])
             if vista_key == "front":
                 nome_visivel = vis_attr
-            vistas_dados.append((vista_key, img_v, meta_v["uv"], vis_attr, meta_v["dir"]))
-        if precisa_hints and "front" not in imgs_vistas:
+            if img_v is not None:
+                vistas_dados.append((vista_key, img_v, meta_v["uv"], vis_attr, meta_v["dir"]))
+        if precisa_hints and "front" not in chaves_proj:
             _proj._projetar_uv_frontal_bmesh(
                 high_obj, min_v, max_v, (0.0, 1.0, 0.0, 1.0), "UV_Camera_Front"
             )
@@ -141,6 +153,31 @@ def _preparar_projecao_high(
         _proj._projetar_uv_frontal_bmesh(high_obj, min_v, max_v, uv_bbox, "UV_Camera_Front")
         nome_visivel = _proj._calcular_oclusao_frontal_bmesh(high_obj)
     return cam_obj, cam_data, nome_visivel, vistas_dados
+
+
+def _montar_vistas_hints_dados(
+    high_obj,
+    imgs_vistas: dict[str, object],
+    imgs_hints_vistas: dict[str, tuple[object | None, object | None]] | None,
+) -> list:
+    """Emparelha hints PBR por vista com UV ortografica, atributo de oclusao e direcao."""
+    if not imgs_hints_vistas or high_obj is None or getattr(high_obj, "data", None) is None:
+        return []
+    saida: list = []
+    for vk, par_h in imgs_hints_vistas.items():
+        if vk not in _proj._VISTAS_ORTO_DEF:
+            continue
+        im_m, im_r = par_h
+        if im_m is None and im_r is None:
+            continue
+        meta_v = _proj._VISTAS_ORTO_DEF[vk]
+        vis_attr = (
+            meta_v["vis"]
+            if high_obj.data.color_attributes.get(meta_v["vis"]) is not None
+            else None
+        )
+        saida.append((vk, im_m, im_r, meta_v["uv"], vis_attr, meta_v["dir"], imgs_vistas.get(vk)))
+    return saida
 
 
 def _configurar_high_material(
@@ -244,6 +281,7 @@ def _executar_passes_cycles(
     nome_cor: str,
     tem_cor_vertice: bool,
     nome_visivel: str | None,
+    vistas_hints: list | None = None,
 ):
     cena.cycles.use_denoising = False
     cena.render.bake.use_selected_to_active = True
@@ -329,7 +367,7 @@ def _executar_passes_cycles(
             _cfg._selecionar_high_para_low(high_obj, obj)
             _cfg._executar_bake_seguro(cena, type="EMIT")
             proc_mod.configurar_saida_pbr_bsdf(high_mat)
-        elif img_met is not None or img_rough is not None:
+        elif img_met is not None or img_rough is not None or bool(vistas_hints):
             high_hints_mat = _sh._criar_material_high_hints_emit(
                 f"{nome_base}_high_hints_tmp",
                 img_met,
@@ -338,6 +376,7 @@ def _executar_passes_cycles(
                 nome_cor=nome_cor if tem_cor_vertice else None,
                 img_origem=img_origem,
                 nome_visivel=nome_visivel,
+                vistas_hints=vistas_hints,
             )
             high_obj.data.materials.clear()
             high_obj.data.materials.append(high_hints_mat)

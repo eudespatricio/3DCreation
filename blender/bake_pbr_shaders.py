@@ -232,6 +232,127 @@ def _criar_material_high_multivista(
     return mat
 
 
+def _acumular_escalar(nt, soma_atual, novo_out):
+    if soma_atual is None:
+        return novo_out
+    add_n = nt.nodes.new("ShaderNodeMath")
+    add_n.operation = "ADD"
+    nt.links.new(soma_atual, add_n.inputs[0])
+    nt.links.new(novo_out, add_n.inputs[1])
+    return add_n.outputs["Value"]
+
+
+def _normalizar_canal_hints_mv(nt, val_sum, w_sum):
+    w_safe = nt.nodes.new("ShaderNodeMath")
+    w_safe.operation = "MAXIMUM"
+    nt.links.new(w_sum, w_safe.inputs[0])
+    w_safe.inputs[1].default_value = 1e-5
+
+    div_n = nt.nodes.new("ShaderNodeMath")
+    div_n.operation = "DIVIDE"
+    div_n.use_clamp = True
+    nt.links.new(val_sum, div_n.inputs[0])
+    nt.links.new(w_safe.outputs["Value"], div_n.inputs[1])
+
+    cov = nt.nodes.new("ShaderNodeMapRange")
+    cov.clamp = True
+    cov.inputs["From Min"].default_value = 0.0
+    cov.inputs["From Max"].default_value = 0.12
+    cov.inputs["To Min"].default_value = 0.0
+    cov.inputs["To Max"].default_value = 1.0
+    nt.links.new(w_sum, cov.inputs["Value"])
+    return div_n.outputs["Value"], cov.outputs["Result"]
+
+
+def _montar_hints_emit_multivista(mat, nt, out, vistas_hints: list):
+    """Projeta e mistura R=metallic, G=roughness, B=peso_cobertura em >= 2 vistas ortograficas."""
+    geom = nt.nodes.new("ShaderNodeNewGeometry")
+    w_m_sum = m_sum = w_r_sum = r_sum = None
+
+    for item_h in vistas_hints:
+        _vk, img_m_v, img_r_v, nome_uv, nome_vis, dir_mundo = item_h[:6]
+        img_vista_v = item_h[6] if len(item_h) > 6 else None
+        if img_m_v is None and img_r_v is None:
+            continue
+        uv_node, fator_v = _criar_nodos_fator_vista(
+            nt, dir_mundo, nome_uv, nome_visivel=nome_vis, geom=geom,
+            min_dot=0.08, max_dot=0.90, potencia=2.5,
+        )
+        fator_base = fator_v
+        if img_vista_v is not None:
+            tex_v = nt.nodes.new("ShaderNodeTexImage")
+            tex_v.image = img_vista_v
+            tex_v.extension = "EXTEND"
+            nt.links.new(uv_node.outputs["UV"], tex_v.inputs["Vector"])
+            mul_va = nt.nodes.new("ShaderNodeMath")
+            mul_va.operation = "MULTIPLY"
+            mul_va.use_clamp = True
+            nt.links.new(fator_v, mul_va.inputs[0])
+            nt.links.new(tex_v.outputs["Alpha"], mul_va.inputs[1])
+            fator_base = mul_va.outputs["Value"]
+
+        if img_m_v is not None:
+            tex_m = nt.nodes.new("ShaderNodeTexImage")
+            tex_m.image = img_m_v
+            tex_m.extension = "EXTEND"
+            nt.links.new(uv_node.outputs["UV"], tex_m.inputs["Vector"])
+            mul_wm = nt.nodes.new("ShaderNodeMath")
+            mul_wm.operation = "MULTIPLY"
+            mul_wm.use_clamp = True
+            nt.links.new(fator_base, mul_wm.inputs[0])
+            nt.links.new(tex_m.outputs["Alpha"], mul_wm.inputs[1])
+            mul_mv = nt.nodes.new("ShaderNodeMath")
+            mul_mv.operation = "MULTIPLY"
+            nt.links.new(tex_m.outputs["Color"], mul_mv.inputs[0])
+            nt.links.new(mul_wm.outputs["Value"], mul_mv.inputs[1])
+            w_m_sum = _acumular_escalar(nt, w_m_sum, mul_wm.outputs["Value"])
+            m_sum = _acumular_escalar(nt, m_sum, mul_mv.outputs["Value"])
+
+        if img_r_v is not None:
+            tex_r = nt.nodes.new("ShaderNodeTexImage")
+            tex_r.image = img_r_v
+            tex_r.extension = "EXTEND"
+            nt.links.new(uv_node.outputs["UV"], tex_r.inputs["Vector"])
+            mul_wr = nt.nodes.new("ShaderNodeMath")
+            mul_wr.operation = "MULTIPLY"
+            mul_wr.use_clamp = True
+            nt.links.new(fator_base, mul_wr.inputs[0])
+            nt.links.new(tex_r.outputs["Alpha"], mul_wr.inputs[1])
+            mul_rv = nt.nodes.new("ShaderNodeMath")
+            mul_rv.operation = "MULTIPLY"
+            nt.links.new(tex_r.outputs["Color"], mul_rv.inputs[0])
+            nt.links.new(mul_wr.outputs["Value"], mul_rv.inputs[1])
+            w_r_sum = _acumular_escalar(nt, w_r_sum, mul_wr.outputs["Value"])
+            r_sum = _acumular_escalar(nt, r_sum, mul_rv.outputs["Value"])
+
+    comb = nt.nodes.new("ShaderNodeCombineColor")
+    comb.mode = "RGB"
+    if w_m_sum is not None and m_sum is not None:
+        m_norm, cov_m = _normalizar_canal_hints_mv(nt, m_sum, w_m_sum)
+        mul_mf = nt.nodes.new("ShaderNodeMath")
+        mul_mf.operation = "MULTIPLY"
+        mul_mf.use_clamp = True
+        nt.links.new(m_norm, mul_mf.inputs[0])
+        nt.links.new(cov_m, mul_mf.inputs[1])
+        nt.links.new(mul_mf.outputs["Value"], comb.inputs[0])
+    else:
+        comb.inputs[0].default_value = 0.0
+
+    if w_r_sum is not None and r_sum is not None:
+        r_norm, cov_r = _normalizar_canal_hints_mv(nt, r_sum, w_r_sum)
+        nt.links.new(r_norm, comb.inputs[1])
+        nt.links.new(cov_r, comb.inputs[2])
+    else:
+        comb.inputs[1].default_value = 0.0
+        comb.inputs[2].default_value = 0.0
+
+    emit = nt.nodes.new("ShaderNodeEmission")
+    emit.inputs["Strength"].default_value = 1.0
+    nt.links.new(comb.outputs["Color"], emit.inputs["Color"])
+    nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+    return mat
+
+
 def _criar_material_high_hints_emit(
     nome_mat: str,
     img_met,
@@ -240,6 +361,8 @@ def _criar_material_high_hints_emit(
     nome_cor: str | None = None,
     img_origem=None,
     nome_visivel: str | None = None,
+    *,
+    vistas_hints: list | None = None,
 ):
     """Shader EMIT temporario que empacota R=metallic, G=roughness, B=peso_pbr."""
     mat = bpy.data.materials.new(nome_mat)
@@ -250,7 +373,16 @@ def _criar_material_high_hints_emit(
         nt.nodes.remove(bsdf)
     out = nt.nodes.get("Material Output")
 
-    uv_node, fator_frente = _criar_nodos_fator_frontal(nt, nome_uv, nome_visivel=nome_visivel)
+    ativas = [vh for vh in (vistas_hints or []) if vh[1] is not None or vh[2] is not None]
+    if len(ativas) >= 2:
+        return _montar_hints_emit_multivista(mat, nt, out, ativas)
+    dir_unica = (0.0, 1.0, 0.0)
+    if len(ativas) == 1 and img_met is None and img_rough is None:
+        _vk, img_met, img_rough, nome_uv, nome_visivel, dir_unica = ativas[0][:6]
+
+    uv_node, fator_frente = _criar_nodos_fator_vista(
+        nt, dir_unica, nome_uv, nome_visivel=nome_visivel
+    )
     fator_pbr = fator_frente
     if nome_cor and img_origem is not None:
         # Propaga hints PBR para flancos/traseira apenas onde COLOR_0 combina com o concept frontal

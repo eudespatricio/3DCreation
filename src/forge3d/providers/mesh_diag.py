@@ -198,7 +198,7 @@ def _delight_ativo(item: dict | None = None) -> bool:
         return False
     if env in ("1", "true", "sim", "on"):
         return True
-    return facade_attr("_qualidade", _qualidade)(item) in ("standard", "hero")
+    return facade_attr("_qualidade", _qualidade)(item) in ("standard", "hero", "ultra")
 
 
 def _usar_extrude_2d(item: dict) -> bool:
@@ -480,7 +480,11 @@ def _preflight_concept_item(item: dict) -> tuple[bool, str]:
     from .concept import ConceptProvider
 
     cp = ConceptProvider()
-    if item.get("provider_conceito") or os.environ.get("FORGE3D_PROVIDER_CONCEITO"):
+    if (
+        item.get("provider_conceito")
+        or item.get("vistas") is not None
+        or os.environ.get("FORGE3D_PROVIDER_CONCEITO")
+    ):
         try:
             return cp.preflight(item)
         except TypeError:

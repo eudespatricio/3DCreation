@@ -13,22 +13,18 @@ from mathutils import Vector
 if __package__:
     from .postprocess_repair import _colapsar_faces_degeneradas, reparar_malha
     from .postprocess_scene import (
-        PARTES_RIGIDAS,
-        TIPOS_ORGANICOS,
-        _selecionar,
-        malha_triangulada,
+        PARTES_RIGIDAS, TIPOS_ORGANICOS, _selecionar, malha_triangulada,
     )
+    from .postprocess_uv_boost import aplicar_prioridade_uv_cabeca
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
         sys.path.insert(0, _BLENDER_DIR)
     from postprocess_repair import _colapsar_faces_degeneradas, reparar_malha
     from postprocess_scene import (
-        PARTES_RIGIDAS,
-        TIPOS_ORGANICOS,
-        _selecionar,
-        malha_triangulada,
+        PARTES_RIGIDAS, TIPOS_ORGANICOS, _selecionar, malha_triangulada,
     )
+    from postprocess_uv_boost import aplicar_prioridade_uv_cabeca
 
 
 def _resolver_config_suavizacao(job: dict, bruto: dict) -> dict:
@@ -207,20 +203,25 @@ def desdobrar_uv(obj, margem: float = 0.004, angle_limit_graus: float = 66.0) ->
     bpy.ops.uv.smart_project(
         angle_limit=math.radians(float(angle_limit_graus)),
         island_margin=max(0.002, min(0.02, float(margem))),
-        area_weight=0.5,
+        area_weight=0.25,
         correct_aspect=True,
         scale_to_bounds=False,
     )
+    bpy.ops.object.mode_set(mode="OBJECT")
     if obj.data.uv_layers and len(obj.data.polygons) > 0:
+        aplicar_prioridade_uv_cabeca(obj, fator=1.35)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.uv.select_all(action="SELECT")
         pack_props = set(bpy.ops.uv.pack_islands.get_rna_type().properties.keys())
+        pack_margin_cap = 0.004 if len(obj.data.polygons) >= 400 else 0.01
         pack_kwargs = {
             "rotate": True,
             "scale": True,
-            "margin": max(0.002, min(0.01, float(margem))),
+            "margin": max(0.002, min(pack_margin_cap, float(margem))),
         }
         bpy.ops.uv.pack_islands(**{k: v for k, v in pack_kwargs.items() if k in pack_props})
-    bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.ops.object.mode_set(mode="OBJECT")
     if not obj.data.uv_layers:
         raise RuntimeError("smart_project nao criou camada UV")
     return obj.data.uv_layers.active.name

@@ -12,6 +12,7 @@ from . import animacao, config, paths, spec
 from .errors import erro_spec
 from .rbx_acessorio import _normalizar_sockets_map
 from .rbx_anim import _sequencia_xml
+from .rbx_r15_model import exportar_r15_model
 from .rbx_pbr import (
     _extrair_mapas_pbr_manifesto_dict,
     _normalizar_mapas_pbr,
@@ -35,6 +36,45 @@ from .rbx_xml import (
 )
 
 
+def _validar_asset_ids_r15(
+    ossos: list[dict],
+    partes: Mapping[str, dict],
+    mapas_pbr: Mapping[str, str],
+    mesh_uri: str,
+    modo_rig: str,
+) -> None:
+    """Garante que rota nao-blocky tem ``rbxassetid://`` valido em MeshPart e SurfaceAppearance."""
+    faltando_mesh: list[str] = []
+    if modo_rig == "bone":
+        if not str(mesh_uri or "").startswith("rbxassetid://"):
+            faltando_mesh.append(f"Forge3DMesh({mesh_uri or 'vazio'})")
+    else:
+        for osso in ossos:
+            nome = osso["nome"]
+            if nome == "HumanoidRootPart":
+                continue
+            uri_parte = str(partes[nome].get("mesh_id") or mesh_uri or "")
+            if not uri_parte.startswith("rbxassetid://"):
+                faltando_mesh.append(f"{nome}({uri_parte or 'vazio'})")
+
+    faltando_tex = [
+        f"{canal}({uri})"
+        for canal, uri in mapas_pbr.items()
+        if not str(uri or "").startswith("rbxassetid://")
+    ]
+    if faltando_mesh or faltando_tex:
+        detalhes: list[str] = []
+        if faltando_mesh:
+            detalhes.append(f"MeshId sem rbxassetid://: {', '.join(faltando_mesh)}")
+        if faltando_tex:
+            detalhes.append(f"SurfaceAppearance sem rbxassetid://: {', '.join(faltando_tex)}")
+        raise erro_spec(
+            "export-r15: rota nao-blocky exige AssetIds Roblox publicados "
+            f"({'; '.join(detalhes)}). Passe --model-id <id>, --asset-ids <json>, "
+            "execute 'forge3d upload-model' ou use --rascunho-local."
+        )
+
+
 def exportar_r15(
     lote: str | Path,
     item_id: str,
@@ -49,6 +89,8 @@ def exportar_r15(
     modo_rig: str = "motor6d",
     sockets: Mapping[str, Any] | list[Any] | None = None,
     manifesto: Mapping[str, Any] | str | Path | None = None,
+    model_id: str | int | None = None,
+    exigir_asset_ids: bool = False,
 ) -> dict:
     """Gera um place ``.rbxlx`` com o rig R15 (blocky Parts/MeshParts ou rota segmentada Motor6D)."""
     if modo_rig not in ("motor6d", "bone"):
@@ -68,6 +110,18 @@ def exportar_r15(
     mps = float(metros_por_stud or (perfil.get("unidades") or {}).get("metros_por_stud", 0.28))
     if mps <= 0:
         raise erro_spec("export-r15: metros_por_stud precisa ser > 0")
+
+    if model_id is not None:
+        return exportar_r15_model(
+            item,
+            perfil,
+            item_id,
+            str(esqueleto_item or "r15@1"),
+            mps,
+            model_id,
+            saida=saida,
+            ledger=ledger,
+        )
 
     eh_blocky = item.get("rota") == "blocky"
     manifesto_eff, pasta_manifesto = _carregar_manifesto_r15(
@@ -141,6 +195,8 @@ def exportar_r15(
         asset_ids=asset_ids,
         ledger=ledger,
     )
+    if exigir_asset_ids and not eh_blocky and not model_id:
+        _validar_asset_ids_r15(ossos, partes, mapas_pbr, mesh_uri, modo_rig)
 
     hrp_centro_y = partes["HumanoidRootPart"]["centro"][1]
     hrp_meio_y = partes["HumanoidRootPart"]["tamanho"][1] * 0.5

@@ -44,7 +44,7 @@ def px_bake_recomendado(
     if px >= 4096:
         px_sub = 4096 if q == "ultra" else 2048
     elif px >= 2048:
-        px_sub = 2048 if q == "ultra" else 1024
+        px_sub = 2048 if (q == "ultra" or (q == "hero" and teto_perfil is not None and int(teto_perfil) >= 4096)) else 1024
     elif px >= 1024:
         px_sub = 1024
     else:
@@ -86,6 +86,12 @@ def preparar_high_mesh_detalhe_alto(high_obj, cfg: dict | None) -> dict:
     crease_rad = math.radians(crease_deg)
 
     tris_inicial = _contar_triangulos(high_obj)
+    if tris_inicial > 60_000 and bool(getattr(high_obj.data, "color_attributes", None)):
+        return {
+            "aplicado": False,
+            "motivo": "malha_i23d_ja_densa",
+            "tris_high_inicial": tris_inicial,
+        }
     if tris_inicial > 80_000:
         subdiv = min(subdiv, 1)
 

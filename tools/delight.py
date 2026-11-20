@@ -95,12 +95,12 @@ def _delight_cv2(rgba: Image.Image) -> Image.Image:
     l_retinex = l_chan * razao
 
     # Supressao de picos especulares sem lavar tons medios nem inventar brilho no tecido fosco.
-    excesso = np.maximum(0.0, l_chan - 200.0)
-    l_retinex = np.where(l_chan > 200.0, l_retinex - 0.65 * excesso, l_retinex)
+    excesso = np.maximum(0.0, l_chan - 210.0)
+    l_retinex = np.where(l_chan > 210.0, l_retinex - 0.48 * excesso, l_retinex)
 
     fator_blend = np.where(l_chan < l_ref, 0.62, 0.42)
     l_out = (1.0 - fator_blend) * l_chan + fator_blend * l_retinex
-    l_out = np.where(l_chan > 200.0, np.minimum(l_out, l_chan - 0.65 * excesso), l_out)
+    l_out = np.where(l_chan > 210.0, np.minimum(l_out, l_chan - 0.48 * excesso), l_out)
 
     # Supressao leve de saturacao em zonas especulares muito claras (evita brilho colorido estourado).
     fator_croma = np.where(l_chan > 220.0, 0.88, 1.0)

@@ -170,3 +170,83 @@ Isso não é proposta de solução: é a prova de que o consumidor deve ser o `A
    com **um** formato.
 3. O `export-r15` deve exigir upload prévio de mesh (ledger) e falhar sem ele, ou gerar lugar com
    `Model` por id?
+
+
+## 11. Resolução empírica no Studio MCP (v0.9.7)
+
+Testes empíricos executados ao vivo no Roblox Studio via StudioMCP refutaram a hipótese inicial do DEF-01 (que atribuía a ausência de movimento ao aninhamento de `Pose`) e confirmaram o comportamento real do `Animator` com `KeyframeSequence`:
+
+| Alvo no Studio | Formato `Pose` | Ângulo máx. medido | Juntas/Ossos movidos | Conclusão |
+|---|---|---|---|---|
+| Rig `Motor6D` R15 (`walk`) | **Aninhada** (`rbx_anim.py`) | **38,8°** | ativo | Mantido (`rbx_anim.py` intacto) |
+| Rig `Motor6D` R15 (`walk`) | Plana (irmãs sob `Keyframe`) | **0,0°** | 0 | Descartado |
+| Skinned `Bone` Model `120880990771470` | **Aninhada** (`rbx_anim.py`) | **38,8°** | **13 bones** | Funciona nativamente via `Animator` |
+| Skinned `Bone` Model `120880990771470` | Plana (irmãs sob `Keyframe`) | **0,0°** | **0 bones** | Descartado |
+
+### Correções aplicadas (v0.9.7)
+
+1. **DEF-01 (resolvido por evidência):** `src/forge3d/rbx_anim.py` e a exigência `pose_aninhada=True` em `src/forge3d/qc_roblox_anim.py` foram mantidos intactos porque a hierarquia aninhada (`HumanoidRootPart → LowerTorso → ...`) é o formato que o `Animator` consome em `Motor6D` e `Bone` skinned (38,8° medidos vs 0,0° no plano).
+2. **DEF-02 (`qc_roblox_anim.py` + `tools/r15_play_g14.{lua,py}`):**
+   - `verificar_g14_animacao_roblox` agora aceita `play_report` opcional e registra `medido.play_studio` explicitamente (`{"status": "skip", "motivo": "studio_mcp_nao_executado"}` quando offline).
+   - `tools/r15_play_g14.lua` passou a suportar `Humanoid` e `AnimationController`, aguardar 25 frames de `RunService.Heartbeat`, medir `Motor6D.Transform`, `Bone.Transform` e `BasePart.CFrame` e reportar `moved=<N>` (`G14_PLAY_PASS/FAIL max_ang_deg=... max_pos_studs=... moved=...`).
+   - `tools/r15_play_g14.py` ganhou `--auto-play` (`start_stop_play` com parada no `finally`) e `--model-id` (carrega `_G14TestModel` no `Server` via `InsertService:LoadAsset` com `AnimationController`+`Animator` antes da probe no `Client`, removendo no `finally`).
+3. **DEF-03 (`rbx_r15_model.py`, `rbx_r15.py`, `cli/parsers.py`, `cli/handlers_export.py`):**
+   - `export-r15` passa a aceitar `--model-id <id|auto>` (gerando `.rbxlx` pronto para Play com `Forge3DLoadModel` no `ServerScriptService` e `Forge3DPlayAnim` em `StarterPlayerScripts` sem fallback manual de `Bone.CFrame`), `--asset-ids <json>` e `--rascunho-local`.
+   - Para rotas não-blocky sem `--model-id` nem `--rascunho-local`, o CLI passa `exigir_asset_ids=True` e falha com `FORGE-E-SPEC` se alguma `MeshPart` ou canal de `SurfaceAppearance` não resolver para `rbxassetid://`.
+
+## 12. Re-teste na v0.9.7 (20/11/2026) e novo defeito DEF-06
+
+### 12.1 O que a v0.9.7 fechou
+
+- `run` com o mesmo lote: **exit 0**, QC aprovado, 15 partes, 16 ossos, 23 arquivos.
+- `export-r15 --model-id <id>`: `.rbxlx` com `Forge3DLoadModel` (ServerScriptService) e
+  `Forge3DPlayAnim` (StarterPlayerScripts); sem `MeshPart` solto e sem `MeshId` nulo — **DEF-03
+  endereçado** no fluxo com `--model-id`.
+- **Play nativo medido:** `tools/r15_play_g14.py --place <rbxlx> --clipe walk --auto-play
+  --model-id 72623231126473` →
+  **`G14_PLAY_PASS max_ang_deg=38.75 max_pos_studs=0.0930 moved=13`**.
+- **DEF-01 retirado:** a hipótese de que `Pose` aninhada era o problema está **refutada** — este teste
+  confirma o §11: aninhada move (38,75°), plana move 0°, e a falha anterior era da demo que posava
+  `Bone.CFrame` na mão. `rbx_anim.py` e a exigência de aninhamento em `qc_roblox_anim.py` estão corretos.
+
+### 12.2 DEF-06 — pesos de skin dos membros (braços) — **alto**
+
+- **Sintoma:** com a animação nativa tocando (13 juntas, 38,75°), os **braços deformam/esticam**; o resto
+  do corpo anda normalmente.
+- **Reprodução fora do Roblox:** o mesmo GLB, importado no Blender 4.2, com a ação `walk_Armature`,
+  deforma igual — logo **não é o Roblox**: é o asset.
+  - Repouso: `docs/preview/pose3q_repouso.png`
+  - Frame 20 do walk: `docs/preview/pose3q_walk_20.png`
+- **Medida objetiva (arestas, mesma topologia, frame 1 × frame 20):**
+  - arestas: **28.264** · razão média **1,03** · **maior 10,98×** · **644 arestas > 1,5×**
+  - 10 piores, com os grupos dominantes de cada vértice:
+
+    | Razão | Vértices | Grupos |
+    |---|---|---|
+    | 10,98× | v8440/v9343 · v8439/v9342 | `LeftUpperLeg` ↔ `LeftHand` |
+    | 8,51× | v7370/v7767 | `RightUpperArm` ↔ `UpperTorso` |
+    | 8,09× | v4717/v4953 | `UpperTorso` ↔ `LeftLowerArm` |
+    | 7,30× | v5847/v6383 | `RightUpperArm` ↔ `UpperTorso` |
+    | 7,18× | v11672/v11673 | `LeftLowerArm` ↔ `UpperTorso` |
+    | 6,49× | v12693/v12873 | `LeftHand` ↔ `LeftUpperLeg` |
+- **Causa provável:** pesos automáticos (`autorig`) numa malha gerada e **fundida**: vértices vizinhos
+  recebem ossos distantes (mão e coxa encostam na pose; antebraço e tronco idem). Quando a junta gira,
+  a aresta entre eles estica até 11×. É o mesmo fenômeno que produziu o G12 de 2,291 mm na v0.9.5.
+- **Correções sugeridas (ordem de custo):**
+  1. **segmentar antes de rigar** e rigar por parte (rigidez por peça) — é o caminho R15/Motor6D e elimina
+     esticamento por construção;
+  2. manter skin, mas gerar pesos por **distância geodésica** com limite de influências (2–3), suavização e
+     rejeição de pares que não têm aresta no mesmo grupo;
+  3. **gate novo G16**: maior esticamento de aresta sob a animação ≤ 1,5× (medido no Blender, no mesmo
+     passo do `run`), para o QC não aprovar pele que rasga.
+- **Aceite:** com `walk` tocando, `max_ratio <= 1,5` e braços sem deformação visível; G16 verde no `run`.
+
+### 12.3 Estado dos artefatos
+
+| O que | Caminho |
+|---|---|
+| Destino v0.9.7 | `~/.local/state/forge3d/saida/muralha_iron_ram_v097/` |
+| Place (model-id) | `.../iron_ram_v097.rbxlx` |
+| Variante de visualização | `.../iron_ram_v097_view.rbxlx` (sem avatar + câmera orbitando) |
+| Model publicado | `72623231126473` (`Muralha_Boss_iron_ram_v097`, Approved) |
+| Renders do defeito | `docs/preview/pose3q_repouso.png`, `docs/preview/pose3q_walk_20.png` |

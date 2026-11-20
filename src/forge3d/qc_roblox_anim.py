@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -108,7 +109,11 @@ def _inspecionar_keyframe_sequence(seq: ElementTree.Element) -> dict[str, Any]:
 
 
 def verificar_g14_animacao_roblox(
-    item: dict, perfil: dict, pasta: Path, arquivos: list[dict]
+    item: dict,
+    perfil: dict,
+    pasta: Path,
+    arquivos: list[dict],
+    play_report: Mapping[str, Any] | None = None,
 ) -> dict:
     """Gate G14: KeyframeSequence com arvore Pose aninhada, Loop=true e amplitude >= 5 deg."""
     anim_arqs = [
@@ -187,6 +192,14 @@ def verificar_g14_animacao_roblox(
     if not validos:
         problemas.append("nenhum_clipe_loop_com_amplitude_minima")
 
+    play_studio = (
+        dict(play_report)
+        if play_report
+        else {"status": "skip", "motivo": "studio_mcp_nao_executado"}
+    )
+    if play_studio.get("status") == "falhou":
+        problemas.append(f"play_studio_falhou:{play_studio.get('motivo') or 'sem_movimento'}")
+
     amp_max = max((c["amplitude_max_graus"] for c in clipes_medidos), default=0.0)
     ok = (not problemas) and bool(validos)
     return {
@@ -199,6 +212,7 @@ def verificar_g14_animacao_roblox(
             "pose_aninhada": (
                 all(c["pose_aninhada"] for c in clipes_medidos) if clipes_medidos else False
             ),
+            "play_studio": play_studio,
             **({"problemas": problemas} if problemas else {}),
         },
         "limite": {

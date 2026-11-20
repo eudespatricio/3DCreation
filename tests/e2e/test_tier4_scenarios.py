@@ -72,7 +72,7 @@ def test_scenario1_roblox_r15_segmented_hero_pipeline(
 
     rbxlx = e2e_sandbox.dest_dir / "out" / "paladin_r15.rbxlx"
     rc_exp, out_exp, err_exp, exp_rep = e2e_sandbox.run_cli(
-        ["export-r15", str(spec_path), "--item", "char.paladin.r15.01", "--saida", str(rbxlx)]
+        ["export-r15", str(spec_path), "--item", "char.paladin.r15.01", "--rascunho-local", "--saida", str(rbxlx)]
     )
     assert rc_exp == 0, f"S1 export-r15 failed (rc={rc_exp}): {out_exp} {err_exp}"
     assert isinstance(exp_rep, dict) and exp_rep["partes"] == 16 and exp_rep["motores"] == 15

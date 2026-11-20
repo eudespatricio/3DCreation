@@ -44,7 +44,7 @@ def _px_bake_estimado(qualidade: str, perfil: dict) -> tuple[int, int]:
     if px >= 4096:
         px_sub = 4096 if qualidade == "ultra" else 2048
     elif px >= 2048:
-        px_sub = 2048 if qualidade == "ultra" else 1024
+        px_sub = 2048 if (qualidade == "ultra" or (qualidade == "hero" and teto_perfil >= 4096)) else 1024
     elif px >= 1024:
         px_sub = 1024
     else:

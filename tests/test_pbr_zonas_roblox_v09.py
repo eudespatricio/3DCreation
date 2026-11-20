@@ -82,7 +82,7 @@ def _construir_glb_com_textura_embutida() -> bytes:
 
 
 def test_post_versao_093_preflight_i9_e_forward_v6(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert post.PIPELINE_VERSION == "0.9.6"
+    assert post.PIPELINE_VERSION == "0.9.7"
     assert post.VERSAO_MIN == (4, 2)
     assert post.VERSAO_MAX == (4, 3)
 
@@ -142,6 +142,7 @@ def test_presets_pbr_10_zonas_e_px_bake_recomendado_sem_downgrade_512() -> None:
     assert bake_pbr.px_bake_recomendado("standard") == (1024, 1024)
     assert bake_pbr.px_bake_recomendado("standard", solicitado=1024) == (1024, 1024)
     assert bake_pbr.px_bake_recomendado("hero") == (2048, 1024)
+    assert bake_pbr.px_bake_recomendado("hero", teto_perfil=4096) == (2048, 2048)
     assert bake_pbr.px_bake_recomendado("ultra") == (2048, 2048)
     assert bake_pbr.px_bake_recomendado("ultra", teto_perfil=4096) == (4096, 4096)
     assert bake_pbr.px_bake_recomendado("hero", solicitado=4096, teto_perfil=4096) == (4096, 2048)

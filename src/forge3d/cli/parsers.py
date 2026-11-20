@@ -122,6 +122,9 @@ def construir_parser() -> argparse.ArgumentParser:
     e.add_argument("--texturas-dir", help="diretorio com texturas PBR para SurfaceAppearance")
     e.add_argument("--modo-rig", choices=["motor6d", "bone"], default="motor6d")
     e.add_argument("--anchored-root", action="store_true", help="ancora o HumanoidRootPart/MeshPart no place")
+    e.add_argument("--model-id", help="AssetId de Model publicado no Roblox (ou 'auto' via ledger)")
+    e.add_argument("--asset-ids", help="caminho JSON mapeando parte/canal para AssetId Roblox")
+    e.add_argument("--rascunho-local", action="store_true", help="permite exportar rota nao-blocky sem rbxassetid://")
     e.add_argument("--no-ledger", action="store_true", help="ignora ledger.jsonl ao resolver AssetIds")
     e.add_argument("--json", action="store_true")
 

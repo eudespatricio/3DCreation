@@ -243,6 +243,15 @@ def _processar_vistas_i23d(
             if front_tex not in arquivos:
                 arquivos.append(front_tex)
 
+    pbr_hints: dict[str, dict[str, str]] = {}
+    front_hints: dict[str, str] = {}
+    if modelo.get("metallic_hint"):
+        front_hints["metallic"] = str(modelo["metallic_hint"])
+    if modelo.get("roughness_hint"):
+        front_hints["roughness"] = str(modelo["roughness_hint"])
+    if front_hints:
+        pbr_hints["front"] = front_hints
+
     pg_script = _diag.facade_attr("script_pose_guard", _diag.script_pose_guard)()
     py_img = _diag.facade_attr("_python_imagem", _diag._python_imagem)()
     if not py_img.is_file():
@@ -293,6 +302,21 @@ def _processar_vistas_i23d(
                     v_atual = delit_v
                     if delit_v not in arquivos:
                         arquivos.append(delit_v)
+                hints_v: dict[str, str] = {}
+                for chave_dl, chave_out, sufixo_arq in (
+                    ("metallic_hint", "metallic", "metallic_hint.png"),
+                    ("roughness_hint", "roughness", "roughness_hint.png"),
+                ):
+                    nome_h = str(dl_v.get(chave_dl) or "")
+                    src_h = subdir_v / nome_h if nome_h else None
+                    if src_h is not None and src_h.is_file():
+                        dst_h = destino / f"vista_{v}_{sufixo_arq}"
+                        shutil.copyfile(src_h, dst_h)
+                        hints_v[chave_out] = dst_h.name
+                        if dst_h not in arquivos:
+                            arquivos.append(dst_h)
+                if hints_v:
+                    pbr_hints[v] = hints_v
             except (subprocess.TimeoutExpired, OSError, ValueError, KeyError) as exc:
                 sys.stderr.write(f"[mesh_i23d] aviso delight vista '{v}' falhou ({exc}); mantendo {v_atual.name}\n")
             finally:
@@ -300,6 +324,8 @@ def _processar_vistas_i23d(
         vistas[v] = str(v_atual)
 
     modelo["vistas_ortograficas"] = dict(vistas)
+    if pbr_hints:
+        modelo["vistas_pbr_hints"] = pbr_hints
 
 
 def executar_i23d_step(
@@ -416,13 +442,7 @@ def executar_i23d_step(
         "pivos": {},
         "concept": concept_meta,
         "proteger_decimate": item.get("tipo")
-        in (
-            "personagem_humanoide",
-            "criatura",
-            "criatura_quadrupede",
-            "criatura_alada",
-            "montaria",
-        ),
+        in ("personagem_humanoide", "criatura", "criatura_quadrupede", "criatura_alada", "montaria"),
     }
     if item.get("material_procedural"):
         modelo["material_procedural"] = str(item["material_procedural"])
@@ -443,19 +463,10 @@ def executar_i23d_step(
     vistas = anexar_concept_vistas(modelo, vistas_meta, arquivos, destino, item, concept_meta)
     if vistas:
         _processar_vistas_i23d(
-            vistas,
-            modelo,
-            arquivos,
-            destino,
-            origem_textura,
-            delight_ativo,
-            dl_script_fn(),
-            delight_fn,
-            env,
+            vistas, modelo, arquivos, destino, origem_textura, delight_ativo, dl_script_fn(), delight_fn, env
         )
     arq_modelo.write_text(
-        json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+        json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
     resultado["rembg"] = remover_fundo

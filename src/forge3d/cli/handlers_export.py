@@ -193,20 +193,42 @@ def export_anim(args) -> int:
 
 def export_r15(args) -> int:
     from .. import rbx
+    from ..errors import erro_spec
 
+    asset_ids_map: dict[str, str] | None = None
+    raw_asset_ids = getattr(args, "asset_ids", None)
+    if raw_asset_ids:
+        arq_ids = Path(str(raw_asset_ids)).expanduser()
+        try:
+            dados_ids = json.loads(arq_ids.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise erro_spec(f"export-r15: falha ao ler --asset-ids '{arq_ids}': {exc}") from exc
+        if not isinstance(dados_ids, dict):
+            raise erro_spec(f"export-r15: --asset-ids '{arq_ids}' precisa ser um objeto JSON")
+        asset_ids_map = {
+            str(k): str(v) for k, v in dados_ids.items() if k and v is not None and str(v).strip()
+        }
+
+    model_id = getattr(args, "model_id", None)
+    rascunho_local = bool(getattr(args, "rascunho_local", False))
     relatorio = rbx.exportar_r15(
         args.lote,
         args.item,
         args.saida,
         anchored_root=args.anchored_root,
         texturas_dir=args.texturas_dir,
+        asset_ids=asset_ids_map,
         ledger=False if args.no_ledger else True,
         modo_rig=args.modo_rig,
+        model_id=model_id,
+        exigir_asset_ids=(not rascunho_local and not model_id),
     )
     if args.json:
         emit_json(relatorio)
     else:
         extra = "  +SurfaceAppearance" if relatorio.get("textura") else ""
+        if relatorio.get("model_id"):
+            extra += f"  model_id={relatorio['model_id']}"
         print(
             f"rbxlx {relatorio['saida']}  {relatorio['partes']} partes  "
             f"{relatorio['motores']} motores  {relatorio['bytes']} B{extra}"

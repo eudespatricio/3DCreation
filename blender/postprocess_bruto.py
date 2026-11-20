@@ -6,6 +6,7 @@ import math
 import os
 import sys
 
+import bmesh
 import bpy
 from mathutils import Matrix, Vector
 
@@ -15,15 +16,9 @@ if __package__:
     from .postprocess_normals_uv import aplicar_weighted_normal, suavizar_por_angulo
     from .postprocess_repair import reparar_malha
     from .postprocess_scene import (
-        TIPOS_ORGANICOS,
-        _aplicar_transformes,
-        _detectar_esqueleto_pelos_ossos,
-        _resolver_opcional_bruto,
-        criar_armadura,
-        importar_fonte,
-        malha_triangulada,
-        objetos_colisao_ucx,
-        unir_malhas,
+        TIPOS_ORGANICOS, _aplicar_transformes, _detectar_esqueleto_pelos_ossos,
+        _resolver_opcional_bruto, criar_armadura, importar_fonte, malha_triangulada,
+        objetos_colisao_ucx, unir_malhas,
     )
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,66 +32,83 @@ else:
     from postprocess_normals_uv import aplicar_weighted_normal, suavizar_por_angulo
     from postprocess_repair import reparar_malha
     from postprocess_scene import (
-        TIPOS_ORGANICOS,
-        _aplicar_transformes,
-        _detectar_esqueleto_pelos_ossos,
-        _resolver_opcional_bruto,
-        criar_armadura,
-        importar_fonte,
-        malha_triangulada,
-        objetos_colisao_ucx,
-        unir_malhas,
+        TIPOS_ORGANICOS, _aplicar_transformes, _detectar_esqueleto_pelos_ossos,
+        _resolver_opcional_bruto, criar_armadura, importar_fonte, malha_triangulada,
+        objetos_colisao_ucx, unir_malhas,
     )
 
 
+def _inspecionar_ou_podar_ilhas_organicas(obj) -> tuple[bool, int]:
+    """Retorna ``(deve_soldar_voxel, faces_ruido_removidas)`` via BFS de faces em bmesh."""
+    if obj is None or obj.type != "MESH" or not obj.data or not obj.data.polygons:
+        return False, 0
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        total = len(bm.faces)
+        if total <= 1:
+            return False, 0
+        vistos: set[int] = set()
+        comps: list[list] = []
+        for f0 in bm.faces:
+            if f0.index in vistos:
+                continue
+            comp, pilha = [f0], [f0]
+            vistos.add(f0.index)
+            while pilha:
+                fc = pilha.pop()
+                for v in fc.verts:
+                    for fn in v.link_faces:
+                        if fn.index not in vistos:
+                            vistos.add(fn.index)
+                            comp.append(fn)
+                            pilha.append(fn)
+            comps.append(comp)
+        if len(comps) <= 1:
+            return False, 0
+        maior_frac = max(len(c) for c in comps) / float(total)
+        substanciais = sum(1 for c in comps if len(c) >= 0.05 * total)
+        if substanciais >= 2 and maior_frac < 0.90:
+            return True, 0
+        ruido = [f for c in comps if len(c) < 0.02 * total for f in c]
+        if ruido:
+            bmesh.ops.delete(bm, geom=ruido, context="FACES")
+            soltos = [v for v in bm.verts if not v.link_faces]
+            if soltos:
+                bmesh.ops.delete(bm, geom=soltos, context="VERTS")
+            bm.normal_update()
+            bm.to_mesh(obj.data)
+            obj.data.update()
+        return False, len(ruido)
+    finally:
+        bm.free()
+
+
 def _processar_bruto_extrude(
-    bruto: dict,
-    bruto_dir: str,
-    saida_dir: str,
-    nome_base: str,
-    item: dict,
-    perfil: dict,
-    cfg_suav: dict,
-    qualidade_item: str,
-    alpha_cards_ativo: bool,
-    textura_max_perfil: int,
-    info_gerada: dict,
-    texturas_geradas: list[dict],
-    decimar_fn,
+    bruto: dict, bruto_dir: str, saida_dir: str, nome_base: str, item: dict, perfil: dict,
+    cfg_suav: dict, qualidade_item: str, alpha_cards_ativo: bool, textura_max_perfil: int,
+    info_gerada: dict, texturas_geradas: list[dict], decimar_fn,
 ) -> tuple:
     imagem_path = _resolver_opcional_bruto(
         bruto_dir, bruto.get("origem_textura")
     ) or os.path.join(bruto_dir, bruto["imagem"])
     modo = str(bruto.get("modo", "arma"))
     obj = extrude_2d.construir_malha_2d(
-        imagem_path,
-        modo=modo,
-        nome=nome_base,
-        saida_dir=saida_dir,
+        imagem_path, modo=modo, nome=nome_base, saida_dir=saida_dir,
         pivot=str(item.get("pivot") or "empunhadura"),
     )
     base_tex_path = os.path.join(saida_dir, f"{nome_base}_baseColor.png")
     if os.path.isfile(base_tex_path):
         texturas_geradas.append(
-            {
-                "caminho": f"{nome_base}_baseColor.png",
-                "papel": "textura",
-                "bytes": os.path.getsize(base_tex_path),
-            }
+            {"caminho": f"{nome_base}_baseColor.png", "papel": "textura", "bytes": os.path.getsize(base_tex_path)}
         )
-    info_gerada["extrude_2d"] = {
-        "modo": modo,
-        "triangulos_iniciais": malha_triangulada(obj),
-    }
-    info_gerada["reparo_inicial"] = reparar_malha(
-        obj, permitir_bordas_abertas=alpha_cards_ativo
-    )
+    info_gerada["extrude_2d"] = {"modo": modo, "triangulos_iniciais": malha_triangulada(obj)}
+    info_gerada["reparo_inicial"] = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
     limite_tris = int(item["limite_triangulos"])
     if malha_triangulada(obj) > limite_tris:
         decimar_fn(obj, limite_tris)
-        info_gerada["reparo_pos_decimate"] = reparar_malha(
-            obj, permitir_bordas_abertas=alpha_cards_ativo
-        )
+        info_gerada["reparo_pos_decimate"] = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
     angulo_smooth = float(cfg_suav["angulo_graus"])
     info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth)
     weighted = False
@@ -107,17 +119,11 @@ def _processar_bruto_extrude(
     rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
     if met_hint or rough_hint:
         px_ext, _ = bake_pbr.px_bake_recomendado(
-            qualidade_item,
-            bruto.get("textura_px"),
-            teto_perfil=textura_max_perfil or None,
+            qualidade_item, bruto.get("textura_px"), teto_perfil=textura_max_perfil or None
         )
         res_hints = bake_pbr.aplicar_hints_orm_em_material(
-            obj,
-            saida_dir,
-            nome_base,
-            px_ext,
-            metallic_hint_png=met_hint,
-            roughness_hint_png=rough_hint,
+            obj, saida_dir, nome_base, px_ext,
+            metallic_hint_png=met_hint, roughness_hint_png=rough_hint,
             perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
         )
         if res_hints:
@@ -126,16 +132,8 @@ def _processar_bruto_extrude(
 
 
 def _preparar_bruto_arquivo(
-    job: dict,
-    bruto: dict,
-    bruto_dir: str,
-    item: dict,
-    cfg_suav: dict,
-    qualidade_item: str,
-    alpha_cards_ativo: bool,
-    textura_max_perfil: int,
-    detalhe_alto_cfg,
-    pbr_zonas_cfg,
+    job: dict, bruto: dict, bruto_dir: str, item: dict, cfg_suav: dict, qualidade_item: str,
+    alpha_cards_ativo: bool, textura_max_perfil: int, detalhe_alto_cfg, pbr_zonas_cfg,
     info_gerada: dict,
 ) -> dict:
     importar_fonte(os.path.join(bruto_dir, bruto["arquivo"]))
@@ -185,7 +183,12 @@ def _preparar_bruto_arquivo(
         and (bool(mat_proc) or bool(obj.data.color_attributes))
         and organic_sculpt.contar_componentes(obj) > 1
     ):
-        deve_soldar = True
+        if bool(obj.data.color_attributes):
+            deve_soldar, ruido_rem = _inspecionar_ou_podar_ilhas_organicas(obj)
+            if ruido_rem > 0:
+                info_gerada["ilhas_ruido_removidas"] = ruido_rem
+        else:
+            deve_soldar = True
     if deve_soldar and rig_obj is None and bruto.get("arquivo") != "template_body.glb":
         info_solda = organic_sculpt.soldar_componentes_organicos(obj)
         info_gerada["soldagem_organica"] = info_solda
@@ -235,19 +238,14 @@ def _preparar_bruto_arquivo(
         "limite_tris": limite_tris,
         "px": px,
         "px_sub": px_sub,
+        "qualidade_item": str(qualidade_item or "").strip().lower(),
         "item_bake_check": item_bake_check,
         "usar_bake_high_low": usar_bake_high_low,
     }
 
 
 def _reduzir_low(
-    alvo_o,
-    lim_t: int,
-    ctx: dict,
-    cfg_suav: dict,
-    info_gerada: dict,
-    retopo_fn,
-    decimar_fn,
+    alvo_o, lim_t: int, ctx: dict, cfg_suav: dict, info_gerada: dict, retopo_fn, decimar_fn
 ) -> tuple[int, bool]:
     qf_aplicado = False
     retopo = ctx["retopologia_pedida"]
@@ -264,9 +262,16 @@ def _reduzir_low(
     elif malha_triangulada(alvo_o) > lim_t:
         decimar_fn(alvo_o, lim_t, proteger_cabeca_maos=proteger)
     if cfg_suav["corrective_smooth"] and malha_triangulada(alvo_o) >= 120:
-        info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
-            alvo_o, iteracoes=2, fator=0.35
-        )
+        if ctx.get("usar_bake_high_low"):
+            qual_low = str(ctx.get("qualidade_item") or "").strip().lower()
+            if qual_low not in ("hero", "ultra"):
+                info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
+                    alvo_o, iteracoes=1, fator=0.10
+                )
+        else:
+            info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
+                alvo_o, iteracoes=2, fator=0.35
+            )
     return malha_triangulada(alvo_o), qf_aplicado
 
 

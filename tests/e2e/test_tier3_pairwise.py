@@ -74,7 +74,7 @@ def test_pair1_r15_mesh_partes_export_r15_nested_pose_and_sync_rojo_lua(
     r15_out = e2e_sandbox.dest_dir / "out" / "sentinel.rbxlx"
     rc_r, out_r, err_r, r15_rep = e2e_sandbox.run_cli([
         "export-r15", str(spec_path), "--item", "char.sentinel.mesh.01",
-        "--texturas-dir", str(e2e_sandbox.dest_dir), "--saida", str(r15_out),
+        "--texturas-dir", str(e2e_sandbox.dest_dir), "--rascunho-local", "--saida", str(r15_out),
     ])
     assert rc_r == 0, f"export-r15 failed on mesh+partes (rc={rc_r}): {out_r} {err_r}"
     assert isinstance(r15_rep, dict) and r15_rep["partes"] == 16 and r15_rep["motores"] == 15

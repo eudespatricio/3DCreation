@@ -201,6 +201,14 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     ).astype(np.float32) - cv2.erode(
         l_contraste_u8, kernel_g, borderType=cv2.BORDER_REPLICATE
     ).astype(np.float32)
+    tem_meio_tom = (
+        cv2.dilate(
+            ((l_contraste_u8 >= 34) & (l_contraste_u8 <= 170)).astype(np.uint8),
+            kernel,
+            borderType=cv2.BORDER_REPLICATE,
+        )
+        > 0
+    )
 
     prata = (s_u8 < 42.0) & (local_min >= 52.0) & (
         ((l_f32 >= 95.0) & (l_f32 <= 240.0) & (local_range >= 42.0) & (local_max >= 175.0))
@@ -209,6 +217,15 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     )
     gunmetal = (s_u8 < 42.0) & (l_f32 >= 55.0) & (l_f32 < 95.0) & (local_min >= 48.0) & (
         ((local_max >= 115.0) & (local_range >= 32.0)) | ((cool_diff >= 4) & (local_range_g >= 2.0))
+    )
+    ferro_escuro = (
+        (s_u8 < 62.0)
+        & (l_f32 >= 26.0)
+        & (l_f32 < 78.0)
+        & (local_range >= 24.0)
+        & (local_max >= 72.0)
+        & (local_min <= 58.0)
+        & tem_meio_tom
     )
     ouro = (h_deg >= 34.0) & (h_deg <= 48.0) & (s_u8 >= 110.0) & (s_u8 <= 205.0) & (v_u8 >= 165.0) & (
         ((local_max >= 200.0) & (local_range >= 40.0))
@@ -221,10 +238,13 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         | ((v_u8 >= 230.0) & (local_range >= 28.0))
         | ((h_deg >= 28.0) & (s_u8 >= 155.0) & (s_u8 <= 176.0) & (v_u8 >= 160.0) & (local_range_g >= 2.0) & (local_range_g <= 18.0))
     )
-    metal = (prata | gunmetal | ouro | bronze) & fg
+    metal = (prata | gunmetal | ferro_escuro | ouro | bronze) & fg
 
     metallic = np.zeros((h, w), dtype=np.uint8)
     metallic[metal] = np.clip(np.rint(205.0 + (l_f32 - 95.0) * 0.14), 198.0, 230.0).astype(np.uint8)[metal]
+    metallic[ferro_escuro & fg] = np.clip(
+        np.rint(170.0 + (l_f32 - 26.0) * 0.77), 170.0, 210.0
+    ).astype(np.uint8)[ferro_escuro & fg]
     metallic[gunmetal & fg] = np.clip(np.rint(195.0 + (l_f32 - 50.0) * 0.35), 192.0, 218.0).astype(np.uint8)[gunmetal & fg]
     metallic[bronze & fg] = 208
     metallic[ouro & fg] = 218
@@ -235,6 +255,9 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     roughness[fg & (~metal) & (s_u8 >= 65.0) & (v_u8 >= 55.0) & (local_range >= 22.0)] = 158
     roughness[fg & (~metal) & (h_deg >= 1.5) & (h_deg <= 42.0) & (s_u8 >= 30.0) & (s_u8 <= 195.0) & (v_u8 >= 30.0) & (v_u8 <= 240.0)] = 140
     roughness[metal] = np.clip(np.rint(95.0 - (l_f32 / 255.0) * 26.0), 64.0, 97.0).astype(np.uint8)[metal]
+    roughness[ferro_escuro & fg] = np.clip(
+        np.rint(112.0 - (l_f32 - 26.0) * 0.58), 82.0, 112.0
+    ).astype(np.uint8)[ferro_escuro & fg]
     roughness[bronze & fg] = np.clip(np.rint(102.0 - (l_f32 / 255.0) * 28.0), 64.0, 105.0).astype(np.uint8)[bronze & fg]
     roughness[gunmetal & fg] = np.clip(np.rint(112.0 - (l_f32 / 255.0) * 32.0), 72.0, 115.0).astype(np.uint8)[gunmetal & fg]
 
@@ -276,6 +299,12 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     l_min = l_limpo.filter(ImageFilter.MinFilter(k)).tobytes()
     l_max_g = l_limpo.filter(ImageFilter.MaxFilter(k_g)).tobytes()
     l_min_g = l_limpo.filter(ImageFilter.MinFilter(k_g)).tobytes()
+    l_limpo_b = l_limpo.tobytes()
+    mid_max = (
+        Image.frombytes("L", (w, h), bytes(255 if 34 <= px <= 170 else 0 for px in l_limpo_b))
+        .filter(ImageFilter.MaxFilter(k))
+        .tobytes()
+    )
 
     metallic = bytearray(w * h)
     roughness = bytearray([209] * (w * h))
@@ -315,6 +344,10 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
             s_u8 < 42.0 and 55 <= l_u8 < 95 and l_mn >= 48
             and ((l_mx >= 115 and l_range >= 32) or (cool_diff >= 4 and l_range_g >= 2))
         )
+        eh_ferro_escuro = (
+            s_u8 < 62.0 and 26 <= l_u8 < 78 and l_range >= 24
+            and l_mx >= 72 and l_mn <= 58 and mid_max[idx] > 0
+        )
         if eh_ouro:
             metallic[idx] = 218
             roughness[idx] = max(64, min(97, round(95.0 - (l_u8 / 255.0) * 26.0)))
@@ -327,6 +360,9 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         elif eh_gunmetal:
             metallic[idx] = max(192, min(218, round(195.0 + (l_u8 - 50.0) * 0.35)))
             roughness[idx] = max(72, min(115, round(112.0 - (l_u8 / 255.0) * 32.0)))
+        elif eh_ferro_escuro:
+            metallic[idx] = max(170, min(210, round(170.0 + (l_u8 - 26.0) * 0.77)))
+            roughness[idx] = max(82, min(112, round(112.0 - (l_u8 - 26.0) * 0.58)))
         elif 1.5 <= h_deg <= 42.0 and 30.0 <= s_u8 <= 195.0 and 30.0 <= v_u8 <= 240.0:
             roughness[idx] = 140
         elif s_u8 >= 65.0 and v_u8 >= 55.0 and l_range >= 22:

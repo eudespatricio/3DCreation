@@ -121,6 +121,7 @@ def gerar_conceito_gemini(
     timeout_s: int = 120,
     item_id: Any = None,
     referencia_png: Path | None = None,
+    dicas_composicao: bool = False,
 ) -> dict[str, Any]:
     from . import LICENCAS, cloud_ai
 
@@ -169,7 +170,21 @@ def gerar_conceito_gemini(
             "Content-Type": "application/json",
             "Api-Revision": cloud_ai.API_REVISION_GEMINI,
         }
-        partes_entrada: list[dict[str, Any]] = [{"type": "text", "text": prompt_final}]
+        texto_entrada = prompt_final
+        if dicas_composicao:
+            dica_ar = (
+                "square 1:1 composition"
+                if int(largura) == int(altura)
+                else f"aspect ratio {int(largura)}:{int(altura)}"
+            )
+            extras_txt = [dica_ar]
+            if referencia_png is not None:
+                extras_txt.append(
+                    "use the attached reference image ONLY for character design/colors, "
+                    "render ONLY the single requested angle"
+                )
+            texto_entrada = f"{texto_entrada}. {', '.join(extras_txt)}" if texto_entrada else ", ".join(extras_txt)
+        partes_entrada: list[dict[str, Any]] = [{"type": "text", "text": texto_entrada}]
         if referencia_png is not None:
             if not referencia_png.is_file():
                 raise erro_provider_run(

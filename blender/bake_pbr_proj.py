@@ -112,10 +112,46 @@ def _podar_uv_layers_high(high_obj, uvs_necessarias: list[str]) -> None:
                 uvs.remove(layer)
 
 
-def _detectar_bbox_uv_foreground(img) -> tuple[float, float, float, float]:
-    """Detecta bbox normalizado ``(u0, u1, v0, v1)`` do primeiro plano se houver margem uniforme."""
+def _imagem_tem_alpha_valido(img) -> bool:
+    """Retorna True se ``img`` possui canal alfa com mistura de transparencia e opacidade."""
+    if img is None or not getattr(img, "size", None):
+        return False
     w, h = int(img.size[0]), int(img.size[1])
     if w <= 0 or h <= 0:
+        return False
+    px_len = w * h * 4
+    try:
+        if len(getattr(img, "pixels", ())) != px_len:
+            return False
+        buf = array("f", [0.0]) * px_len
+        img.pixels.foreach_get(buf)
+    except (RuntimeError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"[bake_pbr_proj] aviso alpha indisponivel em imagem: {exc}\n")
+        return False
+    gw, gh = min(w, 64), min(h, 64)
+    tem_transp = False
+    tem_opaco = False
+    for gy in range(gh):
+        py = min(h - 1, int((gy + 0.5) * h / gh))
+        row_off = py * w * 4
+        for gx in range(gw):
+            px_i = min(w - 1, int((gx + 0.5) * w / gw))
+            a = buf[row_off + px_i * 4 + 3]
+            if a < 0.98:
+                tem_transp = True
+            if a >= 0.45:
+                tem_opaco = True
+            if tem_transp and tem_opaco:
+                return True
+    return False
+
+
+def _detectar_bbox_uv_foreground(img) -> tuple[float, float, float, float]:
+    """Detecta bbox normalizado ``(u0, u1, v0, v1)`` do primeiro plano se houver margem uniforme."""
+    if img is None or not getattr(img, "size", None):
+        return (0.0, 1.0, 0.0, 1.0)
+    w, h = int(img.size[0]), int(img.size[1])
+    if w < 4 or h < 4:
         return (0.0, 1.0, 0.0, 1.0)
     buf = array("f", [0.0]) * (w * h * 4)
     img.pixels.foreach_get(buf)
@@ -136,15 +172,29 @@ def _detectar_bbox_uv_foreground(img) -> tuple[float, float, float, float]:
             grade_rgb.append((buf[idx], buf[idx + 1], buf[idx + 2]))
             grade_a.append(a)
 
+    total = gw * gh
     if min_alpha < 0.98:
         min_x, max_x, min_y, max_y = gw, -1, gh, -1
+        fg_a_count = 0
         for gy in range(gh):
             for gx in range(gw):
                 if grade_a[gy * gw + gx] >= 0.45:
+                    fg_a_count += 1
                     min_x, max_x = min(min_x, gx), max(max_x, gx)
                     min_y, max_y = min(min_y, gy), max(max_y, gy)
-        if max_x > min_x and max_y > min_y:
-            return (min_x / gw, (max_x + 1) / gw, min_y / gh, (max_y + 1) / gh)
+        if (
+            fg_a_count >= max(4, int(0.005 * total))
+            and max_x >= min_x
+            and max_y >= min_y
+            and (max_x - min_x + 1) / gw >= 0.02
+            and (max_y - min_y + 1) / gh >= 0.02
+        ):
+            return (
+                max(0.0, min_x / gw),
+                min(1.0, (max_x + 1) / gw),
+                max(0.0, min_y / gh),
+                min(1.0, (max_y + 1) / gh),
+            )
         return (0.0, 1.0, 0.0, 1.0)
 
     cantos = [grade_rgb[0], grade_rgb[gw - 1], grade_rgb[(gh - 1) * gw], grade_rgb[gh * gw - 1]]
@@ -163,9 +213,19 @@ def _detectar_bbox_uv_foreground(img) -> tuple[float, float, float, float]:
                     fg_count += 1
                     min_x, max_x = min(min_x, gx), max(max_x, gx)
                     min_y, max_y = min(min_y, gy), max(max_y, gy)
-        total = gw * gh
-        if 0.05 * total <= fg_count <= 0.90 * total and max_x > min_x and max_y > min_y:
-            return (min_x / gw, (max_x + 1) / gw, min_y / gh, (max_y + 1) / gh)
+        if (
+            0.05 * total <= fg_count <= 0.90 * total
+            and max_x > min_x
+            and max_y > min_y
+            and (max_x - min_x + 1) / gw >= 0.05
+            and (max_y - min_y + 1) / gh >= 0.05
+        ):
+            return (
+                max(0.0, min_x / gw),
+                min(1.0, (max_x + 1) / gw),
+                max(0.0, min_y / gh),
+                min(1.0, (max_y + 1) / gh),
+            )
 
     return (0.0, 1.0, 0.0, 1.0)
 

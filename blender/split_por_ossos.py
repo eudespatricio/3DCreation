@@ -14,6 +14,14 @@ import bmesh
 import bpy
 from mathutils import Matrix, Vector
 
+if __package__:
+    from .split_por_ossos_sep import bisectar_sobrepostos as _bisectar_sobrepostos_impl
+else:
+    _BLENDER_DIR = str(Path(__file__).resolve().parent)
+    if _BLENDER_DIR not in sys.path:
+        sys.path.insert(0, _BLENDER_DIR)
+    from split_por_ossos_sep import bisectar_sobrepostos as _bisectar_sobrepostos_impl
+
 
 def _bl_para_yup(v: Vector) -> list[float]:
     return [float(v.x), float(v.z), float(-v.y)]
@@ -186,7 +194,14 @@ def _cascas_fechadas(bm) -> list[tuple[list, float]]:
     return out
 
 
-def _fechar_e_triangular(bm, nome: str, bone_mid_local: Vector, retract_dist: float) -> None:
+def _fechar_e_triangular(
+    bm,
+    nome: str,
+    bone_mid_local: Vector,
+    retract_dist: float,
+    *,
+    levantar_erro: bool = True,
+) -> bool:
     uv_lays = list(bm.loops.layers.uv.values())
     _retrair_bordas(bm, bone_mid_local, retract_dist)
     _limpar_degenerados(bm, 2e-5)
@@ -224,7 +239,12 @@ def _fechar_e_triangular(bm, nome: str, bone_mid_local: Vector, retract_dist: fl
     invertidas = sum(1 for _c, vol in _cascas_fechadas(bm_chk) if vol < -1e-9)
     bm_chk.free()
     if abertas > 0 or nao_man > 0 or weld_nm > 0 or invertidas > 0:
-        raise SystemExit(f"split: topologia invalida em {nome}: abertas={abertas} nao_manifold={nao_man} weld_nm={weld_nm} invertidas={invertidas}")
+        if levantar_erro:
+            raise SystemExit(
+                f"split: topologia invalida em {nome}: abertas={abertas} nao_manifold={nao_man} weld_nm={weld_nm} invertidas={invertidas}"
+            )
+        return False
+    return True
 
 
 def _empacotar_imagens_externas(base_dir: Path | None = None) -> None:
@@ -362,45 +382,23 @@ def _limpar_orfaos(bm) -> None:
             bmesh.ops.delete(bm, geom=soltos, context=ctx)
 
 
-def _bmesh_aabb(bm) -> tuple[Vector, Vector]:
-    cos = [v.co for v in bm.verts]
-    return Vector((min(c.x for c in cos), min(c.y for c in cos), min(c.z for c in cos))), Vector((max(c.x for c in cos), max(c.y for c in cos), max(c.z for c in cos)))
-
-
-def _bisectar_sobrepostos(bms: list, arm, segmentos: list[tuple[str, Vector, Vector]], retract_dist: float) -> None:
-    """Separa pares pai-filho com caixas sobrepostas na malha de entrada no plano da junta."""
-    idx_by_nome = {nome: i for i, (nome, _a, _b) in enumerate(segmentos)}
-    tol_ov, gap = max(retract_dist * 2.5, 0.0015), max(retract_dist * 0.6, 0.0004)
-    aabbs = [_bmesh_aabb(bm) for bm in bms]
-    for c_idx, (c_nome, seg_a_c, seg_b_c) in enumerate(segmentos):
-        osso_c = arm.data.bones.get(c_nome)
-        pai = osso_c.parent if osso_c is not None else None
-        if pai is None or pai.name not in idx_by_nome:
-            continue
-        p_idx = idx_by_nome[pai.name]
-        p_nome, seg_a_p, seg_b_p = segmentos[p_idx]
-        pmin, pmax = aabbs[p_idx]
-        cmin, cmax = aabbs[c_idx]
-        if min(min(pmax[d], cmax[d]) - max(pmin[d], cmin[d]) for d in range(3)) <= tol_ov:
-            continue
-        mid_p, mid_c = 0.5 * (seg_a_p + seg_b_p), 0.5 * (seg_a_c + seg_b_c)
-        u = mid_c - mid_p
-        if u.length < 1e-6:
-            continue
-        u.normalize()
-        c_ov = Vector((0.5 * (max(pmin[d], cmin[d]) + min(pmax[d], cmax[d])) for d in range(3)))
-        p_cut = seg_a_c if all(max(pmin[d], cmin[d]) <= seg_a_c[d] <= min(pmax[d], cmax[d]) for d in range(3)) else c_ov
-        for idx_a, nome_a, mid_a, co_p, out_f, in_f in ((p_idx, p_nome, mid_p, p_cut - u * gap, True, False), (c_idx, c_nome, mid_c, p_cut + u * gap, False, True)):
-            bm_t = bms[idx_a].copy()
-            bmesh.ops.bisect_plane(bm_t, geom=list(bm_t.verts) + list(bm_t.edges) + list(bm_t.faces), plane_co=co_p, plane_no=u, clear_outer=out_f, clear_inner=in_f, dist=1e-5)
-            _limpar_orfaos(bm_t)
-            if len(bm_t.faces) >= 4:
-                _fechar_e_triangular(bm_t, nome_a, mid_a, 0.0)
-                bms[idx_a].free()
-                bms[idx_a] = bm_t
-                aabbs[idx_a] = _bmesh_aabb(bm_t)
-            else:
-                bm_t.free()
+def _bisectar_sobrepostos(
+    bms: list,
+    arm,
+    segmentos: list[tuple[str, Vector, Vector]],
+    retract_dist: float,
+    altura_w: float | None = None,
+) -> None:
+    """Separa pares de partes com caixas sobrepostas (delegado para split_por_ossos_sep)."""
+    _bisectar_sobrepostos_impl(
+        bms,
+        arm,
+        segmentos,
+        retract_dist,
+        _limpar_orfaos,
+        _fechar_e_triangular,
+        altura_w=altura_w,
+    )
 
 
 def main() -> None:
@@ -460,7 +458,7 @@ def main() -> None:
         bms_parte.append(bm)
     bm_base.free()
 
-    _bisectar_sobrepostos(bms_parte, arm, segmentos, retract_dist)
+    _bisectar_sobrepostos(bms_parte, arm, segmentos, retract_dist, altura_w=altura_w)
 
     resumo, objetos = [], []
     for idx, (bm, (nome, _seg_a, _seg_b)) in enumerate(zip(bms_parte, segmentos)):

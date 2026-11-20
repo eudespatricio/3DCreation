@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FORGE3D STUDIO — Pipeline Declarativo 3D Game-Ready (spec@6 · manifest@6)</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="top-header">
+    <div class="brand-block">
+      <div class="brand-logo">◆ FORGE3D STUDIO</div>
+      <span id="badge-versao" class="badge badge-accent">v0.9.5 · spec@6 · manifest@6</span>
+    </div>
+
+    <nav class="main-nav" aria-label="Espaços de Trabalho">
+      <button class="nav-tab active" data-tab="studio">1. Studio / Inputs</button>
+      <button class="nav-tab" data-tab="outputs">2. Saídas &amp; Inspetor 3D</button>
+      <button class="nav-tab" data-tab="export">3. Exportar &amp; Sincronizar</button>
+      <button class="nav-tab" data-tab="verify">4. Verificação &amp; Histórico</button>
+      <button class="nav-tab" data-tab="env">5. Ambiente &amp; Governança</button>
+    </nav>
+
+    <div class="status-bar">
+      <span id="pill-blender" class="status-pill pill-ok" title="Blender 4.2.x">Blender: ...</span>
+      <span id="pill-gpu" class="status-pill pill-ok" title="GPU / CUDA">GPU: ...</span>
+      <span id="pill-estado" class="status-pill pill-ok" title="Diretório de Estado ext4">Estado: ...</span>
+      <span id="pill-ia" class="status-pill pill-ok" title="Conectores de IA">IA: ...</span>
+      <button id="pill-job" class="status-pill pill-idle" title="Clique para abrir o console de execução">Sem jobs ativos</button>
+      <button id="btn-header-refresh" class="btn btn-xs btn-sec" title="Sincronizar estado com o servidor">↻</button>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <section id="tab-studio" class="workspace-pane"></section>
+    <section id="tab-outputs" class="workspace-pane hidden"></section>
+    <section id="tab-export" class="workspace-pane hidden"></section>
+    <section id="tab-verify" class="workspace-pane hidden"></section>
+    <section id="tab-env" class="workspace-pane hidden"></section>
+  </main>
+
+  <div id="lightbox-modal" class="lightbox-modal hidden" role="dialog" aria-modal="true">
+    <div class="lightbox-content">
+      <button id="lightbox-close" class="btn btn-sm btn-danger lightbox-close">✕ Fechar</button>
+      <img id="lightbox-img" src="" alt="Visualização de textura / concept" />
+      <div id="lightbox-caption" class="lightbox-caption"></div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

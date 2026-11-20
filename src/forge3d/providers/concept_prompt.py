@@ -30,6 +30,36 @@ SUFIXOS_VISTA_ORTOGRAFICA: dict[str, str] = {
     "right": "orthographic right side profile view, straight-on",
 }
 
+DIRETIVAS_VISTA_FIGURA_UNICA: dict[str, str] = {
+    "front": (
+        "single isolated character only, orthographic front view facing camera, "
+        "arms extended in T-pose/A-pose, centered"
+    ),
+    "back": (
+        "single isolated character only, strictly ONE figure centered, orthographic rear back view "
+        "seen from behind, NOT a turnaround sheet, NOT side-by-side, same T-pose/A-pose arms extended"
+    ),
+    "left": (
+        "single isolated character only, strictly ONE figure centered, orthographic left side profile "
+        "facing LEFT, NOT a turnaround sheet, arms raised horizontally in T-pose/A-pose"
+    ),
+    "right": (
+        "single isolated character only, strictly ONE figure centered, orthographic right side profile "
+        "facing RIGHT, NOT a turnaround sheet, arms raised horizontally in T-pose/A-pose"
+    ),
+}
+
+_RE_VISTA_CONFLITANTE = re.compile(
+    r"\b(orthographic\s+)?(full\s+body\s+)?((left|right)\s+side|(rear\s+)?back|front|rear|left|right|side)\s+(view|profile)\b",
+    re.IGNORECASE,
+)
+
+
+def _limpar_frases_vista(prompt: str) -> str:
+    sem_vista = _RE_VISTA_CONFLITANTE.sub("", prompt or "")
+    frags = [re.sub(r"\s{2,}", " ", frag).strip(" ;") for frag in sem_vista.split(",")]
+    return ", ".join(frag for frag in frags if frag)
+
 
 def sufixo_efetivo(prompt: str, sufixo: str) -> str:
     """Sufixo sem os trechos que o prompt ja repete (C11)."""
@@ -82,7 +112,7 @@ def prompt_para_vista(prompt: str, vista: str, sufixo: str | None = None) -> str
         raise ValueError(
             f"vista ortografica invalida: {vista!r} (use {', '.join(VISTAS_ORTOGRAFICAS)})"
         )
-    base = (prompt or "").strip()
+    base = _limpar_frases_vista((prompt or "").strip())
     suf_bruto = (
         sufixo if sufixo is not None else os.environ.get("FORGE3D_CONCEPT_SUFIXO", SUFIXO_PADRAO)
     ).strip()
@@ -91,13 +121,17 @@ def prompt_para_vista(prompt: str, vista: str, sufixo: str | None = None) -> str
         for frag in suf_bruto.split(",")
         if frag.strip() and frag.strip().lower() != "front view"
     ]
-    efetivo = sufixo_efetivo(base, ", ".join(frags_base))
+    diretiva_vista = DIRETIVAS_VISTA_FIGURA_UNICA[vista]
+    efetivo = sufixo_efetivo(
+        f"{base}, {SUFIXOS_VISTA_ORTOGRAFICA[vista]}, {diretiva_vista}",
+        ", ".join(frags_base),
+    )
     partes = [
         p
         for p in (
             base,
             SUFIXOS_VISTA_ORTOGRAFICA[vista],
-            "consistent proportions and colors across all orthographic views",
+            diretiva_vista,
             efetivo,
         )
         if p

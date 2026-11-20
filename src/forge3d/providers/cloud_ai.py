@@ -253,6 +253,19 @@ def roblox_open_cloud_disponivel() -> tuple[bool, str]:
 
 
 def trellis_disponivel() -> tuple[bool, str]:
+    from ..errors import ForgeError
+    from . import mesh_trellis
+
+    ep = mesh_trellis.endpoint_trellis_configurado()
+    if ep:
+        segredos = [os.environ.get("FORGE3D_I23D_TOKEN", "")]
+        try:
+            ep_val, mod_val = mesh_trellis.validar_endpoint_trellis(ep)
+        except ForgeError as exc:
+            return False, _sanitizar_texto_erro(f"endpoint TRELLIS invalido: {exc.mensagem}", segredos)
+        ep_limpo = _sanitizar_texto_erro(ep_val, segredos)
+        return True, f"pronto (HTTP endpoint ativo: {ep_limpo}; modelo={mod_val})"
+
     worker = paths.raiz_dados() / "tools" / "colab_trellis_worker.py"
     if not worker.is_file() and "FORGE3D_ROOT" not in os.environ:
         cand = Path(__file__).resolve().parents[3] / "tools" / "colab_trellis_worker.py"

@@ -14,7 +14,7 @@ from .. import locks, paths
 VERSAO = "0.1.10"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
-VRAM_MINIMA_MB = 3500
+VRAM_MINIMA_MB = 4200
 TIMEOUT_S = 900
 SUBROTAS_EXPLICITAS = ("i23d", "template", "procedural", "extrude_2d")
 
@@ -294,11 +294,15 @@ def _usar_template_humanoide(item: dict) -> bool:
         return False
     if item.get("tipo") != "personagem_humanoide":
         return False
+    if str(item.get("rota") or "").strip().lower() == "i23d":
+        return False
     if item.get("parte") and item.get("parte") != "corpo":
         return False
     if item.get("template_humanoide") is True:
         return True
     if item.get("template_humanoide") is False:
+        return False
+    if item.get("vistas") == 4 or str(item.get("vistas") or "").strip() == "4":
         return False
     if item.get("makehuman_cabelo"):
         return True
@@ -327,12 +331,39 @@ def _usar_template_criatura(item: dict) -> bool:
     return True
 
 
+def _vram_minima_mb() -> int:
+    raw = os.environ.get("FORGE3D_VRAM_MINIMA_MB", "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            sys.stderr.write(
+                f"[mesh] FORGE3D_VRAM_MINIMA_MB invalido ({raw!r}); usando {VRAM_MINIMA_MB}\n"
+            )
+    return int(facade_attr("VRAM_MINIMA_MB", VRAM_MINIMA_MB))
+
+
 def _vram_livre_mb() -> int | None:
+    from . import mesh_trellis
+
+    if mesh_trellis.endpoint_trellis_configurado():
+        return None
     return locks.vram_livre_mb()
 
 
 def _diagnostico() -> dict:
     """Importa ``torch`` e ``tsr`` NA venv, via subprocesso. Nunca no processo do nucleo."""
+    from ..errors import ForgeError
+    from . import mesh_trellis
+
+    ep_remoto = mesh_trellis.endpoint_trellis_configurado()
+    if ep_remoto:
+        try:
+            ep_val, mod_val = mesh_trellis.validar_endpoint_trellis(ep_remoto)
+        except ForgeError as exc:
+            return {"ok": False, "razao": exc.mensagem}
+        return {"ok": True, "remoto": ep_val, "modelo": mod_val, "cuda": False}
+
     venv = facade_attr("dir_venv", dir_venv)()
     vendor = facade_attr("dir_vendor", dir_vendor)()
     cache_diag: dict[tuple[str, str], dict] = facade_attr("_DIAGNOSTICO", _DIAGNOSTICO)

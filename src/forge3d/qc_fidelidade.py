@@ -13,8 +13,8 @@ from .qc_glb import malha
 from .qc_midia import _validar_bytes_imagem
 
 _EXTS_IMAGEM = frozenset({".png", ".jpg", ".jpeg", ".webp"})
-LIMIAR_IOU_G15 = 0.45
-LIMIAR_ASPECT_G15 = 0.50
+LIMIAR_IOU_G15 = 0.55
+LIMIAR_ASPECT_G15 = 0.60
 
 
 def _rgba_px(img: Image.Image) -> Any:

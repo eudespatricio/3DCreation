@@ -397,11 +397,12 @@ def _resolver_caminhos_g15(item: dict, pasta: Path, resultado: dict) -> tuple[Pa
     nomes_cand, dirs_cand = ["concept_front", "concept"] + ([f"{item_id}_concept"] if item_id else []), [pasta] + ([bruto_dir] if bruto_dir is not None else [])
     if found := next((c for c in (d / f"{b}{ext}" for d in dirs_cand for b in nomes_cand for ext in (".png", ".jpg", ".jpeg", ".webp")) if c.is_file()), None):
         return found, render_path, False
-    if bruto_dir is not None and str(item.get("rota") or "") in ("mesh", "i23d", "extrude_2d"):
+    eh_tmpl_ou_proc = str(item.get("rota") or "") in ("template", "procedural") or bool(item.get("template_humanoide"))
+    if bruto_dir is not None and not eh_tmpl_ou_proc and str(item.get("rota") or "") in ("mesh", "i23d", "extrude_2d"):
         if found_in := next((bruto_dir / n for n in ("input.png", "input_rgba.png") if (bruto_dir / n).is_file()), None):
             return found_in, render_path, False
     if (origem := item.get("origem")) and (p_orig := Path(str(origem)).expanduser()).suffix.lower() in _EXTS_IMAGEM and p_orig.is_file():
-        return p_orig, render_path, str(item.get("rota") or "") in ("template", "procedural")
+        return p_orig, render_path, eh_tmpl_ou_proc
     return None, render_path, False
 
 

@@ -185,4 +185,9 @@ def construir_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("mcp", help="servidor MCP (JSON-RPC 2.0 sobre stdio)")
 
+    ui_p = sub.add_parser("ui", help="interface web local (Forge3D Studio)")
+    ui_p.add_argument("--host", default="127.0.0.1", help="endereco de bind HTTP (padrao: 127.0.0.1)")
+    ui_p.add_argument("--port", type=int, default=8765, help="porta TCP (padrao: 8765)")
+    ui_p.add_argument("--no-browser", action="store_true", help="nao abre o navegador automaticamente")
+
     return p

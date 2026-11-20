@@ -189,7 +189,7 @@ def aplicar_weighted_normal(obj) -> dict:
     return {"weighted_normal": True}
 
 
-def desdobrar_uv(obj, margem: float = 0.02) -> str:
+def desdobrar_uv(obj, margem: float = 0.004, angle_limit_graus: float = 66.0) -> str:
     if obj is not None and obj.type == "MESH" and obj.data and len(obj.data.polygons) > 4:
         bm = bmesh.new()
         try:
@@ -205,12 +205,21 @@ def desdobrar_uv(obj, margem: float = 0.02) -> str:
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.uv.smart_project(
-        angle_limit=math.radians(25.0),  # ~25 graus: evita overlap intra-ilha no template_body
-        island_margin=max(0.02, float(margem)),
+        angle_limit=math.radians(float(angle_limit_graus)),
+        island_margin=max(0.002, min(0.02, float(margem))),
         area_weight=0.5,
         correct_aspect=True,
         scale_to_bounds=False,
     )
+    if obj.data.uv_layers and len(obj.data.polygons) > 0:
+        bpy.ops.uv.select_all(action="SELECT")
+        pack_props = set(bpy.ops.uv.pack_islands.get_rna_type().properties.keys())
+        pack_kwargs = {
+            "rotate": True,
+            "scale": True,
+            "margin": max(0.002, min(0.01, float(margem))),
+        }
+        bpy.ops.uv.pack_islands(**{k: v for k, v in pack_kwargs.items() if k in pack_props})
     bpy.ops.object.mode_set(mode="OBJECT")
     if not obj.data.uv_layers:
         raise RuntimeError("smart_project nao criou camada UV")
@@ -223,6 +232,7 @@ def gerar_uv_lightmap(obj) -> str:
         desdobrar_uv(obj)
     nome_primario = obj.data.uv_layers[0].name
     lm = obj.data.uv_layers.get("UVMap_Lightmap") or obj.data.uv_layers.new(name="UVMap_Lightmap")
+    nome_lm = lm.name
     obj.data.uv_layers.active = lm
     _selecionar(obj)
     bpy.ops.object.mode_set(mode="EDIT")
@@ -237,7 +247,7 @@ def gerar_uv_lightmap(obj) -> str:
     bpy.ops.object.mode_set(mode="OBJECT")
     obj.data.uv_layers.active = obj.data.uv_layers[nome_primario]
     obj.data.uv_layers[nome_primario].active_render = True
-    return lm.name
+    return nome_lm
 
 
 def assar_cor_vertices(obj, png: str, px: int) -> dict:

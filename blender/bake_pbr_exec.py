@@ -215,10 +215,33 @@ def executar_bake_high_low(
 
         if not tem_procedural:
             if vistas_norm:
+                img_orig_pref = None
+                if origem_textura and os.path.isfile(origem_textura):
+                    img_cand = bpy.data.images.load(origem_textura, check_existing=False)
+                    img_cand.colorspace_settings.name = "sRGB"
+                    front_atual = vistas_norm.get("front")
+                    diff_front = (
+                        not front_atual
+                        or os.path.abspath(origem_textura) != os.path.abspath(front_atual)
+                    )
+                    if (
+                        img_cand.size[0] > 0
+                        and img_cand.size[1] > 0
+                        and (diff_front or _proj._imagem_tem_alpha_valido(img_cand))
+                    ):
+                        img_orig_pref = img_cand
+                    else:
+                        if img_cand.name in bpy.data.images and img_cand.users == 0:
+                            bpy.data.images.remove(img_cand)
                 for vista_key, cam_v in vistas_norm.items():
+                    if vista_key == "front" and img_orig_pref is not None:
+                        imgs_vistas["front"] = img_orig_pref
+                        continue
                     img_v = bpy.data.images.load(cam_v, check_existing=False)
                     img_v.colorspace_settings.name = "sRGB"
                     imgs_vistas[vista_key] = img_v
+                if "front" not in imgs_vistas and img_orig_pref is not None:
+                    imgs_vistas["front"] = img_orig_pref
                 img_origem = imgs_vistas.get("front")
             elif origem_textura and os.path.isfile(origem_textura):
                 img_origem = bpy.data.images.load(origem_textura, check_existing=False)

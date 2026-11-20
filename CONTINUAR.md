@@ -1,15 +1,14 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 20/11/2026 · **`v0.9.5`: P0–P6, Ondas A–D, Ondas 0–3 (`M1–M5`) e Portão E2E `M6` fechados.** Contratos
-correntes `spec@6` e `manifest@6` (`D94–D129`; `@1`–`@5` compatíveis na leitura). Entrega game-ready
-para **Roblox R15** (`_sequencia_xml` `Pose` aninhada, 15 partes watertight, `export-r15`
+**Data:** 20/11/2026 · **`v0.9.6`: P0–P6, Ondas A–D, Ondas 0–3 (`M1–M5`), Portão E2E `M6` e Hardening `v0.9.6` (`D130`) fechados.** Contratos
+correntes `spec@6` e `manifest@6` (`D94–D130`; `@1`–`@5` compatíveis na leitura). Entrega game-ready
+para **Roblox R15** (`_sequencia_xml` `Pose` aninhada, 15 partes watertight all-pair `split_por_ossos`, `export-r15`
 mesh/segmentada `Motor6D` + `SurfaceAppearance` 4 canais, `--strip-embedded-textures`, `G12–G14`) e
 **Godot 4** (`ORMMaterial3D=1.0`, `ResourceLoader.load()` + sidecars `.png.import`/`.glb.import`,
 guarda idempotente `forge3d_post_imported`, `BoneMap` `Root`/`UpperChest`, `UV2`+`GI_MODE_STATIC`,
-LOD sem texturas duplicadas, `UCX_` agrupado/preservado, 17 clipes), mais **4 vistas Gemini + bake Cycles**
-(sem `fal.run`), `TRELLIS.2-4B`/`Pixal3D` MIT, **G15** e hardening **G1–G11** + `verify` G11 + zero
-`except` silencioso. **781 verdes + 1 GPU (skip)** na suíte completa (**684** não-E2E + **97/97** E2E
-Tiers 1–4); `ci.sh` e `ci_verify.sh` verdes (`exit=0`).
+LOD sem texturas duplicadas, `UCX_` agrupado/preservado, 17 clipes), mais **4 vistas Gemini single-figure + delight + bake Cycles**
+(sem `fal.run`), `TRELLIS.2-4B`/`Pixal3D` MIT (worker + servidor HTTP `FORGE3D_I23D_ENDPOINT`), **G15** (`IoU>=0.55`, `aspect>=0.60`), **G3** (`uv_area_min=0.20`) e hardening **G1–G11** + `verify` G11 + zero
+`except` silencioso. `ci.sh` e `ci_verify.sh` verdes (`exit=0`).
 
 Verificação rápida: `.venv/bin/python -m pytest -m "not gpu and not blender" -q` e `bash tools/ci.sh`.
 
@@ -96,7 +95,8 @@ calibrado, `GAP-019`, Pixal3D MIT, `referencia_estilo` · `D114–D124` B23/B24,
 sidecars, `forge3d_post_imported`, `BoneMap`, `UCX_`, 17 clipes)** · **`D127` Onda 2 Visual (sub-rotas
 explícitas, 4 vistas Gemini/Cycles, zero `fal.run`, `TRELLIS.2-4B`/`Pixal3D`, `G15`)** · **`D128` Onda 3
 (`G1–G11`, `verify` `G11`, zero `except` silencioso, `PIPELINE_VERSION = "0.9.5"`)** · **`D129` Portão E2E `M6`
-(`97/97` E2E Tiers 1–4, Opção A Tier 5 dispensado, `GAP-050/051/062` fechados, `ci.sh`/`ci_verify.sh` `exit=0`)**.
+(`97/97` E2E Tiers 1–4, Opção A Tier 5 dispensado, `GAP-050/051/062` fechados, `ci.sh`/`ci_verify.sh` `exit=0`)** · **`D130` Hardening `v0.9.6`
+(UV `66°`+`pack_islands`, colisor convex hull final, `split_por_ossos` all-pair, 4 vistas single-figure+delight, `G3`/`G15` endurecidos, backend HTTP TRELLIS.2, `PIPELINE_VERSION = "0.9.6"`)**.
 
 ## Aberto
 
@@ -154,7 +154,7 @@ godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_chec
 
 ## Como retomar
 
-> **Estado**: `v0.9.5` — P0–P6, Ondas A–D, Ondas 0–3 (`M1–M5`) e Portão E2E **`M6`** (`D125–D129`) fechados.
-> `781` testes verdes (`+1` GPU skip; `97/97` E2E Tiers 1–4), `ci.sh`, `ci_verify.sh`, `ruff`/`mypy`/`check-p0`/`conformidade` verdes.
+> **Estado**: `v0.9.6` — P0–P6, Ondas A–D, Ondas 0–3 (`M1–M5`), Portão E2E **`M6`** e Hardening **`v0.9.6`** (`D125–D130`) fechados.
+> `ci.sh`, `ci_verify.sh`, `ruff`/`mypy`/`check-p0`/`conformidade` verdes.
 > **Próximo passo**: validação manual opcional nos projetos consumidores (`r15_play_g14.py` / `godot_visual_qa.gd`) e republicação de destinos legados.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

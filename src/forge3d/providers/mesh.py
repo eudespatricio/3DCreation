@@ -6,6 +6,7 @@ compatibilidade integral de monkeypatch e contratos AST em ``forge3d.providers.m
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import time
@@ -19,6 +20,7 @@ from . import mesh_i23d as _i23d
 from . import mesh_pose_concept as _pose_concept
 from . import mesh_subrotas as _sub
 from . import mesh_templates as _tmpl
+from . import mesh_trellis as _trellis
 from .base import RawAsset
 
 VERSAO = _diag.VERSAO
@@ -57,6 +59,7 @@ _usar_modular_armor = _diag._usar_modular_armor
 mpfb2_cc0_disponivel = _diag.mpfb2_cc0_disponivel
 _usar_template_humanoide = _diag._usar_template_humanoide
 _usar_template_criatura = _diag._usar_template_criatura
+_vram_minima_mb = _diag._vram_minima_mb
 _vram_livre_mb = _diag._vram_livre_mb
 _diagnostico = _diag._diagnostico
 _politica_rembg = _diag._politica_rembg
@@ -103,11 +106,18 @@ class MeshProvider:
         c_g = os.environ.get("FORGE3D_CONCEPT_GUIDANCE", "7.5").strip()
         tmpl = "1" if os.environ.get("FORGE3D_HUMANOIDE_TEMPLATE", "").strip() == "1" else "0"
         dev = _device().replace(":", "").replace("/", "_")
+        ep = _trellis.endpoint_trellis_configurado()
+        suf_ep = ""
+        if ep:
+            mod_ep = os.environ.get("FORGE3D_I23D_TRELLIS_MODEL", "").strip()
+            simp_ep = os.environ.get("FORGE3D_I23D_SIMPLIFY", "0.95").strip()
+            sha8 = hashlib.sha256(f"{ep}|{mod_ep}|{simp_ep}".encode("utf-8")).hexdigest()[:8]
+            suf_ep = f"+trep{sha8}"
         return (
             f"{VERSAO}+mc{mc}+tex{tex}+rembg{rembg}"
             f"+rm{rembg_mod}+pg{pg_mode}+dl{delight}+q{qualidade}"
             f"+concept{concept_mod}@{_concept.VERSAO}"
-            f"+p{_concept.estado_pose_cache()}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+tx2+tmpl2_{tmpl}+mh1+dev{dev}"
+            f"+p{_concept.estado_pose_cache()}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+tx2+tmpl2_{tmpl}+mh1+dev{dev}{suf_ep}"
         )
 
     def _licenca(self) -> dict:
@@ -133,6 +143,8 @@ class MeshProvider:
 
     def _custo_i23d(self, item: dict) -> dict:
         tem_origem = bool(str(item.get("origem") or "").strip())
+        if _trellis.endpoint_trellis_configurado():
+            return {"segundos_estimados": 35.0 if not tem_origem else 20.0, "vram_mb": 0, "disco_mb": 250}
         if _device().startswith("cpu"):
             return {"segundos_estimados": 220.0 if not tem_origem else 200.0, "vram_mb": 0, "disco_mb": 4500}
         if not tem_origem:
@@ -173,6 +185,17 @@ class MeshProvider:
         """Diagnostico nomeado: cada falta vira uma frase que diz o que instalar."""
         from ..errors import ForgeError
 
+        ep = _trellis.endpoint_trellis_configurado()
+        if ep:
+            from . import cloud_ai
+
+            cloud_ai.registrar_licencas_cloud()
+            try:
+                ep_val, _mod_val = _trellis.validar_endpoint_trellis(ep)
+            except ForgeError as exc:
+                return False, exc.mensagem
+            return True, f"pronto (TRELLIS remoto: {ep_val})"
+
         try:
             self._licenca()
         except ForgeError as exc:
@@ -190,8 +213,9 @@ class MeshProvider:
 
         if not _device().startswith("cpu"):
             livre = _vram_livre_mb()
-            if livre is not None and livre < VRAM_MINIMA_MB:
-                return False, f"P3: VRAM livre {livre} MiB < {VRAM_MINIMA_MB} MiB exigidos"
+            vram_min = _vram_minima_mb()
+            if livre is not None and livre < vram_min:
+                return False, f"P3: VRAM livre {livre} MiB < {vram_min} MiB exigidos"
 
         if pesos_triposr() is None:
             return False, (
@@ -327,6 +351,15 @@ class MeshProvider:
             item, destino, imagem, concept_meta, env, t0, self._executar_pose_guard, self._executar_delight
         )
         res = dados["resultado"]
+        if res.get("provedor") == "trellis_remoto":
+            from . import cloud_ai
+
+            cloud_ai.registrar_licencas_cloud()
+            modelo_lic = "trellis"
+            modelo_hf_meta = str(res.get("modelo") or MODELO_HF)
+        else:
+            modelo_lic = modelo_escolhido()
+            modelo_hf_meta = MODELO_HF
         return RawAsset(
             dir=destino,
             schema=str(dados["schema"]),
@@ -334,8 +367,8 @@ class MeshProvider:
             arquivos=dados["arquivos"],
             meta={
                 # chave da allowlist (pipeline.licenca_de); o repo HF fica so como proveniencia
-                "modelo": modelo_escolhido(),
-                "modelo_hf": MODELO_HF,
+                "modelo": modelo_lic,
+                "modelo_hf": modelo_hf_meta,
                 "torch": res.get("torch"),
                 "mc_resolution": res.get("mc_resolution"),
                 "tempos_s": res.get("tempos_s"),

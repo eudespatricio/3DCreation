@@ -199,6 +199,8 @@ def _avaliar_g3(gltf: dict, binario: bytes, item: dict, perfil: dict, info: dict
             "uv_colapsada": 0,
             "uv_sobreposta": 0,
             "densidade_extrema": 0,
+            "uv_area_total": 0.0,
+            "uv_baixa_cobertura": 0,
         }
     )
     uv_ok = (
@@ -208,6 +210,7 @@ def _avaliar_g3(gltf: dict, binario: bytes, item: dict, perfil: dict, info: dict
         and uv_info["uv_colapsada"] == 0
         and uv_info["uv_sobreposta"] == 0
         and uv_info["densidade_extrema"] == 0
+        and uv_info.get("uv_baixa_cobertura", 0) == 0
     )
     return {
         "id": "G3",
@@ -219,6 +222,8 @@ def _avaliar_g3(gltf: dict, binario: bytes, item: dict, perfil: dict, info: dict
             "uv_colapsada": uv_info["uv_colapsada"],
             "uv_sobreposta": uv_info["uv_sobreposta"],
             "densidade_extrema": uv_info["densidade_extrema"],
+            "uv_area_total": uv_info.get("uv_area_total", 0.0),
+            "uv_baixa_cobertura": uv_info.get("uv_baixa_cobertura", 0),
             "permitir_tiling": permitir_tiling,
         },
         "limite": {
@@ -227,6 +232,7 @@ def _avaliar_g3(gltf: dict, binario: bytes, item: dict, perfil: dict, info: dict
             "uv_colapsada_max": 0,
             "uv_sobreposta_max": 0,
             "densidade_extrema_max": 0,
+            "uv_area_min": 0.2,
         },
         "codigo": None if uv_ok else "FORGE-E-QC",
     }

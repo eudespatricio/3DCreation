@@ -2,7 +2,7 @@
 
 Contrato unico: ``doctor`` ``validate`` ``plan`` ``run`` ``verify`` ``query`` ``migrate``
 ``allowlist`` ``gc`` ``sync`` ``export-anim`` ``export-r15`` ``export-surface``
-``upload-model`` ``upload-image`` ``upload-animation`` ``mcp``.
+``export-acessorio`` ``upload-model`` ``upload-image`` ``upload-animation`` ``mcp`` ``ui``.
 """
 
 from __future__ import annotations
@@ -109,6 +109,8 @@ def _executar(args) -> int:
         return _upload_animation(args)
     if args.cmd == "mcp":
         return _mcp(args)
+    if args.cmd == "ui":
+        return _ui(args)
     raise SystemExit(2)  # pragma: no cover
 
 
@@ -309,6 +311,16 @@ def _mcp(_args) -> int:
     from .. import mcp_server
 
     return mcp_server.servir()
+
+
+def _ui(args) -> int:
+    from ..ui import server
+
+    return server.servir(
+        host=args.host,
+        port=args.port,
+        no_browser=bool(getattr(args, "no_browser", False)),
+    )
 
 
 def _imprimir_plano(relatorio: dict) -> None:

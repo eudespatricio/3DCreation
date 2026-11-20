@@ -252,13 +252,26 @@ def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
                             nuvem.verts.new(p0 + off)
                             nuvem.verts.new(p0 - off)
                 nuvem.verts.ensure_lookup_table()
-                dist_solda = (
-                    max(0.015, min(0.06, diag_n * 0.025))
-                    if len(nuvem.verts) > 64
-                    else max(0.002, min(0.008, diag_n * 0.0025))
-                )
-                if len(nuvem.verts) > 16:
+                if len(nuvem.verts) > 64:
+                    dist_solda = max(0.015, diag_n * 0.03)
                     bmesh.ops.remove_doubles(nuvem, verts=list(nuvem.verts), dist=dist_solda)
+                    nuvem.verts.ensure_lookup_table()
+                    if len(nuvem.verts) > 256 and diag_n > 1e-6:
+                        for fator in (0.045, 0.06):
+                            if len(nuvem.verts) <= 256:
+                                break
+                            bmesh.ops.remove_doubles(
+                                nuvem,
+                                verts=list(nuvem.verts),
+                                dist=max(dist_solda, diag_n * fator),
+                            )
+                            nuvem.verts.ensure_lookup_table()
+                elif len(nuvem.verts) > 16:
+                    dist_solda = max(0.002, min(0.008, diag_n * 0.0025))
+                    bmesh.ops.remove_doubles(nuvem, verts=list(nuvem.verts), dist=dist_solda)
+                    nuvem.verts.ensure_lookup_table()
+                elif len(nuvem.verts) > 4 and diag_n > 1e-3:
+                    bmesh.ops.remove_doubles(nuvem, verts=list(nuvem.verts), dist=1e-4)
                     nuvem.verts.ensure_lookup_table()
             hull = bmesh.ops.convex_hull(nuvem, input=list(nuvem.verts))
             faces_hull = [g for g in hull["geom"] if isinstance(g, bmesh.types.BMFace)]
@@ -275,9 +288,9 @@ def criar_colisor(obj, modo: str, nome_base: str, max_partes: int) -> list:
                 except ValueError:
                     continue
             if limpo.faces:
-                bmesh.ops.dissolve_degenerate(limpo, dist=1e-3, edges=list(limpo.edges))
-                bmesh.ops.triangulate(limpo, faces=list(limpo.faces))
-                bmesh.ops.dissolve_degenerate(limpo, dist=1e-3, edges=list(limpo.edges))
+                nao_tris = [f for f in limpo.faces if len(f.verts) > 3]
+                if nao_tris:
+                    bmesh.ops.triangulate(limpo, faces=nao_tris)
             limpo.normal_update()
             if limpo.faces:
                 bmesh.ops.recalc_face_normals(limpo, faces=list(limpo.faces))

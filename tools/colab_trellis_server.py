@@ -84,8 +84,42 @@ def _extrair_glb_e_faces(glb_obj: Any) -> tuple[bytes, int | None]:
         return out_glb.read_bytes(), faces
 
 
+def _validar_decimation_target(valor: Any) -> int | None:
+    """Valida e limita ``decimation_target`` ao intervalo seguro ``[8000, 300000]``."""
+    if valor is None:
+        return None
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        raise ValueError(f"decimation_target deve ser inteiro positivo: {valor!r}")
+    if valor <= 0:
+        raise ValueError(f"decimation_target deve ser positivo (> 0): {valor}")
+    return max(8_000, min(300_000, valor))
+
+
+def _validar_texture_size(valor: Any) -> int:
+    """Valida e limita ``texture_size`` a ``[256, 4096]`` evitando OOM por requisicao."""
+    if valor is None:
+        return 1024
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        raise ValueError(f"texture_size deve ser inteiro positivo: {valor!r}")
+    if valor <= 0:
+        raise ValueError(f"texture_size deve ser positivo (> 0): {valor}")
+    return max(256, min(4096, valor))
+
+
+def _validar_simplify(valor: Any) -> float:
+    """Valida ``simplify`` finito em ``(0.0, 1.0]``."""
+    if valor is None:
+        return 0.95
+    if isinstance(valor, bool):
+        raise ValueError(f"simplify invalido: {valor!r}")
+    num = float(valor)
+    if not (0.0 < num <= 1.0):
+        raise ValueError(f"simplify fora do intervalo (0.0, 1.0]: {valor!r}")
+    return num
+
+
 class TrellisHTTPHandler(BaseHTTPRequestHandler):
-    server_version = "Forge3DTrellis/0.9.6"
+    server_version = "Forge3DTrellis/0.9.8"
 
     @property
     def _estado(self) -> _EstadoTrellisServer:
@@ -137,7 +171,9 @@ class TrellisHTTPHandler(BaseHTTPRequestHandler):
                 raise ValueError("corpo JSON deve ser objeto")
             modelo_id = _worker.validar_modelo_trellis(str(corpo.get("model") or self._estado.modelo_padrao))
             seed = _worker._validar_seed(corpo.get("seed", 1))
-            simplify, texture_size = float(corpo.get("simplify", 0.95)), int(corpo.get("texture_size", 1024))
+            simplify = _validar_simplify(corpo.get("simplify", 0.95))
+            texture_size = _validar_texture_size(corpo.get("texture_size", 1024))
+            decimation_target = _validar_decimation_target(corpo.get("decimation_target"))
             imagens = _decodificar_imagens(corpo.get("images"))
         except ImportError as exc:
             sys.stderr.write(f"[colab_trellis_server] dependencia ausente: {exc}\n")
@@ -153,8 +189,16 @@ class TrellisHTTPHandler(BaseHTTPRequestHandler):
         try:
             with self._estado.gpu_lock:
                 pipe = self._estado.obter_pipeline(modelo_id)
-                outputs = pipe.run(imagens[0] if len(imagens) == 1 else imagens, seed=seed)
-                glb_obj = _worker._exportar_saida_pipeline(outputs, modelo_id, simplify=simplify, texture_size=texture_size)
+                outputs = _worker.executar_pipeline_trellis(
+                    pipe, imagens, seed=seed, preferir_single_sem_multi=True
+                )
+                glb_obj = _worker._exportar_saida_pipeline(
+                    outputs,
+                    modelo_id,
+                    simplify=simplify,
+                    texture_size=texture_size,
+                    decimation_target=decimation_target,
+                )
                 glb_bytes, faces = _extrair_glb_e_faces(glb_obj)
         except (RuntimeError, OSError, ValueError) as exc:
             sys.stderr.write(f"[colab_trellis_server] falha na inferencia: {exc}\n")

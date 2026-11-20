@@ -112,7 +112,8 @@ class MeshProvider:
         if ep:
             mod_ep = os.environ.get("FORGE3D_I23D_TRELLIS_MODEL", "").strip()
             simp_ep = os.environ.get("FORGE3D_I23D_SIMPLIFY", "0.95").strip()
-            sha8 = hashlib.sha256(f"{ep}|{mod_ep}|{simp_ep}".encode("utf-8")).hexdigest()[:8]
+            dec_ep = os.environ.get("FORGE3D_I23D_DECIMATION_TARGET", "").strip()
+            sha8 = hashlib.sha256(f"{ep}|{mod_ep}|{simp_ep}|{dec_ep}".encode("utf-8")).hexdigest()[:8]
             suf_ep = f"+trep{sha8}"
         return (
             f"{VERSAO}+mc{mc}+tex{tex}+rembg{rembg}"
@@ -122,15 +123,18 @@ class MeshProvider:
         )
 
     def _licenca(self) -> dict:
-        from . import LICENCAS
+        from . import LICENCAS, cloud_ai
 
+        if _trellis.endpoint_trellis_configurado():
+            cloud_ai.registrar_licencas_cloud()
+            _trellis.validar_modelo_trellis_licenca()
+            return dict(LICENCAS["trellis"])
         modelo = modelo_escolhido()
         if modelo not in LICENCAS:
             from ..errors import erro_licenca
 
             raise erro_licenca(
-                f"FORGE3D_MODELO_MESH='{modelo}' fora da allowlist comercial. "
-                f"Permitidos: {', '.join(sorted(LICENCAS))}",
+                f"FORGE3D_MODELO_MESH='{modelo}' fora da allowlist comercial. Permitidos: {', '.join(sorted(LICENCAS))}",
                 modelo=modelo,
             )
         return dict(LICENCAS[modelo])
@@ -196,6 +200,11 @@ class MeshProvider:
             except ForgeError as exc:
                 return False, exc.mensagem
             return True, f"pronto (TRELLIS remoto: {ep_val})"
+        if _trellis.exige_i23d_remoto():
+            return (
+                False,
+                "P3: FORGE3D_I23D_REQUIRE_REMOTE=1 exige FORGE3D_I23D_ENDPOINT configurado (sem fallback para TripoSR local)",
+            )
 
         try:
             self._licenca()
@@ -220,44 +229,32 @@ class MeshProvider:
 
         if pesos_triposr() is None:
             return False, (
-                f"P3: pesos do TripoSR ausentes em "
-                f"{_cache_hf() / 'models--stabilityai--TripoSR'} e em {dir_modelos()} "
+                f"P3: pesos do TripoSR ausentes em {_cache_hf() / 'models--stabilityai--TripoSR'} e em {dir_modelos()} "
                 "(GAP-040: o preflight respeita FORGE3D_MODELOS)"
             )
         return True, f"pronto (TripoSR, torch {diagnostico.get('torch', '?')}, venv {dir_venv().name})"
 
     def _preflight_modo(self, modo: str, item: dict) -> tuple[bool, str]:
-        if modo == "cabelo":
+        if modo in ("cabelo", "armor", "criatura", "humanoide", "extrude"):
             ok_b, msg_b = _preflight_blender_binario()
             if not ok_b:
                 return False, msg_b
+        if modo == "cabelo":
             if not script_template_body().is_file():
                 return False, "script blender/template_body.py ausente"
             estilo = _extrair_estilo_makehuman(item)
             if not estilo:
                 return False, "makehuman_cabelo / origem makehuman://hair/<estilo> vazio"
             return True, f"pronto (cabelo MakeHuman/MPFB2 CC0: {estilo})"
-
         if modo == "armor":
-            ok_b, msg_b = _preflight_blender_binario()
-            if not ok_b:
-                return False, msg_b
             if not script_modular_armor().is_file():
                 return False, "script blender/modular_armor.py ausente"
             return True, f"pronto (modular armor MakeHuman/MPFB2 CC0: {item.get('parte')})"
-
         if modo == "criatura":
-            ok_b, msg_b = _preflight_blender_binario()
-            if not ok_b:
-                return False, msg_b
             if not script_organic_sculpt().is_file():
                 return False, "script blender/organic_sculpt.py ausente"
             return True, f"pronto (criatura anatomica 4-patas: {item.get('tipo')})"
-
         if modo in ("humanoide", "extrude"):
-            ok_b, msg_b = _preflight_blender_binario()
-            if not ok_b:
-                return False, msg_b
             if not _python_imagem().is_file():
                 return False, f"P3: venv de imagem ausente em {dir_venv()}"
             if modo == "humanoide":

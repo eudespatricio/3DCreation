@@ -49,6 +49,27 @@ DIRETIVAS_VISTA_FIGURA_UNICA: dict[str, str] = {
     ),
 }
 
+DIRETRIZ_RIG_APOSE = (
+    "open A-pose arms at 45 degrees clearly separated from hips and legs, "
+    "visible neck and lower collar, legs apart"
+)
+
+_DIRETIVAS_VISTA_SEM_POSE: dict[str, str] = {
+    "front": "single isolated character only, orthographic front view facing camera, centered",
+    "back": (
+        "single isolated character only, strictly ONE figure centered, orthographic rear back view "
+        "seen from behind, NOT a turnaround sheet, NOT side-by-side"
+    ),
+    "left": (
+        "single isolated character only, strictly ONE figure centered, orthographic left side profile "
+        "facing LEFT, NOT a turnaround sheet"
+    ),
+    "right": (
+        "single isolated character only, strictly ONE figure centered, orthographic right side profile "
+        "facing RIGHT, NOT a turnaround sheet"
+    ),
+}
+
 _RE_VISTA_CONFLITANTE = re.compile(
     r"\b(orthographic\s+)?(full\s+body\s+)?((left|right)\s+side|(rear\s+)?back|front|rear|left|right|side)\s+(view|profile)\b",
     re.IGNORECASE,
@@ -106,7 +127,27 @@ def combinar_prompt(
     return atual
 
 
-def prompt_para_vista(prompt: str, vista: str, sufixo: str | None = None) -> str:
+def reforcar_prompt_rig(prompt: str, item: dict | None) -> str:
+    """Reforca A-pose aberta (~45°) quando ``auto_rig`` ativo em humanoide/criatura."""
+    base = (prompt or "").strip()
+    if not (
+        bool((item or {}).get("auto_rig"))
+        and (item or {}).get("tipo") in ("personagem_humanoide", "criatura")
+    ):
+        return base
+    extra = sufixo_efetivo(base, DIRETRIZ_RIG_APOSE)
+    if not extra:
+        return base
+    return f"{base}, {extra}" if base else extra
+
+
+def prompt_para_vista(
+    prompt: str,
+    vista: str,
+    sufixo: str | None = None,
+    *,
+    auto_rig: bool = False,
+) -> str:
     """Constroi prompt ortografico para uma vista especifica (front/back/left/right)."""
     if vista not in SUFIXOS_VISTA_ORTOGRAFICA:
         raise ValueError(
@@ -121,17 +162,19 @@ def prompt_para_vista(prompt: str, vista: str, sufixo: str | None = None) -> str
         for frag in suf_bruto.split(",")
         if frag.strip() and frag.strip().lower() != "front view"
     ]
-    diretiva_vista = DIRETIVAS_VISTA_FIGURA_UNICA[vista]
-    efetivo = sufixo_efetivo(
-        f"{base}, {SUFIXOS_VISTA_ORTOGRAFICA[vista]}, {diretiva_vista}",
-        ", ".join(frags_base),
-    )
+    diretiva_vista = _DIRETIVAS_VISTA_SEM_POSE[vista] if auto_rig else DIRETIVAS_VISTA_FIGURA_UNICA[vista]
+    acumulado = f"{base}, {SUFIXOS_VISTA_ORTOGRAFICA[vista]}, {diretiva_vista}"
+    rig_efetivo = sufixo_efetivo(acumulado, DIRETRIZ_RIG_APOSE) if auto_rig else ""
+    if rig_efetivo:
+        acumulado = f"{acumulado}, {rig_efetivo}"
+    efetivo = sufixo_efetivo(acumulado, ", ".join(frags_base))
     partes = [
         p
         for p in (
             base,
             SUFIXOS_VISTA_ORTOGRAFICA[vista],
             diretiva_vista,
+            rig_efetivo,
             efetivo,
         )
         if p

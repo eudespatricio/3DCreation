@@ -1,14 +1,12 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 20/11/2026 · **`v0.9.7`: P0–P6, Ondas A–D, M1–M6, Hardening `v0.9.6` (`D130`) e Fine-Tune Studio/PBR/Multivista `v0.9.7` (`D131`) fechados.** Contratos
-correntes `spec@6` e `manifest@6` (`D94–D131`; `@1`–`@5` compatíveis na leitura). Entrega game-ready
-para **Roblox R15** (`_sequencia_xml` `Pose` aninhada, 15 partes watertight all-pair `split_por_ossos`, `export-r15`
-mesh/segmentada `Motor6D` + `--model-id`/`--asset-ids`/guarda `FORGE-E-SPEC`, `SurfaceAppearance` 4 canais, `G12–G14` c/ `play_studio`) e
-**Godot 4** (`ORMMaterial3D=1.0`, `ResourceLoader.load()` + sidecars `.png.import`/`.glb.import`,
-guarda idempotente `forge3d_post_imported`, `BoneMap` `Root`/`UpperChest`, `UV2`+`GI_MODE_STATIC`,
-LOD sem texturas duplicadas, `UCX_` agrupado/preservado, 17 clipes), mais **4 vistas Gemini single-figure (incl. `origem`) + `ferro_escuro` + boost UV cabeça + bake 4-vistas**
-(sem `fal.run`), `TRELLIS.2-4B`/`Pixal3D` MIT (`FORGE3D_I23D_ENDPOINT`), **G15** (`IoU>=0.55`, `aspect>=0.60`), **G3** (`uv_area_min=0.20`) e zero
-`except` silencioso. `ci.sh` e `ci_verify.sh` verdes (`exit=0`).
+**Data:** 20/11/2026 · **`v0.9.8` (Onda 1): suporte real `TRELLIS.2-4B`, PBR nativo `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback angular UV0 (`D132`) concluídos sobre `v0.9.7` (`D131`).** Contratos
+correntes `spec@6` e `manifest@6` (`D94–D132`; `@1`–`@5` compatíveis na leitura). Entrega game-ready
+para **Roblox R15** (`Pose` aninhada, 15 partes watertight all-pair `split_por_ossos`, `export-r15`
+mesh/segmentada `Motor6D`, `SurfaceAppearance` 4 canais, `G12–G14`), **Godot 4** (`ORMMaterial3D=1.0`,
+sidecars, `forge3d_post_imported`, `BoneMap`, `UV2`+`GI_MODE_STATIC`, `UCX_`, 17 clipes) e **i23d**
+(`TRELLIS.2-4B`/`Pixal3D` MIT via `FORGE3D_I23D_ENDPOINT` c/ `o_voxel` + PBR nativo `EMIT` + guarda
+`FORGE3D_I23D_REQUIRE_REMOTE=1` + 4 vistas Gemini c/ A-pose `45°` + `ultra` `2048 px`).
 
 Verificação rápida: `.venv/bin/python -m pytest -m "not gpu and not blender" -q` e `bash tools/ci.sh`.
 
@@ -63,11 +61,18 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   (`verify_g11.py`), zero `except Exception` silenciosos via AST (`tests/test_f27_silent_except.py`), UV/orientação
   em `blender/{modular_armor.py,extrude_2d.py,postprocess_normals_uv.py}` e `PIPELINE_VERSION = "0.9.5"`.
 
+- **Onda 1 `v0.9.8` (`D132`, `TRELLIS.2-4B`)** — skip de `BEVEL+SUBSURF` `>60k` tris (`bake_pbr_config.py`),
+  `SOLIDIFY+VOXEL+SHRINKWRAP` com `matrix_world` (`postprocess_repair.py`), bake PBR nativo `EMIT`
+  (`bake_pbr_nativo.py`), worker `o_voxel.postprocess.to_glb` + single fallback (`colab_trellis_*.py`),
+  `doctor`/`cloud_ai` status `trellis`, `FORGE3D_I23D_REQUIRE_REMOTE=1`, fallback angular UV0 (`tem_uv_sobreposta`)
+  e Kragor `v0.9.8` aprovado em replay fiel (`15.760` tris, `0` NM, `uv_area=0,3431`, `G1–G15` ok);
+  Iron Ram `TRELLIS.2` ao vivo bloqueado por cota ZeroGPU HF (spec Iron Ram `v0.9.8` validado/planejado).
+
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte completa (`pytest`) | **781 verdes + 1 GPU (skip)** em **782 testes** (**684** não-E2E + **97/97** E2E Tiers 1–4) |
+| Suíte completa (`pytest`) | **825 verdes + 1 GPU (skip)** em **826 testes** (incl. `test_v098_trellis` + `97/97` E2E Tiers 1–4) |
 | Descoberta RED→GREEN (`R2`–`R5`) | **54/54 verdes** (`16/16` R2 Roblox, `11/11` R3 Godot, `11/11` R4 Visual, `16/16` R5 QC) |
 | Suíte E2E (`tests/e2e/`) | **97/97 verdes** (`Tier 1: 41/41` · `Tier 2: 44/44` · `Tier 3: 6/6` · `Tier 4: 6/6`; `D129`) |
 | Hardening M5 (`F26`/`F27`/Blender UV) | `test_f27_silent_except` `7/7` · `test_qc_f26_hardening` `10/10` · `test_invariantes_e2e` `12/12` · `80/80` `modular_armor` + `15/15` `smart_fit` (`topo=(0,0,0)` `uv=(0,0,0,0)`) |
@@ -96,7 +101,7 @@ sidecars, `forge3d_post_imported`, `BoneMap`, `UCX_`, 17 clipes)** · **`D127` O
 explícitas, 4 vistas Gemini/Cycles, zero `fal.run`, `TRELLIS.2-4B`/`Pixal3D`, `G15`)** · **`D128` Onda 3
 (`G1–G11`, `verify` `G11`, zero `except` silencioso, `PIPELINE_VERSION = "0.9.5"`)** · **`D129` Portão E2E `M6`
 (`97/97` E2E Tiers 1–4, Opção A Tier 5 dispensado, `GAP-050/051/062` fechados, `ci.sh`/`ci_verify.sh` `exit=0`)** · **`D130` Hardening `v0.9.6`
-(UV `66°`+`pack_islands`, colisor convex hull final, `split_por_ossos` all-pair, 4 vistas single-figure+delight, `G3`/`G15` endurecidos, backend HTTP TRELLIS.2, `PIPELINE_VERSION = "0.9.6"`)** · **`D131` Fine-Tune `v0.9.7` (`export-r15 --model-id` / `--asset-ids` / guarda `FORGE-E-SPEC`, `r15_play_g14` `Motor6D+Bone`, `vistas: 4` c/ `origem`, `delight` em `ultra` + `ferro_escuro`, poda sem voxel remesh em ruído, `px_sub=2048` + `BEVEL` skip `>60k`, `area_weight=0` + head UV `1.35×`, `PIPELINE_VERSION = "0.9.7"`)**.
+(UV `66°`+`pack_islands`, colisor convex hull final, `split_por_ossos` all-pair, 4 vistas single-figure+delight, `G3`/`G15` endurecidos, backend HTTP TRELLIS.2, `PIPELINE_VERSION = "0.9.6"`)** · **`D131` Fine-Tune `v0.9.7` (`export-r15 --model-id` / `--asset-ids` / guarda `FORGE-E-SPEC`, `r15_play_g14` `Motor6D+Bone`, `vistas: 4` c/ `origem`, `delight` em `ultra` + `ferro_escuro`, poda sem voxel remesh em ruído, `px_sub=2048` + `BEVEL` skip `>60k`, `area_weight=0` + head UV `1.35×`, `PIPELINE_VERSION = "0.9.7"`)** · **`D132` Onda 1 `v0.9.8` (`TRELLIS.2-4B` `o_voxel`, bake PBR nativo `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback angular UV0, `BEVEL` skip `>60k`, `FORGE3D_I23D_REQUIRE_REMOTE`, `PIPELINE_VERSION = "0.9.8"`)**.
 
 ## Aberto
 
@@ -108,8 +113,8 @@ P6 de `docs/roadmap.md`.
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Validação final nos projetos consumidores (Studio Play G14 `tools/r15_play_g14.py` e Godot 4 `tools/godot_visual_qa.gd`) | 1 sessão manual | entrega |
-| **2** | Republicar destinos legados para `manifest@6`/`v0.9.5` após validação final | minutos | consistência |
+| **1** | Decisão de ponto de checagem Onda 1→Onda 2 (`Motor6D` rígido vs skinned, `G16` em `G14` vs `manifest@7`) + rodar spec Iron Ram `v0.9.8` ao vivo após reset ZeroGPU/Colab | ~5 min | critério 2/4 Onda 1 |
+| **2** | Executar Onda 2 (`v0.9.9`: fix `DEF-06` em `rbx_r15_*` + `autorig_pesos_geo.py` + Gate `G16`) e depois validar nos jogos consumidores | 1 onda | `DEF-06` / qualidade R15 |
 
 ## Comandos
 
@@ -126,11 +131,11 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run --strip-embedded-textures
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest -q                            # 781 verdes + 1 GPU (skip)
+python -m pytest -q                            # 825 verdes + 1 GPU (skip)
 python -m pytest tests/e2e -m "not gpu" -v     # 97/97 E2E Tiers 1–4 verdes
 bash tools/ci.sh                               # pytest não-Blender + ruff + mypy + contexto + P0
 bash tools/ci_verify.sh                        # Blender 4.2.0 + verify + Godot headless QA
-bash tools/ci_dist.sh                          # wheel 0.9.5 em venv limpo
+bash tools/ci_dist.sh                          # wheel 0.9.8 em venv limpo
 bash tools/check-contexto.sh && python tools/check-p0.py && python tools/conformidade.py
 python tools/r15_play_g14.py --help            # harness Play Studio G14
 godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_check.gd" -- <glb> idle
@@ -154,7 +159,7 @@ godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_chec
 
 ## Como retomar
 
-> **Estado**: `v0.9.7` — P0–P6, Ondas A–D, M1–M6, Hardening `v0.9.6` (`D130`) e Fine-Tune `v0.9.7` (`D131`) fechados.
-> `ci_verify.sh`, `ruff`/`mypy`/`check-p0`/`conformidade` e teste Play ao vivo no Studio MCP verdes.
-> **Próximo passo**: validação manual opcional nos projetos consumidores (`r15_play_g14.py` / `godot_visual_qa.gd`) e republicação de destinos legados.
+> **Estado**: `v0.9.8` (Onda 1 / `D132`) entregue localmente (`ci.sh`/`ci_verify.sh` verdes); Iron Ram ao vivo
+> com `TRELLIS.2` aguarda renovação da cota ZeroGPU HF ou URL Colab.
+> **Próximo passo**: ponto de checagem pós-Onda 1 → destravar decisão da Onda 2 (`v0.9.9` fix `DEF-06` + `G16`).
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

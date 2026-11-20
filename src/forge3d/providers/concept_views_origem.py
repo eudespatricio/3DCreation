@@ -10,7 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from ..errors import erro_provider_run
-from .concept_prompt import SUFIXO_PADRAO, negativo_efetivo, prompt_para_vista, sufixo_efetivo
+from .concept_prompt import (
+    SUFIXO_PADRAO,
+    negativo_efetivo,
+    prompt_para_vista,
+    reforcar_prompt_rig,
+    sufixo_efetivo,
+)
 from .concept_views import (
     _analisar_multiplas_figuras, _chamar_gemini_conceito, _detectar_multiplas_figuras,
     _normalizar_png_real, _recortar_metade_direita_se_frontal_na_esquerda,
@@ -76,7 +82,8 @@ def gerar_vistas_de_origem(
     w_front, h_front, digesto_front = _inspecionar_imagem_preservada(front_png)
     largura = int(str(env_map.get("FORGE3D_CONCEPT_LARGURA", "512")).strip() or "512")
     altura = int(str(env_map.get("FORGE3D_CONCEPT_ALTURA", "512")).strip() or "512")
-    prompt = str(item.get("prompt") or "").strip()
+    prompt = reforcar_prompt_rig(str(item.get("prompt") or "").strip(), item)
+    auto_rig_vista = bool(item.get("auto_rig")) and item.get("tipo") in ("personagem_humanoide", "criatura", None)
     sufixo = carregar_sufixo_estilo(env)
     efetivo = sufixo_efetivo(prompt, sufixo)
     prompt_final = f"{prompt}, {efetivo}" if (prompt and efetivo) else (prompt or efetivo)
@@ -91,7 +98,7 @@ def gerar_vistas_de_origem(
     resultados_vistas: list[dict[str, Any]] = []
     for idx, vista in enumerate(VISTAS_LATERAIS_TRASEIRA, start=1):
         vista_png = destino / f"concept_{vista}.png"
-        vista_prompt = prompt_para_vista(prompt, vista, sufixo)
+        vista_prompt = prompt_para_vista(prompt, vista, sufixo, auto_rig=auto_rig_vista)
         seed_vista = seed + idx
         res_v = _chamar_gemini_conceito(
             ai_mod, vista_prompt, negative_final, seed_vista, vista_png,

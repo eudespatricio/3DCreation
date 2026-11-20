@@ -28,7 +28,7 @@ else:
     import bake_pbr_maps as _maps
     import bake_pbr_proj as _proj
 
-_SUBMODULOS_BPY = (_cfg, _proj, _proj._sh, _maps, _exec, _exec._passes)
+_SUBMODULOS_BPY = (_cfg, _proj, _proj._sh, _maps, _exec, _exec._passes, _exec._nat)
 
 
 def _sync_bpy() -> None:
@@ -51,6 +51,7 @@ if __name__ in sys.modules:
 PISO_PX_ORCAMENTO = _maps.PISO_PX_ORCAMENTO
 px_bake_recomendado = _cfg.px_bake_recomendado
 deve_ativar_bake_high_low = _cfg.deve_ativar_bake_high_low
+objeto_tem_pbr_nativo = _exec._nat.objeto_tem_pbr_nativo
 construir_shader_pbr_zonas_blender = _cfg.construir_shader_pbr_zonas_blender
 _contar_triangulos = _cfg._contar_triangulos
 _bbox_diag = _cfg._bbox_diag

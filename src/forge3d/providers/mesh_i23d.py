@@ -51,21 +51,10 @@ def executar_cutout_2d(
     try:
         proc = _diag.subproc_run(
             [
-                str(py_img),
-                str(pg_script),
-                "--acao",
-                "decompor",
-                "--imagem",
-                str(imagem),
-                "--saida-png",
-                str(cutout_png),
-                "--resultado",
-                str(cutout_json),
+                str(py_img), str(pg_script), "--acao", "decompor",
+                "--imagem", str(imagem), "--saida-png", str(cutout_png), "--resultado", str(cutout_json),
             ],
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=env,
+            capture_output=True, text=True, timeout=timeout_s, env=env,
         )
     except subprocess.TimeoutExpired:
         raise erro_provider_run(f"timeout de {timeout_s}s no recorte 2D", id=item_id) from None
@@ -351,13 +340,19 @@ def executar_i23d_step(
         pose_guard_report: dict[str, Any] = {"modo": "remoto_trellis", "ignorado": True}
         vistas_iniciais = extrair_vistas_ortograficas(item, concept_meta)
         resultado = _trellis.executar_i23d_remoto(item, destino, imagem, vistas_iniciais, env)
+    elif _trellis.exige_i23d_remoto():
+        raise erro_provider_run(
+            "FORGE3D_I23D_REQUIRE_REMOTE=1 exige FORGE3D_I23D_ENDPOINT configurado (sem fallback para TripoSR local)",
+            id=item.get("id"),
+            modelo="trellis",
+        )
     else:
         dir_venv_fn = _diag.facade_attr("dir_venv", _diag.dir_venv)
         infer_fn = _diag.facade_attr("script_inferencia", _diag.script_inferencia)
         rembg_mod_fn = _diag.facade_attr("_rembg_modelo", _diag._rembg_modelo)
         device_fn = _diag.facade_attr("_device", _diag._device)
         imagem, pose_guard_report = pose_guard_fn(item, imagem, destino, env)
-        mc_default = "320" if qualidade_fn(item) == "hero" else "256"
+        mc_default = "320" if qualidade_fn(item) in ("hero", "ultra") else "256"
         resolucao = os.environ.get("FORGE3D_MC_RESOLUTION", mc_default)
         timeout_s = _diag.facade_attr("TIMEOUT_S", _diag.TIMEOUT_S)
         modelo_hf = _diag.facade_attr("MODELO_HF", _diag.MODELO_HF)
@@ -425,12 +420,9 @@ def executar_i23d_step(
         emissive_hint = dl.get("emissive_hint", "")
         arquivos_extras = [*arquivos_extras, *dl["arquivos"]]
 
-    tex_default = (
-        ("1024" if item.get("material_procedural") else "2048")
-        if qualidade_fn(item) == "hero"
-        else "1024"
-    )
-    tex_max_lim = 2048 if qualidade_fn(item) == "hero" else 1024
+    qual_item = qualidade_fn(item)
+    tex_default = ("1024" if item.get("material_procedural") else "2048") if qual_item in ("hero", "ultra") else "1024"
+    tex_max_lim = 2048 if qual_item in ("hero", "ultra") else 1024
     textura_px = int(os.environ.get("FORGE3D_TEX_PX", tex_default))
     modelo: dict[str, Any] = {
         "schema": "forge3d/bruto-arquivo@1",

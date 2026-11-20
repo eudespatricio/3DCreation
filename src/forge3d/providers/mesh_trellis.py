@@ -44,6 +44,24 @@ def endpoint_trellis_configurado() -> str:
     return os.environ.get("FORGE3D_I23D_ENDPOINT", "").strip()
 
 
+def exige_i23d_remoto() -> bool:
+    """Indica se ``FORGE3D_I23D_REQUIRE_REMOTE`` bloqueia fallback silencioso para TripoSR local."""
+    return os.environ.get("FORGE3D_I23D_REQUIRE_REMOTE", "").strip().lower() in ("1", "true", "sim", "on")
+
+
+def calcular_decimation_target(item: dict[str, Any]) -> int:
+    """Calcula ``decimation_target`` para ``o_voxel.postprocess.to_glb`` no TRELLIS.2."""
+    env_raw = os.environ.get("FORGE3D_I23D_DECIMATION_TARGET", "").strip()
+    if env_raw:
+        val = int(env_raw)
+        if val <= 0:
+            raise ValueError(f"FORGE3D_I23D_DECIMATION_TARGET deve ser > 0: {env_raw!r}")
+        return max(8_000, min(300_000, val))
+    lim_item = int(item.get("limite_triangulos") or 0)
+    alvo = min(max(int(item.get("limite_triangulos") or 16_000) * 4, 48_000), 100_000)
+    return max(alvo, lim_item)
+
+
 def validar_modelo_trellis_licenca(modelo: str | None = None) -> str:
     """Valida ``FORGE3D_I23D_TRELLIS_MODEL`` contra a allowlist comercial MIT (D18/I7)."""
     bruto = modelo if modelo is not None else os.environ.get("FORGE3D_I23D_TRELLIS_MODEL", MODELO_TRELLIS_PADRAO)
@@ -126,12 +144,13 @@ def executar_i23d_remoto(
                 imagens_b64[chave] = base64.b64encode(Path(cam).read_bytes()).decode("ascii")
 
     qual = _diag.facade_attr("_qualidade", _diag._qualidade)(item)
-    tex_def = "2048" if qual == "hero" else "1024"
+    tex_def = "2048" if qual in ("hero", "ultra") else "1024"
     try:
         seed_raw = item.get("seed")
         seed = int(seed_raw) if seed_raw is not None else 1
         tex_size = int(os.environ.get("FORGE3D_TEX_PX", tex_def))
         simplify = float(os.environ.get("FORGE3D_I23D_SIMPLIFY", "0.95"))
+        decimation_target = calcular_decimation_target(item)
         timeout_s = max(1, int(os.environ.get("FORGE3D_I23D_TIMEOUT", "600")))
     except (TypeError, ValueError) as exc:
         raise erro_provider_run(f"parametro invalido para TRELLIS remoto: {exc}", id=item.get("id"), modelo="trellis") from exc
@@ -146,6 +165,7 @@ def executar_i23d_remoto(
         "images": imagens_b64,
         "texture_size": tex_size,
         "simplify": simplify,
+        "decimation_target": decimation_target,
     }
     req = urllib.request.Request(
         _resolver_url_generate(ep),

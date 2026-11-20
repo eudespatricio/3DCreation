@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 
-from forge3d import __version__, config, paths
+from forge3d import PIPELINE_VERSION, __version__, config, paths
 from forge3d.cli.comandos import construir_parser
 from forge3d.ui.server import criar_servidor
 from tests.test_sync import _publicar_valido
@@ -144,7 +144,7 @@ def test_api_health_and_doctor(test_server):
     base, home, cfg, _ = test_server
     st, data, _ = http_req(f"{base}/api/health")
     assert st == 200 and data["ok"] is True and data["versao"] == __version__
-    assert data["pipeline_version"] == "0.9.5" and data["estado"] == str(home) and data["config"] == str(cfg)
+    assert data["pipeline_version"] == PIPELINE_VERSION and data["estado"] == str(home) and data["config"] == str(cfg)
 
     st_doc, data_doc, _ = http_req(f"{base}/api/doctor")
     assert st_doc == 200 and data_doc["ok"] is True and "checks" in data_doc.get("doctor", {})

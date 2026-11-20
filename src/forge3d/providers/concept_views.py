@@ -20,6 +20,7 @@ from .concept_prompt import (
     VISTAS_ORTOGRAFICAS,
     negativo_efetivo,
     prompt_para_vista,
+    reforcar_prompt_rig,
     sufixo_efetivo,
 )
 
@@ -227,28 +228,15 @@ def resolver_vistas(item: dict | None) -> int:
 def escrever_metadados_concept(destino: Path, resultado: dict[str, Any]) -> tuple[Path, Path]:
     """Grava ``concept_resultado.json`` completo e o sidecar canonico ``concept.json``."""
     resultado_path = destino / "concept_resultado.json"
-    resultado_path.write_text(
-        json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-    )
+    resultado_path.write_text(json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8")
     campos_sidecar = (
-        "prompt_final",
-        "negativo",
-        "modelo",
-        "seed",
-        "revisao",
-        "versao",
-        "provider_conceito",
-        "largura_real",
-        "altura_real",
-        "referencia_estilo",
-        "referencia_estilo_sha256",
-        "vistas",
+        "prompt_final", "negativo", "modelo", "seed", "revisao", "versao",
+        "provider_conceito", "largura_real", "altura_real",
+        "referencia_estilo", "referencia_estilo_sha256", "vistas",
     )
     sidecar = {k: resultado[k] for k in campos_sidecar if k in resultado}
     concept_json_path = destino / "concept.json"
-    concept_json_path.write_text(
-        json.dumps(sidecar, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-    )
+    concept_json_path.write_text(json.dumps(sidecar, sort_keys=True, indent=1) + "\n", encoding="utf-8")
     return resultado_path, concept_json_path
 
 
@@ -269,38 +257,27 @@ def gerar_conceito_cloud(
     except (TypeError, ValueError) as exc:
         raise erro_provider_run(str(exc), id=item.get("id")) from exc
 
-    prompt = (item.get("prompt") or "").strip()
+    prompt = reforcar_prompt_rig((item.get("prompt") or "").strip(), item)
+    auto_rig_vista = bool(item.get("auto_rig")) and item.get("tipo") in ("personagem_humanoide", "criatura", None)
     ref_item = item.get("referencia_estilo")
     ref_png = Path(str(ref_item)).expanduser() if ref_item else None
     largura = int(os.environ.get("FORGE3D_CONCEPT_LARGURA", "512").strip() or "512")
     altura = int(os.environ.get("FORGE3D_CONCEPT_ALTURA", "512").strip() or "512")
     sufixo = os.environ.get("FORGE3D_CONCEPT_SUFIXO", SUFIXO_PADRAO).strip()
     efetivo = sufixo_efetivo(prompt, sufixo)
-    prompt_final = f"{prompt}, {efetivo}" if efetivo else prompt
+    prompt_final = f"{prompt}, {efetivo}" if (prompt and efetivo) else (prompt or efetivo)
 
     if vistas == 1:
         png = destino / "concept.png"
         if prov_conceito == "gemini":
             resultado = _chamar_gemini_conceito(
-                cloud_ai_mod,
-                prompt_final,
-                negative_final,
-                seed,
-                png,
-                largura=largura,
-                altura=altura,
-                item_id=item.get("id"),
-                referencia_png=ref_png,
+                cloud_ai_mod, prompt_final, negative_final, seed, png,
+                largura=largura, altura=altura, item_id=item.get("id"), referencia_png=ref_png,
             )
         else:
             resultado = cloud_ai_mod.gerar_conceito_higgsfield(
-                prompt_final,
-                negative_final,
-                seed,
-                png,
-                largura=largura,
-                altura=altura,
-                item_id=item.get("id"),
+                prompt_final, negative_final, seed, png,
+                largura=largura, altura=altura, item_id=item.get("id"),
             )
         resultado["tempo_provider_s"] = resultado.get("tempo_s", 0.0)
         resultado["versao"] = versao
@@ -333,7 +310,7 @@ def gerar_conceito_cloud(
     resultados_vistas: list[dict[str, Any]] = []
     for idx, vista in enumerate(VISTAS_ORTOGRAFICAS):
         vista_png = destino / f"concept_{vista}.png"
-        vista_prompt = prompt_para_vista(prompt, vista, sufixo)
+        vista_prompt = prompt_para_vista(prompt, vista, sufixo, auto_rig=auto_rig_vista)
         seed_vista = seed + idx
         ref_para_chamada = (
             ref_png
@@ -341,15 +318,8 @@ def gerar_conceito_cloud(
             else (None if vista == "front" else Path(vistas_paths["front"]))
         )
         res_v = _chamar_gemini_conceito(
-            cloud_ai_mod,
-            vista_prompt,
-            negative_final,
-            seed_vista,
-            vista_png,
-            largura=largura,
-            altura=altura,
-            item_id=item.get("id"),
-            referencia_png=ref_para_chamada,
+            cloud_ai_mod, vista_prompt, negative_final, seed_vista, vista_png,
+            largura=largura, altura=altura, item_id=item.get("id"), referencia_png=ref_para_chamada,
         )
         resultados_vistas.append(res_v)
         w_real, h_real, digesto_vista = normalizar_fn(vista_png)

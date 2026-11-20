@@ -173,13 +173,8 @@ def gerar_yaml_spec_v5(
 ) -> str:
     """Constroi documento ``forge3d/spec@5`` valido com ``requisicao.base_externa``."""
     return gerar_yaml_spec(
-        entradas,
-        schema_version=5,
-        perfil=perfil,
-        tipo=tipo,
-        altura_metros=altura_metros,
-        destino_exportacao=destino_exportacao,
-        projeto=projeto,
+        entradas, schema_version=5, perfil=perfil, tipo=tipo,
+        altura_metros=altura_metros, destino_exportacao=destino_exportacao, projeto=projeto,
     )
 
 
@@ -195,31 +190,17 @@ def gerar_yaml_spec_v6(
 ) -> str:
     """Constroi documento ``forge3d/spec@6`` valido com ``requisicao.base_externa``."""
     return gerar_yaml_spec(
-        entradas,
-        schema_version=6,
-        perfil=perfil,
-        tipo=tipo,
-        altura_metros=altura_metros,
-        destino_exportacao=destino_exportacao,
-        projeto=projeto,
-        qualidade=qualidade,
+        entradas, schema_version=6, perfil=perfil, tipo=tipo,
+        altura_metros=altura_metros, destino_exportacao=destino_exportacao, projeto=projeto, qualidade=qualidade,
     )
 
 
 def _candidatos_pipeline(modelo_id: str) -> list[tuple[str, str]]:
     baixo = modelo_id.lower()
     if "pixal3d" in baixo:
-        return [
-            ("pixal3d.pipelines", "Pixal3DPipeline"),
-            ("trellis.pipelines", "Pixal3DPipeline"),
-            ("trellis.pipelines", "TrellisImageTo3DPipeline"),
-        ]
+        return [("pixal3d.pipelines", "Pixal3DPipeline"), ("trellis.pipelines", "Pixal3DPipeline"), ("trellis.pipelines", "TrellisImageTo3DPipeline")]
     if "trellis.2" in baixo:
-        return [
-            ("trellis2.pipelines", "Trellis2ImageTo3DPipeline"),
-            ("trellis.pipelines", "Trellis2ImageTo3DPipeline"),
-            ("trellis.pipelines", "TrellisImageTo3DPipeline"),
-        ]
+        return [("trellis2.pipelines", "Trellis2ImageTo3DPipeline"), ("trellis.pipelines", "Trellis2ImageTo3DPipeline"), ("trellis.pipelines", "TrellisImageTo3DPipeline")]
     return [("trellis.pipelines", "TrellisImageTo3DPipeline")]
 
 
@@ -250,23 +231,11 @@ def carregar_pipeline_trellis(modelo: str) -> Any:
 def _resolver_postprocessing(modelo_id: str) -> Any:
     baixo = modelo_id.lower()
     if "pixal3d" in baixo:
-        modulos = (
-            "pixal3d.utils.postprocessing_utils",
-            "trellis.utils.postprocessing_utils",
-            "trellis2.utils.postprocessing_utils",
-        )
+        modulos = ("pixal3d.utils.postprocessing_utils", "trellis.utils.postprocessing_utils", "trellis2.utils.postprocessing_utils")
     elif "trellis.2" in baixo:
-        modulos = (
-            "trellis2.utils.postprocessing_utils",
-            "trellis.utils.postprocessing_utils",
-            "pixal3d.utils.postprocessing_utils",
-        )
+        modulos = ("trellis2.utils.postprocessing_utils", "trellis.utils.postprocessing_utils", "pixal3d.utils.postprocessing_utils")
     else:
-        modulos = (
-            "trellis.utils.postprocessing_utils",
-            "trellis2.utils.postprocessing_utils",
-            "pixal3d.utils.postprocessing_utils",
-        )
+        modulos = ("trellis.utils.postprocessing_utils", "trellis2.utils.postprocessing_utils", "pixal3d.utils.postprocessing_utils")
     ultimo_erro: Exception | None = None
     for mod_nome in modulos:
         try:
@@ -276,12 +245,45 @@ def _resolver_postprocessing(modelo_id: str) -> Any:
     raise RuntimeError("Modulo 'postprocessing_utils' indisponivel.") from ultimo_erro
 
 
+def executar_pipeline_trellis(
+    pipe: Any,
+    imagens: list[Any],
+    seed: int,
+    *,
+    preferir_single_sem_multi: bool = False,
+) -> Any:
+    """Despacha 1-vista ou multivista compativel com TRELLIS v1, TRELLIS.2 e Pixal3D."""
+    if not imagens:
+        raise ValueError("lista de imagens vazia para pipeline TRELLIS")
+    if len(imagens) == 1:
+        return pipe.run(imagens[0], seed=seed)
+    fn_multi = getattr(pipe, "run_multi_image", None)
+    if callable(fn_multi):
+        return fn_multi(imagens, seed=seed)
+    cls_pipe = type(pipe)
+    mod_pipe = (getattr(cls_pipe, "__module__", "") or "").lower()
+    if preferir_single_sem_multi or cls_pipe.__name__ == "Trellis2ImageTo3DPipeline" or "trellis2" in mod_pipe:
+        sys.stderr.write(
+            f"[colab_trellis_worker] aviso: {cls_pipe.__name__} sem run_multi_image; "
+            f"usando vista frontal ({len(imagens)} vistas recebidas)\n"
+        )
+        return pipe.run(imagens[0], seed=seed)
+    try:
+        return pipe.run(imagens, seed=seed)
+    except (TypeError, AttributeError) as exc:
+        sys.stderr.write(
+            f"[colab_trellis_worker] aviso: {cls_pipe.__name__}.run(lista) indisponivel ({exc}); usando vista frontal\n"
+        )
+        return pipe.run(imagens[0], seed=seed)
+
+
 def _exportar_saida_pipeline(
     outputs: Any,
     modelo_id: str,
     *,
     simplify: float,
     texture_size: int,
+    decimation_target: int | None = None,
 ) -> Any:
     if isinstance(outputs, dict) and "gaussian" in outputs and "mesh" in outputs:
         pp = _resolver_postprocessing(modelo_id)
@@ -293,8 +295,30 @@ def _exportar_saida_pipeline(
         )
     if hasattr(outputs, "export"):
         return outputs
-    if isinstance(outputs, (list, tuple)) and outputs and hasattr(outputs[0], "export"):
-        return outputs[0]
+    mesh_out = outputs[0] if isinstance(outputs, (list, tuple)) and outputs else outputs
+    if hasattr(mesh_out, "export"):
+        return mesh_out
+    if (
+        hasattr(mesh_out, "vertices")
+        and hasattr(mesh_out, "faces")
+        and all(hasattr(mesh_out, k) for k in ("attrs", "coords", "layout"))
+    ):
+        try:
+            ov_pp = importlib.import_module("o_voxel.postprocess")
+        except ImportError as exc:
+            raise RuntimeError("Modulo 'o_voxel.postprocess' indisponivel para TRELLIS.2.") from exc
+        return ov_pp.to_glb(
+            vertices=mesh_out.vertices,
+            faces=mesh_out.faces,
+            attr_volume=mesh_out.attrs,
+            coords=mesh_out.coords,
+            attr_layout=mesh_out.layout,
+            voxel_size=getattr(mesh_out, "voxel_size", None),
+            aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+            decimation_target=int(decimation_target or 80_000),
+            texture_size=int(texture_size),
+            remesh=True,
+        )
     raise RuntimeError(f"Saida inesperada do pipeline '{modelo_id}': {type(outputs).__name__}")
 
 
@@ -339,6 +363,7 @@ def processar_pasta(
     seed: int = 1,
     simplify: float = 0.95,
     texture_size: int = 1024,
+    decimation_target: int | None = None,
     pipeline: Any = None,
 ) -> list[dict[str, Any]]:
     """Converte PNGs (1-view) e subpastas 4-vistas de ``input_dir`` em ``.glb`` via TRELLIS.2/Pixal3D (MIT)."""
@@ -366,13 +391,11 @@ def processar_pasta(
     glbs_escritos: set[Path] = set()
     for idx, (stem, paths, imagens) in enumerate(jobs_carregados):
         item_seed = seed_inicial + idx
-        entrada_pipe: Any = imagens[0] if len(imagens) == 1 else imagens
-        outputs = pipeline.run(entrada_pipe, seed=item_seed)
+        outputs = executar_pipeline_trellis(
+            pipeline, imagens, seed=item_seed, preferir_single_sem_multi=False
+        )
         glb = _exportar_saida_pipeline(
-            outputs,
-            modelo_id,
-            simplify=simplify,
-            texture_size=texture_size,
+            outputs, modelo_id, simplify=simplify, texture_size=texture_size, decimation_target=decimation_target
         )
         stem_final = stem
         sufixo = 2
@@ -383,83 +406,42 @@ def processar_pasta(
         glbs_escritos.add(destino_glb)
         glb.export(str(destino_glb))
         digest = sha256_arquivo(destino_glb)
-        resultados.append(
-            {
-                "stem": stem_final,
-                "png": str(paths[0]),
-                "vistas": [str(p) for p in paths],
-                "glb": str(destino_glb),
-                "glb_rel": str(destino_glb),
-                "sha256": digest,
-                "seed": item_seed,
-                "modelo": modelo_id,
-            }
-        )
+        resultados.append({
+            "stem": stem_final, "png": str(paths[0]), "vistas": [str(p) for p in paths],
+            "glb": str(destino_glb), "glb_rel": str(destino_glb),
+            "sha256": digest, "seed": item_seed, "modelo": modelo_id,
+        })
     return resultados
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "Batch TRELLIS.2-4B / Pixal3D (MIT) para Google Colab AI Ultra "
-            "(single-view e 4-vistas) -> GLB + forge3d/spec@6"
-        )
+        description="Batch TRELLIS.2-4B / Pixal3D (MIT) para Google Colab AI Ultra -> GLB + forge3d/spec@6"
     )
-    parser.add_argument(
-        "--input-dir",
-        type=Path,
-        required=True,
-        help="Pasta com PNGs ou subpastas 4-vistas (front.png, back.png, left.png, right.png)",
-    )
+    parser.add_argument("--input-dir", type=Path, required=True, help="Pasta com PNGs ou subpastas 4-vistas")
     parser.add_argument("--output-dir", type=Path, required=True, help="Pasta de saida dos GLBs")
     parser.add_argument("--yaml-out", type=Path, default=None, help="Arquivo YAML spec de saida")
-    parser.add_argument(
-        "--model",
-        default=MODELO_TRELLIS_PADRAO,
-        help=(
-            "Modelo comercial MIT (padrao: microsoft/TRELLIS.2-4B; "
-            "aceitos: TRELLIS.2-4B, Pixal3D, TencentARC/Pixal3D, TRELLIS-image-large)"
-        ),
-    )
+    parser.add_argument("--model", default=MODELO_TRELLIS_PADRAO, help="Modelo comercial MIT (TRELLIS.2-4B/Pixal3D)")
     parser.add_argument("--seed", type=int, default=1, help="Seed inicial deterministica")
     parser.add_argument("--simplify", type=float, default=0.95, help="Taxa de simplificacao da malha")
     parser.add_argument("--texture-size", type=int, default=1024, help="Resolucao da textura bakeada")
     parser.add_argument("--perfil", default="godot4", help="Perfil Forge3D alvo no snippet YAML")
     parser.add_argument("--tipo", default="personagem_humanoide", help="Tipo Forge3D no snippet YAML")
     parser.add_argument("--altura", type=float, default=1.8, help="Altura em metros no snippet YAML")
-    parser.add_argument(
-        "--schema-version",
-        type=int,
-        choices=(5, 6),
-        default=6,
-        help="Versao do schema YAML emitido (5 ou 6, padrao: 6)",
-    )
-    parser.add_argument(
-        "--qualidade",
-        default="standard",
-        choices=("standard", "hero", "ultra"),
-        help="Tier de qualidade no spec@6",
-    )
+    parser.add_argument("--schema-version", type=int, choices=(5, 6), default=6, help="Versao do schema YAML (5 ou 6)")
+    parser.add_argument("--qualidade", default="standard", choices=("standard", "hero", "ultra"), help="Tier no spec@6")
     args = parser.parse_args(argv)
 
     try:
         validar_modelo_trellis(args.model)
         _validar_seed(args.seed)
         entradas = processar_pasta(
-            args.input_dir,
-            args.output_dir,
-            modelo=args.model,
-            seed=args.seed,
-            simplify=args.simplify,
-            texture_size=args.texture_size,
+            args.input_dir, args.output_dir, modelo=args.model,
+            seed=args.seed, simplify=args.simplify, texture_size=args.texture_size,
         )
         yaml_txt = gerar_yaml_spec(
-            entradas,
-            schema_version=args.schema_version,
-            perfil=args.perfil,
-            tipo=args.tipo,
-            altura_metros=args.altura,
-            qualidade=args.qualidade,
+            entradas, schema_version=args.schema_version, perfil=args.perfil,
+            tipo=args.tipo, altura_metros=args.altura, qualidade=args.qualidade,
         )
     except ValueError as exc:
         print(f"ERRO: {exc}", file=sys.stderr)

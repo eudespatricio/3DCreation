@@ -264,7 +264,7 @@ def trellis_disponivel() -> tuple[bool, str]:
         except ForgeError as exc:
             return False, _sanitizar_texto_erro(f"endpoint TRELLIS invalido: {exc.mensagem}", segredos)
         ep_limpo = _sanitizar_texto_erro(ep_val, segredos)
-        return True, f"pronto (HTTP endpoint ativo: {ep_limpo}; modelo={mod_val})"
+        return True, f"ativo ({ep_limpo}; modelo={mod_val})"
 
     worker = paths.raiz_dados() / "tools" / "colab_trellis_worker.py"
     if not worker.is_file() and "FORGE3D_ROOT" not in os.environ:
@@ -274,9 +274,12 @@ def trellis_disponivel() -> tuple[bool, str]:
     if worker.is_file():
         return (
             True,
-            "pronto (Colab MIT via tools/colab_trellis_worker.py; modelo=TRELLIS.2-4B/Pixal3D -> rota import)",
+            "inativo (FORGE3D_I23D_ENDPOINT vazio — usando TripoSR local; batch Colab MIT via tools/colab_trellis_worker.py; modelo=TRELLIS.2-4B/Pixal3D -> rota import)",
         )
-    return False, f"worker Colab ausente em {worker} (use rota import com GLB local)"
+    return (
+        False,
+        f"inativo (FORGE3D_I23D_ENDPOINT vazio — usando TripoSR local; worker Colab ausente em {worker})",
+    )
 
 
 def _post_json_seguro(

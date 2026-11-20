@@ -120,10 +120,21 @@ def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
     alvos_quads = int(alvo_faces) if int(alvo_faces or 0) >= 100 else max(250, int(alvo_tris) // 2)
     backup = obj.data.copy()
     try:
+        nm_edges, nm_verts = _rp._contar_nao_manifold(obj)
+        tris = malha_triangulada(obj)
+        remeshed = False
+        if nm_edges > 0 or nm_verts > 0 or tris > 60_000:
+            _rp._remesh_voxel_preservando_partes(obj)
+            alvo_pre = max(alvos_quads * 3, 24_000)
+            if malha_triangulada(obj) > alvo_pre:
+                decimar(obj, alvo_pre)
+            reparar_malha(obj)
+            remeshed = True
+            _selecionar(obj)
         props = set(bpy.ops.object.quadriflow_remesh.get_rna_type().properties.keys())
         kw = {
             "use_mesh_symmetry": False,
-            "use_preserve_sharp": True,
+            "use_preserve_sharp": not remeshed,
             "use_preserve_boundary": True,
             "preserve_attributes": True,
             "smooth_normals": True,

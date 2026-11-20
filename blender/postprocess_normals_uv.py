@@ -15,7 +15,7 @@ if __package__:
     from .postprocess_scene import (
         PARTES_RIGIDAS, TIPOS_ORGANICOS, _selecionar, malha_triangulada,
     )
-    from .postprocess_uv_boost import aplicar_prioridade_uv_cabeca
+    from .postprocess_uv_boost import aplicar_prioridade_uv_cabeca, tem_uv_sobreposta
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
@@ -24,7 +24,7 @@ else:
     from postprocess_scene import (
         PARTES_RIGIDAS, TIPOS_ORGANICOS, _selecionar, malha_triangulada,
     )
-    from postprocess_uv_boost import aplicar_prioridade_uv_cabeca
+    from postprocess_uv_boost import aplicar_prioridade_uv_cabeca, tem_uv_sobreposta
 
 
 def _resolver_config_suavizacao(job: dict, bruto: dict) -> dict:
@@ -197,31 +197,41 @@ def desdobrar_uv(obj, margem: float = 0.004, angle_limit_graus: float = 66.0) ->
                 obj.data.update()
         finally:
             bm.free()
+    n_polys = len(obj.data.polygons)
+    smart_margin = max(0.0015, min(0.002 if n_polys >= 4000 else 0.02, float(margem)))
+    pack_cap = 0.002 if n_polys >= 4000 else (0.004 if n_polys >= 400 else 0.01)
+    pack_props = set(bpy.ops.uv.pack_islands.get_rna_type().properties.keys())
+    pack_raw = {"rotate": True, "scale": True, "margin": max(0.0015, min(pack_cap, float(margem))), "margin_method": "FRACTION", "shape_method": "CONCAVE"}
+    pack_kwargs = {k: v for k, v in pack_raw.items() if k in pack_props}
+    angulos = [float(angle_limit_graus)] + [
+        a for a in (52.0, 45.0, 38.0) if a < float(angle_limit_graus) - 0.5
+    ]
     _selecionar(obj)
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(
-        angle_limit=math.radians(float(angle_limit_graus)),
-        island_margin=max(0.002, min(0.02, float(margem))),
-        area_weight=0.25,
-        correct_aspect=True,
-        scale_to_bounds=False,
-    )
-    bpy.ops.object.mode_set(mode="OBJECT")
-    if obj.data.uv_layers and len(obj.data.polygons) > 0:
+    uv_sobreposta = False
+    for ang in angulos:
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.smart_project(
+            angle_limit=math.radians(ang),
+            island_margin=smart_margin,
+            area_weight=0.0,
+            correct_aspect=True,
+            scale_to_bounds=False,
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+        if not obj.data.uv_layers or n_polys <= 0:
+            break
         aplicar_prioridade_uv_cabeca(obj, fator=1.35)
         bpy.ops.object.mode_set(mode="EDIT")
         bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.uv.select_all(action="SELECT")
-        pack_props = set(bpy.ops.uv.pack_islands.get_rna_type().properties.keys())
-        pack_margin_cap = 0.004 if len(obj.data.polygons) >= 400 else 0.01
-        pack_kwargs = {
-            "rotate": True,
-            "scale": True,
-            "margin": max(0.002, min(pack_margin_cap, float(margem))),
-        }
-        bpy.ops.uv.pack_islands(**{k: v for k, v in pack_kwargs.items() if k in pack_props})
+        bpy.ops.uv.pack_islands(**pack_kwargs)
         bpy.ops.object.mode_set(mode="OBJECT")
+        uv_sobreposta = tem_uv_sobreposta(obj)
+        if not uv_sobreposta:
+            break
+    if uv_sobreposta:
+        print(f"[postprocess] aviso: UV0 ainda sobreposta em {obj.name} apos fallback angular", file=sys.stderr)
     if not obj.data.uv_layers:
         raise RuntimeError("smart_project nao criou camada UV")
     return obj.data.uv_layers.active.name

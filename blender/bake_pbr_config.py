@@ -86,14 +86,12 @@ def preparar_high_mesh_detalhe_alto(high_obj, cfg: dict | None) -> dict:
     crease_rad = math.radians(crease_deg)
 
     tris_inicial = _contar_triangulos(high_obj)
-    if tris_inicial > 60_000 and bool(getattr(high_obj.data, "color_attributes", None)):
+    if tris_inicial > 60_000:
         return {
             "aplicado": False,
             "motivo": "malha_i23d_ja_densa",
             "tris_high_inicial": tris_inicial,
         }
-    if tris_inicial > 80_000:
-        subdiv = min(subdiv, 1)
 
     bm = bmesh.new()
     bm.from_mesh(high_obj.data)

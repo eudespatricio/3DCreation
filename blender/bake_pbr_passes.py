@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - permite import puro em testes fora do 
 if __package__:
     from . import bake_pbr_config as _cfg
     from . import bake_pbr_maps as _maps
+    from . import bake_pbr_nativo as _nat
     from . import bake_pbr_proj as _proj
     from . import bake_pbr_shaders as _sh
 else:
@@ -23,6 +24,7 @@ else:
         sys.path.insert(0, _BLENDER_DIR)
     import bake_pbr_config as _cfg
     import bake_pbr_maps as _maps
+    import bake_pbr_nativo as _nat
     import bake_pbr_proj as _proj
     import bake_pbr_shaders as _sh
 
@@ -282,6 +284,8 @@ def _executar_passes_cycles(
     tem_cor_vertice: bool,
     nome_visivel: str | None,
     vistas_hints: list | None = None,
+    usar_pbr_nativo: bool = False,
+    high_mats_nativos: list | None = None,
 ):
     cena.cycles.use_denoising = False
     cena.render.bake.use_selected_to_active = True
@@ -305,7 +309,13 @@ def _executar_passes_cycles(
         cena.cycles.samples = samples_bake
         cena.render.bake.margin = max(4, px // 128)
         _cfg._selecionar_high_para_low(high_obj, obj)
-        if usar_emit_proc and proc_mod is not None:
+        if usar_pbr_nativo and high_mats_nativos:
+            tokens_bc = _nat.configurar_saida_basecolor_emit_nativos(high_mats_nativos)
+            try:
+                _cfg._executar_bake_seguro(cena, type="EMIT")
+            finally:
+                _nat.restaurar_saidas_nativos(tokens_bc)
+        elif usar_emit_proc and proc_mod is not None:
             proc_mod.configurar_saida_albedo_emit(high_mat)
             _cfg._executar_bake_seguro(cena, type="EMIT")
             proc_mod.configurar_saida_pbr_bsdf(high_mat)
@@ -355,7 +365,21 @@ def _executar_passes_cycles(
         _cfg._selecionar_high_para_low(high_obj, obj)
         _cfg._executar_bake_seguro(cena, type="AO")
 
-        if usar_emit_proc and proc_mod is not None:
+        if usar_pbr_nativo and high_mats_nativos:
+            img_hints_tmp = bpy.data.images.new(f"{nome_base}_hints_tmp", width=px_sub, height=px_sub, alpha=False)
+            img_hints_tmp.colorspace_settings.name = "Non-Color"
+            tex_bake.image = img_hints_tmp
+            tex_bake.select = True
+            low_bake_mat.node_tree.nodes.active = tex_bake
+            cena.cycles.samples = samples_bake
+            cena.render.bake.margin = max(4, px_sub // 128)
+            _cfg._selecionar_high_para_low(high_obj, obj)
+            tokens_orm = _nat.configurar_saida_orm_emit_nativos(high_mats_nativos)
+            try:
+                _cfg._executar_bake_seguro(cena, type="EMIT")
+            finally:
+                _nat.restaurar_saidas_nativos(tokens_orm)
+        elif usar_emit_proc and proc_mod is not None:
             proc_mod.configurar_saida_orm_hints_emit(high_mat)
             img_hints_tmp = bpy.data.images.new(f"{nome_base}_hints_tmp", width=px_sub, height=px_sub, alpha=False)
             img_hints_tmp.colorspace_settings.name = "Non-Color"

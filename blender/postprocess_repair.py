@@ -280,88 +280,221 @@ def _relaxar_arestas_dobradas_bm(bm, passadas: int = 3) -> int:
     return total_movidos
 
 
+def _contar_nao_manifold(obj, weld_dist: float = 0.0) -> tuple[int, int]:
+    """Retorna ``(nm_edges, nm_verts)`` em bmesh temporario (com solda opcional)."""
+    if obj is None or getattr(obj, "type", None) != "MESH" or getattr(obj, "data", None) is None:
+        return 0, 0
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        if weld_dist > 0.0 and bm.verts:
+            bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=weld_dist)
+        nm_e = sum(1 for e in bm.edges if not e.is_manifold)
+        nm_v = sum(1 for v in bm.verts if not v.is_manifold)
+        return nm_e, nm_v
+    finally:
+        bm.free()
+
+
+def _aplicar_mod(obj, mod) -> None:
+    _selecionar(obj)
+    if len(obj.modifiers) > 1:
+        bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+
+
+def _remesh_voxel_preservando_partes(obj) -> None:
+    """Limpa nao-manifold via Solidify+Voxel+Shrinkwrap mantendo partes >= 0.5% das faces."""
+    if not (obj and getattr(obj, "type", None) == "MESH" and obj.data and obj.data.vertices and obj.data.polygons):
+        return
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-6)
+        bm.to_mesh(obj.data)
+        obj.data.update()
+    finally:
+        bm.free()
+
+    coords = [v.co for v in obj.data.vertices]
+    diag = sum((max(c[i] for c in coords) - min(c[i] for c in coords)) ** 2 for i in range(3)) ** 0.5
+    voxel_size = max(0.004, min(0.008, diag * 0.0045))
+
+    sw_mesh = obj.data.copy()
+    sw_ref = bpy.data.objects.new("forge3d_voxel_sw_ref", sw_mesh)
+    sw_ref.matrix_world = obj.matrix_world.copy()
+    bpy.context.collection.objects.link(sw_ref)
+    try:
+        mod_sol = obj.modifiers.new("forge3d_voxel_solidify", "SOLIDIFY")
+        mod_sol.thickness = voxel_size * 1.8
+        mod_sol.offset = 0.0
+        _aplicar_mod(obj, mod_sol)
+
+        mod = obj.modifiers.new("forge3d_voxel_remesh", "REMESH")
+        mod.mode = "VOXEL"
+        mod.voxel_size = voxel_size
+        if hasattr(mod, "use_smooth_shade"):
+            mod.use_smooth_shade = True
+        _aplicar_mod(obj, mod)
+
+        mod_sw = obj.modifiers.new("forge3d_voxel_shrinkwrap", "SHRINKWRAP")
+        mod_sw.target = sw_ref
+        mod_sw.wrap_method = "NEAREST_SURFACEPOINT"
+        mod_sw.offset = min(0.001, voxel_size * 0.2)
+        _aplicar_mod(obj, mod_sw)
+    finally:
+        bpy.data.objects.remove(sw_ref, do_unlink=True)
+        if sw_mesh.users == 0:
+            bpy.data.meshes.remove(sw_mesh)
+
+    bm_p = bmesh.new()
+    try:
+        bm_p.from_mesh(obj.data)
+        bm_p.faces.ensure_lookup_table()
+        total_faces = len(bm_p.faces)
+        if total_faces > 0:
+            vistos: set[int] = set()
+            comps: list[list] = []
+            for f0 in bm_p.faces:
+                if f0.index in vistos:
+                    continue
+                comp, pilha = [f0], [f0]
+                vistos.add(f0.index)
+                while pilha:
+                    fc = pilha.pop()
+                    for e in fc.edges:
+                        for fn in e.link_faces:
+                            if fn.index not in vistos:
+                                vistos.add(fn.index)
+                                comp.append(fn)
+                                pilha.append(fn)
+                comps.append(comp)
+            limiar = 0.005 * float(total_faces)
+            lixo = [f for c in comps if len(c) < limiar for f in c]
+            if lixo and len(lixo) < total_faces:
+                bmesh.ops.delete(bm_p, geom=lixo, context="FACES")
+                soltos = [v for v in bm_p.verts if not v.link_faces]
+                if soltos:
+                    bmesh.ops.delete(bm_p, geom=soltos, context="VERTS")
+            bmesh.ops.recalc_face_normals(bm_p, faces=list(bm_p.faces))
+            bm_p.to_mesh(obj.data)
+            obj.data.update()
+    finally:
+        bm_p.free()
+
+    if obj.data.polygons:
+        mod_cs = obj.modifiers.new("forge3d_voxel_csmooth", "CORRECTIVE_SMOOTH")
+        mod_cs.factor = 0.25
+        mod_cs.iterations = 2
+        _aplicar_mod(obj, mod_cs)
+
+
+def _criar_vg_protecao(obj) -> str | None:
+    if not obj.data.vertices:
+        return None
+    mw = obj.matrix_world
+    coords = [mw @ v.co for v in obj.data.vertices]
+    z_min = min(c.z for c in coords)
+    h = max(c.z for c in coords) - z_min
+    if h <= 0.0:
+        return None
+    cx = 0.5 * (min(c.x for c in coords) + max(c.x for c in coords))
+    vg_name = "forge3d_decimate_peso"
+    vg_temp = obj.vertex_groups.new(name=vg_name)
+    cabeca, pes, maos, resto = [], [], [], []
+    z_cabeca, z_pes = z_min + 0.76 * h, z_min + 0.14 * h
+    z_mao_min, z_mao_max, x_mao = z_min + 0.30 * h, z_min + 0.70 * h, 0.25 * h
+    for v, co in zip(obj.data.vertices, coords):
+        if co.z >= z_cabeca:
+            cabeca.append(v.index)
+        elif co.z <= z_pes:
+            pes.append(v.index)
+        elif z_mao_min <= co.z <= z_mao_max and abs(co.x - cx) >= x_mao:
+            maos.append(v.index)
+        else:
+            resto.append(v.index)
+    if cabeca:
+        vg_temp.add(cabeca, 0.45, "REPLACE")
+    if pes:
+        vg_temp.add(pes, 0.55, "REPLACE")
+    if maos:
+        vg_temp.add(maos, 0.60, "REPLACE")
+    if resto:
+        vg_temp.add(resto, 1.0, "REPLACE")
+    return vg_name
+
+
+def _aplicar_decimate_passo(obj, ratio: float, vg_name: str | None = None, vg_factor: float = 0.30) -> None:
+    mod = obj.modifiers.new("forge3d_decimate", "DECIMATE")
+    mod.ratio = max(0.01, min(1.0, float(ratio)))
+    if vg_name is not None:
+        mod.vertex_group = vg_name
+        mod.invert_vertex_group = False
+        if hasattr(mod, "vertex_group_factor"):
+            mod.vertex_group_factor = vg_factor
+    _aplicar_mod(obj, mod)
+
+
+def _decimar_progressivo(obj, alvo_tris: int, proteger_cabeca_maos: bool) -> int:
+    for _passo in range(10):
+        cur = malha_triangulada(obj)
+        if cur <= alvo_tris or cur <= 4:
+            break
+        if (alvo_tris / float(cur)) < 0.35:
+            ratio = max(0.45, (alvo_tris * 0.985) / float(cur))
+            vg_name = None
+        else:
+            ratio = (alvo_tris * 0.985) / float(cur)
+            vg_name = _criar_vg_protecao(obj) if (proteger_cabeca_maos and cur <= alvo_tris * 2.5) else None
+        try:
+            _aplicar_decimate_passo(obj, ratio, vg_name=vg_name, vg_factor=0.30)
+        finally:
+            if vg_name is not None:
+                vg_ref = obj.vertex_groups.get(vg_name)
+                if vg_ref is not None:
+                    obj.vertex_groups.remove(vg_ref)
+        if malha_triangulada(obj) >= cur:
+            break
+
+    tris_pos = malha_triangulada(obj)
+    for _passo_fb in range(3):
+        if tris_pos <= alvo_tris or tris_pos <= 4:
+            break
+        _aplicar_decimate_passo(obj, (alvo_tris * 0.985) / float(tris_pos))
+        novo_tris = malha_triangulada(obj)
+        if novo_tris >= tris_pos:
+            break
+        tris_pos = novo_tris
+    return tris_pos
+
+
 def decimar(
-    obj,
-    alvo_tris: int,
-    proteger_cabeca_maos: bool = False,
-    *,
-    taubin_fn=None,
+    obj, alvo_tris: int, proteger_cabeca_maos: bool = False, *, taubin_fn=None
 ) -> int:
     _ = taubin_fn
     tris = malha_triangulada(obj)
     if alvo_tris <= 0 or tris <= alvo_tris:
         return tris
 
-    vg_name: str | None = None
-    if proteger_cabeca_maos and obj.data.vertices:
-        mw = obj.matrix_world
-        coords = [mw @ v.co for v in obj.data.vertices]
-        z_min = min(c.z for c in coords)
-        z_max = max(c.z for c in coords)
-        h = z_max - z_min
-        if h > 0.0:
-            cx = 0.5 * (min(c.x for c in coords) + max(c.x for c in coords))
-            vg_name = "forge3d_decimate_peso"
-            vg_temp = obj.vertex_groups.new(name=vg_name)
-            cabeca_verts: list[int] = []
-            maos_verts: list[int] = []
-            resto_verts: list[int] = []
-            z_cabeca = z_min + 0.76 * h
-            z_mao_min = z_min + 0.30 * h
-            z_mao_max = z_min + 0.70 * h
-            x_mao = 0.25 * h
-            for v, co in zip(obj.data.vertices, coords):
-                if co.z >= z_cabeca:
-                    cabeca_verts.append(v.index)
-                elif z_mao_min <= co.z <= z_mao_max and abs(co.x - cx) >= x_mao:
-                    maos_verts.append(v.index)
-                else:
-                    resto_verts.append(v.index)
-            if cabeca_verts:
-                vg_temp.add(cabeca_verts, 0.15, "REPLACE")
-            if maos_verts:
-                vg_temp.add(maos_verts, 0.40, "REPLACE")
-            if resto_verts:
-                vg_temp.add(resto_verts, 1.0, "REPLACE")
+    voxel_remesh_feito = False
+    if tris > max(alvo_tris * 2, 40_000):
+        nm_e, _nm_v = _contar_nao_manifold(obj, weld_dist=1e-6)
+        if nm_e >= 20:
+            _remesh_voxel_preservando_partes(obj)
+            voxel_remesh_feito = True
 
-    try:
-        mod = obj.modifiers.new("forge3d_decimate", "DECIMATE")
-        mod.ratio = max(0.01, min(1.0, (alvo_tris * 0.995) / tris))
-        if vg_name is not None:
-            mod.vertex_group = vg_name
-            mod.invert_vertex_group = False
-            if hasattr(mod, "vertex_group_factor"):
-                mod.vertex_group_factor = 0.80
-        _selecionar(obj)
-        if len(obj.modifiers) > 1:
-            bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
-        bpy.ops.object.modifier_apply(modifier=mod.name)
-    finally:
-        if vg_name is not None:
-            vg_ref = obj.vertex_groups.get(vg_name)
-            if vg_ref is not None:
-                obj.vertex_groups.remove(vg_ref)
-
-    tris_pos = malha_triangulada(obj)
-    for passo_fb in range(2):
-        if tris_pos <= alvo_tris or tris_pos <= 4:
-            break
-        mod_fb = obj.modifiers.new(f"forge3d_decimate_fb_{passo_fb}", "DECIMATE")
-        mod_fb.ratio = max(0.01, min(0.99, (alvo_tris * 0.985) / tris_pos))
-        _selecionar(obj)
-        if len(obj.modifiers) > 1:
-            bpy.ops.object.modifier_move_to_index(modifier=mod_fb.name, index=0)
-        bpy.ops.object.modifier_apply(modifier=mod_fb.name)
-        novo_tris = malha_triangulada(obj)
-        if novo_tris >= tris_pos:
-            break
-        tris_pos = novo_tris
+    tris_pos = _decimar_progressivo(obj, alvo_tris, proteger_cabeca_maos)
+    if proteger_cabeca_maos and not voxel_remesh_feito:
+        nm_e_pos, _ = _contar_nao_manifold(obj)
+        if tris_pos > alvo_tris or nm_e_pos >= 20:
+            _remesh_voxel_preservando_partes(obj)
+            tris_pos = _decimar_progressivo(obj, alvo_tris, proteger_cabeca_maos)
 
     if proteger_cabeca_maos and obj.data.vertices:
         bm_pos = bmesh.new()
         bm_pos.from_mesh(obj.data)
-        _relaxar_arestas_dobradas_bm(bm_pos, passadas=3)
+        _relaxar_arestas_dobradas_bm(bm_pos, passadas=4)
         bm_pos.to_mesh(obj.data)
         bm_pos.free()
         obj.data.update()
-    return tris_pos
+    return malha_triangulada(obj)

@@ -153,9 +153,6 @@ def _preparar_bruto_arquivo(
         grupos = {vg.name: vg for vg in obj.vertex_groups}
     if bruto.get("canonicalizar"):
         info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
-    info_gerada["reparo_inicial"] = reparar_malha(
-        obj, permitir_bordas_abertas=alpha_cards_ativo
-    )
 
     mat_proc = str(
         job.get("material_procedural")
@@ -171,41 +168,6 @@ def _preparar_bruto_arquivo(
     quadriflow_faces = int(
         item.get("quadriflow_faces") or bruto.get("quadriflow_faces") or 0
     )
-
-    deve_soldar = bool(cfg_suav["soldar_componentes_organicos"]) or bool(
-        bruto.get("soldar_componentes_organicos")
-    )
-    if (
-        not deve_soldar
-        and cfg_suav["eh_organico"]
-        and rig_obj is None
-        and item.get("tipo") in ("criatura", "criatura_quadrupede", "criatura_alada", "montaria")
-        and (bool(mat_proc) or bool(obj.data.color_attributes))
-        and organic_sculpt.contar_componentes(obj) > 1
-    ):
-        if bool(obj.data.color_attributes):
-            deve_soldar, ruido_rem = _inspecionar_ou_podar_ilhas_organicas(obj)
-            if ruido_rem > 0:
-                info_gerada["ilhas_ruido_removidas"] = ruido_rem
-        else:
-            deve_soldar = True
-    if deve_soldar and rig_obj is None and bruto.get("arquivo") != "template_body.glb":
-        info_solda = organic_sculpt.soldar_componentes_organicos(obj)
-        info_gerada["soldagem_organica"] = info_solda
-        if info_solda.get("soldado"):
-            info_gerada["reparo_pos_solda"] = reparar_malha(
-                obj, permitir_bordas_abertas=alpha_cards_ativo
-            )
-
-    proteger = bool(bruto.get("proteger_decimate", False)) or cfg_suav["eh_organico"]
-    angulo_smooth = float(cfg_suav["angulo_graus"])
-    limite_tris = int(item["limite_triangulos"])
-    px, px_sub = bake_pbr.px_bake_recomendado(
-        qualidade_item,
-        bruto.get("textura_px"),
-        teto_perfil=textura_max_perfil or None,
-    )
-
     eh_template_ou_armadura = (
         bruto.get("arquivo") == "template_body.glb" or bool(bruto.get("armadura_modular"))
     )
@@ -225,6 +187,55 @@ def _preparar_bruto_arquivo(
         tem_cor_vertice=bool(obj.data.color_attributes),
         tem_uv=bool(obj.data.uv_layers),
         tem_materiais=bool(obj.data.materials),
+    )
+    adiar_reparo_high = (
+        malha_triangulada(obj) > 60_000
+        and bake_pbr.objeto_tem_pbr_nativo(obj)
+        and usar_bake_high_low
+    )
+    if adiar_reparo_high:
+        info_gerada["reparo_inicial"] = {
+            "adiado_high_pbr_nativo": True,
+            "faces_antes": len(obj.data.polygons),
+        }
+    else:
+        info_gerada["reparo_inicial"] = reparar_malha(
+            obj, permitir_bordas_abertas=alpha_cards_ativo
+        )
+
+    deve_soldar = bool(cfg_suav["soldar_componentes_organicos"]) or bool(
+        bruto.get("soldar_componentes_organicos")
+    )
+    if (
+        not deve_soldar
+        and not adiar_reparo_high
+        and cfg_suav["eh_organico"]
+        and rig_obj is None
+        and item.get("tipo") in ("criatura", "criatura_quadrupede", "criatura_alada", "montaria")
+        and (bool(mat_proc) or bool(obj.data.color_attributes))
+        and organic_sculpt.contar_componentes(obj) > 1
+    ):
+        if bool(obj.data.color_attributes):
+            deve_soldar, ruido_rem = _inspecionar_ou_podar_ilhas_organicas(obj)
+            if ruido_rem > 0:
+                info_gerada["ilhas_ruido_removidas"] = ruido_rem
+        else:
+            deve_soldar = True
+    if deve_soldar and not adiar_reparo_high and rig_obj is None and bruto.get("arquivo") != "template_body.glb":
+        info_solda = organic_sculpt.soldar_componentes_organicos(obj)
+        info_gerada["soldagem_organica"] = info_solda
+        if info_solda.get("soldado"):
+            info_gerada["reparo_pos_solda"] = reparar_malha(
+                obj, permitir_bordas_abertas=alpha_cards_ativo
+            )
+
+    proteger = bool(bruto.get("proteger_decimate", False)) or cfg_suav["eh_organico"]
+    angulo_smooth = float(cfg_suav["angulo_graus"])
+    limite_tris = int(item["limite_triangulos"])
+    px, px_sub = bake_pbr.px_bake_recomendado(
+        qualidade_item,
+        bruto.get("textura_px"),
+        teto_perfil=textura_max_perfil or None,
     )
     return {
         "obj": obj,

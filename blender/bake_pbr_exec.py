@@ -13,6 +13,7 @@ except ImportError:  # pragma: no cover - permite import puro em testes fora do 
 if __package__:
     from . import bake_pbr_config as _cfg
     from . import bake_pbr_maps as _maps
+    from . import bake_pbr_nativo as _nat
     from . import bake_pbr_passes as _passes
     from . import bake_pbr_proj as _proj
 else:
@@ -21,6 +22,7 @@ else:
         sys.path.insert(0, _BLENDER_DIR)
     import bake_pbr_config as _cfg
     import bake_pbr_maps as _maps
+    import bake_pbr_nativo as _nat
     import bake_pbr_passes as _passes
     import bake_pbr_proj as _proj
 
@@ -206,8 +208,9 @@ def executar_bake_high_low(
     tem_detalhe_alto = bool(isinstance(detalhe_alto, dict) and detalhe_alto.get("ativo", True))
     vistas_norm = _proj._normalizar_vistas_ortograficas(vistas_ortograficas, origem_textura=origem_textura)
     tem_vistas_4v = bool(vistas_norm)
+    tem_pbr_nativo = bool(not tem_procedural and not tem_zonas and _nat.objeto_tem_pbr_nativo(obj))
     tem_mat_uv = bool(
-        (permitir_sem_cor_vertice or tem_zonas or tem_detalhe_alto)
+        (permitir_sem_cor_vertice or tem_zonas or tem_detalhe_alto or tem_pbr_nativo)
         and obj is not None
         and obj.data is not None
         and (len(obj.data.uv_layers) > 0 or len(obj.data.materials) > 0 or tem_zonas or tem_detalhe_alto)
@@ -238,6 +241,8 @@ def executar_bake_high_low(
         nome_cor = f"pbr_zonas:{len(pbr_zonas or [])}"
     elif tem_procedural:
         nome_cor = f"procedural:{preset_proc}"
+    elif tem_pbr_nativo:
+        nome_cor = "pbr_nativo"
     else:
         nome_cor = "uv_material"
 
@@ -254,6 +259,8 @@ def executar_bake_high_low(
     colecao.objects.link(high_obj)
 
     high_mat = high_hints_mat = low_bake_mat = tex_bake = cam_obj = cam_data = None
+    high_mats_nativos: list = []
+    usar_pbr_nativo = (not tem_procedural and not tem_zonas and _nat.objeto_tem_pbr_nativo(high_obj))
     img_origem = img_met = img_rough = img_hints_tmp = None
     img_bc = img_nm = img_ao_tmp = img_orm_tmp = None
     imgs_vistas: dict[str, object] = {}
@@ -279,7 +286,7 @@ def executar_bake_high_low(
             tris_high = int(info_detalhe_alto.get("tris_high_enriquecido") or _cfg._contar_triangulos(high_obj))
         suavizar_fn(high_obj)
 
-        if not tem_procedural:
+        if not tem_procedural and not usar_pbr_nativo:
             if vistas_norm:
                 img_orig_pref = None
                 if origem_textura and os.path.isfile(origem_textura):
@@ -326,13 +333,19 @@ def executar_bake_high_low(
                 img_met = img_met or imgs_hints_vistas["front"][0]
                 img_rough = img_rough or imgs_hints_vistas["front"][1]
 
-        cam_obj, cam_data, nome_visivel, vistas_dados = _passes._preparar_projecao_high(
-            high_obj, nome_base, colecao, tem_zonas, img_origem, img_met, img_rough,
-            imgs_vistas, imgs_hints_vistas,
-        )
-        vistas_hints_dados = _passes._montar_vistas_hints_dados(
-            high_obj, imgs_vistas, imgs_hints_vistas
-        )
+        if usar_pbr_nativo:
+            nome_visivel, vistas_dados, vistas_hints_dados = None, [], []
+            if high_obj.data.uv_layers:
+                high_obj.data.uv_layers.active = high_obj.data.uv_layers[0]
+                high_obj.data.uv_layers[0].active_render = True
+        else:
+            cam_obj, cam_data, nome_visivel, vistas_dados = _passes._preparar_projecao_high(
+                high_obj, nome_base, colecao, tem_zonas, img_origem, img_met, img_rough,
+                imgs_vistas, imgs_hints_vistas,
+            )
+            vistas_hints_dados = _passes._montar_vistas_hints_dados(
+                high_obj, imgs_vistas, imgs_hints_vistas
+            )
 
         decimar_fn(obj, int(limite_triangulos))
         info_reparo = reparo_fn(obj)
@@ -353,12 +366,16 @@ def executar_bake_high_low(
             diag, proteger_superficie, tem_detalhe_alto, tem_zonas, tem_cor_vertice
         )
 
-        high_mat, proc_mod, usar_emit_proc, met_escalar_orig, rough_escalar_orig = (
-            _passes._configurar_high_material(
-                high_obj, nome_base, nome_cor, tem_cor_vertice, tem_zonas, tem_procedural,
-                preset_proc, pbr_zonas, detalhe_alto, proteger_superficie, img_origem, nome_visivel, vistas_dados,
+        if usar_pbr_nativo:
+            high_mats_nativos = _nat.clonar_materiais_nativos(high_obj, nome_base)
+            proc_mod, usar_emit_proc, met_escalar_orig, rough_escalar_orig = None, False, 0.0, None
+        else:
+            high_mat, proc_mod, usar_emit_proc, met_escalar_orig, rough_escalar_orig = (
+                _passes._configurar_high_material(
+                    high_obj, nome_base, nome_cor, tem_cor_vertice, tem_zonas, tem_procedural,
+                    preset_proc, pbr_zonas, detalhe_alto, proteger_superficie, img_origem, nome_visivel, vistas_dados,
+                )
             )
-        )
 
         low_bake_mat, tex_bake = _maps._criar_material_alvo_bake(f"{nome_base}_low_bake_tmp")
         obj.data.materials.clear()
@@ -373,14 +390,16 @@ def executar_bake_high_low(
                 cena, obj, high_obj, high_mat, low_bake_mat, tex_bake, saida_dir, nome_base, px, px_sub,
                 samples_bake, samples_ao, cage_extrusion, max_ray_dist, usar_emit_proc, proc_mod,
                 img_met, img_rough, img_origem, nome_cor, tem_cor_vertice, nome_visivel, vistas_hints_dados,
+                usar_pbr_nativo=usar_pbr_nativo, high_mats_nativos=high_mats_nativos,
             )
         )
 
         nome_orm = f"{nome_base}_orm.png"
         path_orm = os.path.join(saida_dir, nome_orm)
+        piso_rough = 0.0 if usar_pbr_nativo else (0.68 if (proteger_superficie and not usar_emit_proc) else 0.0)
         img_orm_tmp = _maps._empacotar_orm(
             img_ao_tmp, f"{nome_base}_orm_tmp", px_sub, img_hints=img_hints_tmp,
-            piso_dieletrico_rough=0.68 if (proteger_superficie and not usar_emit_proc) else 0.0,
+            piso_dieletrico_rough=piso_rough,
             metallic_base=met_escalar_orig, roughness_base=rough_escalar_orig,
         )
         bpy.data.images.remove(img_ao_tmp)
@@ -427,7 +446,7 @@ def executar_bake_high_low(
             bpy.data.meshes.remove(high_mesh)
         if tex_bake is not None:
             tex_bake.image = None
-        for mat_tmp in (high_mat, high_hints_mat, low_bake_mat):
+        for mat_tmp in (high_mat, high_hints_mat, low_bake_mat, *high_mats_nativos):
             if mat_tmp is not None and mat_tmp.name in bpy.data.materials and mat_tmp.users == 0:
                 bpy.data.materials.remove(mat_tmp)
         vistos_img_ids: set[int] = set()
@@ -466,8 +485,9 @@ def executar_bake_high_low(
             "reparo": info_reparo, "smooth": info_smooth, "uv": info_uv,
             "origem_textura_aplicada": bool(img_origem is not None or bool(vistas_aplicadas)),
             "vistas_ortograficas_aplicadas": vistas_aplicadas,
-            "metallic_hint_aplicado": bool(img_met is not None or tem_met_mv or usar_emit_proc),
-            "roughness_hint_aplicado": bool(img_rough is not None or tem_rough_mv or usar_emit_proc),
+            "pbr_nativo_preservado": bool(usar_pbr_nativo),
+            "metallic_hint_aplicado": bool(img_met is not None or tem_met_mv or usar_emit_proc or usar_pbr_nativo),
+            "roughness_hint_aplicado": bool(img_rough is not None or tem_rough_mv or usar_emit_proc or usar_pbr_nativo),
             "png_bytes": bytes_bc, "baseColor_bytes": bytes_bc, "normal_bytes": bytes_nm, "orm_bytes": bytes_orm,
         },
         "arquivos_textura": [

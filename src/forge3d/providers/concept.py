@@ -16,6 +16,7 @@ from pathlib import Path
 from .. import locks
 from . import cloud_ai, concept_views
 from .concept_prompt import (
+    DIRETRIZ_RIG_APOSE,
     LIMITE_TOKENS_CLIP,
     NEGATIVO_PADRAO,
     SUFIXO_PADRAO,
@@ -29,6 +30,7 @@ from .concept_prompt import (
     gerar_pose_png,
     negativo_efetivo,
     prompt_para_vista,
+    reforcar_prompt_rig,
     resolver_pose_com_estado,
     sufixo_efetivo,
 )
@@ -271,7 +273,10 @@ def _chamar_preflight(item: dict | None) -> tuple[bool, str]:
 
 def montar_comando(item: dict, destino: Path) -> tuple[list[str], dict]:
     """Monta a linha de comando do ``concept_infer.py`` e metadados de entrada (sem GPU)."""
-    prompt = (item.get("prompt") or "").strip()
+    prompt_bruto = (item.get("prompt") or "").strip()
+    prompt = reforcar_prompt_rig(prompt_bruto, item)
+    if prompt != prompt_bruto and estimar_tokens_clip(prompt) > LIMITE_TOKENS_CLIP:
+        prompt = combinar_prompt(prompt_bruto, DIRETRIZ_RIG_APOSE)
     seed = int(item.get("seed", 20261110))
     png = destino / "concept.png"
     resultado_path = destino / "concept_resultado.json"
@@ -285,30 +290,11 @@ def montar_comando(item: dict, destino: Path) -> tuple[list[str], dict]:
     guidance = os.environ.get("FORGE3D_CONCEPT_GUIDANCE", "7.5").strip() or "7.5"
 
     comando = [
-        str(dir_venv() / "bin" / "python"),
-        str(script_inferencia()),
-        "--prompt",
-        prompt_final,
-        "--negative",
-        negative_final,
-        "--seed",
-        str(seed),
-        "--saida",
-        str(png),
-        "--resultado",
-        str(resultado_path),
-        "--modelo",
-        modelo_escolhido(),
-        "--largura",
-        largura,
-        "--altura",
-        altura,
-        "--passos",
-        passos,
-        "--guidance",
-        guidance,
-        "--device",
-        _device(),
+        str(dir_venv() / "bin" / "python"), str(script_inferencia()),
+        "--prompt", prompt_final, "--negative", negative_final, "--seed", str(seed),
+        "--saida", str(png), "--resultado", str(resultado_path), "--modelo", modelo_escolhido(),
+        "--largura", largura, "--altura", altura, "--passos", passos,
+        "--guidance", guidance, "--device", _device(),
     ]
 
     pose = resolver_pose(item)
@@ -454,6 +440,7 @@ class ConceptProvider:
 
 __all__ = [
     "CONTROLNET_MODELO_PADRAO",
+    "DIRETRIZ_RIG_APOSE",
     "LIMITE_TOKENS_CLIP",
     "MODELO_PADRAO",
     "NEGATIVO_PADRAO",
@@ -478,6 +465,7 @@ __all__ = [
     "negativo_efetivo",
     "preflight",
     "prompt_para_vista",
+    "reforcar_prompt_rig",
     "resolver_pose",
     "resolver_provider_conceito",
     "resolver_vistas",

@@ -9,7 +9,7 @@ import sys
 import bpy
 
 if __package__:
-    from . import autorig, bake_pbr
+    from . import autorig, bake_pbr, postprocess_deform
     from .postprocess_lod_col import (
         _tem_normal_map,
         aplicar_lod,
@@ -36,6 +36,7 @@ else:
         sys.path.insert(0, _BLENDER_DIR)
     import autorig
     import bake_pbr
+    import postprocess_deform
     from postprocess_lod_col import (
         _tem_normal_map,
         aplicar_lod,
@@ -237,6 +238,11 @@ def _montar_medidas_lod0(
     if esqueleto_pedido:
         medidas_base["esqueleto_pedido"] = esqueleto_pedido
     medidas_base.update(medir_geometria(obj, permitir_bordas_abertas=alpha_cards_ativo))
+    deform_anim = postprocess_deform.medir_deformacao_animacao(
+        obj, rig_obj, animacoes_geradas
+    )
+    if deform_anim is not None:
+        medidas_base["deformacao_anim"] = deform_anim
     if textura_max_perfil > 0:
         _enquadrar_texturas_no_teto(textura_max_perfil)
     return medidas_base

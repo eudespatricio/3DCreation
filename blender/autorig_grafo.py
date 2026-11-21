@@ -24,6 +24,11 @@ if __package__:
         _dist_ponto_segmento,
         _lado_osso,
     )
+    from .autorig_pesos_coerencia import (
+        _OSSOS_EXTREMIDADE_BRACO,
+        MAX_INFLUENCIAS_VERTICE,
+        normalizar_top_k,
+    )
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
@@ -43,6 +48,11 @@ else:
         _dist_ponto_segmento,
         _lado_osso,
     )
+    from autorig_pesos_coerencia import (
+        _OSSOS_EXTREMIDADE_BRACO,
+        MAX_INFLUENCIAS_VERTICE,
+        normalizar_top_k,
+    )
 
 
 def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
@@ -56,7 +66,9 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
     arm_deltoid_x = max(arm_root_x + 0.038 * h, torso_hw * 1.55, 0.118 * h)
     ombro_min_x = max(torso_hw * 0.85, 0.066 * h)
     ombro_max_x = max(abs(m["shoulder_x_L"]), abs(m["shoulder_x_R"]), arm_root_x) + 0.06 * h
-    neck_max_x = max(neck_hw * 1.45, 0.052 * h)
+    neck_max_x = min(max(neck_hw * 1.45, 0.052 * h), min(arm_root_x * 0.72, 0.095 * h))
+    head_max_x = min(max(neck_max_x * 1.45, 0.14 * h), min(arm_root_x * 0.85, 0.115 * h))
+    elbow_x = max(abs(float(m.get("elbow_x_L") or arm_deltoid_x)), abs(float(m.get("elbow_x_R") or arm_deltoid_x)), arm_deltoid_x)
     tronco_max_x = max(abs(m["shoulder_x_L"]), abs(m["shoulder_x_R"]), arm_deltoid_x, 0.14 * h) * 1.12
     leg_x_min = min(abs(m["leg_x_L"]), abs(m["leg_x_R"]))
     x_tol_leg = min(0.015 * h, 0.25 * leg_x_min)
@@ -67,10 +79,14 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
         "x_tol_leg": x_tol_leg,
         "torso_hw": torso_hw,
         "neck_max_x": neck_max_x,
+        "head_max_x": head_max_x,
         "ombro_min_x": ombro_min_x,
         "ombro_max_x": ombro_max_x,
+        "ombro_z_hi": m["head_top_z"] + 0.02 * h,
         "arm_root_x": arm_root_x,
         "arm_deltoid_x": arm_deltoid_x,
+        "arm_ext_z_max": m["shoulder_z"] - 0.02 * h,
+        "arm_ext_x_min": 0.85 * elbow_x,
         "arm_z_cut": arm_z_cut,
         "arm_z_cut_lo": arm_z_cut_lo,
         "arm_z_min": m["z_min"] + 0.20 * h,
@@ -83,6 +99,7 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
         "chest_z_min": m["spine1_z"] - 0.015 * h,
         "upper_torso_z_min": m["hip_z"] - 0.01 * h,
         "chest_z_max": (m["neck_z"] + 0.02 * h) if tem_neck else (m["chest_top_z"] + 0.035 * h),
+        "chest_z_max_collar": m["head_top_z"] + 0.02 * h,
         "spine1_z_min": m["hip_z"] - 0.01 * h,
         "spine1_z_max": m["chest_top_z"] - 0.02 * h,
         "spine_z_min": m["hip_z"] - 0.02 * h,
@@ -90,7 +107,7 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
         "hips_z_max": m["chest_z"] + 0.03 * h,
         "leg_z_max": m["hip_z"] + 0.04 * h,
         "upper_leg_z_min": m["knee_z"] - 0.05 * h,
-        "lower_leg_z_max": m["hip_z"] - 0.02 * h,
+        "lower_leg_z_max": m["knee_z"] + 0.35 * max(0.05 * h, m["hip_z"] - m["knee_z"]),
         "foot_z_max": m["knee_z"] - 0.03 * h,
         "z_min_floor": m["z_min"] - 0.01 * h,
     }
@@ -107,6 +124,7 @@ def _osso_permitido(
     if nome in _RAIZES:
         return False
     b = lim if lim is not None else _limites_anatomicos(m, tem_neck=tem_neck)
+    h = b["h"]
     lado = _lado_osso(nome)
     vx, vz = v.x, v.z
     abs_x = vx if vx >= 0.0 else -vx
@@ -125,22 +143,25 @@ def _osso_permitido(
     if nome in _OSSOS_COXA:
         return b["upper_leg_z_min"] <= vz <= b["leg_z_max"]
     if nome in _OSSOS_OMBROS:
-        return b["arm_z_cut_lo"] <= vz <= m["chest_top_z"] + 0.025 * b["h"] and abs_x >= b["ombro_min_x"]
+        return b["arm_z_cut_lo"] <= vz <= b["ombro_z_hi"] and abs_x >= b["ombro_min_x"]
     if nome in _OSSOS_BRACO_DISTAL:
+        if nome in _OSSOS_EXTREMIDADE_BRACO and vz > b["arm_ext_z_max"] and abs_x < b["arm_ext_x_min"]:
+            return False
         if vz >= b["arm_z_cut"] and abs_x >= b["arm_root_x"]:
             return True
         return bracos_baixos and abs_x > b["braco_baixo_min_x"] and vz >= b["arm_z_min"]
     if nome in _OSSOS_CABECA:
-        return vz >= b["head_z_min"]
+        z_lo_head = (b["head_z_min"] - 0.03 * h) if tem_neck else b["head_z_min"]
+        return vz >= z_lo_head and abs_x <= b["head_max_x"] + 0.04 * h
     if nome in _OSSOS_PESCOCO:
-        return b["neck_z_min"] <= vz <= b["neck_z_max"] and abs_x <= b["neck_max_x"]
+        return b["neck_z_min"] <= vz <= b["neck_z_max"] + 0.04 * h and abs_x <= b["neck_max_x"] + 0.04 * h
     if nome in _OSSOS_TRONCO:
         if abs_x > b["tronco_max_x"] and vz >= b["arm_z_cut_lo"]:
             return False
-        if nome == "Chest":
-            return b["chest_z_min"] <= vz <= b["chest_z_max"]
-        if nome == "UpperTorso":
-            return b["upper_torso_z_min"] <= vz <= b["chest_z_max"]
+        if nome in ("Chest", "UpperTorso"):
+            z_lo = b["chest_z_min"] if nome == "Chest" else b["upper_torso_z_min"]
+            z_hi = b["chest_z_max_collar"] if abs_x > b["head_max_x"] * 0.9 else b["chest_z_max"] + 0.06 * h
+            return z_lo <= vz <= z_hi
         if nome == "Spine1":
             return b["spine1_z_min"] <= vz <= b["spine1_z_max"]
         if nome == "Spine":
@@ -276,23 +297,11 @@ def _dijkstra_osso(
     return dist
 
 
-def _normalizar_top4(brutos_wn: list[tuple[float, str]]) -> list[tuple[str, float]]:
-    if len(brutos_wn) > 4:
-        brutos_wn.sort(reverse=True)
-        top = brutos_wn[:4]
-    else:
-        brutos_wn.sort(reverse=True)
-        top = brutos_wn
-    soma = sum(w for w, _ in top)
-    if soma <= 0.0:
-        return [(top[0][1], 1.0)]
-    norm = [(n, w / soma) for w, n in top if w / soma >= 1e-4]
-    if not norm:
-        return [(top[0][1], 1.0)]
-    total = sum(w for _, w in norm)
-    if abs(total - 1.0) <= 1e-9:
-        return norm
-    return [(n, w / total) for n, w in norm]
+def _normalizar_top4(
+    brutos_wn: list[tuple[float, str]],
+    max_k: int = MAX_INFLUENCIAS_VERTICE,
+) -> list[tuple[str, float]]:
+    return normalizar_top_k(brutos_wn, max_k=max_k)
 
 
 def _pesos_vertice_inverso(
@@ -326,8 +335,11 @@ def _pesos_vertice_inverso(
     return _normalizar_top4(brutos_wn)
 
 
-def _normalizar_grupos_e_mapear(obj) -> dict[str, list[int]]:
-    """Limita a 4 influências por vértice, normaliza soma = 1.0 e devolve osso -> índices."""
+def _normalizar_grupos_e_mapear(
+    obj,
+    max_influencias: int = MAX_INFLUENCIAS_VERTICE,
+) -> dict[str, list[int]]:
+    """Limita a max_influencias por vértice, normaliza soma = 1.0 e devolve osso -> índices."""
     for vg in list(obj.vertex_groups):
         if vg.name in _RAIZES:
             obj.vertex_groups.remove(vg)
@@ -348,10 +360,10 @@ def _normalizar_grupos_e_mapear(obj) -> dict[str, list[int]]:
             vg.remove([v.index])
         if not pares:
             continue
-        if len(pares) > 4:
+        if len(pares) > max_influencias:
             pares.sort(key=lambda item: item[1], reverse=True)
-            manter = pares[:4]
-            for vg, _w in pares[4:]:
+            manter = pares[:max_influencias]
+            for vg, _w in pares[max_influencias:]:
                 vg.remove([v.index])
         else:
             manter = pares
@@ -372,8 +384,9 @@ def _suavizar_aneis_juntas(
     ossos: list[dict],
     permitido_fn=None,
     passos: int = 2,
-    alpha: float = 0.32,
+    alpha: float = 0.25,
     pares_bloqueados: set[frozenset[str]] | None = None,
+    max_k: int = MAX_INFLUENCIAS_VERTICE,
 ) -> None:
     """Suaviza pesos apenas nos aneis de fronteira entre ossos pai-filho adjacentes."""
     if not pesos_por_vertice:
@@ -428,7 +441,7 @@ def _suavizar_aneis_juntas(
                     if permitido_fn is not None and not permitido_fn(n, vi):
                         continue
                     acum[n] = acum.get(n, 0.0) + w * fator
-            novos[vi] = _normalizar_top4([(w, n) for n, w in acum.items() if w > 1e-6])
+            novos[vi] = _normalizar_top4([(w, n) for n, w in acum.items() if w > 1e-6], max_k=max_k)
         for vi, ws_novo in novos.items():
             if ws_novo:
                 pesos_por_vertice[vi] = ws_novo

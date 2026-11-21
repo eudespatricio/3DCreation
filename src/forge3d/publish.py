@@ -225,6 +225,8 @@ def montar_manifesto(
         rig["ancoras"] = {
             str(k): [float(v[0]), float(v[1]), float(v[2])] for k, v in ancoras.items()
         }
+    if rig is not None and resultado.get("partes_combinadas"):
+        rig["partes_combinadas"] = str(resultado["partes_combinadas"])
 
     orientacao_export = resultado.get("orientacao_export") or medidas.get("orientacao_export")
     sockets_meta = (
@@ -233,7 +235,7 @@ def montar_manifesto(
     sombreamento = resultado.get("sombreamento") or medidas.get("sombreamento")
 
     return {
-        "schema": "forge3d/manifest@6",
+        "schema": "forge3d/manifest@7",
         "asset_id": item["id"],
         "projeto": spec_doc["projeto"],
         "perfil": perfil_nome,

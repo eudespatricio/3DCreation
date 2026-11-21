@@ -473,17 +473,18 @@ def main() -> None:
         obj.matrix_world = Matrix.Identity(4)
         obj.data.transform(Matrix.Translation(-cabecas_bl[nome]))
         cos = [v.co for v in obj.data.vertices]
+        c_loc_bl = Vector(((min(c.x for c in cos) + max(c.x for c in cos)) * 0.5, (min(c.y for c in cos) + max(c.y for c in cos)) * 0.5, (min(c.z for c in cos) + max(c.z for c in cos)) * 0.5))
         bbox_yup = [max(c.x for c in cos) - min(c.x for c in cos), max(c.z for c in cos) - min(c.z for c in cos), max(c.y for c in cos) - min(c.y for c in cos)]
         arquivo = f"{nome}.glb"
         _exportar_glb(saida / arquivo, [obj])
-        resumo.append({"nome": nome, "junta": str(partes[idx].get("junta") or ""), "pivo": "junta", "ancora": ancoras[nome], "bbox": bbox_yup, "triangulos": len(obj.data.polygons), "arquivo": arquivo})
+        resumo.append({"nome": nome, "junta": str(partes[idx].get("junta") or ""), "pivo": "junta", "ancora": ancoras[nome], "centro_bbox": _bl_para_yup(cabecas_bl[nome] + c_loc_bl), "bbox": bbox_yup, "triangulos": len(obj.data.polygons), "arquivo": arquivo})
         objetos.append(obj)
 
     for obj, parte in zip(objetos, resumo):
         obj.location = cabecas_bl[parte["nome"]]
     _exportar_glb(saida / "partes_combinadas.glb", objetos)
     total = sum(p["triangulos"] for p in resumo)
-    Path(argv[1]).write_text(json.dumps({"partes": resumo, "triangulos_total": total, "ancoras": ancoras}, indent=1), encoding="utf-8")
+    Path(argv[1]).write_text(json.dumps({"partes": resumo, "triangulos_total": total, "ancoras": ancoras, "partes_combinadas": "partes_combinadas.glb"}, indent=1), encoding="utf-8")
     print(f"SPLIT_OK partes={len(resumo)} tris={total}")
 
 

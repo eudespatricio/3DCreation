@@ -103,18 +103,20 @@ nunca aparece em manifesto publicado (I14).
 | B12 | `parte` de vestuário/armadura exige `personagem_humanoide`; `arma`/`escudo` exige `prop_equipavel` | erro |
 | B13 | `parte: capa` e acessórios rígidos exigem `auto_rig: false` (salvo `skinned: true` em armadura) | erro |
 
-## 3. `manifest@1`..`manifest@6` — a saída
+## 3. `manifest@1`..`manifest@7` — a saída
 
 Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o Forge3D instalado.
 `@2` acrescenta `unidades_export` (D62), `@3` acrescenta `animacoes` (D67), `@4` acrescenta papéis
 `orm`/`roughness`/`metallic`/`manifesto` e metadados PBR/QC V2, `@5` acrescenta `orientacao_export`,
-`sockets` locais de osso, `sombreamento` e rigs de criaturas/montarias, e `@6` é o contrato corrente
-(aditivo: rig `godot-humanoid-aa@1` 56 ossos, `detalhe_alto`, `pbr_zonas`, `smart_fit`, `alpha_cards`,
-`roblox_render` e suporte ao Gate G11); `@1`–`@5` continuam aceitos na leitura.
+`sockets` locais de osso, `sombreamento` e rigs de criaturas/montarias, `@6` acrescenta rig
+`godot-humanoid-aa@1` 56 ossos, `detalhe_alto`, `pbr_zonas`, `smart_fit`, `alpha_cards`,
+`roblox_render` e Gate G11, e **`@7` é o contrato corrente** (D134: papel `partes_combinadas`,
+`rig.partes_combinadas`, `partes[].centro_bbox` e Gate formal **G16** em `qc.gates`); `@1`–`@6`
+continuam aceitos na leitura.
 
 | Campo | Tipo | Conteúdo |
 |---|---|---|
-| `schema` | string | `forge3d/manifest@1`..`@5` (legados) · `@6` (corrente) |
+| `schema` | string | `forge3d/manifest@1`..`@6` (legados) · `@7` (corrente) |
 | `asset_id` / `projeto` / `perfil` / `rota` | string | identidade, alvo e técnica de geração |
 | `tags` | string[] | rótulos do item; consultáveis por `forge3d query --tag` |
 | `spec_hash` | string | `sha256:` do spec canônico que originou o asset |
@@ -127,12 +129,13 @@ Viaja **junto** do asset, no destino. É o que permite o jogo validar sem ter o 
 | `sockets` | objeto[] | `@5`+: `{nome, osso, posicao_local, rotacao_quat_wxyz, frente_local}` |
 | `sombreamento` | objeto | `@5`+: `{smooth_normals, angulo_graus, weighted_normals, quadriflow_aplicado}` |
 | `animacoes` | objeto[] | `@3`+: `{nome, duracao_s, ossos}` — clipes embutidos no glb (vazio se não há) |
-| `rig` | objeto\|null | `{esqueleto, ossos, modo_rig_roblox?}` (`godot-humanoid@1`, `godot-humanoid-aa@1`, `r15@1`, `quadruped@1`, `winged_mount@1`) |
+| `rig` | objeto\|null | `{esqueleto, ossos, modo_rig_roblox?, modo?, partes_combinadas?, ancoras?}` (`godot-humanoid@1`, `godot-humanoid-aa@1`, `r15@1`, `quadruped@1`, `winged_mount@1`; `@7`: `partes_combinadas` aponta o GLB combinado R15) |
 | `anexo` | objeto\|null | `{parte, osso, attachment_roblox, skinned?}` — peças modulares e armaduras (D88) |
+| `partes` | objeto[] | `{nome, papel?, junta?, pivo?, ancora?, centro_bbox?, bbox?, triangulos?, arquivo?}` (`@7` inclui `centro_bbox[3]` por parte R15) |
 | `lod` | objeto[] | `{nivel, triangulos, arquivo}` |
 | `colisao` | objeto | `{tipo, partes, arquivo}` |
-| `files` | objeto[] | `{caminho, papel, sha256, bytes}` — `papel` ∈ `mesh\|textura\|normal\|orm\|roughness\|metallic\|colisor\|lod\|animacao\|manifesto` |
-| `qc` | objeto | `{aprovado, gates: [{id, status, medido, limite}]}` |
+| `files` | objeto[] | `{caminho, papel, sha256, bytes}` — `papel` ∈ `mesh\|textura\|normal\|orm\|roughness\|metallic\|colisor\|lod\|animacao\|manifesto\|concept\|parte\|partes_combinadas` |
+| `qc` | objeto | `{aprovado, gates: [{id, status, medido, limite}]}` (`G1`–`G16` no `@7`) |
 | `licenca` | objeto | `{modelo, uso_comercial, notice}` |
 | `origem_spec` | objeto | `{arquivo, hash}` |
 | `run_id` / `created_at` | string | rastreabilidade (UTC) |
@@ -142,10 +145,12 @@ Schema completo: [`../schemas/manifest.v1.schema.json`](../schemas/manifest.v1.s
 [`../schemas/manifest.v3.schema.json`](../schemas/manifest.v3.schema.json) ·
 [`../schemas/manifest.v4.schema.json`](../schemas/manifest.v4.schema.json) ·
 [`../schemas/manifest.v5.schema.json`](../schemas/manifest.v5.schema.json) ·
-[`../schemas/manifest.v6.schema.json`](../schemas/manifest.v6.schema.json);
+[`../schemas/manifest.v6.schema.json`](../schemas/manifest.v6.schema.json) ·
+[`../schemas/manifest.v7.schema.json`](../schemas/manifest.v7.schema.json);
 exemplos: [`../examples/manifest.exemplo.json`](../examples/manifest.exemplo.json),
-[`../examples/manifest.exemplo.v2.json`](../examples/manifest.exemplo.v2.json) e
-[`../examples/manifest.exemplo.v6.json`](../examples/manifest.exemplo.v6.json).
+[`../examples/manifest.exemplo.v2.json`](../examples/manifest.exemplo.v2.json),
+[`../examples/manifest.exemplo.v6.json`](../examples/manifest.exemplo.v6.json) e
+[`../examples/manifest.exemplo.v7.json`](../examples/manifest.exemplo.v7.json).
 
 ### 3.1 `unidades_export` (manifest@2, D62)
 

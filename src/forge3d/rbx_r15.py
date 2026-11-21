@@ -111,6 +111,14 @@ def exportar_r15(
     if mps <= 0:
         raise erro_spec("export-r15: metros_por_stud precisa ser > 0")
 
+    eh_blocky = item.get("rota") == "blocky"
+    manifesto_eff, pasta_manifesto = _carregar_manifesto_r15(
+        manifesto,
+        texturas_dir,
+        doc,
+        item_id,
+        usar_destino_exportacao=not eh_blocky,
+    )
     if model_id is not None:
         return exportar_r15_model(
             item,
@@ -121,16 +129,9 @@ def exportar_r15(
             model_id,
             saida=saida,
             ledger=ledger,
+            modo_rig=modo_rig,
+            manifesto=manifesto_eff,
         )
-
-    eh_blocky = item.get("rota") == "blocky"
-    manifesto_eff, pasta_manifesto = _carregar_manifesto_r15(
-        manifesto,
-        texturas_dir,
-        doc,
-        item_id,
-        usar_destino_exportacao=not eh_blocky,
-    )
     if eh_blocky:
         ossos, partes, caixas, modelo_sockets = _montar_partes_blocky(item, perfil, mps)
     else:

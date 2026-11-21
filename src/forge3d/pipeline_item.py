@@ -157,6 +157,8 @@ def executar_item(
             )
             resultado["partes"] = info_seg["partes"]
             resultado["ancoras"] = info_seg["ancoras"]
+            if info_seg.get("partes_combinadas"):
+                resultado["partes_combinadas"] = info_seg["partes_combinadas"]
             resultado["arquivos"] = list(resultado.get("arquivos", [])) + info_seg["arquivos"]
 
         relatorio_qc = qc_mod.verificar(item, perfil, Path(resultado["dir_final"]), resultado)

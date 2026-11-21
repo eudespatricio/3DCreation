@@ -364,8 +364,8 @@ def test_tier2_upload_model_strip_embedded_textures_dry_run(e2e_sandbox, make_mi
     assert payload["bytes"] == strip_info["bytes_depois"]
 
 
-def test_tier2_doctor_json_reports_spec_and_manifest_v6(e2e_sandbox) -> None:
-    """Contract F03: `doctor --json` validates and reports spec@1..@6 and manifest@1..@6."""
+def test_tier2_doctor_json_reports_spec_and_manifest_v7(e2e_sandbox) -> None:
+    """Contract F03: `doctor --json` validates and reports spec@1..@6 and manifest@1..@7."""
     rc, _, err, payload = e2e_sandbox.run_cli(["doctor"])
     assert rc in (0, 4), err
     assert isinstance(payload, dict)
@@ -373,4 +373,4 @@ def test_tier2_doctor_json_reports_spec_and_manifest_v6(e2e_sandbox) -> None:
     schemas_check = checks["schemas"]
     assert schemas_check["ok"] is True
     assert "spec@1..@6" in schemas_check["detalhe"]
-    assert "manifest@1..@6" in schemas_check["detalhe"]
+    assert "manifest@1..@7" in schemas_check["detalhe"]

@@ -141,9 +141,9 @@ def _cubo_fechado_glb(altura: float = 1.0) -> bytes:
 
 
 def test_versao_0_9_5_e_consistente():
-    assert forge3d.__version__ == "0.9.8"
+    assert forge3d.__version__ == "0.9.9"
     pyproject = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.9.8"' in pyproject
+    assert 'version = "0.9.9"' in pyproject
 
 
 def test_perfis_aa_e_56_ossos_exatos():
@@ -648,7 +648,7 @@ def test_verify_aceita_manifest_v6_com_alpha_cards_e_retrocompatibilidade(tmp_pa
         licenca={"modelo": "MIT", "uso_comercial": True, "notice": "teste"},
         run_id="run-v6",
     )
-    assert man["schema"] == "forge3d/manifest@6"
+    assert man["schema"] == "forge3d/manifest@7"
     assert man["alpha_cards"] is True
     assert man["qualidade"] == "hero"
     assert man["quantidade_cena"] == 4

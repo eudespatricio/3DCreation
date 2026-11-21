@@ -54,7 +54,10 @@ def _normalizar_mapas_pbr(mapas: Mapping[str, str | Path] | None) -> dict[str, s
 
 def _eh_manifesto_v6(dados: Mapping[str, Any]) -> bool:
     schema_str = str(dados.get("schema") or "").strip()
-    return schema_str == "forge3d/manifest@6" or schema_str.endswith("@6")
+    if "@" not in schema_str:
+        return False
+    sufixo = schema_str.rsplit("@", 1)[-1]
+    return sufixo.isdigit() and int(sufixo) >= 6
 
 
 def descobrir_texturas_pbr(

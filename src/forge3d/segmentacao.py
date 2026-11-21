@@ -117,6 +117,8 @@ def dividir(glb: Path, item: dict, destino: Path, timeout: int = 900) -> dict:
             raise erro_qc(f"segmentacao: parte sem triangulos: {nome}", id=item.get("id"))
         if not _vec3_finito(parte.get("ancora")) or not _vec3_finito(parte.get("bbox")):
             raise erro_qc(f"segmentacao: ancora/bbox invalida em {nome}", id=item.get("id"))
+        if "centro_bbox" in parte and not _vec3_finito(parte.get("centro_bbox")):
+            raise erro_qc(f"segmentacao: centro_bbox invalido em {nome}", id=item.get("id"))
         parte["arquivo"] = caminho.name
         arquivos.append(
             {
@@ -127,4 +129,23 @@ def dividir(glb: Path, item: dict, destino: Path, timeout: int = 900) -> dict:
             }
         )
 
-    return {"partes": partes, "ancoras": ancoras, "arquivos": arquivos}
+    retorno: dict = {"partes": partes, "ancoras": ancoras, "arquivos": arquivos}
+    nome_comb = info.get("partes_combinadas")
+    if nome_comb or (destino / "partes_combinadas.glb").is_file():
+        caminho_comb = destino / str(nome_comb or "partes_combinadas.glb")
+        if not caminho_comb.is_file() or caminho_comb.stat().st_size <= 0:
+            raise erro_qc(
+                f"segmentacao: partes_combinadas ausente ou vazio: {caminho_comb}",
+                id=item.get("id"),
+            )
+        arquivos.append(
+            {
+                "caminho": caminho_comb.name,
+                "papel": "partes_combinadas",
+                "sha256": _sha256(caminho_comb),
+                "bytes": caminho_comb.stat().st_size,
+            }
+        )
+        retorno["partes_combinadas"] = caminho_comb.name
+
+    return retorno

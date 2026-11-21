@@ -96,7 +96,7 @@ def test_doctor_valida_schemas_v1_a_v6():
     resultado = doctor.checar()
     checks = {c["nome"]: c for c in resultado["checks"]}
     assert checks["schemas"]["ok"] is True
-    assert checks["schemas"]["detalhe"] == "spec@1..@6 e manifest@1..@6 validos"
+    assert checks["schemas"]["detalhe"] == "spec@1..@6 e manifest@1..@7 validos"
 
 
 def test_sem_blender_o_doctor_responde_em_vez_de_derrubar(monkeypatch):
@@ -426,17 +426,21 @@ def _montar_dest_partes_v6(dest: Path) -> tuple[Path, dict]:
         g["skins"] = [{"joints": list(range(base_node, base_node + len(ossos)))}]
         g["buffers"][0]["byteLength"] = len(b)
 
-    main_glb, part_glb = dest / "char.glb", dest / "Head.glb"
+    main_glb, part_glb, comb_glb = dest / "char.glb", dest / "Head.glb", dest / "partes_combinadas.glb"
     main_glb.write_bytes(_editar_gltf_glb(_box_glb(center=(0.0, 0.5 * escala, 0.0), half=(0.25 * escala, 0.5 * escala, 0.25 * escala)), _add_r15_skin))
-    part_glb.write_bytes(_box_glb(center=(0.0, 0.1 * escala, 0.0), half=(0.1 * escala, 0.1 * escala, 0.1 * escala)))
-    item = {"id": "char.01", "tipo": "criatura", "rota": "mesh", "seed": 42, "altura_metros": 1.0, "pivot": "base", "limite_triangulos": 500, "colisao": "none", "lod": [100], "tags": ["teste"], "partes": [{"nome": "Head", "junta": "Neck", "ancora": [0.0, 0.0, 0.0], "bbox": [0.2 * escala, 0.2 * escala, 0.2 * escala], "triangulos": 12, "arquivo": "Head.glb"}], "rig": {"modo": "motor6d", "esqueleto": "r15@1"}}
+    part_box = _box_glb(center=(0.0, 0.1 * escala, 0.0), half=(0.1 * escala, 0.1 * escala, 0.1 * escala))
+    part_glb.write_bytes(part_box)
+    comb_glb.write_bytes(_editar_gltf_glb(part_box, lambda g, _b: g["nodes"][0].update({"name": "Head"})))
+    item = {"id": "char.01", "tipo": "criatura", "rota": "mesh", "seed": 42, "altura_metros": 1.0, "pivot": "base", "limite_triangulos": 500, "colisao": "none", "lod": [100], "tags": ["teste"], "partes": [{"nome": "Head", "junta": "Neck", "ancora": [0.0, 0.0, 0.0], "bbox": [0.2 * escala, 0.2 * escala, 0.2 * escala], "triangulos": 12, "arquivo": "Head.glb"}], "rig": {"modo": "motor6d", "esqueleto": "r15@1", "partes_combinadas": "partes_combinadas.glb"}}
     res = {
         "determinism": "D2", "licenca": {"modelo": "MIT", "uso_comercial": True, "notice": "MIT"},
         "medidas": {**qc.topologia(*qc.ler_glb_bin(main_glb)), "partes_colisao": 0},
         "partes": item["partes"], "ancoras": {"Neck": [0.0, 0.0, 0.0]},
+        "partes_combinadas": "partes_combinadas.glb",
         "arquivos": [
             {"caminho": "char.glb", "papel": "mesh", "sha256": sha256_arquivo(main_glb), "bytes": main_glb.stat().st_size, "nivel": 0, "triangulos": 12},
             {"caminho": "Head.glb", "papel": "parte", "sha256": sha256_arquivo(part_glb), "bytes": part_glb.stat().st_size},
+            {"caminho": "partes_combinadas.glb", "papel": "partes_combinadas", "sha256": sha256_arquivo(comb_glb), "bytes": comb_glb.stat().st_size},
         ],
     }
     rel_qc = qc.verificar(item, perfil, dest, res, escala_saida=escala)
@@ -481,7 +485,7 @@ def test_verify_parte_accessor_invalido_reprova_sem_crash(tmp_path: Path) -> Non
     ):
         dest = tmp_path / nome_caso
         part_glb, man = _montar_dest_partes_v6(dest)
-        assert man["schema"] == "forge3d/manifest@6"
+        assert man["schema"] == "forge3d/manifest@7"
         part_glb.write_bytes(_editar_gltf_glb(_box_glb(), mut))
         man["files"][1].update({"sha256": sha256_arquivo(part_glb), "bytes": part_glb.stat().st_size})
         (dest / "char.01.manifest.json").write_text(json.dumps(man), encoding="utf-8")

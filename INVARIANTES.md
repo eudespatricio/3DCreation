@@ -41,7 +41,7 @@ Esperado: `0` (`aprovado_nao_publicado`). `tests/test_atomico.py` prova thread o
 
 ## I4 — Todo artefato publicado tem manifesto válido `[P1]`
 
-`verify` recalcula `sha256` e reexecuta `G1–G13` + `G11` (`partes[]`); manifesto ausente, schema
+`verify` recalcula `sha256` e reexecuta `G1–G16` + `G11` (`partes[]`); manifesto ausente, schema
 errado ou hash divergente = falha.
 
 ```bash
@@ -54,7 +54,7 @@ Esperado: `exit=0` íntegro · `exit=3` com `FORGE-E-MANIFEST` após corromper.
 
 ## I5 — QC é portão, não aviso `[P1]`
 
-Reprovação em qualquer gate `G1–G15` (`G12–G14` Roblox, `G15` concept→3D) impede publicação. **Não existe flag de bypass.**
+Reprovação em qualquer gate `G1–G16` (`G12–G14` Roblox, `G15` concept→3D, `G16` deformação/`motor6d`) impede publicação. **Não existe flag de bypass.**
 
 ```bash
 grep -rnE "force|skip.?qc|--no-verify" src/forge3d/cli/ || echo "OK: sem bypass"
@@ -172,8 +172,8 @@ Esperado: `exit=0` e nenhuma linha `I15:`. `GameZero`/`jogo-roblox` podem aparec
 | I1 determinismo | **automatizado** — `test_i1_determinismo` compara sha256 de 12 artefatos em 2 runs com cache limpo |
 | I2 spec inválida | **automatizado** — `test_i2_spec_invalida_sai_2_sem_tocar_provider` |
 | I3 publish atômico | **automatizado** — `tests/test_atomico.py`: thread observadora, `spy` em `os.replace`, falha no meio (GAP-014/C14) |
-| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (`G1–G13 + G11`, `@1–@6`) + `test_i4_verify_detects_1byte_glb_tamper_and_missing_manifest` |
-| I5 QC sem bypass | **automatizado** — `test_i5_qc_nao_tem_bypass` + `test_qc_f26_hardening` + `test_red_r5_qc` + E2E `test_i5_*` (`G1–G15`) |
+| I4 manifesto íntegro | **automatizado** — hash + `test_i4_verify_reexecuta_gates_contra_manifesto` (`G1–G16`, `@1–@7`) + `test_i4_verify_detects_1byte_glb_tamper_and_missing_manifest` |
+| I5 QC sem bypass | **automatizado** — `test_i5_qc_nao_tem_bypass` + `test_qc_f26_hardening` + `test_red_r5_qc` + `test_v099_def06_g16` (`G1–G16`) |
 | I6 lock de GPU | **parcial** — `test_locks.py` cobre recusa e liberação; falta teste com dois *jobs* reais |
 | I7 licença | **parcial** — a allowlist comercial é asseverada em `test_concept.py`; falta exercitar a recusa |
 | I8 escala e pivô | **automatizado** — `test_i8_escala_e_pivo_conforme_perfil` |

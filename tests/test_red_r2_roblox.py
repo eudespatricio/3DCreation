@@ -435,7 +435,7 @@ def test_f14_qc_gates_e_manifest_schema_suportam_g12_g13_g14_g15(tmp_path: Path)
     assert {"G12", "G13", "G14"}.issubset(qc.GATES)
     man = _publicar_asset_box(tmp_path, "prop.gates.01")
     man["qc"]["gates"].extend([{"id": g, "status": "ok"} for g in ("G12", "G13", "G14", "G15")])
-    schema = json.loads((RAIZ / "schemas" / "manifest.v6.schema.json").read_text(encoding="utf-8"))
+    schema = json.loads((RAIZ / "schemas" / "manifest.v7.schema.json").read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema).validate(man)
 
 

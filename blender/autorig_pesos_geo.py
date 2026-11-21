@@ -10,6 +10,7 @@ from mathutils import Vector
 
 if __package__:
     from .autorig_const import (
+        _OSSOS_BRACO,
         _OSSOS_BRACO_DISTAL,
         _OSSOS_CABECA,
         _OSSOS_CANELA,
@@ -26,15 +27,22 @@ if __package__:
     from .autorig_grafo import (
         _dijkstra_osso,
         _limites_anatomicos,
-        _normalizar_top4,
         _osso_permitido,
         _pesos_vertice_inverso,
+    )
+    from .autorig_pesos_coerencia import (
+        _OSSOS_EXTREMIDADE_BRACO,
+        MAX_INFLUENCIAS_VERTICE,
+        construir_hierarquia_ossos,
+        filtrar_pesos_coerentes,
+        mediar_costuras_distantes,
     )
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
         sys.path.insert(0, _BLENDER_DIR)
     from autorig_const import (
+        _OSSOS_BRACO,
         _OSSOS_BRACO_DISTAL,
         _OSSOS_CABECA,
         _OSSOS_CANELA,
@@ -51,9 +59,15 @@ else:
     from autorig_grafo import (
         _dijkstra_osso,
         _limites_anatomicos,
-        _normalizar_top4,
         _osso_permitido,
         _pesos_vertice_inverso,
+    )
+    from autorig_pesos_coerencia import (
+        _OSSOS_EXTREMIDADE_BRACO,
+        MAX_INFLUENCIAS_VERTICE,
+        construir_hierarquia_ossos,
+        filtrar_pesos_coerentes,
+        mediar_costuras_distantes,
     )
 
 
@@ -291,10 +305,22 @@ def _pesos_ilha_geodesicos(
     e_ilha_central = any(abs(coords[vi].x) <= 0.05 * h for vi in ilha)
     tem_lado_l = any(coords[vi].x > x_tol for vi in ilha)
     tem_lado_r = any(coords[vi].x < -x_tol for vi in ilha)
+    xs_ilha = [coords_xyz[vi][0] for vi in ilha]
+    zs_ilha = [coords_xyz[vi][2] for vi in ilha]
+    n_verts = len(coords)
+    is_belt_like = bool(
+        ilha
+        and (len(ilha) < 0.30 * n_verts or not e_ilha_central)
+        and max(zs_ilha) < m["shoulder_z"] - 0.14 * h
+        and min(xs_ilha) < -0.045 * h
+        and max(xs_ilha) > 0.045 * h
+    )
 
     sementes_por_osso: list[tuple[str, dict[int, float]]] = []
     for o in ossos:
         nome = o["nome"]
+        if is_belt_like and nome in _OSSOS_BRACO:
+            continue
         sem = _sementes_osso_ilha(
             ilha, adj, coords, coords_xyz, o, m, bracos_baixos,
             e_ilha_central, tem_lado_l, tem_lado_r,
@@ -307,16 +333,21 @@ def _pesos_ilha_geodesicos(
     if not sementes_por_osso:
         return None
 
-    n_verts = len(coords)
     limite = 0.48 * h
+    _, dist_hier, lca_fn = construir_hierarquia_ossos(ossos)
     dist_mapas = [(nome, _dijkstra_osso(n_verts, adj, sem, limite)) for nome, sem in sementes_por_osso]
     inf = float("inf")
     arm_z_cut, arm_z_cut_lo, arm_z_min = b["arm_z_cut"], b["arm_z_cut_lo"], b["arm_z_min"]
-    ombro_min_x, ombro_z_hi = b["ombro_min_x"], m["chest_top_z"] + 0.025 * h
+    ombro_min_x, ombro_z_hi = b["ombro_min_x"], b["ombro_z_hi"]
+    arm_ext_z_max, arm_ext_x_min = b["arm_ext_z_max"], b["arm_ext_x_min"]
+    shoulder_z_hi = m["shoulder_z"] + 0.025 * h
     arm_root_x, arm_deltoid_x = b["arm_root_x"], b["arm_deltoid_x"]
     braco_baixo_min_x, tronco_max_x, neck_max_x = b["braco_baixo_min_x"], b["tronco_max_x"], b["neck_max_x"]
-    head_z_min, neck_z_min, neck_z_max = b["head_z_min"], b["neck_z_min"], b["neck_z_max"]
-    chest_z_min, upper_torso_z_min, chest_z_max = b["chest_z_min"], b["upper_torso_z_min"], b["chest_z_max"]
+    head_z_min, head_max_x = b["head_z_min"], b["head_max_x"]
+    head_z_soft = (head_z_min - 0.03 * h) if tem_neck else head_z_min
+    neck_z_min, neck_z_max = b["neck_z_min"], b["neck_z_max"]
+    chest_z_min, upper_torso_z_min = b["chest_z_min"], b["upper_torso_z_min"]
+    chest_z_max, chest_z_max_collar = b["chest_z_max"], b["chest_z_max_collar"]
     spine1_z_min, spine1_z_max = b["spine1_z_min"], b["spine1_z_max"]
     spine_z_min, spine_z_max, hips_z_max = b["spine_z_min"], b["spine_z_max"], b["hips_z_max"]
     leg_z_max, upper_leg_z_min = b["leg_z_max"], b["upper_leg_z_min"]
@@ -345,42 +376,61 @@ def _pesos_ilha_geodesicos(
             if cat_id == 3 and vz > foot_z_max:
                 continue
             if cat_id == 4:
-                if vz < arm_z_cut_lo or vz > ombro_z_hi or abs_x < ombro_min_x:
+                if is_belt_like or vz < arm_z_cut_lo or vz > ombro_z_hi or abs_x < ombro_min_x:
                     continue
                 if e_ilha_central and abs_x < arm_deltoid_x:
                     d += (arm_deltoid_x - abs_x) * 3.0
             elif cat_id == 5:
-                if abs_x <= x_tol:
+                if is_belt_like or abs_x <= x_tol:
+                    continue
+                if nome in _OSSOS_EXTREMIDADE_BRACO and vz > arm_ext_z_max and abs_x < arm_ext_x_min:
                     continue
                 if vz >= arm_z_cut:
                     if abs_x < arm_root_x:
                         continue
                     if e_ilha_central and abs_x < arm_deltoid_x:
                         d += (arm_deltoid_x - abs_x) * 4.5
+                    if vz > shoulder_z_hi:
+                        d += (vz - shoulder_z_hi) * 3.5
                 elif not (bracos_baixos and abs_x > braco_baixo_min_x and vz >= arm_z_min):
                     continue
-            elif cat_id == 6 and vz < head_z_min:
-                continue
-            elif cat_id == 7 and (vz < neck_z_min or vz > neck_z_max or abs_x > neck_max_x):
-                continue
+            elif cat_id == 6:
+                if vz < head_z_soft or abs_x > head_max_x + 0.04 * h:
+                    continue
+                if vz < head_z_min:
+                    d += (head_z_min - vz) * 6.0
+                if abs_x > head_max_x * 0.85:
+                    d += (abs_x - head_max_x * 0.85) * 6.0
+                if vz < m["neck_z"] + 0.03 * h and abs_x > arm_root_x * 0.96:
+                    continue
+            elif cat_id == 7:
+                if vz < neck_z_min or vz > neck_z_max + 0.04 * h or abs_x > neck_max_x + 0.04 * h:
+                    continue
+                if vz > neck_z_max:
+                    d += (vz - neck_z_max) * 5.0
+                if abs_x > neck_max_x:
+                    d += (abs_x - neck_max_x) * 5.0
             elif cat_id >= 8:
                 if abs_x > tronco_max_x and vz >= arm_z_cut_lo:
                     continue
-                if cat_id == 8 and (vz < chest_z_min or vz > chest_z_max):
+                if cat_id in (8, 9):
+                    z_lo = chest_z_min if cat_id == 8 else upper_torso_z_min
+                    z_hi = chest_z_max_collar if abs_x > head_max_x * 0.9 else chest_z_max + 0.06 * h
+                    if vz < z_lo or vz > z_hi:
+                        continue
+                    if cat_id == 8 and vz > chest_z_max and abs_x <= head_max_x * 0.9:
+                        d += (vz - chest_z_max) * 4.0
+                elif cat_id == 10 and (vz < spine1_z_min or vz > spine1_z_max):
                     continue
-                if cat_id == 9 and (vz < upper_torso_z_min or vz > chest_z_max):
+                elif cat_id == 11 and (vz < spine_z_min or vz > spine_z_max):
                     continue
-                if cat_id == 10 and (vz < spine1_z_min or vz > spine1_z_max):
-                    continue
-                if cat_id == 11 and (vz < spine_z_min or vz > spine_z_max):
-                    continue
-                if cat_id == 12 and vz > hips_z_max:
+                elif cat_id == 12 and vz > hips_z_max:
                     continue
             de = d + eps
             de2 = de * de
             brutos_wn.append((1.0 / (de2 * de2), nome))
         if brutos_wn:
-            saida[vi] = _normalizar_top4(brutos_wn)
+            saida[vi] = filtrar_pesos_coerentes(brutos_wn, dist_hier, max_k=MAX_INFLUENCIAS_VERTICE)
         else:
             sem_alcance.append(vi)
 
@@ -391,7 +441,8 @@ def _pesos_ilha_geodesicos(
         recalcular = {
             nome
             for nome, dist_v, _lado_id, _cat_id in bones_meta
-            if (nome in ossos_tronco_base or any(dist_v[vj] < inf for vj in fronteira))
+            if not (is_belt_like and nome in _OSSOS_BRACO)
+            and (nome in ossos_tronco_base or any(dist_v[vj] < inf for vj in fronteira))
             and any(_osso_permitido(nome, coords[vi], m, bracos_baixos, tem_neck=tem_neck, lim=b) for vi in sem_alcance)
         }
         tronco_recalc = recalcular & ossos_tronco_base
@@ -413,11 +464,14 @@ def _pesos_ilha_geodesicos(
             ]
             bones_meta = _construir_meta(dist_mapas)
 
+        ossos_fb = [o for o in ossos if not (is_belt_like and o["nome"] in _OSSOS_BRACO)]
         for vi in sem_alcance:
             vx, _vy, _vz = coords_xyz[vi]
             abs_x = vx if vx >= 0.0 else -vx
             brutos_wn = []
             for nome, dist_v, _lado_id, cat_id in bones_meta:
+                if is_belt_like and nome in _OSSOS_BRACO:
+                    continue
                 d = dist_v[vi]
                 if d >= inf or not _osso_permitido(nome, coords[vi], m, bracos_baixos, tem_neck=tem_neck, lim=b):
                     continue
@@ -426,9 +480,10 @@ def _pesos_ilha_geodesicos(
                 de = d + eps
                 de2 = de * de
                 brutos_wn.append((1.0 / (de2 * de2), nome))
-            saida[vi] = (
-                _normalizar_top4(brutos_wn)
-                if brutos_wn
-                else _pesos_vertice_inverso(coords[vi], ossos, m, bracos_baixos, tem_neck=tem_neck, lim=b)
-            )
+            if brutos_wn:
+                saida[vi] = filtrar_pesos_coerentes(brutos_wn, dist_hier, max_k=MAX_INFLUENCIAS_VERTICE)
+            else:
+                fb = _pesos_vertice_inverso(coords[vi], ossos_fb or ossos, m, bracos_baixos, tem_neck=tem_neck, lim=b)
+                saida[vi] = filtrar_pesos_coerentes([(w, n) for n, w in fb], dist_hier, max_k=MAX_INFLUENCIAS_VERTICE)
+    mediar_costuras_distantes(ilha, adj, saida, dist_hier, lca_fn, max_k=MAX_INFLUENCIAS_VERTICE)
     return saida

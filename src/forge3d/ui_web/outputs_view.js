@@ -1,5 +1,5 @@
 /**
- * Forge3D Studio Web — Workspace 2: Catálogo de Saídas & Inspetor 3D (Viewport, Texturas/Concept, QC G1-G15, Manifesto).
+ * Forge3D Studio Web — Workspace 2: Catálogo de Saídas & Inspetor 3D (Viewport, Texturas/Concept, QC G1-G16, Manifesto).
  */
 
 import { api, esc, fmtBytes, fmtNum, toast } from './api.js';
@@ -81,7 +81,7 @@ export class OutputsView {
           <div class="out-inspector-header">
             <div id="out-title-box"><h3>Selecione um asset no catálogo</h3></div>
             <div class="subtab-bar">
-              ${[['viewport', 'Viewport 3D'], ['textures', 'Texturas & Concept 2D'], ['qc', 'QC Gates G1–G15 & Geometria'], ['manifest', 'Manifesto & Arquivos']].map(([k, lbl]) => `<button class="btn btn-sm ${this.subTab === k ? 'active' : ''}" data-subtab="${k}">${lbl}</button>`).join('')}
+              ${[['viewport', 'Viewport 3D'], ['textures', 'Texturas & Concept 2D'], ['qc', 'QC Gates G1–G16 & Geometria'], ['manifest', 'Manifesto & Arquivos']].map(([k, lbl]) => `<button class="btn btn-sm ${this.subTab === k ? 'active' : ''}" data-subtab="${k}">${lbl}</button>`).join('')}
             </div>
           </div>
 
@@ -296,7 +296,7 @@ export class OutputsView {
         <div class="inspector-title-row">
           <h3><code>${esc(this.selected.asset_id)}</code></h3>
           <span class="badge ${qcOk ? 'badge-ok' : 'badge-err'}">${qcOk ? 'QC APROVADO' : 'QC REPROVADO'}</span>
-          <span class="badge">${esc(m.schema || 'forge3d/manifest@6')}</span>
+          <span class="badge">${esc(m.schema || 'forge3d/manifest@7')}</span>
           <span class="badge badge-info">${esc(m.perfil || '')} · ${esc(m.determinism || 'D1')}</span>
         </div>`;
     }
@@ -344,7 +344,7 @@ export class OutputsView {
           <div class="kpi-box"><span>Escala Saída</span><strong>${esc(u.escala_saida ?? 1)} (${esc(u.metros_por_unidade ?? 1)} m/u)</strong></div>
           <div class="kpi-box"><span>Eixos glTF</span><strong>F:${esc(o.frente_gltf || '+Z')} C:${esc(o.cima_gltf || '+Y')}</strong></div>
         </div>
-        <h4>Portões de Qualidade (Gates G1–G15 · ${gates.length} avaliados)</h4>
+        <h4>Portões de Qualidade (Gates G1–G16 · ${gates.length} avaliados)</h4>
         <div class="table-scroll"><table class="data-table">
           <thead><tr><th>Gate</th><th>Status</th><th>Medido</th><th>Limite</th><th>Código</th></tr></thead>
           <tbody>

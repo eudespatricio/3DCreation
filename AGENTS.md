@@ -14,8 +14,8 @@ Leia nesta ordem, antes de qualquer ação:
 - **Não invente número.** Fato medido, medido por terceiro e estimativa são rótulos diferentes e
   vivem separados (`DECISOES.md` §1). Se não mediu, escreva `[estimado]`.
 - **Contrato é lei.** `schemas/spec.v1.schema.json`..`schemas/spec.v6.schema.json` e
-  `schemas/manifest.v1.schema.json`..`schemas/manifest.v6.schema.json` são a fronteira com os
-  projetos de jogo (correntes: `spec@6` e `manifest@6`; `@1`..`@5` continuam válidos na leitura).
+  `schemas/manifest.v1.schema.json`..`schemas/manifest.v7.schema.json` são a fronteira com os
+  projetos de jogo (correntes: `spec@6` e `manifest@7`; `@1`..`@6` continuam válidos na leitura).
   Mudou o schema? Suba a versão e registre em `DECISOES.md`. Não existe alteração silenciosa.
 - **Nada escreve direto na pasta do jogo.** Só `publish`, atômico, via staging (I3).
 - **QC reprovado não publica.** Não existe flag para "publicar mesmo assim" (I5).

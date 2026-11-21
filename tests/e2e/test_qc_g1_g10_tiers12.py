@@ -56,7 +56,7 @@ def test_tier1_qc_g1_g10_blocky_and_import_run_happy_path(e2e_sandbox, run_cli, 
     assert rc == 0, f"blocky godot4-aa run failed: {out} {err}"
     assert isinstance(pay, dict) and pay["resumo"]["publicados"] == 1
     man = json.loads((dest / "char.e2e.qc.01.manifest.json").read_text(encoding="utf-8"))
-    assert man["schema"] == "forge3d/manifest@6"
+    assert man["schema"] == "forge3d/manifest@7"
     assert man["qc"]["aprovado"] is True
     gate_ids = {g["id"] for g in man["qc"]["gates"]}
     assert {"G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10"} <= gate_ids

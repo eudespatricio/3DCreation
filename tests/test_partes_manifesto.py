@@ -95,7 +95,7 @@ def test_manifesto_emite_partes_e_ancoras():
     assert manifesto["partes"][0]["junta"] == "Neck"
     assert any(f["papel"] == "parte" for f in manifesto["files"])
 
-    schema = json.loads((RAIZ / "schemas" / "manifest.v6.schema.json").read_text(encoding="utf-8"))
+    schema = json.loads((RAIZ / "schemas" / "manifest.v7.schema.json").read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema).validate(manifesto)
 
 

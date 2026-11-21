@@ -37,6 +37,7 @@ def _checar_schemas() -> dict:
         "manifest.v4.schema.json",
         "manifest.v5.schema.json",
         "manifest.v6.schema.json",
+        "manifest.v7.schema.json",
     ):
         arq = paths.raiz_dados() / "schemas" / nome
         if not arq.is_file():
@@ -48,7 +49,7 @@ def _checar_schemas() -> dict:
             falhas.append(f"{nome}: {exc.message}")
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError) as exc:
             falhas.append(f"{nome}: {exc}")
-    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1..@6 e manifest@1..@6 validos")
+    return _item("schemas", not falhas, "; ".join(falhas) or "spec@1..@6 e manifest@1..@7 validos")
 
 
 def _checar_perfis() -> dict:

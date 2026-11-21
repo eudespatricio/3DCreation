@@ -12,6 +12,13 @@ from typing import Any
 
 from .errors import ForgeError, erro_qc
 from .qc_cena import _vram_mapa_mb, verificar_g11_orcamento_cena
+from .qc_deformacao import (
+    LIMIAR_G16_FRAC_GT_2X,
+    LIMIAR_G16_FRAC_GT_3X,
+    LIMIAR_G16_MAX_STRETCH,
+    LIMIAR_G16_RIGIDO_MAX,
+    verificar_g16_deformacao,
+)
 from .qc_fidelidade import avaliar_fidelidade_concept_3d
 from .qc_gates import (
     _avaliar_g1,
@@ -90,15 +97,20 @@ __all__ = [
     "verificar_g12_separacao",
     "verificar_g13_ancoras",
     "verificar_g14_animacao_roblox",
+    "verificar_g16_deformacao",
     "GATES",
     "PAPEIS_TEXTURA",
     "LIMIAR_SCORE_FRENTE",
     "LIMIAR_SEPARACAO_MM",
     "LIMIAR_ANCORA_MM",
     "LIMIAR_AMPLITUDE_G14_GRAUS",
+    "LIMIAR_G16_MAX_STRETCH",
+    "LIMIAR_G16_FRAC_GT_2X",
+    "LIMIAR_G16_FRAC_GT_3X",
+    "LIMIAR_G16_RIGIDO_MAX",
 ]
 
-GATES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12", "G13", "G14", "G15")
+GATES = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12", "G13", "G14", "G15", "G16")
 
 # Reexportacoes de helpers internos testados diretamente em suites de unidade.
 _REEXPORTS = (
@@ -159,8 +171,9 @@ def verificar(
     escala_saida: float | None = None,
     exigir_tangent_normal: bool = True,
     exigir_orientacao: bool = True,
+    exigir_g16: bool = True,
 ) -> dict:
-    """Roda G1-G10 e G12-G15 sobre o artefato. Devolve relatorio; nao levanta."""
+    """Roda G1-G10 e G12-G16 sobre o artefato. Devolve relatorio; nao levanta."""
     v = perfil["validacao"]
     medidas = resultado.get("medidas", {})
     arquivos = resultado.get("arquivos", [])
@@ -274,6 +287,11 @@ def verificar(
             g1_gate["medido"] = {"erros_gltf": erros_gltf}
 
     g15_gate = _rodar_gate("G15", _avaliar_g15, gltf, binario, item, perfil, info, pasta, resultado)
+    g16_gate = (
+        _rodar_gate("G16", verificar_g16_deformacao, gltf, binario, item, perfil, pasta, resultado, medidas)
+        if exigir_g16
+        else None
+    )
     gates: list[dict] = [
         g1_gate,
         g2_gate,
@@ -298,6 +316,12 @@ def verificar(
         *(
             [g15_gate]
             if exigir_orientacao or (g15_gate.get("medido") or {}).get("aplicavel", True)
+            else []
+        ),
+        *(
+            [g16_gate]
+            if g16_gate is not None
+            and (exigir_orientacao or (g16_gate.get("medido") or {}).get("aplicavel", True))
             else []
         ),
     ]

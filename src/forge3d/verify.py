@@ -23,7 +23,7 @@ __all__ = [
 
 MANIFEST_SCHEMA_CACHE: dict[str, dict] = {}
 
-#: versao do contrato por `schema`; `manifest@1..@5` continuam aceitos na leitura (D62)
+#: versao do contrato por `schema`; `manifest@1..@6` continuam aceitos na leitura (D62)
 _VERSAO_POR_SCHEMA = {
     "forge3d/manifest@1": "1",
     "forge3d/manifest@2": "2",
@@ -31,6 +31,7 @@ _VERSAO_POR_SCHEMA = {
     "forge3d/manifest@4": "4",
     "forge3d/manifest@5": "5",
     "forge3d/manifest@6": "6",
+    "forge3d/manifest@7": "7",
 }
 
 #: aspectos que o `verify --only` sabe recortar (I8/I10)
@@ -225,7 +226,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
             continue
         # D62: manifest@1 nao declara unidade — o arquivo dele esta em metros (escala 1.0).
         escala = 1.0
-        if versao in ("2", "3", "4", "5", "6"):
+        if versao in ("2", "3", "4", "5", "6", "7"):
             unidades = man["unidades_export"]
             escala = float(unidades["escala_saida"])
             metros = float(unidades["metros_por_unidade"])
@@ -265,7 +266,7 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                 tipo_inferido = "criatura_quadrupede"
             else:
                 tipo_inferido = "personagem_humanoide"
-        exigir_orientacao = (versao in ("5", "6")) or (
+        exigir_orientacao = (versao in ("5", "6", "7")) or (
             versao == "4" and _versao_maior_igual(man.get("pipeline_version"), "0.6.1")
         )
         medido_g3 = (gates_antigos.get("G3") or {}).get("medido") or {}
@@ -347,6 +348,11 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                 if isinstance((man.get("rig") or {}).get("ancoras"), dict)
                 else {}
             ),
+            **(
+                {"partes_combinadas": str((man.get("rig") or {})["partes_combinadas"])}
+                if (man.get("rig") or {}).get("partes_combinadas")
+                else {}
+            ),
         }
         prim_partes = 0
         tris_partes = 0
@@ -366,8 +372,9 @@ def verificar(destino: Path, only: str | None = None) -> dict:
                 destino,
                 resultado,
                 escala_saida=escala,
-                exigir_tangent_normal=(versao in ("4", "5", "6")),
+                exigir_tangent_normal=(versao in ("4", "5", "6", "7")),
                 exigir_orientacao=exigir_orientacao,
+                exigir_g16=(versao == "7"),
             )
         except Exception as exc:  # noqa: BLE001 - diagnostico vira erro do manifesto
             erros.append({"manifesto": caminho.name, "erro": f"QC reexecutado falhou: {exc}"})

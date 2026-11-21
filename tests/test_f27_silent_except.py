@@ -487,7 +487,7 @@ def test_f27_pipeline_version_0_9_5_consistency() -> None:
     pyproject = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
     m = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.MULTILINE)
     assert m is not None
-    assert m.group(1) == "0.9.8"
-    assert forge3d.__version__ == "0.9.8"
-    assert forge3d.PIPELINE_VERSION == "0.9.8"
-    assert post.PIPELINE_VERSION == "0.9.8"
+    assert m.group(1) == "0.9.9"
+    assert forge3d.__version__ == "0.9.9"
+    assert forge3d.PIPELINE_VERSION == "0.9.9"
+    assert post.PIPELINE_VERSION == "0.9.9"

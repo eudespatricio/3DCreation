@@ -131,7 +131,7 @@ def test_prop_nao_segmentado_emite_g12_g14_ok_e_valida_schema_v6(tmp_path: Path)
     for gid in ("G12", "G13", "G14"):
         assert por_id[gid]["status"] == "ok"
         assert por_id[gid]["medido"]["aplicavel"] is False
-    schema = json.loads((RAIZ / "schemas" / "manifest.v6.schema.json").read_text(encoding="utf-8"))
+    schema = json.loads((RAIZ / "schemas" / "manifest.v7.schema.json").read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema).validate(man)
 
 

@@ -31,6 +31,9 @@ Duas consequências:
 | **G9** | Orçamento | triângulos vs `limite_triangulos` (`qualidade: hero`/`ultra` elevados), bytes por arquivo e silhueta IoU 128×128 entre LODs | parse do `.glb` + render 2D Pillow | tri `≤` orçamento · bytes `≤` perfil | erro |
 | **G10** | Animação | clipes pedidos (`animacoes_base`/`clipes`) existem, duração > 0,2 s, ≥ 2 ossos em movimento em marchas e fechamento C0 de loop cíclico (`loop_quebrado`) | parse de `animations` do `.glb` | clipe presente · loop fechado (< 0,08 rad / < 0,03 m) | erro |
 | **G11** | Orçamento de cena (`spec@6`) | soma ponderada por `quantidade_cena` de triângulos visíveis, draw calls (com hardware instancing quando `materiais == 1` sem rig) e VRAM única de texturas antes do `publish` (`FORGE-E-QC-SCENE`); estimável antes de gerar via `forge3d plan <lote> --scene-budget` | agregação em staging pós-QC por item | `≤ 400k` tris · `≤ 400` draw calls · `≤ 200 MB` VRAM (default 80 % AA) | erro |
+| **G12–G14** | Contrato Roblox R15 | `G12` disjunção entre as 15 partes, `G13` aderência de `ancoras`, `G14` clipes `Pose` aninhada / amplitude C1 | geometria das partes R15 + manifesto | `penetracao_max_mm == 0` · erro âncora `≤ 1 mm` · amplitude C1 | erro |
+| **G15** | Fidelidade Concept→3D | IoU ortográfico de silhueta e razão de aspecto frontal do `.glb` contra o concept | render Pillow frontal + `input.png` | `IoU ≥ 0,55` · `aspect_ratio ≥ 0,60` | erro |
+| **G16** | Deformação sob animação (`manifest@7`) | pico por clipe (`max_stretch`, `frac_gt_20`, `frac_gt_30` em 9 frames LBS) ou integridade/topologia do GLB combinado rígido `motor6d` (`partes_combinadas.glb`) | `blender/postprocess_deform.py` + `src/forge3d/qc_deformacao.py` (Blender + `verify` `glb_lbs`) | skinned: `max_stretch ≤ 8,5` · `frac_gt_20 ≤ 0,01` · `frac_gt_30 ≤ 0,0025` (fração exigida se `arestas ≥ 500`); rígido `motor6d`: `1,00×` (`≤ 1,05`), `0` NM/deg/inv | erro |
 
 **G1 mede topologia soldada.** O glTF divide vértice em cada costura de UV; sem soldar, todo asset
 importado pareceria ter borda aberta. Efeito colateral: duas peças que compartilham **canto exato**
@@ -87,7 +90,7 @@ Roda sobre o que **já está publicado**, sem gerar nada. É o portão de pull r
 3. todos os gates re-rodam contra o perfil atual: **G1** por topologia em Python puro (solda por
    posição, sem Blender); **G2** lê a regra de pivô gravada no G2 antigo (`pivo_regra`) e mede o
    GLB com a escala **declarada no manifesto** (`unidades_export.escala_saida`; `@1` = 1.0);
-   **G3–G9** releem o GLB/PNG do destino;
+   **G3–G9** releem o GLB/PNG do destino, e em `manifest@7` **G16** reexecuta em Python puro (`glb_lbs` ou inspeção por nó de `partes_combinadas.glb`);
 4. o índice e o disco concordam (nenhum arquivo órfão, nenhum registro fantasma).
 
 Divergiu ⇒ `exit 3` e a lista exata do que divergiu. Isso pega o caso mais comum em jogo — alguém

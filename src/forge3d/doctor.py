@@ -116,16 +116,16 @@ def _checar_gpu() -> dict:
 
 
 def _diagnosticar_conectores_ia() -> dict[str, dict]:
-    from .providers import cloud_ai, concept, mesh, mesh_trellis
+    from .providers import cloud_ai, concept, mesh
 
     cloud_ai.registrar_licencas_cloud()
     sd15_ok, sd15_det = concept.preflight({"provider_conceito": "sd15"})
-    triposr_ok, triposr_det = mesh.MeshProvider().preflight()
+    triposr_ok, triposr_det = mesh.MeshProvider().preflight_triposr()
     mpfb_ok, mpfb_det = mesh.mpfb2_cc0_disponivel()
     gem_ok, gem_det = cloud_ai.gemini_disponivel()
     hig_ok, hig_det = cloud_ai.higgsfield_disponivel()
     tre_ok, tre_det = cloud_ai.trellis_disponivel()
-    ep_trellis = bool(mesh_trellis.endpoint_trellis_configurado())
+    tre_ativo = bool(tre_ok and mesh.modelo_escolhido() == "trellis")
     rbx_ok, rbx_det = cloud_ai.roblox_open_cloud_disponivel()
 
     def _fmt(ok: bool, det: str) -> dict:
@@ -145,8 +145,8 @@ def _diagnosticar_conectores_ia() -> dict[str, dict]:
         "trellis": {
             "ok": bool(tre_ok),
             "pronto": bool(tre_ok),
-            "ativo": bool(tre_ok and ep_trellis),
-            "status": "ativo" if (tre_ok and ep_trellis) else ("inativo" if tre_ok else "indisponivel"),
+            "ativo": tre_ativo,
+            "status": "ativo" if tre_ativo else ("pronto" if tre_ok else "indisponivel"),
             "detalhe": tre_det,
         },
         "roblox_open_cloud": _fmt(rbx_ok, rbx_det),
@@ -163,9 +163,10 @@ def _checar_conectores_ia(conectores: dict[str, dict]) -> dict:
     def _rotulo(k: str, v: dict) -> str:
         if k == "trellis":
             if v.get("ativo"):
-                return "trellis: ativo"
-            if v.get("status") == "inativo":
-                return "trellis: inativo (TripoSR local)"
+                return "trellis: ativo (local)"
+            if v.get("ok"):
+                return "trellis: pronto (local)"
+            return "trellis: off"
         return f"{k}: {'pronto' if v['ok'] else 'off'}"
 
     resumo = " · ".join(_rotulo(k, v) for k, v in conectores.items())

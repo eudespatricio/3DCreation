@@ -51,12 +51,17 @@ def test_meta_modelo_literais_estao_na_allowlist():
             assert v.value in LICENCAS, f"meta['modelo']={v.value!r} fora da allowlist"
 
 
-def test_chave_padrao_triposr_resolve_licenca(monkeypatch: pytest.MonkeyPatch):
+def test_chave_padrao_triposr_resolve_licenca(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.delenv("FORGE3D_MODELO_MESH", raising=False)
+    monkeypatch.setenv("FORGE3D_TRELLIS2_DIR", str(tmp_path / "sem_trellis2"))
     chave = mesh_mod.modelo_escolhido()
     assert chave == "triposr"
     licenca = providers.licenca_de(chave)
     assert licenca["uso_comercial"] is True
+
+    monkeypatch.setenv("FORGE3D_MODELO_MESH", "trellis2")
+    assert mesh_mod.modelo_escolhido() == "trellis"
+    assert providers.licenca_de("trellis")["uso_comercial"] is True
 
 
 def test_repo_hf_nao_e_chave_de_licenca():

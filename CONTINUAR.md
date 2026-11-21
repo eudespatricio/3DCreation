@@ -1,12 +1,11 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 21/11/2026 · **`v0.9.8` (Onda 1): suporte real `TRELLIS.2-4B` (async `/jobs`, T4 FP16/`512`, frente `-Y`), PBR nativo `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback UV0 (`D132`) validados em Kragor e Iron Ram.** Contratos
-correntes `spec@6` e `manifest@6` (`D94–D132`; `@1`–`@5` compatíveis na leitura). Entrega game-ready
+**Data:** 21/11/2026 · **`v0.9.8` (`D132` + `D133`): `TRELLIS.2-4B` integrado localmente em subprocesso isolado (`BF16/512 tuned` na RTX 3060 6 GB, remoção integral da rota Colab), PBR nativo `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback UV0 validados em Kragor e Iron Ram.** Contratos
+correntes `spec@6` e `manifest@6` (`D94–D133`; `@1`–`@5` compatíveis na leitura). Entrega game-ready
 para **Roblox R15** (`Pose` aninhada, 15 partes watertight all-pair `split_por_ossos`, `export-r15`
 mesh/segmentada `Motor6D`, `SurfaceAppearance` 4 canais, `G12–G14`), **Godot 4** (`ORMMaterial3D=1.0`,
 sidecars, `forge3d_post_imported`, `BoneMap`, `UV2`+`GI_MODE_STATIC`, `UCX_`, 17 clipes) e **i23d**
-(`TRELLIS.2-4B`/`Pixal3D` MIT via `FORGE3D_I23D_ENDPOINT` c/ `o_voxel` + PBR nativo `EMIT` + guarda
-`FORGE3D_I23D_REQUIRE_REMOTE=1` + 4 vistas Gemini c/ A-pose `45°` + `ultra` `2048 px`).
+(`TRELLIS.2-4B`/`Pixal3D` MIT local via `tools/trellis2_infer.py` + `o_voxel` + PBR nativo `EMIT` + 4 vistas Gemini c/ A-pose `45°` + `ultra` `2048 px`).
 
 Verificação rápida: `.venv/bin/python -m pytest -m "not gpu and not blender" -q` e `bash tools/ci.sh`.
 
@@ -54,26 +53,26 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 - **Onda 2 — Qualidade Visual & G15 (`M4`, `D127`)** — sub-rotas explícitas em `mesh.py` (sem descarte
   silencioso de `prompt`/`origem`; `template_body.py` encaixado), 4 vistas Gemini Nano Banana 2.1 +
   `referencia_estilo` (zero `fal.run`), bake 4-vistas Cycles com cage real (sem Sobel/Taubin cumulativo/256px;
-  normal pós-suavização), `tools/colab_trellis_worker.py` (`TRELLIS.2-4B`/`Pixal3D` MIT → `spec@6`),
+  normal pós-suavização), `tools/colab_trellis_worker.py` (`TRELLIS.2-4B`/`Pixal3D` MIT → `spec@6`; removido em D133),
   `quadriflow`/`smart_fit`/boss rig e Gate **`G15`** (`qc_fidelidade.py`, `visual_qa_fidelidade.py`).
 - **Onda 3 — QC G1–G11, Limpeza & Governança (`M5`, `D128`)** — 9 pontos cegos `G1–G10` fechados (`qc_geom`,
   `qc_orientacao`, `qc_uv`, `qc_midia`, `qc_gates`, `qc_skin`, `qc_gates_ext`), `verify` reexecutando `G11`
   (`verify_g11.py`), zero `except Exception` silenciosos via AST (`tests/test_f27_silent_except.py`), UV/orientação
   em `blender/{modular_armor.py,extrude_2d.py,postprocess_normals_uv.py}` e `PIPELINE_VERSION = "0.9.5"`.
 
-- **Onda 1 `v0.9.8` (`D132`, `TRELLIS.2-4B`)** — skip `BEVEL+SUBSURF` `>60k` tris (`bake_pbr_config.py`),
+- **Onda 1 `v0.9.8` (`D132`)** — skip `BEVEL+SUBSURF` `>60k` tris (`bake_pbr_config.py`),
   `SOLIDIFY+VOXEL+SHRINKWRAP` (`postprocess_repair.py`), bake PBR nativo `EMIT` (`bake_pbr_nativo.py`),
-  worker `o_voxel` + T4 FP16/`512` (`colab_trellis_worker.py`), fila async `/jobs` anti-524 (`colab_trellis_server.py`
-  + `mesh_trellis.py`), frente `-Y` (`mesh_i23d.py`, `postprocess_canon.py`, `postprocess_bruto.py`), `doctor`/`cloud_ai`
-  `trellis`, fallback angular UV0 (`tem_uv_sobreposta`) e Kragor + Iron Ram aprovados (`G1–G15` ok: Kragor `15.760`
-  tris, `uv=0,3431`, `DEF-06` `8,21×/230`; Iron Ram Colab T4 `512` `60.969` raw/`3574,1s` → `15.758` tris, `0` NM,
-  `uv=0,3268`, `G15` `0,8669`/`0,8803`, `pbr_nativo=true`, `DEF-06` `20,62×/901`, cavidade traseira já presente no raw T4 `512`).
+  `frente_origem="-Y"` (`mesh_i23d.py`, `postprocess_canon.py`, `postprocess_bruto.py`), fallback angular
+  UV0 (`tem_uv_sobreposta`) e Kragor + Iron Ram aprovados (`G1–G15` ok: Kragor `15.760` tris, `uv=0,3431`,
+  `DEF-06` `8,21×/230`; Iron Ram `15.758` tris, `0` NM, `uv=0,3268`, `G15` `0,8669`/`0,8803`, `pbr_nativo=true`,
+  `DEF-06` `20,62×/901`).
+- **Integração local `TRELLIS.2-4B` (`D133`)** — PoC local na RTX 3060 6 GB (`BF16/512 tuned`, `low_vram=True` + 24 GB WSL2: `301,01 s`, `4488 MiB` VRAM, `87.839` faces, `11,9×` vs Colab T4; `mv4` 4-vistas descartada após rasgos em `604,65 s`) promovido para `~/.cache/forge3d/trellis2` com `tools/trellis2_infer.py`, `mesh_diag.VERSAO="0.1.11"` (D6 `tr2<sha8>`), fail-fast sem fallback quando `FORGE3D_MODELO_MESH=trellis2`, remoção de `tools/colab_trellis_*.py` e HTTP `/jobs`; `postprocess_canon.py` (eixo fixo com `frente_origem="-Y"` sem tombar criatura larga) e `postprocess_bruto.py` (Cycles `EMIT` + fallback UV0). E2E ao vivo `mob.iron_ram.01` (`material: pbr`, `ultra`): `forge3d run`+`verify` `exit=0` (`210,77 s`, `3877,8 MiB` VRAM, `15.760` tris, `0` NM, `uv=0,3323`, `pbr_nativo_preservado=true`, `G1–G15` ok, `G15 IoU=0,8941`/`score=0,9168`).
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte completa (`pytest`) | **828 verdes + 1 GPU (skip)** em **829 testes** (incl. `13/13` `test_v098_trellis` + `97/97` E2E Tiers 1–4) |
+| Suíte completa (`pytest`) | **882 verdes (`-m "not gpu"`) + 1 `-m gpu`** em **883 testes** (`60/60` `test_trellis2_local`, `9/9` `test_v098_trellis`, `97/97` E2E Tiers 1–4) |
 | Descoberta RED→GREEN (`R2`–`R5`) | **54/54 verdes** (`16/16` R2 Roblox, `11/11` R3 Godot, `11/11` R4 Visual, `16/16` R5 QC) |
 | Suíte E2E (`tests/e2e/`) | **97/97 verdes** (`Tier 1: 41/41` · `Tier 2: 44/44` · `Tier 3: 6/6` · `Tier 4: 6/6`; `D129`) |
 | Hardening M5 (`F26`/`F27`/Blender UV) | `test_f27_silent_except` `7/7` · `test_qc_f26_hardening` `10/10` · `test_invariantes_e2e` `12/12` · `80/80` `modular_armor` + `15/15` `smart_fit` (`topo=(0,0,0)` `uv=(0,0,0,0)`) |
@@ -102,7 +101,7 @@ sidecars, `forge3d_post_imported`, `BoneMap`, `UCX_`, 17 clipes)** · **`D127` O
 explícitas, 4 vistas Gemini/Cycles, zero `fal.run`, `TRELLIS.2-4B`/`Pixal3D`, `G15`)** · **`D128` Onda 3
 (`G1–G11`, `verify` `G11`, zero `except` silencioso, `PIPELINE_VERSION = "0.9.5"`)** · **`D129` Portão E2E `M6`
 (`97/97` E2E Tiers 1–4, Opção A Tier 5 dispensado, `GAP-050/051/062` fechados, `ci.sh`/`ci_verify.sh` `exit=0`)** · **`D130` Hardening `v0.9.6`
-(UV `66°`+`pack_islands`, colisor convex hull final, `split_por_ossos` all-pair, 4 vistas single-figure+delight, `G3`/`G15` endurecidos, backend HTTP TRELLIS.2, `PIPELINE_VERSION = "0.9.6"`)** · **`D131` Fine-Tune `v0.9.7` (`export-r15 --model-id` / `--asset-ids` / guarda `FORGE-E-SPEC`, `r15_play_g14` `Motor6D+Bone`, `vistas: 4` c/ `origem`, `delight` em `ultra` + `ferro_escuro`, poda sem voxel remesh em ruído, `px_sub=2048` + `BEVEL` skip `>60k`, `area_weight=0` + head UV `1.35×`, `PIPELINE_VERSION = "0.9.7"`)** · **`D132` Onda 1 `v0.9.8` (`TRELLIS.2-4B` `o_voxel`, bake PBR nativo `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback angular UV0, `BEVEL` skip `>60k`, `FORGE3D_I23D_REQUIRE_REMOTE`, `PIPELINE_VERSION = "0.9.8"`)**.
+(UV `66°`+`pack_islands`, colisor convex hull final, `split_por_ossos` all-pair, 4 vistas single-figure+delight, `G3`/`G15` endurecidos, backend HTTP TRELLIS.2, `PIPELINE_VERSION = "0.9.6"`)** · **`D131` Fine-Tune `v0.9.7` (`export-r15 --model-id` / `--asset-ids` / guarda `FORGE-E-SPEC`, `r15_play_g14` `Motor6D+Bone`, `vistas: 4` c/ `origem`, `delight` em `ultra` + `ferro_escuro`, poda sem voxel remesh em ruído, `px_sub=2048` + `BEVEL` skip `>60k`, `area_weight=0` + head UV `1.35×`, `PIPELINE_VERSION = "0.9.7"`)** · **`D132` Onda 1 `v0.9.8` (`TRELLIS.2-4B` `o_voxel`, bake PBR nativo `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback angular UV0, `BEVEL` skip `>60k`, `PIPELINE_VERSION = "0.9.8"`)** · **`D133` `TRELLIS.2-4B` local (`tools/trellis2_infer.py`, `BF16/512 tuned`, zero Colab)**.
 
 ## Aberto
 
@@ -114,7 +113,7 @@ P6 de `docs/roadmap.md`.
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Decisão de ponto de checagem Onda 1→Onda 2 (`Motor6D` rígido vs skinned, `G16` em `G14` vs `manifest@7`, T4 `512` vs L4 `1024_cascade` para Iron Ram) | decisão | critério Onda 1→2 |
+| **1** | Decisão de ponto de checagem Onda 1→Onda 2 (`Motor6D` rígido vs skinned, `G16` em `G14` vs `manifest@7` com Iron Ram `BF16/512` local) | decisão | critério Onda 1→2 |
 | **2** | Executar Onda 2 (`v0.9.9`: fix `DEF-06` em `rbx_r15_*` + `autorig_pesos_geo.py` + Gate `G16`) e validar nos jogos consumidores | 1 onda | `DEF-06` (`20,62×`/`8,21×`) |
 
 ## Comandos
@@ -132,7 +131,7 @@ forge3d verify ~/.local/state/forge3d/saida/r15
 forge3d upload-model <glb> --creator-id 11966727684 --dry-run --strip-embedded-textures
 forge3d gc --dry-run --manter-dias 30
 
-python -m pytest -q                            # 828 verdes + 1 GPU (skip)
+python -m pytest -q                            # 882 verdes (-m "not gpu") + 1 -m gpu em 883 testes
 python -m pytest tests/e2e -m "not gpu" -v     # 97/97 E2E Tiers 1–4 verdes
 bash tools/ci.sh                               # pytest não-Blender + ruff + mypy + contexto + P0
 bash tools/ci_verify.sh                        # Blender 4.2.0 + verify + Godot headless QA
@@ -160,8 +159,7 @@ godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_chec
 
 ## Como retomar
 
-> **Estado**: `v0.9.8` (Onda 1 / `D132`) entregue, com E2E `TRELLIS.2-4B` validado em Kragor (`15.760` tris,
-> `G1–G15` ok, `DEF-06` `8,21×`) e Iron Ram ao vivo via Colab (`60.969` raw → `15.758` tris, `G1–G15` ok,
-> frente `-Y` alinhada, `DEF-06` `20,62×`; `ci.sh`/`pytest`/`check-p0` verdes).
+> **Estado**: `v0.9.8` (`D132` + `D133`) com `TRELLIS.2-4B` local (`BF16/512 tuned`, `~/.cache/forge3d/trellis2`)
+> integrado via `tools/trellis2_infer.py` e rota Colab removida (`ci.sh`/`pytest`/`check-p0` verdes).
 > **Próximo passo**: decisão de ponto de checagem pós-Onda 1 → destravar Onda 2 (`v0.9.9` fix `DEF-06` + `G16`).
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

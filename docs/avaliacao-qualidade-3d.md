@@ -1,8 +1,8 @@
 # AVALIAÇÃO — Escalar a qualidade dos assets 3D (rev. 2, sem novas conexões)
 
-> **Data:** 18/11/2026 (rev. 2; rev. 1 de 18/11/2026 propunha provider Tripo e foi superada).
+> **Data:** 18/11/2026 (atualizado em 21/11/2026 após D133 — integração local TRELLIS.2-4B).
 > **Decisão do operador:** não adicionar conexões novas — fazer as existentes trabalharem melhor
-> (Google Ultra / Nano Banana, TRELLIS via fal.run, Vault CC0 + kitbash + LoRA Colab).
+> (Google Ultra / Nano Banana, TRELLIS.2-4B MIT local em RTX 3060 6 GB, Vault CC0 + kitbash).
 > Todo número é rotulado `[oficial]` / `[terceiro]` / `[estimado]`. Fontes no fim.
 >
 > **Implementado nesta janela:** D112 (Pixal3D MIT sai do bloqueio do D18) e D113
@@ -15,7 +15,7 @@
 | Elo da cadeia | Estado atual | Veredito |
 |---|---|---|
 | Concept (2D) | SD1.5 local / Gemini (Nano Banana) / Higgsfield, **sem consistência de estilo** | gargalo nº 1: cada asset nasce com estilo solto |
-| Geometria | TripoSR local (MIT, 6 GB) = elo mais fraco; TRELLIS.2 (MIT) conectado via fal.run ($0,25–0,35 `[terceiro]`) mas subutilizado | gargalo nº 2: medir A/B e usar TRELLIS onde valer |
+| Geometria | TripoSR local (MIT, 6 GB) vs **TRELLIS.2-4B MIT local** (`BF16/512`, `301s`, `4.488 MiB` VRAM, `tools/trellis2_infer.py`) | resolvido em D133: `TRELLIS.2` local como motor principal em GPU CUDA |
 | Textura/PBR | bake Cycles, `pbr_zonas`, albedos 1024 | forte |
 | Rig/QC | smart_fit, rig 56, G1–G11, LOD medido, QA visual | forte — o portão do Forge3D é melhor que o de qualquer serviço |
 
@@ -37,23 +37,15 @@ custo do lab completo < US$ 0,40 `[oficial]`.
 - **Próximo passo natural:** um check de "deriva de estilo vs. referência" no `visual_qa_critic`
   usando o `gemini-4-hydrogen` já conectado — consistência vira gate, não sorte.
 
-## 3. Motor 2 — TRELLIS via fal.run (já conectado, subutilizado)
+## 3. Motor 2 — TRELLIS.2-4B local (MIT, D133)
 
-- Ação: **medir A/B** (taxa de aprovação G1–G11 + QA visual) TripoSR × TRELLIS por classe de asset
-  e adotar TRELLIS como padrão onde o ganho for real. Custo ~$0,25–0,35/asset `[terceiro]`.
-- TripoSG (MIT, Diffusers, >8 GB) e **Pixal3D (MIT desde D112, ≥24 GB)** ficam como alternativas de
-  maior fidelidade via endpoint/Colab quando a medição pedir.
+- Validado na RTX 3060 Laptop 6 GB (`low_vram=True` + 24 GB RAM WSL2, `BF16/512 tuned`) via subprocesso isolado `tools/trellis2_infer.py` (`301,01 s`, `4.488 MiB` VRAM pico, `0` custo de API).
+- `Pixal3D` (MIT desde D112) e `TRELLIS-image-large` (MIT) seguem aceitos na allowlist D18.
 
-## 4. Motor 3 — treinamento (condicional, infra já existente)
+## 4. Motor 3 — ajuste fino / fallback
 
-- `tools/colab_trellis_lora.py` já empacota LoRA de geometria TRELLIS.2 com gate de licença e
-  24 vistas; `[oficial]` repo HF (12/11/2026): 50–200 malhas/classe, A100 ou 24 GB com batch 2/accum 8,
-  ~10,8 h → **US$20–70** `[estimado]`; ganho medido Chamfer 0,174→0,033. Dataset natural: Vault CC0
-  + Blender pinado (custo ~US$1–5 `[estimado]`).
-- **Só executar se a medição do Motor 2 mostrar falha consistente de classe** — regra do projeto:
-  não invente número; medir antes de comprar treino.
-- Style LoRA SDXL (US$1,5–5 `[terceiro]`) fica como plano B do Motor 1, se a referência de imagem
-  do Nano Banana não bastar para o estilo do jogo.
+- Style LoRA SDXL (US$1,5–5 `[terceiro]`) fica como plano B do Motor 1, se a referência de imagem do Nano Banana não bastar para o estilo do jogo.
+- Caminho Colab anterior (`colab_trellis_*`) foi descontinuado em D133 após validação da inferência local.
 
 ## 5. O que NÃO fazer (registrado para não re-pesquisar)
 

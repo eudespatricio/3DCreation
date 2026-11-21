@@ -1,4 +1,4 @@
-"""Conectores plugaveis de IA em nuvem (Gemini, Higgsfield e worker Colab TRELLIS) — stdlib pura (D26).
+"""Conectores plugaveis de IA (Gemini, Higgsfield e status TRELLIS.2 MIT local) — stdlib pura (D26).
 
 Zero dependencias externas de pip: usa apenas ``urllib.request``, ``json`` e ``base64``.
 As chaves de API sao lidas de variaveis de ambiente ou de ``~/.config/forge3d/<provider>.key``
@@ -109,19 +109,11 @@ LICENCAS_CLOUD: dict[str, dict[str, Any]] = {
         ),
     },
     "trellis": {
-        "modelo": "Microsoft TRELLIS / TRELLIS.2-4B (MIT via Colab Worker)",
+        "modelo": "Microsoft TRELLIS.2-4B (MIT local)",
         "uso_comercial": True,
         "notice": (
-            "Malha 3D gerada via Microsoft TRELLIS / TRELLIS.2-4B (MIT) em worker Colab "
-            "para entrada na rota import (uso comercial permitido)."
-        ),
-    },
-    "trellis_lora": {
-        "modelo": "JeffreyXiang/TRELLIS + LoRA CC0/MIT (MIT)",
-        "uso_comercial": True,
-        "notice": (
-            "Adaptador LoRA treinado exclusivamente sobre ativos CC0/MIT verificados "
-            "em cima do checkpoint JeffreyXiang/TRELLIS (MIT)."
+            "Malha 3D gerada localmente via Microsoft TRELLIS.2-4B (MIT) em subprocesso "
+            "isolado (uso comercial permitido)."
         ),
     },
 }
@@ -253,33 +245,15 @@ def roblox_open_cloud_disponivel() -> tuple[bool, str]:
 
 
 def trellis_disponivel() -> tuple[bool, str]:
-    from ..errors import ForgeError
     from . import mesh_trellis
 
-    ep = mesh_trellis.endpoint_trellis_configurado()
-    if ep:
-        segredos = [os.environ.get("FORGE3D_I23D_TOKEN", "")]
-        try:
-            ep_val, mod_val = mesh_trellis.validar_endpoint_trellis(ep)
-        except ForgeError as exc:
-            return False, _sanitizar_texto_erro(f"endpoint TRELLIS invalido: {exc.mensagem}", segredos)
-        ep_limpo = _sanitizar_texto_erro(ep_val, segredos)
-        return True, f"ativo ({ep_limpo}; modelo={mod_val})"
-
-    worker = paths.raiz_dados() / "tools" / "colab_trellis_worker.py"
-    if not worker.is_file() and "FORGE3D_ROOT" not in os.environ:
-        cand = Path(__file__).resolve().parents[3] / "tools" / "colab_trellis_worker.py"
-        if cand.is_file():
-            worker = cand
-    if worker.is_file():
-        return (
-            True,
-            "inativo (FORGE3D_I23D_ENDPOINT vazio — usando TripoSR local; batch Colab MIT via tools/colab_trellis_worker.py; modelo=TRELLIS.2-4B/Pixal3D -> rota import)",
-        )
-    return (
-        False,
-        f"inativo (FORGE3D_I23D_ENDPOINT vazio — usando TripoSR local; worker Colab ausente em {worker})",
-    )
+    try:
+        ok, det = mesh_trellis.preflight_trellis2()
+    except OSError as exc:
+        return False, f"inativo (erro ao diagnosticar TRELLIS.2: {exc})"
+    if ok:
+        return True, f"local ({det})"
+    return False, f"inativo ({det})"
 
 
 def _post_json_seguro(

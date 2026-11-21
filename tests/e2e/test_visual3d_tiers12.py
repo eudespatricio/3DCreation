@@ -9,7 +9,6 @@ from collections import Counter
 from typing import Any
 
 import pytest
-import yaml
 from PIL import Image
 
 from tests.e2e._helpers_visual3d import (
@@ -17,7 +16,6 @@ from tests.e2e._helpers_visual3d import (
     inspect_glb_chestplate_fit,
     inspect_glb_overlay_gaps_mm,
     inspect_glb_textures,
-    make_colab_fake_site,
     make_delight_test_sprite,
     make_hero_front_png,
     make_mesh_spec,
@@ -26,6 +24,7 @@ from tests.e2e._helpers_visual3d import (
     register_gemini_mock,
     run_tool,
     setup_offline_i23d_shim,
+    setup_offline_trellis2_shim,
     write_concept_and_render_pair,
     write_tight_budget_profile,
     write_two_tone_glb,
@@ -153,35 +152,31 @@ def test_tier1_gemini_4view_orthographic_concept_and_sidecar_mock_http(
     assert e2e_sandbox.run_cli(["verify", str(dest_4v)])[0] == 0
 
 
-def test_tier1_colab_trellis_worker_trellis2_pixal3d_and_spec6_validate(
-    e2e_sandbox, make_minimal_png, make_minimal_glb
+def test_tier1_trellis2_local_cli_and_preflight_routing(
+    e2e_sandbox, make_minimal_png, make_minimal_glb, write_spec
 ) -> None:
-    """`colab_trellis_worker.py` supports TRELLIS.2-4B & Pixal3D (MIT), single & 4-view, emitting `spec@6` + `sha256`."""
-    help_proc = run_tool("tools/colab_trellis_worker.py", ["--help"])
-    assert help_proc.returncode == 0 and "TRELLIS.2-4B" in help_proc.stdout and "Pixal3D" in help_proc.stdout
+    """`tools/trellis2_infer.py` exposes tuned local flags, and offline TRELLIS.2 shim passes `doctor` and `plan`."""
+    help_proc = run_tool("tools/trellis2_infer.py", ["--help"])
+    assert help_proc.returncode == 0, help_proc.stderr
+    for flag in ("--quant", "--pipeline-type", "--steps", "--decimation-target", "--texture-size", "--remesh-project"):
+        assert flag in help_proc.stdout
 
-    glb_tpl = make_minimal_glb(e2e_sandbox.root / "colab_tpl.glb", png_wh=(512, 512))
-    site_dir = make_colab_fake_site(e2e_sandbox.root / "fake_site", glb_tpl)
-    shim_env = {"PYTHONPATH": f"{site_dir}:{e2e_sandbox.env.get('PYTHONPATH', '')}"}
+    glb_tpl = make_minimal_glb(e2e_sandbox.root / "t2_tpl.glb", png_wh=(512, 512))
+    shim_env = setup_offline_trellis2_shim(e2e_sandbox.root / "t2_shim", glb_tpl)
+    rc_d, _, err_d, doc_d = e2e_sandbox.run_cli(["doctor"], env_overrides=shim_env)
+    assert rc_d in (0, 4) and isinstance(doc_d, dict), err_d
+    tre = doc_d["conectores_ia"]["trellis"]
+    assert tre["ok"] is True and tre["ativo"] is True and "local" in tre["detalhe"].lower()
 
-    in_1v = e2e_sandbox.root / "colab_in_1v"
-    make_minimal_png(in_1v / "paladin.png", width=128, height=128)
-    yaml_1v = e2e_sandbox.root / "colab_1v.yaml"
-    assert run_tool("tools/colab_trellis_worker.py", ["--input-dir", str(in_1v), "--output-dir", str(e2e_sandbox.root / "colab_out_1v"), "--yaml-out", str(yaml_1v), "--model", "TRELLIS.2-4B", "--schema-version", "6", "--perfil", "godot4"], env_overrides=shim_env).returncode == 0
-
-    in_4v = e2e_sandbox.root / "colab_in_4v"
-    for v in ("front", "back", "left", "right"):
-        make_minimal_png(in_4v / "guardian" / f"{v}.png", width=128, height=128)
-    yaml_4v = e2e_sandbox.root / "colab_4v.yaml"
-    assert run_tool("tools/colab_trellis_worker.py", ["--input-dir", str(in_4v), "--output-dir", str(e2e_sandbox.root / "colab_out_4v"), "--yaml-out", str(yaml_4v), "--model", "Pixal3D", "--schema-version", "6", "--perfil", "godot4"], env_overrides=shim_env).returncode == 0
-
-    for yml_path in (yaml_1v, yaml_4v):
-        doc = yaml.safe_load(yml_path.read_text(encoding="utf-8"))
-        assert doc["schema"] == "forge3d/spec@6" and doc["lote"][0]["rota"] == "import"
-        assert str(doc["requisicao"]["base_externa"]["sha256"]).startswith("sha256:")
-        rc_v, _, err_v, val = e2e_sandbox.run_cli(["validate", str(yml_path)])
-        assert rc_v == 0 and isinstance(val, dict) and val["ok"] is True, err_v
-        assert e2e_sandbox.run_cli(["plan", str(yml_path)])[0] == 0
+    png_in = make_minimal_png(e2e_sandbox.root / "t2_front.png", width=128, height=128)
+    spec_path = write_spec(e2e_sandbox.root / "t2_plan.yaml", make_mesh_spec(e2e_sandbox.dest_dir, [{
+        "id": "mob.trellis2.01", "tipo": "criatura", "rota": "i23d", "origem": str(png_in),
+        "seed": 1, "altura_metros": 1.8, "pivot": "base", "qualidade": "ultra",
+    }]))
+    assert e2e_sandbox.run_cli(["validate", str(spec_path)], env_overrides=shim_env)[0] == 0
+    rc_p, _, err_p, plan_doc = e2e_sandbox.run_cli(["plan", str(spec_path)], env_overrides=shim_env)
+    assert rc_p == 0 and isinstance(plan_doc, dict), err_p
+    assert plan_doc["tarefas"][0]["estado_previsto"] == "pronto"
 
 
 @pytest.mark.blender
@@ -360,15 +355,16 @@ def test_tier1_g15_concept_to_3d_fidelity_gate_contract(
 
 
 def test_tier2_zero_fal_run_or_fal_key_leak_across_doctor_and_contracts(e2e_sandbox, repo_root) -> None:
-    """Zero `fal.run` / `fal.ai` / `FORGE3D_FAL_API_KEY` across `doctor --json`, `schemas/`, `profiles/`, `colab_trellis_worker.py`, `providers/`."""
+    """Zero `fal.run` / `fal.ai` / `FORGE3D_FAL_API_KEY` or `colab_trellis_*.py` across contracts and providers."""
     rc, _, err, doc = e2e_sandbox.run_cli(["doctor"])
     assert rc in (0, 4), err
     doc_blob = json.dumps(doc).lower()
-    for forbidden in ("fal.run", "fal.ai", "fal.key", "forge3d_fal_api_key"):
+    for forbidden in ("fal.run", "fal.ai", "fal.key", "forge3d_fal_api_key", "colab"):
         assert forbidden not in doc_blob, f"doctor --json leaked '{forbidden}'"
 
+    assert not list((repo_root / "tools").glob("colab_trellis_*.py"))
     offenders: list[str] = []
-    targets = [*sorted((repo_root / "schemas").glob("*.json")), *sorted((repo_root / "profiles").glob("*.yaml")), repo_root / "tools" / "colab_trellis_worker.py", *sorted((repo_root / "src" / "forge3d" / "providers").glob("*.py"))]
+    targets = [*sorted((repo_root / "schemas").glob("*.json")), *sorted((repo_root / "profiles").glob("*.yaml")), repo_root / "tools" / "trellis2_infer.py", *sorted((repo_root / "src" / "forge3d" / "providers").glob("*.py"))]
     for path in targets:
         text = path.read_text(encoding="utf-8", errors="ignore").lower()
         for term in ("fal.run", "fal.ai", "fal.key", "forge3d_fal_api_key"):
@@ -434,41 +430,44 @@ def test_tier2_smart_fit_and_quadriflow_faces_boundary_rejections(e2e_sandbox, w
         _assert_validate_spec_error(e2e_sandbox, write_spec, fname, item)
 
 
-def test_tier2_colab_trellis_worker_negative_inputs_and_tampered_sha256(
-    e2e_sandbox, make_minimal_png, make_minimal_glb
+def test_tier2_trellis2_local_negative_inputs_and_tampered_sha256(
+    e2e_sandbox, make_minimal_png, make_minimal_glb, write_spec
 ) -> None:
-    """`colab_trellis_worker.py` rejects missing/empty/corrupt inputs & invalid model, and tampered `sha256` fails validation."""
-    glb_tpl = make_minimal_glb(e2e_sandbox.root / "colab_t2_tpl.glb", png_wh=(512, 512))
-    site_dir = make_colab_fake_site(e2e_sandbox.root / "fake_site_t2", glb_tpl)
-    shim_env = {"PYTHONPATH": f"{site_dir}:{e2e_sandbox.env.get('PYTHONPATH', '')}"}
+    """`trellis2_infer.py` rejects missing/corrupt/out-of-range inputs, invalid model blocks, and tampered `sha256` fails validation."""
+    out_dir = e2e_sandbox.root / "t2_neg_out"
+    res_json = e2e_sandbox.root / "t2_neg_res.json"
+    p_miss = run_tool("tools/trellis2_infer.py", ["--imagem", str(e2e_sandbox.root / "missing.png"), "--saida-dir", str(out_dir), "--resultado", str(res_json)])
+    assert p_miss.returncode != 0 and json.loads(res_json.read_text(encoding="utf-8"))["ok"] is False
 
-    empty_dir = e2e_sandbox.root / "empty_in"
-    empty_dir.mkdir()
-    for bad_in in (e2e_sandbox.root / "nonexistent_in", empty_dir):
-        yml_bad = e2e_sandbox.root / f"should_not_exist_{bad_in.name}.yaml"
-        p = run_tool("tools/colab_trellis_worker.py", ["--input-dir", str(bad_in), "--output-dir", str(e2e_sandbox.root / "o_bad"), "--yaml-out", str(yml_bad)], env_overrides=shim_env)
-        assert p.returncode != 0 and not yml_bad.exists()
+    corrupt_png = e2e_sandbox.root / "broken.png"
+    corrupt_png.write_bytes(b"NOT_A_VALID_PNG_STREAM")
+    res_corrupt = e2e_sandbox.root / "t2_corrupt_res.json"
+    p_corrupt = run_tool("tools/trellis2_infer.py", ["--imagem", str(corrupt_png), "--saida-dir", str(out_dir), "--resultado", str(res_corrupt)])
+    assert p_corrupt.returncode != 0 and json.loads(res_corrupt.read_text(encoding="utf-8"))["ok"] is False
 
-    corrupt_dir = e2e_sandbox.root / "corrupt_in"
-    corrupt_dir.mkdir()
-    (corrupt_dir / "broken.png").write_bytes(b"NOT_A_VALID_PNG_STREAM")
-    assert run_tool("tools/colab_trellis_worker.py", ["--input-dir", str(corrupt_dir), "--output-dir", str(e2e_sandbox.root / "o_corrupt")], env_overrides=shim_env).returncode != 0
+    valid_png = make_minimal_png(e2e_sandbox.root / "valid_t2.png", width=128, height=128)
+    for idx, extra in enumerate((["--steps", "0"], ["--decimation-target", "100"], ["--remesh-project", "2.0"])):
+        r_bad = e2e_sandbox.root / f"t2_bad_{idx}.json"
+        p_rng = run_tool("tools/trellis2_infer.py", ["--imagem", str(valid_png), "--saida-dir", str(out_dir), "--resultado", str(r_bad), *extra])
+        assert p_rng.returncode != 0 and json.loads(r_bad.read_text(encoding="utf-8"))["ok"] is False
 
-    valid_in = e2e_sandbox.root / "valid_in"
-    make_minimal_png(valid_in / "hero.png", width=128, height=128)
-    assert run_tool("tools/colab_trellis_worker.py", ["--input-dir", str(valid_in), "--output-dir", str(e2e_sandbox.root / "o_ver"), "--schema-version", "99"], env_overrides=shim_env).returncode != 0
+    glb_tpl = make_minimal_glb(e2e_sandbox.root / "t2_tamper_tpl.glb", png_wh=(512, 512))
+    shim_env = setup_offline_trellis2_shim(e2e_sandbox.root / "t2_neg_shim", glb_tpl)
+    spec_bad_mod = write_spec(e2e_sandbox.root / "t2_bad_mod.yaml", make_mesh_spec(e2e_sandbox.dest_dir, [{
+        "id": "mob.bad_mod.01", "tipo": "criatura", "rota": "i23d", "origem": str(valid_png), "seed": 1, "altura_metros": 1.8, "pivot": "base",
+    }]))
+    rc_m, _, _, plan_m = e2e_sandbox.run_cli(["plan", str(spec_bad_mod)], env_overrides={**shim_env, "FORGE3D_I23D_TRELLIS_MODEL": "unsupported/invalid-model"})
+    assert rc_m == 0 and isinstance(plan_m, dict) and plan_m["tarefas"][0]["estado_previsto"] == "bloqueada"
 
-    p_bad_mod = run_tool("tools/colab_trellis_worker.py", ["--input-dir", str(valid_in), "--output-dir", str(e2e_sandbox.root / "o_mod"), "--model", "unsupported/invalid-model"], env_overrides=shim_env)
-    assert p_bad_mod.returncode != 0, "colab_trellis_worker.py accepted unsupported --model without error"
-
-    yaml_ok = e2e_sandbox.root / "colab_ok.yaml"
-    p_ok = run_tool("tools/colab_trellis_worker.py", ["--input-dir", str(valid_in), "--output-dir", str(e2e_sandbox.root / "colab_ok"), "--yaml-out", str(yaml_ok), "--schema-version", "6"], env_overrides=shim_env)
-    assert p_ok.returncode == 0, p_ok.stdout + p_ok.stderr
-    doc = yaml.safe_load(yaml_ok.read_text(encoding="utf-8"))
-    orig_sha = str(doc["requisicao"]["base_externa"]["sha256"])
-    doc["requisicao"]["base_externa"]["sha256"] = orig_sha[:-1] + ("0" if orig_sha[-1] != "0" else "1")
-    yaml_tampered = e2e_sandbox.root / "colab_tampered.yaml"
-    yaml_tampered.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    bad_sha = "sha256:" + ("0" * 63) + ("1" if hashlib.sha256(glb_tpl.read_bytes()).hexdigest()[-1] == "0" else "0")
+    yaml_tampered = write_spec(e2e_sandbox.root / "t2_tampered.yaml", {
+        "schema": "forge3d/spec@6",
+        "projeto": "t2_tamper",
+        "perfil": "godot4",
+        "destino_exportacao": str(e2e_sandbox.dest_dir),
+        "requisicao": {"base_externa": {"tipo": "personagem_humanoide", "origem": str(glb_tpl), "sha256": bad_sha, "seed": 1}},
+        "lote": [{"id": "t2.imp.01", "tipo": "personagem_humanoide", "rota": "import", "origem": str(glb_tpl), "altura_metros": 1.8}],
+    })
     rc_t, _, err_t, payload_t = e2e_sandbox.run_cli(["validate", str(yaml_tampered)])
     assert rc_t == 2, f"expected exit=2 FORGE-E-INPUT-TAMPERED, got rc={rc_t} err={err_t}"
     assert _error_code(payload_t) == "FORGE-E-INPUT-TAMPERED", payload_t

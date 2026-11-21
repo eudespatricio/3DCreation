@@ -156,23 +156,12 @@ def _preparar_bruto_arquivo(
             obj, item.get("tipo"), frente_origem=bruto.get("frente_origem")
         )
 
-    mat_proc = str(
-        job.get("material_procedural")
-        or item.get("material_procedural")
-        or bruto.get("material_procedural")
-        or ""
-    ).strip()
+    mat_proc = str(job.get("material_procedural") or item.get("material_procedural") or bruto.get("material_procedural") or "").strip()
     if bruto.get("arquivo") == "template_body.glb" and mat_proc == "pele_humana":
         mat_proc = ""
-    retopologia_pedida = str(
-        item.get("retopologia") or bruto.get("retopologia") or "padrao"
-    ).strip().lower()
-    quadriflow_faces = int(
-        item.get("quadriflow_faces") or bruto.get("quadriflow_faces") or 0
-    )
-    eh_template_ou_armadura = (
-        bruto.get("arquivo") == "template_body.glb" or bool(bruto.get("armadura_modular"))
-    )
+    retopologia_pedida = str(item.get("retopologia") or bruto.get("retopologia") or "padrao").strip().lower()
+    quadriflow_faces = int(item.get("quadriflow_faces") or bruto.get("quadriflow_faces") or 0)
+    eh_template_ou_armadura = bruto.get("arquivo") == "template_body.glb" or bool(bruto.get("armadura_modular"))
     item_bake_check = dict(item)
     if mat_proc:
         item_bake_check["material_procedural"] = mat_proc
@@ -184,26 +173,27 @@ def _preparar_bruto_arquivo(
         item_bake_check["retopologia"] = retopologia_pedida
     if eh_template_ou_armadura and not (mat_proc or pbr_zonas_cfg or detalhe_alto_cfg):
         item_bake_check.pop("material", None)
+    tem_pbr_nativo = bake_pbr.objeto_tem_pbr_nativo(obj)
+    frente_neg_y = str(bruto.get("frente_origem") or "").strip().upper() == "-Y"
     usar_bake_high_low = bake_pbr.deve_ativar_bake_high_low(
         item_bake_check,
         tem_cor_vertice=bool(obj.data.color_attributes),
         tem_uv=bool(obj.data.uv_layers),
         tem_materiais=bool(obj.data.materials),
     )
-    adiar_reparo_high = (
-        malha_triangulada(obj) > 60_000
-        and bake_pbr.objeto_tem_pbr_nativo(obj)
-        and usar_bake_high_low
-    )
+    if (
+        not usar_bake_high_low
+        and tem_pbr_nativo
+        and frente_neg_y
+        and not eh_template_ou_armadura
+        and malha_triangulada(obj) > int(item["limite_triangulos"])
+    ):
+        usar_bake_high_low = True
+    adiar_reparo_high = (malha_triangulada(obj) > 60_000 or frente_neg_y) and tem_pbr_nativo and usar_bake_high_low
     if adiar_reparo_high:
-        info_gerada["reparo_inicial"] = {
-            "adiado_high_pbr_nativo": True,
-            "faces_antes": len(obj.data.polygons),
-        }
+        info_gerada["reparo_inicial"] = {"adiado_high_pbr_nativo": True, "faces_antes": len(obj.data.polygons)}
     else:
-        info_gerada["reparo_inicial"] = reparar_malha(
-            obj, permitir_bordas_abertas=alpha_cards_ativo
-        )
+        info_gerada["reparo_inicial"] = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
 
     deve_soldar = bool(cfg_suav["soldar_componentes_organicos"]) or bool(
         bruto.get("soldar_componentes_organicos")
@@ -319,6 +309,8 @@ def _reduzir_e_suavizar_sem_bake(
         info_gerada["reparo_pos_decimate"] = reparar_malha(
             obj, permitir_bordas_abertas=alpha_cards_ativo
         )
+        if not obj.data.uv_layers:
+            info_gerada["uv"] = uv_fn(obj)
         if cfg_suav["corrective_smooth"] and malha_triangulada(obj) >= 120:
             info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
                 obj, iteracoes=2, fator=0.35

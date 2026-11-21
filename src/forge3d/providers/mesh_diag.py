@@ -11,7 +11,7 @@ from typing import Any
 
 from .. import locks, paths
 
-VERSAO = "0.1.10"
+VERSAO = "0.1.11"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
 VRAM_MINIMA_MB = 4200
@@ -43,11 +43,30 @@ def _device() -> str:
     ).strip().lower()
 
 
+_ALIASES_TRELLIS = {"trellis", "trellis2", "trellis.2", "trellis2_local"}
+_ENVS_TRIPOSR = ("FORGE3D_TRIPOSR", "FORGE3D_I23D_SCRIPT", "FORGE3D_VENV_I23D", "FORGE3D_MODELOS")
+_ENVS_TRELLIS2 = ("FORGE3D_TRELLIS2_DIR", "FORGE3D_VENV_TRELLIS2", "FORGE3D_TRELLIS2_REPO", "FORGE3D_TRELLIS2_MODELS", "FORGE3D_TRELLIS2_SCRIPT")
+
+
 def modelo_escolhido() -> str:
     """Modelo de image-to-3D. Env permite trocar sem tocar em codigo; licenca e gate (D18)."""
-    return os.environ.get(
-        "FORGE3D_MODELO_MESH", facade_attr("MODELO_PADRAO", MODELO_PADRAO)
-    ).strip().lower()
+    from . import mesh_trellis
+
+    bruto = os.environ.get("FORGE3D_MODELO_MESH", "").strip().lower()
+    if bruto in _ALIASES_TRELLIS:
+        return "trellis"
+    dev_cpu = facade_attr("_device", _device)().startswith("cpu")
+    if bruto:
+        if bruto == "auto":
+            return "trellis" if (not dev_cpu and mesh_trellis.trellis2_local_instalado()) else "triposr"
+        return bruto
+    tem_triposr_env = any(os.environ.get(k, "").strip() for k in _ENVS_TRIPOSR)
+    tem_trellis_env = any(os.environ.get(k, "").strip() for k in _ENVS_TRELLIS2)
+    if tem_triposr_env and not tem_trellis_env:
+        return "triposr"
+    if not dev_cpu and mesh_trellis.trellis2_local_instalado():
+        return "trellis"
+    return str(facade_attr("MODELO_PADRAO", MODELO_PADRAO)).strip().lower()
 
 
 def dir_venv() -> Path:
@@ -344,26 +363,11 @@ def _vram_minima_mb() -> int:
 
 
 def _vram_livre_mb() -> int | None:
-    from . import mesh_trellis
-
-    if mesh_trellis.endpoint_trellis_configurado():
-        return None
     return locks.vram_livre_mb()
 
 
 def _diagnostico() -> dict:
     """Importa ``torch`` e ``tsr`` NA venv, via subprocesso. Nunca no processo do nucleo."""
-    from ..errors import ForgeError
-    from . import mesh_trellis
-
-    ep_remoto = mesh_trellis.endpoint_trellis_configurado()
-    if ep_remoto:
-        try:
-            ep_val, mod_val = mesh_trellis.validar_endpoint_trellis(ep_remoto)
-        except ForgeError as exc:
-            return {"ok": False, "razao": exc.mensagem}
-        return {"ok": True, "remoto": ep_val, "modelo": mod_val, "cuda": False}
-
     venv = facade_attr("dir_venv", dir_venv)()
     vendor = facade_attr("dir_vendor", dir_vendor)()
     cache_diag: dict[tuple[str, str], dict] = facade_attr("_DIAGNOSTICO", _DIAGNOSTICO)

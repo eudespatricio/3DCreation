@@ -234,6 +234,7 @@ def test_f27_ast_zero_silent_except_src_blender_tools() -> None:
         "src/forge3d/vault.py",
         "blender/modular_armor.py",
         "tools/i23d_infer.py",
+        "tools/trellis2_infer.py",
         "tools/kitbash_composer.py",
         "tools/vault_sync_cc0.py",
         "tools/pose_guard.py",

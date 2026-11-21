@@ -56,9 +56,10 @@ def canonicalizar(obj, tipo: str | None = None, frente_origem: str | None = None
     """Altura em Z, largura em X, profundidade em Y, base em Z=0 (tools/normalize_mesh.py)."""
     minimo, maximo = bbox_local()
     extensao = maximo - minimo
+    frente_norm = str(frente_origem or "").strip().upper()
     ordem = sorted(range(3), key=lambda i: extensao[i])
     profundidade = ordem[0]
-    quadrupede = (
+    quadrupede = frente_norm != "-Y" and (
         tipo in ("criatura", "criatura_quadrupede", "montaria")
         and extensao[2] >= 0.30 * max(extensao)
         and max(extensao[0], extensao[1]) > 1.15 * extensao[2]
@@ -67,7 +68,9 @@ def canonicalizar(obj, tipo: str | None = None, frente_origem: str | None = None
         tipo == "criatura_alada"
         and extensao[2] >= 0.30 * max(extensao)
     )
-    if quadrupede:
+    if frente_norm == "-Y":
+        largura, profundidade, altura = 0, 1, 2
+    elif quadrupede:
         altura = 2
         profundidade = max((0, 1), key=lambda i: extensao[i])
         largura = 1 - profundidade
@@ -122,7 +125,7 @@ def canonicalizar(obj, tipo: str | None = None, frente_origem: str | None = None
         info["quadrupede"] = True
         return info
 
-    if tipo in ("personagem_humanoide", "criatura"):
+    if tipo in ("personagem_humanoide", "criatura") and frente_norm != "-Y":
         minimo, maximo = bbox_local()
         altura_z = maximo.z - minimo.z
         n = 12
@@ -159,6 +162,8 @@ def canonicalizar(obj, tipo: str | None = None, frente_origem: str | None = None
             info["invertido"] = True
         else:
             info["invertido"] = False
+    elif frente_norm == "-Y":
+        info["invertido"] = False
 
     if frente_norm == "-Y":
         y_invertido = bool(det_neg) ^ bool(info.get("invertido"))

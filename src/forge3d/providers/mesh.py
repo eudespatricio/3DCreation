@@ -6,7 +6,6 @@ compatibilidade integral de monkeypatch e contratos AST em ``forge3d.providers.m
 
 from __future__ import annotations
 
-import hashlib
 import os
 import subprocess
 import time
@@ -107,29 +106,22 @@ class MeshProvider:
         c_g = os.environ.get("FORGE3D_CONCEPT_GUIDANCE", "7.5").strip()
         tmpl = "1" if os.environ.get("FORGE3D_HUMANOIDE_TEMPLATE", "").strip() == "1" else "0"
         dev = _device().replace(":", "").replace("/", "_")
-        ep = _trellis.endpoint_trellis_configurado()
-        suf_ep = ""
-        if ep:
-            mod_ep = os.environ.get("FORGE3D_I23D_TRELLIS_MODEL", "").strip()
-            simp_ep = os.environ.get("FORGE3D_I23D_SIMPLIFY", "0.95").strip()
-            dec_ep = os.environ.get("FORGE3D_I23D_DECIMATION_TARGET", "").strip()
-            sha8 = hashlib.sha256(f"{ep}|{mod_ep}|{simp_ep}|{dec_ep}".encode("utf-8")).hexdigest()[:8]
-            suf_ep = f"+trep{sha8}"
+        mod_mesh = modelo_escolhido()
+        suf_trellis = f"+{_trellis.cache_tag_trellis2()}" if mod_mesh == "trellis" else ""
         return (
             f"{VERSAO}+mc{mc}+tex{tex}+rembg{rembg}"
             f"+rm{rembg_mod}+pg{pg_mode}+dl{delight}+q{qualidade}"
             f"+concept{concept_mod}@{_concept.VERSAO}"
-            f"+p{_concept.estado_pose_cache()}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+tx3+tmpl2_{tmpl}+mh1+dev{dev}{suf_ep}"
+            f"+p{_concept.estado_pose_cache()}+c{c_w}x{c_h}s{c_step}g{c_g}+cut2+tx3+tmpl2_{tmpl}+mh1+dev{dev}+m{mod_mesh}{suf_trellis}"
         )
 
     def _licenca(self) -> dict:
-        from . import LICENCAS, cloud_ai
+        from . import LICENCAS
 
-        if _trellis.endpoint_trellis_configurado():
-            cloud_ai.registrar_licencas_cloud()
+        modelo = modelo_escolhido()
+        if modelo == "trellis":
             _trellis.validar_modelo_trellis_licenca()
             return dict(LICENCAS["trellis"])
-        modelo = modelo_escolhido()
         if modelo not in LICENCAS:
             from ..errors import erro_licenca
 
@@ -148,8 +140,8 @@ class MeshProvider:
 
     def _custo_i23d(self, item: dict) -> dict:
         tem_origem = bool(str(item.get("origem") or "").strip())
-        if _trellis.endpoint_trellis_configurado():
-            return {"segundos_estimados": 35.0 if not tem_origem else 20.0, "vram_mb": 0, "disco_mb": 250}
+        if modelo_escolhido() == "trellis":
+            return {"segundos_estimados": 320.0 if not tem_origem else 300.0, "vram_mb": 4500, "disco_mb": 250}
         if _device().startswith("cpu"):
             return {"segundos_estimados": 220.0 if not tem_origem else 200.0, "vram_mb": 0, "disco_mb": 4500}
         if not tem_origem:
@@ -186,37 +178,8 @@ class MeshProvider:
             return {"segundos_estimados": 10.0, "vram_mb": 0, "disco_mb": 50}
         return self._custo_i23d(item)
 
-    def preflight(self) -> tuple[bool, str]:
-        """Diagnostico nomeado: cada falta vira uma frase que diz o que instalar."""
-        from ..errors import ForgeError
-
-        ep = _trellis.endpoint_trellis_configurado()
-        if ep:
-            from . import cloud_ai
-
-            cloud_ai.registrar_licencas_cloud()
-            try:
-                ep_val, _mod_val = _trellis.validar_endpoint_trellis(ep)
-            except ForgeError as exc:
-                return False, exc.mensagem
-            return True, f"pronto (TRELLIS remoto: {ep_val})"
-        if _trellis.exige_i23d_remoto():
-            return (
-                False,
-                "P3: FORGE3D_I23D_REQUIRE_REMOTE=1 exige FORGE3D_I23D_ENDPOINT configurado (sem fallback para TripoSR local)",
-            )
-
-        try:
-            self._licenca()
-        except ForgeError as exc:
-            return False, exc.mensagem
-
-        modelo = modelo_escolhido()
-        if modelo == "sf3d":
-            return False, "P3: SF3D encerrado em 6 GB (GAP-035: ~8 min/imagem); use FORGE3D_MODELO_MESH=triposr"
-        if modelo != "triposr":
-            return False, f"P3: modelo '{modelo}' reconhecido na licença, mas sem provider implementado"
-
+    def preflight_triposr(self) -> tuple[bool, str]:
+        """Diagnostico especifico da stack local TripoSR."""
         diagnostico = _diagnostico()
         if not diagnostico["ok"]:
             return False, diagnostico["razao"]
@@ -233,6 +196,24 @@ class MeshProvider:
                 "(GAP-040: o preflight respeita FORGE3D_MODELOS)"
             )
         return True, f"pronto (TripoSR, torch {diagnostico.get('torch', '?')}, venv {dir_venv().name})"
+
+    def preflight(self) -> tuple[bool, str]:
+        """Diagnostico nomeado: cada falta vira uma frase que diz o que instalar."""
+        from ..errors import ForgeError
+
+        try:
+            self._licenca()
+        except ForgeError as exc:
+            return False, exc.mensagem
+
+        modelo = modelo_escolhido()
+        if modelo == "trellis":
+            return _trellis.preflight_trellis2()
+        if modelo == "sf3d":
+            return False, "P3: SF3D encerrado em 6 GB (GAP-035: ~8 min/imagem); use FORGE3D_MODELO_MESH=triposr"
+        if modelo != "triposr":
+            return False, f"P3: modelo '{modelo}' reconhecido na licença, mas sem provider implementado"
+        return self.preflight_triposr()
 
     def _preflight_modo(self, modo: str, item: dict) -> tuple[bool, str]:
         if modo in ("cabelo", "armor", "criatura", "humanoide", "extrude"):
@@ -356,12 +337,9 @@ class MeshProvider:
             item, destino, imagem, concept_meta, env, t0, self._executar_pose_guard, self._executar_delight
         )
         res = dados["resultado"]
-        if res.get("provedor") == "trellis_remoto":
-            from . import cloud_ai
-
-            cloud_ai.registrar_licencas_cloud()
+        if res.get("provedor") == "trellis2_local":
             modelo_lic = "trellis"
-            modelo_hf_meta = str(res.get("modelo") or MODELO_HF)
+            modelo_hf_meta = str(res.get("modelo") or _trellis.MODELO_TRELLIS_PADRAO)
         else:
             modelo_lic = modelo_escolhido()
             modelo_hf_meta = MODELO_HF

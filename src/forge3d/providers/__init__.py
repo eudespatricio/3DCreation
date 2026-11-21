@@ -54,6 +54,14 @@ LICENCAS: dict[str, dict] = {
             "com as restricoes de uso da licenca; ver docs/riscos-e-licencas.md."
         ),
     },
+    "trellis": {
+        "modelo": "Microsoft TRELLIS.2-4B (MIT local)",
+        "uso_comercial": True,
+        "notice": (
+            "Malha 3D gerada localmente via Microsoft TRELLIS.2-4B (MIT) em subprocesso "
+            "isolado (uso comercial permitido)."
+        ),
+    },
 }
 
 #: rotas conhecidas e o provider que as atende nesta fase

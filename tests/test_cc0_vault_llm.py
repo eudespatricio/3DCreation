@@ -1,4 +1,4 @@
-"""Testes do Vault CC0, Gemini Embedding-2, Kitbash Composer LLM e TRELLIS LoRA (MIT)."""
+"""Testes do Vault CC0, Gemini Embedding-2 e Kitbash Composer LLM."""
 
 from __future__ import annotations
 
@@ -318,70 +318,6 @@ def test_vault_sync_cc0_cli_seed_manifest_query_verify(monkeypatch, tmp_path, ca
     saida_bad = json.loads(capsys.readouterr().out)
     assert saida_bad["ok"] is False
     assert saida_bad["codigo"] == "FORGE-E-LICENCA"
-
-
-def test_colab_trellis_lora_dry_run_e_bloqueio_licenca(tmp_path, capsys):
-    tl = _carregar_modulo_tool("colab_trellis_lora_mod", "colab_trellis_lora.py")
-    vs = _carregar_modulo_tool("vault_sync_cc0_for_lora", "vault_sync_cc0.py")
-
-    vault_dir = tmp_path / "vault_lora"
-    vs.seed_local_cc0(VaultCC0(vault_dir))
-
-    out_lora = tmp_path / "lora_out"
-    rc = tl.main(
-        [
-            "--vault-dir",
-            str(vault_dir),
-            "--output-dir",
-            str(out_lora),
-            "--base-model",
-            "JeffreyXiang/TRELLIS-image-large",
-            "--lora-r",
-            "16",
-            "--lora-alpha",
-            "32",
-            "--views",
-            "24",
-            "--dry-run",
-            "--json",
-        ]
-    )
-    assert rc == 0
-    manifest = json.loads(capsys.readouterr().out)
-    assert manifest["ok"] is True
-    assert manifest["licenca"] == "MIT"
-    assert manifest["uso_comercial"] is True
-    assert manifest["peft_lora"]["r"] == 16
-    assert manifest["peft_lora"]["lora_alpha"] == 32
-    assert manifest["condicionamento_24_vistas"]["num_vistas"] == 24
-    assert (out_lora / "lora_manifest.json").is_file()
-    assert (out_lora / "adapter_config.json").is_file()
-    assert (out_lora / "conditioning_24views.py").is_file()
-
-    # Rejeicao de dataset contendo item hunyuan ou GPL
-    bad_ds = tmp_path / "bad_ds.json"
-    arq_glb = tmp_path / "mesh.glb"
-    arq_glb.write_bytes(b"glTF\x02\x00\x00\x00MESH")
-    bad_ds.write_text(
-        json.dumps(
-            {
-                "items": [
-                    {
-                        "id": "poison.hunyuan",
-                        "caminho": str(arq_glb),
-                        "licenca": "CC0-1.0",
-                        "origem": "local_cc0",
-                        "modelo": "hunyuan3d-2",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    rc_bad = tl.main(["--dataset-manifest", str(bad_ds), "--validate-dataset", "--json"])
-    assert rc_bad != 0
-    err_out = json.loads(capsys.readouterr().out)
-    assert err_out["codigo"] == "FORGE-E-LICENCA"
 
 
 def test_kitbash_composer_dry_run(monkeypatch, tmp_path, capsys):

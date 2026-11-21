@@ -3,23 +3,20 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
 import xml.etree.ElementTree as ET
 
 import pytest
-import yaml
 
 from tests.e2e._helpers_scenarios import (
     R15_15_PARTS,
+    build_humanoid_silhouette_png_bytes,
     build_multisurface_ucx_glb,
     build_prism_glb,
     provision_godot_project,
     register_gemini_4view_mock,
     run_godot_in_project,
     setup_offline_i23d_shim,
-    write_colab_trellis_stub_package,
+    setup_offline_trellis2_shim,
     write_dense_humanoid_glb,
 )
 from tests.e2e.conftest import find_godot, run_godot_script
@@ -195,64 +192,52 @@ func _initialize() -> void:
 
 @pytest.mark.blender
 @pytest.mark.rapido
-def test_scenario3_zero_cost_colab_trellis_import_to_verify(
-    e2e_sandbox, make_minimal_png, repo_root
+def test_scenario3_zero_cost_local_trellis2_mesh_to_verify(
+    e2e_sandbox, write_spec
 ) -> None:
-    """Scenario 3: Colab TRELLIS.2-4B/Pixal3D worker (4-view offline stub) -> spec@6 -> validate -> run -> verify -> query."""
-    stub_dir = e2e_sandbox.root / "trellis_stub"
-    call_log = e2e_sandbox.root / "trellis_calls.json"
-    write_colab_trellis_stub_package(stub_dir, call_log)
+    """Scenario 3: Local TRELLIS.2 offline shim -> spec@6 -> validate -> run -> verify -> query."""
+    call_log = e2e_sandbox.root / "trellis2_calls.json"
+    shim_env = setup_offline_trellis2_shim(e2e_sandbox.root / "t2_s3", log_path=call_log)
+    front_png = e2e_sandbox.root / "paladin_hero_front.png"
+    front_png.write_bytes(build_humanoid_silhouette_png_bytes(size=128))
 
-    in_dir = e2e_sandbox.root / "concepts"
-    for view in ("front", "back", "left", "right"):
-        make_minimal_png(in_dir / "paladin_hero" / f"{view}.png", width=64, height=64, rgba=(180, 140, 100, 255))
-    glb_out = e2e_sandbox.root / "colab_glbs"
-    yaml_out = e2e_sandbox.root / "spec_trellis.yaml"
-
-    env = dict(e2e_sandbox.env)
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["PYTHONPATH"] = f"{stub_dir}{os.pathsep}{env['PYTHONPATH']}"
-    proc = subprocess.run(
-        [
-            sys.executable,
-            str(repo_root / "tools" / "colab_trellis_worker.py"),
-            "--input-dir", str(in_dir),
-            "--output-dir", str(glb_out),
-            "--yaml-out", str(yaml_out),
-            "--perfil", "godot4",
-            "--altura", "1.8",
-            "--schema-version", "6",
-            "--qualidade", "hero",
-        ],
-        cwd=str(repo_root),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
+    spec_ready = write_spec(
+        e2e_sandbox.root / "spec_trellis2_s3.yaml",
+        {
+            "schema": "forge3d/spec@6",
+            "projeto": "e2e_s3_trellis2",
+            "perfil": "godot4",
+            "destino_exportacao": str(e2e_sandbox.dest_dir),
+            "estilo_global": "stylized_pbr",
+            "lote": [
+                {
+                    "id": "trellis.paladin_hero",
+                    "tipo": "personagem_humanoide",
+                    "rota": "i23d",
+                    "origem": str(front_png),
+                    "seed": 42,
+                    "altura_metros": 1.8,
+                    "qualidade": "hero",
+                    "limite_triangulos": 4000,
+                    "tags": ["trellis2_s3"],
+                }
+            ],
+        },
     )
-    assert proc.returncode == 0, f"colab_trellis_worker failed: {proc.stdout}\n{proc.stderr}"
-    call_info = json.loads(call_log.read_text(encoding="utf-8"))
-    assert "TRELLIS.2" in call_info["model"] or "Pixal3D" in call_info["model"]
-    assert call_info["multi"] is True and call_info["views"] == 4
 
-    doc = yaml.safe_load(yaml_out.read_text(encoding="utf-8"))
-    assert doc["schema"] == "forge3d/spec@6"
-    assert doc["lote"][0]["rota"] == "import"
-    assert str(doc["requisicao"]["base_externa"]["sha256"]).startswith("sha256:")
-    doc["destino_exportacao"] = str(e2e_sandbox.dest_dir)
-    doc["lote"][0]["tags"] = ["colab_s3"]
-    doc["lote"][0]["limite_triangulos"] = 2000
-    spec_ready = e2e_sandbox.root / "spec_trellis_ready.yaml"
-    spec_ready.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
-
-    no_gpu = {"CUDA_VISIBLE_DEVICES": ""}
-    rc_v, _, err_v, _ = e2e_sandbox.run_cli(["validate", str(spec_ready)], env_overrides=no_gpu)
+    rc_v, _, err_v, _ = e2e_sandbox.run_cli(["validate", str(spec_ready)], env_overrides=shim_env)
     assert rc_v == 0, err_v
-    rc_r, _, err_r, rep_r = e2e_sandbox.run_cli(["run", str(spec_ready), "--no-cache"], env_overrides=no_gpu)
-    assert rc_r == 0 and isinstance(rep_r, dict) and rep_r["resumo"]["publicados"] == 1, err_r
-    rc_ver, _, err_ver, ver = e2e_sandbox.run_cli(["verify", str(e2e_sandbox.dest_dir)], env_overrides=no_gpu)
+    rc_r, _, err_r, rep_r = e2e_sandbox.run_cli(["run", str(spec_ready), "--no-cache"], env_overrides=shim_env)
+    assert rc_r == 0 and isinstance(rep_r, dict) and rep_r["resumo"]["publicados"] == 1, f"rc={rc_r} err={err_r} rep={rep_r}"
+
+    call_info = json.loads(call_log.read_text(encoding="utf-8"))
+    assert "TRELLIS.2" in call_info["modelo"]
+    assert call_info["quant"] == "BF16" and call_info["pipeline_type"] == "512"
+    assert call_info["steps"] == "25" and call_info["texture_size"] == "2048"
+
+    rc_ver, _, err_ver, ver = e2e_sandbox.run_cli(["verify", str(e2e_sandbox.dest_dir)], env_overrides=shim_env)
     assert rc_ver == 0 and isinstance(ver, dict) and ver["ok"] is True, err_ver
-    rc_q, _, err_q, qry = e2e_sandbox.run_cli(["query", "--tag", "colab_s3"])
+    rc_q, _, err_q, qry = e2e_sandbox.run_cli(["query", "--tag", "trellis2_s3"])
     assert rc_q == 0 and isinstance(qry, dict) and qry["total"] == 1, err_q
 
 

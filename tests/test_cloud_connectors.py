@@ -334,7 +334,8 @@ def test_doctor_conectores_ia_e_zero_vazamento_de_segredos(monkeypatch, tmp_path
     assert con["gemini"]["pronto"] is True
     assert "gemini-nano-banana-2.1" in con["gemini"]["detalhe"]
     assert con["higgsfield"]["pronto"] is True
-    assert con["trellis"]["pronto"] is True
+    assert isinstance(con["trellis"]["pronto"], bool)
+    assert "colab" not in con["trellis"]["detalhe"].lower()
     assert con["roblox_open_cloud"]["pronto"] is True
 
     serializado = json.dumps(rel)
@@ -506,23 +507,54 @@ def test_avaliar_qualidade_visual_gemini_mock(monkeypatch, tmp_path):
 
 
 def test_trellis_connector_mock(monkeypatch, tmp_path):
+    from forge3d import locks
+    from forge3d.providers import mesh_trellis
+
+    vazio = tmp_path / "sem_trellis2"
+    monkeypatch.setenv("FORGE3D_TRELLIS2_DIR", str(vazio))
+    monkeypatch.delenv("FORGE3D_TRELLIS2_SCRIPT", raising=False)
+    monkeypatch.delenv("FORGE3D_I23D_DEVICE", raising=False)
+    monkeypatch.delenv("FORGE3D_I23D_TRELLIS_MODEL", raising=False)
+    ok0, det0 = cloud_ai.trellis_disponivel()
+    assert ok0 is False
+    assert "inativo" in det0.lower()
+    assert "colab" not in det0.lower() and "endpoint" not in det0.lower()
+
+    t2_root = tmp_path / "trellis2"
+    (t2_root / "venv" / "bin").mkdir(parents=True)
+    (t2_root / "venv" / "bin" / "python").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (t2_root / "repo" / "trellis2_gguf").mkdir(parents=True)
+    script = tmp_path / "trellis2_infer.py"
+    script.write_text("# stub\n", encoding="utf-8")
+    m = t2_root / "models"
+    for rel in (
+        "Trellis2/pipeline.json",
+        "Trellis2/decoders/Stage1/ss_dec_conv3d_16l8_fp16.safetensors",
+        "Trellis2/decoders/Stage2/shape_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/decoders/Stage2/tex_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/refiner/ss_flow_img_dit_1_3B_64_bf16.safetensors",
+        "Trellis2/shape/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+        "Trellis2/texture/slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors",
+    ):
+        p = m / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+    (m / "facebook" / "dinov3-vitl16-pretrain-lvd1689m").mkdir(parents=True)
+
+    monkeypatch.setenv("FORGE3D_TRELLIS2_DIR", str(t2_root))
+    monkeypatch.setenv("FORGE3D_TRELLIS2_SCRIPT", str(script))
+    monkeypatch.setattr(mesh_trellis, "diagnostico_trellis2", lambda: {"ok": True, "torch": "2.9.1+cu128", "cuda": True})
+    monkeypatch.setattr(locks, "vram_livre_mb", lambda: 5600)
+
     ok1, det1 = cloud_ai.trellis_disponivel()
-    assert ok1 is True
-    assert "colab_trellis_worker" in det1
-    assert "TRELLIS.2-4B" in det1
-    for proibido in ("fal" + ".run", "fal" + ".ai", "fal" + ".key", "forge3d_" + "fal_api_key"):
+    assert ok1 is True, det1
+    assert "local" in det1.lower() and "TRELLIS.2" in det1
+    for proibido in ("fal" + ".run", "fal" + ".ai", "fal" + ".key", "forge3d_" + "fal_api_key", "colab"):
         assert proibido not in det1.lower()
 
     assert not hasattr(cloud_ai, "gerar_malha_trellis")
     assert not hasattr(cloud_ai, "URL_TRELLIS_PADRAO")
     assert not hasattr(cloud_ai, "_ler_chave_fal")
-
-    vazio_root = tmp_path / "sem_worker"
-    (vazio_root / "schemas").mkdir(parents=True)
-    monkeypatch.setenv("FORGE3D_ROOT", str(vazio_root))
-    ok0, det0 = cloud_ai.trellis_disponivel()
-    assert ok0 is False
-    assert "colab_trellis_worker.py" in det0
 
 
 def test_ler_arquivo_chave_falha_explicita_em_oserror_e_gemini_disponivel_reporta(monkeypatch, tmp_path):
@@ -775,39 +807,6 @@ def test_visual_qa_critic_aprova_limpo_e_reprova_defeitos(tmp_path):
     assert res_v12["aprovado"] is False
     assert any("boot_interpenetration" in d for d in res_v12["defeitos"]), res_v12
     assert any("tunic_texture_step" in d for d in res_v12["defeitos"]), res_v12
-
-
-def test_colab_trellis_worker_gera_spec_v5_valido(tmp_path):
-    import importlib.util
-    import yaml
-    from forge3d import spec
-
-    spec_tw = importlib.util.spec_from_file_location(
-        "colab_trellis_worker_mod", RAIZ / "tools" / "colab_trellis_worker.py"
-    )
-    assert spec_tw and spec_tw.loader
-    tw = importlib.util.module_from_spec(spec_tw)
-    spec_tw.loader.exec_module(tw)
-
-    glb = tmp_path / "paladin.glb"
-    glb.write_bytes(b"glTF\x02\x00\x00\x00TEST")
-    digest = tw.sha256_arquivo(glb)
-    yaml_str = tw.gerar_yaml_spec_v5(
-        [{"stem": "paladin", "glb_rel": str(glb), "sha256": digest, "seed": 42}]
-    )
-    doc = yaml.safe_load(yaml_str)
-    spec_doc, _perfil, _avisos = spec.preparar(doc)
-    assert spec_doc["schema"] == "forge3d/spec@5"
-    assert spec_doc["requisicao"]["base_externa"]["sha256"] == digest
-
-    yaml_str_v6 = tw.gerar_yaml_spec(
-        [{"stem": "paladin", "glb_rel": str(glb), "sha256": digest, "seed": 42}],
-        schema_version=6,
-        qualidade="hero",
-    )
-    doc_v6 = yaml.safe_load(yaml_str_v6)
-    assert doc_v6["schema"] == "forge3d/spec@6"
-    assert doc_v6["lote"][0]["qualidade"] == "hero"
 
 
 def test_spec_v6_origem_espacos_em_branco_rejeitada(tmp_path):

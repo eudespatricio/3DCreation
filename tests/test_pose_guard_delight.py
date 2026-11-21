@@ -673,6 +673,7 @@ def test_mesh_extrude_2d_emite_bruto_extrude_sem_triposr(monkeypatch, tmp_path):
 
 
 def test_mesh_humanoide_hero_ativa_pose_guard_delight_e_proteger_decimate(monkeypatch, tmp_path):
+    monkeypatch.setenv("FORGE3D_MODELO_MESH", "triposr")
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     (
         tmp_path

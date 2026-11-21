@@ -11,12 +11,9 @@ import json
 import re
 import subprocess
 import sys
-import types
 from pathlib import Path
 
-import jsonschema
 import pytest
-import yaml
 from PIL import Image
 
 from forge3d import post, qc
@@ -389,44 +386,24 @@ def test_f24_delight_emissive_metal_liso_e_variacao_roughness_dieletrico(tmp_pat
     assert abs(rough_diel.getpixel((10, 32)) - rough_diel.getpixel((50, 32))) >= 20
 
 
-# F25: Colab TRELLIS.2-4B / Pixal3D (MIT), boss rig, smart_fit, G15
-def test_f25_colab_trellis_worker_trellis2_pixal3d_multiview_e_spec6(monkeypatch, tmp_path):
-    worker = _importar_tool("colab_trellis_worker")
-    assert "TRELLIS.2" in worker.MODELO_TRELLIS_PADRAO or "Pixal3D" in worker.MODELO_TRELLIS_PADRAO
+# F25: TRELLIS.2-4B / Pixal3D local MIT allowlist & CLI, boss rig, smart_fit, G15
+def test_f25_trellis2_local_infer_cli_e_allowlist_mit():
+    from forge3d.errors import ForgeError
+    from forge3d.providers import mesh_trellis
 
-    in_dir = tmp_path / "concepts"
-    asset_dir = in_dir / "paladin"
-    asset_dir.mkdir(parents=True)
-    for vista in ("front", "back", "left", "right"):
-        (asset_dir / f"{vista}.png").write_bytes(_png_bytes((180, 140, 100, 255)))
-    out_dir = tmp_path / "glbs"
+    proc = subprocess.run(
+        [sys.executable, str(RAIZ / "tools" / "trellis2_infer.py"), "--help"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    for flag in ("--quant", "--pipeline-type", "--steps", "--decimation-target", "--texture-size", "--remesh-project"):
+        assert flag in proc.stdout
 
-    chamadas_run: list[tuple] = []
-
-    class _FakeMesh:
-        def export(self, path_str: str) -> None:
-            Path(path_str).write_bytes(b"glTF\x02\x00\x00\x00FAKE_TRELLIS2")
-
-    class _FakePipe:
-        def run(self, imagem, seed=1, **_kw):
-            chamadas_run.append((imagem, seed))
-            return {"gaussian": ["g"], "mesh": ["m"]}
-
-    fake_trellis = types.ModuleType("trellis")
-    fake_utils = types.ModuleType("trellis.utils")
-    fake_pp = types.ModuleType("trellis.utils.postprocessing_utils")
-    fake_pp.to_glb = lambda *_a, **_kw: _FakeMesh()
-    monkeypatch.setitem(sys.modules, "trellis", fake_trellis)
-    monkeypatch.setitem(sys.modules, "trellis.utils", fake_utils)
-    monkeypatch.setitem(sys.modules, "trellis.utils.postprocessing_utils", fake_pp)
-
-    entradas = worker.processar_pasta(in_dir, out_dir, pipeline=_FakePipe())
-    assert len(entradas) == 1 and len(chamadas_run) == 1
-    assert isinstance(chamadas_run[0][0], (list, tuple)) and len(chamadas_run[0][0]) == 4
-    doc = yaml.safe_load(worker.gerar_yaml_spec(entradas, schema_version=6))
-    jsonschema.validate(doc, json.loads(SPEC_V6.read_text(encoding="utf-8")))
-    assert doc["lote"][0]["rota"] == "import"
-    assert entradas[0]["sha256"].startswith("sha256:")
+    assert mesh_trellis.validar_modelo_trellis_licenca("TRELLIS.2-4B") == "microsoft/TRELLIS.2-4B"
+    assert mesh_trellis.validar_modelo_trellis_licenca("Pixal3D") == "TencentARC/Pixal3D"
+    with pytest.raises(ForgeError) as exc_info:
+        mesh_trellis.validar_modelo_trellis_licenca("forbidden/hunyuan3d-2")
+    assert exc_info.value.codigo == "FORGE-E-LICENCA"
 
 
 @pytest.mark.blender

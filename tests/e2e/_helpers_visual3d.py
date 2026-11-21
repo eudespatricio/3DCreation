@@ -419,28 +419,63 @@ def make_delight_test_sprite(path: Path) -> Path:
     return path
 
 
-def make_colab_fake_site(site_dir: Path, glb_template: Path) -> Path:
-    """Create a subprocess-only PYTHONPATH shim for `trellis`/`pixal3d` emitting valid GLBs."""
-    for pkg in ("trellis", "trellis2", "pixal3d"):
-        p_dir = site_dir / pkg
-        (p_dir / "utils").mkdir(parents=True, exist_ok=True)
-        (p_dir / "__init__.py").write_text("", encoding="utf-8")
-        (p_dir / "utils" / "__init__.py").write_text("", encoding="utf-8")
-        (p_dir / "pipelines.py").write_text(
-            "class _Pipe:\n    def cuda(self): return self\n"
-            "    def run(self, image_or_views, seed=1, **_kw): return {'gaussian': [image_or_views], 'mesh': [seed]}\n"
-            "class TrellisImageTo3DPipeline:\n    @classmethod\n    def from_pretrained(cls, _m): return _Pipe()\n"
-            "class Trellis2ImageTo3DPipeline(TrellisImageTo3DPipeline): pass\n"
-            "class Pixal3DPipeline(TrellisImageTo3DPipeline): pass\n",
-            encoding="utf-8",
-        )
-        (p_dir / "utils" / "postprocessing_utils.py").write_text(
-            f"import shutil\nfrom pathlib import Path\nclass _Mesh:\n"
-            f"    def export(self, dst): shutil.copyfile({str(glb_template)!r}, Path(dst))\n"
-            "def to_glb(*_a, **_kw): return _Mesh()\n",
-            encoding="utf-8",
-        )
-    return site_dir
+def setup_offline_trellis2_shim(base_dir: Path, glb_template: Path) -> dict[str, str]:
+    """Create a zero-GPU, zero-network offline local TRELLIS.2 shim emitting `glb_template`."""
+    t2_dir = base_dir / "trellis2"
+    venv_bin, site_dir = t2_dir / "venv" / "bin", base_dir / "trellis2_site"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (t2_dir / "repo" / "trellis2_gguf").mkdir(parents=True, exist_ok=True)
+    (t2_dir / "cuda128" / "lib").mkdir(parents=True, exist_ok=True)
+    models = t2_dir / "models"
+    for rel in (
+        "Trellis2/pipeline.json",
+        "Trellis2/decoders/Stage1/ss_dec_conv3d_16l8_fp16.safetensors",
+        "Trellis2/decoders/Stage2/shape_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/decoders/Stage2/tex_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/refiner/ss_flow_img_dit_1_3B_64_bf16.safetensors",
+        "Trellis2/shape/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+        "Trellis2/texture/slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors",
+    ):
+        p = models / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+    (models / "facebook" / "dinov3-vitl16-pretrain-lvd1689m").mkdir(parents=True, exist_ok=True)
+
+    (site_dir / "torch").mkdir(parents=True, exist_ok=True)
+    (site_dir / "torch" / "__init__.py").write_text(
+        "__version__ = '2.9.1+e2e'\nclass cuda:\n    @staticmethod\n    def is_available(): return True\n", encoding="utf-8"
+    )
+    for mod_name in ("o_voxel", "flex_gemm", "nvdiffrast", "cumesh"):
+        (site_dir / f"{mod_name}.py").write_text("", encoding="utf-8")
+
+    py_shim = venv_bin / "python"
+    py_shim.write_text(
+        f"#!/bin/sh\nPYTHONPATH={str(site_dir)!r}:\"${{PYTHONPATH:-}}\"\nexport PYTHONPATH\nexec {sys.executable!r} \"$@\"\n",
+        encoding="utf-8",
+    )
+    py_shim.chmod(py_shim.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    infer_stub = base_dir / "trellis2_infer_stub.py"
+    infer_stub.write_text(
+        "import argparse, json, shutil\nfrom pathlib import Path\n"
+        "p = argparse.ArgumentParser()\np.add_argument('--imagem', required=True)\np.add_argument('--saida-dir', required=True)\np.add_argument('--resultado', required=True)\n"
+        "args, _ = p.parse_known_args()\nout = Path(args.saida_dir)\nout.mkdir(parents=True, exist_ok=True)\n"
+        f"shutil.copyfile({str(glb_template)!r}, out / 'modelo.glb')\n"
+        "if Path(args.imagem).is_file() and Path(args.imagem).resolve() != (out / 'input.png').resolve():\n"
+        "    shutil.copyfile(args.imagem, out / 'input.png')\n"
+        "Path(args.resultado).write_text(json.dumps({'ok': True, 'provedor': 'trellis2_local', 'modelo': 'microsoft/TRELLIS.2-4B', 'arquivo': 'modelo.glb', 'faces': 12}), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    return {
+        "FORGE3D_MODELO_MESH": "trellis2",
+        "FORGE3D_TRELLIS2_DIR": str(t2_dir),
+        "FORGE3D_TRELLIS2_SCRIPT": str(infer_stub),
+        "FORGE3D_I23D_DEVICE": "cuda:0",
+        "FORGE3D_VRAM_MINIMA_MB": "0",
+        "FORGE3D_POSE_GUARD": "off",
+        "FORGE3D_DELIGHT": "0",
+    }
 
 
 def write_concept_and_render_pair(root: Path, *, mismatch: bool) -> tuple[Path, Path]:

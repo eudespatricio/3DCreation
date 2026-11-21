@@ -1,38 +1,29 @@
-"""Testes independentes da v0.9.8 (Onda 1 TRELLIS.2): BUG-T1..BUG-T5."""
+"""Testes independentes da v0.9.8 (Onda 1 TRELLIS.2): BUG-T1..BUG-T5 + integracao local."""
 
 from __future__ import annotations
 
-import base64
-import io
 import json
 import subprocess
 import sys
-import threading
-import time
 import types
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 import pytest
 from PIL import Image
 
-from forge3d import doctor, post
+from forge3d import doctor, locks, post
 from forge3d.errors import ForgeError
-from forge3d.providers import cloud_ai, concept, concept_prompt, mesh, mesh_i23d, mesh_trellis
+from forge3d.providers import concept, concept_prompt, mesh, mesh_i23d, mesh_trellis
 from forge3d.qc_glb import ler_glb_bin
 from forge3d.qc_uv import _uv_status
 
 RAIZ = Path(__file__).resolve().parents[1]
-BLENDER_DIR, TOOLS_DIR = RAIZ / "blender", RAIZ / "tools"
-for _p in (str(BLENDER_DIR), str(TOOLS_DIR)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+BLENDER_DIR = RAIZ / "blender"
+if str(BLENDER_DIR) not in sys.path:
+    sys.path.insert(0, str(BLENDER_DIR))
 
 import bake_pbr_config  # noqa: E402
-import colab_trellis_server  # noqa: E402
-import colab_trellis_worker  # noqa: E402
 
 
 def _rodar_blender_py(codigo: str, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -40,12 +31,6 @@ def _rodar_blender_py(codigo: str, timeout: int = 180) -> subprocess.CompletedPr
         [post.binario(), "--background", "--factory-startup", "--python-expr", codigo],
         capture_output=True, text=True, timeout=timeout,
     )
-
-
-def _png_b64(cor: tuple[int, int, int, int] = (200, 90, 40, 255)) -> str:
-    buf = io.BytesIO()
-    Image.new("RGBA", (16, 16), cor).save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def test_bug_t1_preparar_high_mesh_pula_acima_60k_com_e_sem_color_attributes(monkeypatch):
@@ -148,7 +133,30 @@ print("OUT_T2:" + json.dumps({{"tris_a": tris_a, "nm_a": list(nm_a), "h_a": h_a,
     assert res["h_d"] >= 0.96 * res["h_a"]
 
 
-def test_bug_t2_calcular_decimation_target_e_payload_remoto(monkeypatch, tmp_path):
+def _criar_fake_trellis2_dir(base: Path) -> Path:
+    t2_dir = base / "trellis2"
+    (t2_dir / "venv" / "bin").mkdir(parents=True, exist_ok=True)
+    (t2_dir / "venv" / "bin" / "python").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (t2_dir / "repo" / "trellis2_gguf").mkdir(parents=True, exist_ok=True)
+    (t2_dir / "cuda128" / "lib").mkdir(parents=True, exist_ok=True)
+    models = t2_dir / "models"
+    for rel in (
+        "Trellis2/pipeline.json",
+        "Trellis2/decoders/Stage1/ss_dec_conv3d_16l8_fp16.safetensors",
+        "Trellis2/decoders/Stage2/shape_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/decoders/Stage2/tex_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/refiner/ss_flow_img_dit_1_3B_64_bf16.safetensors",
+        "Trellis2/shape/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+        "Trellis2/texture/slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors",
+    ):
+        p = models / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+    (models / "facebook" / "dinov3-vitl16-pretrain-lvd1689m").mkdir(parents=True, exist_ok=True)
+    return t2_dir
+
+
+def test_bug_t2_calcular_decimation_target_e_cli_local(monkeypatch, tmp_path):
     monkeypatch.delenv("FORGE3D_I23D_DECIMATION_TARGET", raising=False)
     assert mesh_trellis.calcular_decimation_target({"limite_triangulos": 16000}) == 64_000
     assert mesh_trellis.calcular_decimation_target({"limite_triangulos": 2000}) == 48_000
@@ -164,87 +172,35 @@ def test_bug_t2_calcular_decimation_target_e_payload_remoto(monkeypatch, tmp_pat
             mesh_trellis.calcular_decimation_target({"limite_triangulos": 16000})
 
     monkeypatch.delenv("FORGE3D_I23D_DECIMATION_TARGET", raising=False)
-    monkeypatch.setenv("FORGE3D_I23D_ENDPOINT", "http://127.0.0.1:8765")
+    t2_dir = _criar_fake_trellis2_dir(tmp_path)
+    monkeypatch.setenv("FORGE3D_TRELLIS2_DIR", str(t2_dir))
+    monkeypatch.setenv("FORGE3D_I23D_DEVICE", "cuda:0")
     img_path = tmp_path / "front.png"
     Image.new("RGBA", (16, 16), (255, 0, 0, 255)).save(img_path)
-    capturado: dict[str, Any] = {}
+    capturado_cmd: list[str] = []
 
-    class _FakeResp:
-        headers = {"Content-Type": "application/json"}
-        def __enter__(self): return self
-        def __exit__(self, *args): return False
-        def read(self) -> bytes:
-            b64 = base64.b64encode(b"glTF\x02\x00\x00\x00").decode("ascii")
-            return json.dumps({"ok": True, "glb_base64": b64, "faces": 12000}).encode("utf-8")
+    def _fake_run(cmd, **_kw):
+        capturado_cmd.extend(cmd)
+        out_dir = Path(cmd[cmd.index("--saida-dir") + 1])
+        res_path = Path(cmd[cmd.index("--resultado") + 1])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "modelo.glb").write_bytes(b"glTF\x02\x00\x00\x00")
+        res_path.write_text(json.dumps({"ok": True, "faces": 12000, "modelo": "microsoft/TRELLIS.2-4B"}), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=60: (capturado.update(json.loads(req.data.decode())) or _FakeResp()))
-    res = mesh_trellis.executar_i23d_remoto(
+    monkeypatch.setattr(mesh_trellis._diag, "subproc_run", _fake_run)
+    out_dir = tmp_path / "out"
+    res = mesh_trellis.executar_i23d_trellis2_local(
         {"id": "mob.01", "limite_triangulos": 16000, "qualidade": "ultra"},
-        tmp_path / "out", img_path, None, {},
+        out_dir, img_path, {},
     )
-    assert res["ok"] is True
-    assert capturado["decimation_target"] == 64_000 and capturado["texture_size"] == 2048
-
-
-def test_bug_t2_e_t4_colab_trellis_server_decimation_target_e_multivista():
-    assert colab_trellis_server._validar_decimation_target(None) is None
-    assert colab_trellis_server._validar_decimation_target(2_000) == 8_000
-    assert colab_trellis_server._validar_decimation_target(500_000) == 300_000
-    assert colab_trellis_server._validar_decimation_target(64_000) == 64_000
-    assert colab_trellis_server._validar_texture_size(999_999) == 4096
-    assert colab_trellis_server._validar_simplify(0.95) == 0.95
-    with pytest.raises(ValueError):
-        colab_trellis_server._validar_texture_size(-1)
-    with pytest.raises(ValueError):
-        colab_trellis_server._validar_simplify(1.5)
-
-    chamadas: list[dict[str, Any]] = []
-
-    class _FakeGlb:
-        faces = [1, 2, 3, 4]
-        def export(self, caminho: str) -> None: Path(caminho).write_bytes(b"glTF\x02\x00\x00\x00")
-
-    class _PipeSingleOnly:
-        def run(self, img: Any, seed: int = 1) -> Any:
-            chamadas.append({"modo": "single", "eh_pil": isinstance(img, Image.Image), "seed": seed})
-            return _FakeGlb()
-
-    class _PipeMulti:
-        def run(self, img: Any, seed: int = 1) -> Any: raise AssertionError("esperado run_multi_image")
-        def run_multi_image(self, imgs: list[Any], seed: int = 1) -> Any:
-            chamadas.append({"modo": "multi", "qtd": len(imgs), "seed": seed})
-            return _FakeGlb()
-
-    b64 = _png_b64()
-    vistas4 = {"front": b64, "back": b64, "left": b64, "right": b64}
-    srv1 = colab_trellis_server.criar_servidor("127.0.0.1", 0, pipeline=_PipeSingleOnly())
-    threading.Thread(target=srv1.serve_forever, daemon=True).start()
-    try:
-        url = f"http://127.0.0.1:{srv1.server_port}/generate"
-        for inv in (0, -10, "abc", True):
-            req = urllib.request.Request(url, data=json.dumps({"images": vistas4, "decimation_target": inv}).encode(), headers={"Content-Type": "application/json"}, method="POST")
-            with pytest.raises(urllib.error.HTTPError) as exc:
-                urllib.request.urlopen(req, timeout=10)
-            assert exc.value.code == 400
-        req_ok = urllib.request.Request(url, data=json.dumps({"images": vistas4, "decimation_target": 72000}).encode(), headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req_ok, timeout=10) as resp:
-            assert json.loads(resp.read().decode())["ok"] is True
-        assert chamadas[-1] == {"modo": "single", "eh_pil": True, "seed": 1}
-    finally:
-        srv1.shutdown()
-        srv1.server_close()
-
-    srv2 = colab_trellis_server.criar_servidor("127.0.0.1", 0, pipeline=_PipeMulti())
-    threading.Thread(target=srv2.serve_forever, daemon=True).start()
-    try:
-        url_m = f"http://127.0.0.1:{srv2.server_port}/generate"
-        req_m = urllib.request.Request(url_m, data=json.dumps({"images": vistas4, "seed": 7}).encode(), headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req_m, timeout=10) as resp:
-            assert json.loads(resp.read().decode())["ok"] is True
-        assert chamadas[-1] == {"modo": "multi", "qtd": 4, "seed": 7}
-    finally:
-        srv2.shutdown()
-        srv2.server_close()
+    assert res["ok"] is True and res["provedor"] == "trellis2_local"
+    assert capturado_cmd[capturado_cmd.index("--decimation-target") + 1] == "64000"
+    assert capturado_cmd[capturado_cmd.index("--texture-size") + 1] == "2048"
+    assert capturado_cmd[capturado_cmd.index("--quant") + 1] == "BF16"
+    assert capturado_cmd[capturado_cmd.index("--pipeline-type") + 1] == "512"
+    assert capturado_cmd[capturado_cmd.index("--steps") + 1] == "25"
+    assert capturado_cmd[capturado_cmd.index("--remesh-project") + 1] == "1.0"
 
 
 @pytest.mark.blender
@@ -332,86 +288,57 @@ print("OUT_T3:" + json.dumps({{"nat_bake": res_nat["bake"], "vc_bake": res_vc["b
     assert out["erro_levantado"] is True
 
 
-def test_bug_t4_exportar_saida_pipeline_trellis2_o_voxel_e_trellis_v1(monkeypatch):
-    capturado_ov: dict[str, Any] = {}
+def test_bug_t5_doctor_cloud_ai_licenca_local_e_ultra_2048(monkeypatch, tmp_path):
+    from forge3d.providers import cloud_ai
 
-    class _FakeMeshWithVoxel:
-        vertices, faces, attrs, coords = "v_tensor", "f_tensor", "attrs_vol", "coords_vol"
-        layout = {"base_color": (0, 3)}
-        voxel_size = 0.005
-
-    fake_ov = types.ModuleType("o_voxel.postprocess")
-    fake_ov.to_glb = lambda **kw: (capturado_ov.update(kw) or "GLB_TRELLIS2_OK")  # type: ignore[attr-defined]
-    orig_import = colab_trellis_worker.importlib.import_module
-
-    def _fake_import(nome: str):
-        if nome == "o_voxel.postprocess":
-            return fake_ov
-        if nome == "trellis.utils.postprocessing_utils":
-            mod_v1 = types.ModuleType(nome)
-            mod_v1.to_glb = lambda g, m, simplify, texture_size: {"v1_g": g, "v1_m": m, "simplify": simplify, "texture_size": texture_size}  # type: ignore[attr-defined]
-            return mod_v1
-        return orig_import(nome)
-
-    monkeypatch.setattr(colab_trellis_worker.importlib, "import_module", _fake_import)
-    out_t2 = colab_trellis_worker._exportar_saida_pipeline(
-        [_FakeMeshWithVoxel()], "microsoft/TRELLIS.2-4B", simplify=0.95, texture_size=2048, decimation_target=64_000
-    )
-    assert out_t2 == "GLB_TRELLIS2_OK"
-    assert capturado_ov["vertices"] == "v_tensor" and capturado_ov["faces"] == "f_tensor"
-    assert capturado_ov["attr_volume"] == "attrs_vol" and capturado_ov["coords"] == "coords_vol"
-    assert capturado_ov["attr_layout"] == {"base_color": (0, 3)} and capturado_ov["voxel_size"] == 0.005
-    assert capturado_ov["decimation_target"] == 64_000 and capturado_ov["texture_size"] == 2048
-    assert capturado_ov["remesh"] is True
-
-    out_v1 = colab_trellis_worker._exportar_saida_pipeline(
-        {"gaussian": ["g0"], "mesh": ["m0"]}, "microsoft/TRELLIS-image-large", simplify=0.92, texture_size=1024
-    )
-    assert out_v1 == {"v1_g": "g0", "v1_m": "m0", "simplify": 0.92, "texture_size": 1024}
-
-
-def test_bug_t5_doctor_cloud_ai_licenca_require_remote_e_ultra_2048(monkeypatch, tmp_path):
-    monkeypatch.delenv("FORGE3D_I23D_ENDPOINT", raising=False)
-    monkeypatch.delenv("FORGE3D_I23D_REQUIRE_REMOTE", raising=False)
+    monkeypatch.setenv("FORGE3D_TRELLIS2_DIR", str(tmp_path / "sem_trellis2"))
+    monkeypatch.delenv("FORGE3D_MODELO_MESH", raising=False)
     monkeypatch.delenv("FORGE3D_TEX_PX", raising=False)
 
     ok_inativo, det_inativo = cloud_ai.trellis_disponivel()
-    assert ok_inativo is True and det_inativo.startswith("inativo (FORGE3D_I23D_ENDPOINT vazio")
+    assert ok_inativo is False and det_inativo.startswith("inativo (")
     tr_inativo = doctor.checar()["conectores_ia"]["trellis"]
-    assert tr_inativo["status"] == "inativo" and tr_inativo["ativo"] is False
+    assert tr_inativo["ativo"] is False and tr_inativo["ok"] is False
 
-    monkeypatch.setenv("FORGE3D_I23D_REQUIRE_REMOTE", "1")
+    monkeypatch.setenv("FORGE3D_MODELO_MESH", "trellis2")
     prov = mesh.MeshProvider()
     ok_pf, msg_pf = prov.preflight()
-    assert ok_pf is False and "FORGE3D_I23D_REQUIRE_REMOTE=1" in msg_pf
+    assert ok_pf is False and "trellis2" in msg_pf.lower()
 
     img = tmp_path / "in.png"
     Image.new("RGBA", (16, 16), (120, 120, 120, 255)).save(img)
     dl_noop = lambda *_a: {"report": {}, "albedo": "", "metallic_hint": "", "roughness_hint": "", "arquivos": []}  # noqa: E731
-    with pytest.raises(ForgeError, match="FORGE3D_I23D_REQUIRE_REMOTE=1"):
+    with pytest.raises(ForgeError) as err_step:
         mesh_i23d.executar_i23d_step(
             {"id": "mob.req", "qualidade": "ultra"}, tmp_path / "err", img, None, {}, 0.0, lambda *_a: (img, {}), dl_noop
         )
+    assert err_step.value.codigo == "FORGE-E-PROVIDER-RUN"
 
-    monkeypatch.setenv("FORGE3D_I23D_ENDPOINT", "https://trellis.example.ngrok.app")
+    t2_dir = _criar_fake_trellis2_dir(tmp_path)
+    monkeypatch.setenv("FORGE3D_TRELLIS2_DIR", str(t2_dir))
+    monkeypatch.setenv("FORGE3D_I23D_DEVICE", "cuda:0")
+    monkeypatch.setattr(mesh_trellis, "diagnostico_trellis2", lambda: {"ok": True, "torch": "2.9.1+cu128", "cuda": True})
+    monkeypatch.setattr(locks, "vram_livre_mb", lambda: 5600)
+
     ok_ativo, det_ativo = cloud_ai.trellis_disponivel()
-    assert ok_ativo is True and det_ativo.startswith("ativo (https://trellis.example.ngrok.app")
+    assert ok_ativo is True and det_ativo.startswith("local (")
     tr_ativo = doctor.checar()["conectores_ia"]["trellis"]
     assert tr_ativo["status"] == "ativo" and tr_ativo["ativo"] is True
-    assert "TRELLIS" in prov.licenca["modelo"] and prov.licenca["uso_comercial"] is True
+    assert "Microsoft TRELLIS" in prov.licenca["modelo"] and prov.licenca["uso_comercial"] is True
 
-    def _fake_remoto(item, destino, imagem, vistas, env):
+    def _fake_local(item, destino, imagem, env):
         destino.mkdir(parents=True, exist_ok=True)
         (destino / "modelo.glb").write_bytes(b"glTF\x02\x00\x00\x00")
         (destino / "input.png").write_bytes(imagem.read_bytes())
-        return {"ok": True, "provedor": "trellis_remoto", "modelo": "microsoft/TRELLIS.2-4B"}
+        return {"ok": True, "provedor": "trellis2_local", "modelo": "microsoft/TRELLIS.2-4B"}
 
-    monkeypatch.setattr(mesh_trellis, "executar_i23d_remoto", _fake_remoto)
+    monkeypatch.setattr(mesh_trellis, "executar_i23d_trellis2_local", _fake_local)
     step_out = tmp_path / "step_ultra"
     mesh_i23d.executar_i23d_step(
         {"id": "mob.ultra", "qualidade": "ultra"}, step_out, img, None, {}, 0.0, lambda *_a: (img, {}), dl_noop
     )
-    assert json.loads((step_out / "modelo.json").read_text(encoding="utf-8"))["textura_px"] == 2048
+    modelo_doc = json.loads((step_out / "modelo.json").read_text(encoding="utf-8"))
+    assert modelo_doc["textura_px"] == 2048 and modelo_doc["frente_origem"] == "-Y"
 
 
 def test_bug_t5_concept_prompt_apose_45_e_orcamento_clip(tmp_path):
@@ -494,133 +421,6 @@ print("OUT_T5_UV:" + json.dumps({{"uv_name": uv_name, "polys": len(obj.data.poly
     status = _uv_status(gltf, binario, forcar_area=True)
     assert status["fora_intervalo"] == 0 and status["uv_colapsada"] == 0 and status["uv_sobreposta"] == 0
     assert status["uv_area_total"] >= 0.25
-
-
-def test_colab_trellis_server_erro_inferencia_e_fila_async_polling(monkeypatch, tmp_path):
-    class _FakeGlb:
-        faces = [1, 2, 3]
-        def export(self, caminho: str) -> None: Path(caminho).write_bytes(b"glTF\x02\x00\x00\x00")
-
-    class _PipeErroSync:
-        def __init__(self, exc: Exception) -> None: self._exc = exc
-        def run(self, img: Any, seed: int = 1) -> Any: raise self._exc
-
-    b64 = _png_b64()
-    payload_sync = json.dumps({"images": {"front": b64}}).encode()
-    for exc in (ModuleNotFoundError("No module named 'flash_attn'"), TypeError("bad shape")):
-        srv = colab_trellis_server.criar_servidor("127.0.0.1", 0, pipeline=_PipeErroSync(exc))
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        try:
-            url = f"http://127.0.0.1:{srv.server_port}/generate"
-            req = urllib.request.Request(url, data=payload_sync, headers={"Content-Type": "application/json"}, method="POST")
-            with pytest.raises(urllib.error.HTTPError) as http_exc:
-                urllib.request.urlopen(req, timeout=10)
-            assert http_exc.value.code == 500
-            corpo = json.loads(http_exc.value.read().decode())
-            assert corpo["ok"] is False and str(exc) in corpo["erro"]
-        finally:
-            srv.shutdown()
-            srv.server_close()
-
-    iniciado, liberar = threading.Event(), threading.Event()
-    falhar_proximo = {"ativo": False}
-
-    class _PipeAsync:
-        def run(self, img: Any, seed: int = 1) -> Any:
-            iniciado.set()
-            assert liberar.wait(timeout=5)
-            if falhar_proximo["ativo"]:
-                raise ImportError("dependencia async ausente")
-            return _FakeGlb()
-
-    token = "tok-async-test-123"
-    srv_a = colab_trellis_server.criar_servidor("127.0.0.1", 0, pipeline=_PipeAsync(), token=token)
-    threading.Thread(target=srv_a.serve_forever, daemon=True).start()
-    ep = f"http://127.0.0.1:{srv_a.server_port}"
-    try:
-        with urllib.request.urlopen(f"{ep}/health", timeout=5) as rh:
-            assert json.loads(rh.read().decode()).get("async_jobs") is True
-
-        # Roundtrip HTTP async: POST -> 202, GET -> 202 (running), depois GET -> 200
-        req_p = urllib.request.Request(
-            f"{ep}/generate",
-            data=json.dumps({"images": {"front": b64}, "async": True}).encode(),
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req_p, timeout=10) as rp:
-            assert rp.status == 202
-            job_id = json.loads(rp.read().decode())["job_id"]
-        assert iniciado.wait(timeout=3)
-        req_g = urllib.request.Request(f"{ep}/jobs/{job_id}", headers={"Authorization": f"Bearer {token}"})
-        with urllib.request.urlopen(req_g, timeout=10) as rg1:
-            assert rg1.status == 202 and json.loads(rg1.read().decode())["status"] in ("pending", "running")
-        liberar.set()
-        for _ in range(40):
-            with urllib.request.urlopen(req_g, timeout=10) as rg2:
-                if rg2.status == 200:
-                    done = json.loads(rg2.read().decode())
-                    assert done["ok"] is True and done["status"] == "done" and done["glb_base64"]
-                    break
-            time.sleep(0.02)
-        else:
-            raise AssertionError("job async nao concluiu")
-
-        # Roundtrip cliente executar_i23d_remoto com Bearer token + erro async 500
-        img_in = tmp_path / "front.png"
-        Image.new("RGBA", (16, 16), (255, 0, 0, 255)).save(img_in)
-        monkeypatch.setenv("FORGE3D_I23D_ENDPOINT", ep)
-        monkeypatch.setenv("FORGE3D_I23D_TOKEN", token)
-        iniciado.clear()
-        res_cli = mesh_trellis.executar_i23d_remoto({"id": "mob.async.01", "qualidade": "standard"}, tmp_path / "out_ok", img_in, None, {})
-        assert res_cli["ok"] is True and (tmp_path / "out_ok" / "modelo.glb").read_bytes().startswith(b"glTF")
-
-        falhar_proximo["ativo"] = True
-        iniciado.clear()
-        with pytest.raises(ForgeError) as err_cli:
-            mesh_trellis.executar_i23d_remoto({"id": "mob.async.err", "qualidade": "standard"}, tmp_path / "out_err", img_in, None, {})
-        assert err_cli.value.codigo == "FORGE-E-PROVIDER-RUN" and "dependencia async ausente" in str(err_cli.value)
-    finally:
-        liberar.set()
-        srv_a.shutdown()
-        srv_a.server_close()
-
-
-def test_colab_trellis_worker_ajusta_fp16_e_modo_512_apenas_pre_ampere_ou_baixa_vram(monkeypatch):
-    class _Mod:
-        def __init__(self, dtype: str) -> None:
-            self.dtype = dtype
-            self.convertidos: list[str] = []
-
-        def convert_to(self, novo: str) -> None:
-            self.dtype = novo
-            self.convertidos.append(novo)
-
-    def _rodar(cap: tuple[int, int], mem_gb: float, pipe_type: str = "1024_cascade"):
-        fake_torch = types.ModuleType("torch")
-        fake_torch.bfloat16 = "bf16"  # type: ignore[attr-defined]
-        fake_torch.float16 = "fp16"  # type: ignore[attr-defined]
-        fake_torch.cuda = types.SimpleNamespace(  # type: ignore[attr-defined]
-            is_available=lambda: True,
-            get_device_capability=lambda: cap,
-            get_device_properties=lambda _idx: types.SimpleNamespace(total_memory=int(mem_gb * (1024**3))),
-        )
-        monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        monkeypatch.delenv("FORGE3D_TRELLIS_PIPELINE_TYPE", raising=False)
-        pipe = types.SimpleNamespace(
-            default_pipeline_type=pipe_type,
-            models={"dit_bf16": _Mod("bf16"), "vae_fp16": _Mod("fp16")},
-        )
-        colab_trellis_worker._ajustar_pipeline_gpu(pipe)
-        return pipe
-
-    p_t4 = _rodar((7, 5), 14.6)
-    assert p_t4.models["dit_bf16"].dtype == "fp16" and p_t4.models["vae_fp16"].convertidos == []
-    assert p_t4.default_pipeline_type == "512"
-
-    p_l4 = _rodar((8, 9), 23.0)
-    assert p_l4.models["dit_bf16"].dtype == "bf16" and p_l4.models["dit_bf16"].convertidos == []
-    assert p_l4.default_pipeline_type == "1024_cascade"
 
 
 @pytest.mark.blender

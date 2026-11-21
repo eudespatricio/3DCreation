@@ -51,8 +51,16 @@ dentro do Blender: isso contamina o DCC e quebra na próxima atualização.
 | TripoSR | pinado por commit | **MIT** | **i23d da P3**; roda na venv `venv-i23d` |
 | `sd.cpp` (binário) | pinado por release | MIT | gera concept sem Python |
 
-**Não instalar por padrão:** ComfyUI (stack completa para uma função coberta), Hunyuan3D-2.1 e
-TRELLIS.2 (VRAM/licença — D18), Node/pnpm (não há etapa JS no v0).
+**Não instalar por padrão:** ComfyUI (stack completa para uma função coberta), Hunyuan3D-2.1 (cláusula territorial D18), Node/pnpm (não há etapa JS no v0).
+
+### TRELLIS.2-4B local (opcional — RTX 3060 6 GB + WSL2 24 GB RAM, D133)
+
+| Item | Valor medido |
+|---|---|
+| instalação | `~/.cache/forge3d/trellis2` (`venv`, `repo`, `models`, `cuda128` — **~34 GB**, `21 GB` em pesos) |
+| stack | Python 3.12 · `torch 2.9.1+cu128` · kernels CUDA `sm_86` (`flash_attn`, `o_voxel`, `flex_gemm`, `nvdiffrast`, `cumesh`) |
+| seleção/env | `FORGE3D_MODELO_MESH=trellis2` (ou automático quando instalado em GPU CUDA), `FORGE3D_TRELLIS2_DIR`, `FORGE3D_TRELLIS2_QUANT=BF16`, `FORGE3D_TRELLIS2_PIPELINE_TYPE=512`, `FORGE3D_TRELLIS2_STEPS=25` |
+| medido | Iron Ram (`BF16/512 tuned`, `2048 px`): **301,01 s**, VRAM pico **4.488 MiB**, **87.839** faces (`tools/trellis2_infer.py`) |
 
 ### i23d — venv única (P3)
 

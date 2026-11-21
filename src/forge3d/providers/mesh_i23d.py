@@ -14,7 +14,7 @@ from typing import Any
 
 from . import mesh_diag as _diag
 from . import mesh_trellis as _trellis
-from .mesh_templates import anexar_concept_vistas, extrair_vistas_ortograficas, ler_json_obrigatorio
+from .mesh_templates import anexar_concept_vistas, ler_json_obrigatorio
 
 
 def resolver_imagem_origem(item: dict) -> Path:
@@ -335,17 +335,11 @@ def executar_i23d_step(
     dl_script_fn = _diag.facade_attr("script_delight", _diag.script_delight)
 
     resultado_path = destino / "i23d_resultado.json"
-    if _trellis.endpoint_trellis_configurado():
+    modelo_ativo = _diag.facade_attr("modelo_escolhido", _diag.modelo_escolhido)()
+    if modelo_ativo == "trellis":
         remover_fundo, motivo_rembg = decidir_rembg(imagem, concept_meta)
-        pose_guard_report: dict[str, Any] = {"modo": "remoto_trellis", "ignorado": True}
-        vistas_iniciais = extrair_vistas_ortograficas(item, concept_meta)
-        resultado = _trellis.executar_i23d_remoto(item, destino, imagem, vistas_iniciais, env)
-    elif _trellis.exige_i23d_remoto():
-        raise erro_provider_run(
-            "FORGE3D_I23D_REQUIRE_REMOTE=1 exige FORGE3D_I23D_ENDPOINT configurado (sem fallback para TripoSR local)",
-            id=item.get("id"),
-            modelo="trellis",
-        )
+        pose_guard_report: dict[str, Any] = {"modo": "trellis2_local", "ignorado": True}
+        resultado = _trellis.executar_i23d_trellis2_local(item, destino, imagem, env)
     else:
         dir_venv_fn = _diag.facade_attr("dir_venv", _diag.dir_venv)
         infer_fn = _diag.facade_attr("script_inferencia", _diag.script_inferencia)
@@ -436,7 +430,7 @@ def executar_i23d_step(
         "proteger_decimate": item.get("tipo")
         in ("personagem_humanoide", "criatura", "criatura_quadrupede", "criatura_alada", "montaria"),
     }
-    if resultado.get("provedor") == "trellis_remoto":
+    if resultado.get("provedor") == "trellis2_local":
         modelo["frente_origem"] = "-Y"
     if item.get("material_procedural"):
         modelo["material_procedural"] = str(item["material_procedural"])

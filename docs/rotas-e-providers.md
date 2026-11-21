@@ -78,11 +78,11 @@ prompt ──► concept (text-to-image) ──► image-to-3D ──► remesh/
 | Etapa | 1ª escolha | Alternativa | Motivo |
 |---|---|---|---|
 | concept | `Z-Image-Turbo` Q4 via `sd.cpp` (Apache-2.0) | SD 1.5 (OpenRAIL-M) | roda em 4 GB, 8 passos, sem Python |
-| image→3D | **TripoSR** (MIT, bake UV/textura próprio no `bpy`) | TRELLIS.2 (MIT, endpoint/Colab) | leve e local; UV sai do bake próprio |
+| image→3D | **TRELLIS.2-4B** (MIT, subprocesso local `BF16/512` em `~/.cache/forge3d/trellis2`) | **TripoSR** (MIT, bake UV/textura próprio no `bpy`) | PBR nativo em `~5 min`/4,5 GiB VRAM; TripoSR como fallback leve |
 | limpeza | remesh + decimate no `bpy` | Instant Meshes via subprocess | controlável e local |
 
 **Não entra:** Hunyuan3D-2.1 (10–29 GB e cláusula territorial), InstantMesh (~15 GiB). Ver D18.
-TRELLIS.2 (MIT) entra via endpoint/Colab (D101) e Pixal3D é MIT (D112), fora do bloqueio do D18.
+TRELLIS.2-4B (MIT) roda localmente em RTX 3060 6 GB (`low_vram=True` + 24 GB RAM WSL2, D133) e Pixal3D é MIT (D112), fora do bloqueio do D18.
 
 **Determinismo:** D2. Seed fixa + versões pinadas tornam o resultado *estável na forma*, não idêntico.
 `plan` registra a seed resolvida; manifesto guarda provider, versão e seed.

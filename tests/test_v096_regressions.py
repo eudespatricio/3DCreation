@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import threading
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +19,9 @@ from forge3d.qc_fidelidade import avaliar_fidelidade_concept_3d, _comparar_masca
 from forge3d.qc_gates import _avaliar_g3
 
 RAIZ = Path(__file__).resolve().parents[1]
-_BLENDER_DIR, _TOOLS_DIR = RAIZ / "blender", RAIZ / "tools"
-for _p in (str(_BLENDER_DIR), str(_TOOLS_DIR)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-import colab_trellis_server as cts  # noqa: E402
+_BLENDER_DIR = RAIZ / "blender"
+if str(_BLENDER_DIR) not in sys.path:
+    sys.path.insert(0, str(_BLENDER_DIR))
 
 
 def _rodar_blender(codigo: str, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -265,54 +261,69 @@ def test_c4_prompt_sanitization_and_turnaround_guard(tmp_path: Path) -> None:
         assert det_back.get("omitida") == "multiplas_figuras"
 
 
-# 5. Remote TRELLIS HTTP Roundtrip + D18 License Gate
-def test_c5_remote_trellis_http_and_d18_license(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+# 5. Local TRELLIS.2 Subprocess Roundtrip + D18 License Gate
+def test_c5_local_trellis2_subprocess_and_d18_license(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.test_red_r2_roblox import _box_glb
 
-    class StubPipe:
-        class StubMesh:
-            faces = [1, 2, 3]
-            def export(self, path: str) -> None: Path(path).write_bytes(_box_glb())
-        def run(self, images: Any, seed: int = 1) -> Any: return self.StubMesh()
+    t2_dir = tmp_path / "trellis2"
+    (t2_dir / "venv" / "bin").mkdir(parents=True)
+    py_shim = t2_dir / "venv" / "bin" / "python"
+    py_shim.write_text(f"#!/bin/sh\nexec {sys.executable!r} \"$@\"\n", encoding="utf-8")
+    py_shim.chmod(0o755)
+    (t2_dir / "repo" / "trellis2_gguf").mkdir(parents=True)
+    (t2_dir / "cuda128" / "lib").mkdir(parents=True)
+    models = t2_dir / "models"
+    for rel in (
+        "Trellis2/pipeline.json",
+        "Trellis2/decoders/Stage1/ss_dec_conv3d_16l8_fp16.safetensors",
+        "Trellis2/decoders/Stage2/shape_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/decoders/Stage2/tex_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/refiner/ss_flow_img_dit_1_3B_64_bf16.safetensors",
+        "Trellis2/shape/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+        "Trellis2/texture/slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors",
+    ):
+        p = models / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+    (models / "facebook" / "dinov3-vitl16-pretrain-lvd1689m").mkdir(parents=True)
 
-    token = "secret-token-test-456"
-    srv = cts.criar_servidor("127.0.0.1", 0, pipeline=StubPipe(), token=token)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    ep = f"http://127.0.0.1:{srv.server_port}"
+    glb_bytes = _box_glb()
+    stub_infer = tmp_path / "stub_trellis2_infer.py"
+    stub_infer.write_text(
+        "import argparse, json\nfrom pathlib import Path\n"
+        "p = argparse.ArgumentParser()\np.add_argument('--saida-dir', required=True)\np.add_argument('--resultado', required=True)\n"
+        "args, _ = p.parse_known_args()\nout = Path(args.saida_dir)\nout.mkdir(parents=True, exist_ok=True)\n"
+        f"(out / 'modelo.glb').write_bytes({glb_bytes!r})\n"
+        "Path(args.resultado).write_text(json.dumps({'ok': True, 'arquivo': 'modelo.glb', 'faces': 12}), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
 
-    try:
-        img_in = tmp_path / "input.png"
-        im = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-        ImageDraw.Draw(im).rectangle([16, 16, 48, 48], fill=(120, 120, 120, 255))
-        im.save(img_in)
+    monkeypatch.setenv("FORGE3D_MODELO_MESH", "trellis2")
+    monkeypatch.setenv("FORGE3D_TRELLIS2_DIR", str(t2_dir))
+    monkeypatch.setenv("FORGE3D_TRELLIS2_SCRIPT", str(stub_infer))
+    monkeypatch.setenv("FORGE3D_I23D_DEVICE", "cuda:0")
+    monkeypatch.setattr(locks, "vram_livre_mb", lambda: 5600)
+    monkeypatch.setattr(mesh_trellis, "diagnostico_trellis2", lambda: {"ok": True, "torch": "2.9.1+cu128", "cuda": True})
 
-        # 1. Wrong token -> HTTP 401 error
-        monkeypatch.setenv("FORGE3D_I23D_ENDPOINT", ep)
-        monkeypatch.setenv("FORGE3D_I23D_TOKEN", "wrong-key")
-        mp = MeshProvider()
-        item = {"id": "trellis_test", "origem": str(img_in)}
-        with pytest.raises(ForgeError):
-            mp.gerar(item, {}, tmp_path / "out_fail")
+    img_in = tmp_path / "input.png"
+    im = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    ImageDraw.Draw(im).rectangle([16, 16, 48, 48], fill=(120, 120, 120, 255))
+    im.save(img_in)
 
-        # 2. Right token -> roundtrip success with 0 local VRAM
-        monkeypatch.setenv("FORGE3D_I23D_TOKEN", token)
-        ok_pre, msg_pre = mp.preflight()
-        assert ok_pre is True and "TRELLIS remoto" in msg_pre
+    mp = MeshProvider()
+    ok_pre, msg_pre = mp.preflight()
+    assert ok_pre is True and "TRELLIS.2 local" in msg_pre
 
-        out_ok = tmp_path / "out_ok"
-        mp.gerar(item, {}, out_ok)
-        assert (out_ok / "modelo.glb").is_file() and (out_ok / "modelo.glb").stat().st_size > 0
-        res = json.loads((out_ok / "i23d_resultado.json").read_text(encoding="utf-8"))
-        assert res["provedor"] == "trellis_remoto" and res["licenca"]["uso_comercial"] is True
+    out_ok = tmp_path / "out_ok"
+    mp.gerar({"id": "trellis_test", "origem": str(img_in)}, {}, out_ok)
+    assert (out_ok / "modelo.glb").is_file() and (out_ok / "modelo.glb").stat().st_size > 0
+    res = json.loads((out_ok / "i23d_resultado.json").read_text(encoding="utf-8"))
+    assert res["provedor"] == "trellis2_local" and res["licenca"]["uso_comercial"] is True
 
-        # 3. Forbidden model -> FORGE-E-LICENCA
-        monkeypatch.setenv("FORGE3D_I23D_TRELLIS_MODEL", "forbidden/non-mit-model")
-        with pytest.raises(ForgeError) as exc_info:
-            mesh_trellis.validar_modelo_trellis_licenca()
-        assert exc_info.value.codigo == "FORGE-E-LICENCA"
-    finally:
-        srv.shutdown()
-        srv.server_close()
+    monkeypatch.setenv("FORGE3D_I23D_TRELLIS_MODEL", "forbidden/non-mit-model")
+    with pytest.raises(ForgeError) as exc_info:
+        mesh_trellis.validar_modelo_trellis_licenca()
+    assert exc_info.value.codigo == "FORGE-E-LICENCA"
 
 
 # 6. QC G3 Low-UV-Area Rejection (forge3d.qc)
@@ -396,8 +407,8 @@ def test_c8_humanoid_template_routing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert mesh_diag._usar_template_humanoide({"tipo": "personagem_humanoide"}) is True
 
 
-# 9. VRAM Guard (mesh_diag.VRAM_MINIMA_MB + MeshProvider.preflight)
-def test_c9_vram_guard_and_remote_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
+# 9. VRAM Guard (mesh_diag.VRAM_MINIMA_MB + MeshProvider.preflight for TripoSR & TRELLIS.2)
+def test_c9_vram_guard_triposr_and_trellis2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from forge3d.providers import mesh as mesh_mod
 
     assert mesh_diag.VRAM_MINIMA_MB >= 4200
@@ -405,13 +416,37 @@ def test_c9_vram_guard_and_remote_bypass(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(locks, "vram_livre_mb", lambda: 3600)
     monkeypatch.setattr(mesh_mod, "_vram_livre_mb", lambda: 3600)
     monkeypatch.setattr(mesh_mod, "_device", lambda: "cuda:0")
-    monkeypatch.delenv("FORGE3D_I23D_ENDPOINT", raising=False)
+    monkeypatch.setattr(mesh_mod, "_diagnostico", lambda: {"ok": True, "torch": "2.4.1", "cuda": True})
 
+    monkeypatch.setenv("FORGE3D_MODELO_MESH", "triposr")
     mp = MeshProvider()
-    ok_local, msg_local = mp.preflight()
-    assert ok_local is False
-    assert "3600 MiB" in msg_local and f"{mesh_diag.VRAM_MINIMA_MB} MiB" in msg_local
+    ok_tripo, msg_tripo = mp.preflight()
+    assert ok_tripo is False
+    assert "3600 MiB" in msg_tripo and f"{mesh_diag.VRAM_MINIMA_MB} MiB" in msg_tripo
 
-    monkeypatch.setenv("FORGE3D_I23D_ENDPOINT", "http://127.0.0.1:8765")
-    ok_remoto, msg_remoto = mp.preflight()
-    assert ok_remoto is True and "TRELLIS remoto" in msg_remoto
+    t2_dir = tmp_path / "t2_vram"
+    m = t2_dir / "models"
+    for rel in (
+        "Trellis2/pipeline.json",
+        "Trellis2/decoders/Stage1/ss_dec_conv3d_16l8_fp16.safetensors",
+        "Trellis2/decoders/Stage2/shape_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/decoders/Stage2/tex_dec_next_dc_f16c32_fp16.safetensors",
+        "Trellis2/refiner/ss_flow_img_dit_1_3B_64_bf16.safetensors",
+        "Trellis2/shape/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+        "Trellis2/texture/slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors",
+    ):
+        p = m / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+    (m / "facebook" / "dinov3-vitl16-pretrain-lvd1689m").mkdir(parents=True)
+    monkeypatch.setenv("FORGE3D_TRELLIS2_DIR", str(t2_dir))
+    monkeypatch.setattr(mesh_trellis, "diagnostico_trellis2", lambda: {"ok": True, "torch": "2.9.1+cu128", "cuda": True})
+    monkeypatch.setenv("FORGE3D_MODELO_MESH", "trellis2")
+
+    ok_t2, msg_t2 = mp.preflight()
+    assert ok_t2 is False
+    assert "3600 MiB" in msg_t2 and f"{mesh_diag.VRAM_MINIMA_MB} MiB" in msg_t2
+
+    monkeypatch.setattr(mesh_mod, "_device", lambda: "cpu")
+    ok_cpu, msg_cpu = mp.preflight()
+    assert ok_cpu is False and "CUDA" in msg_cpu

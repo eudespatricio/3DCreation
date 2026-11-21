@@ -14,12 +14,12 @@
 | **TripoSR** | **MIT** | ~6 GB `[oficial]` | topologia irregular, cor por vértice | não | **cabe** — i23d da P3, bake próprio no `bpy` |
 | **Hunyuan3D-2mini / 2.0 shape-only** | Tencent (exclui UE/UK/Coreia) | <6 GB só via fork mmgp `[terceiro]`; textura oficial 16 GB `[oficial]` | boa geometria | não | cabe shape, **textura não** |
 | **SPAR3D** (sucessor do SF3D) | Stability Community `[não verificado no arquivo]` | 10,5 GB; ~7 GB em low-VRAM `[oficial]` | melhor material | sim | **não cabe** |
-| **TRELLIS.2** (4B) | **MIT** | ≥24 GB `[oficial]`; Q4 GGUF existe | melhor open de 2026 | sim (4 canais) | experimental — 8–15 min/asset `[estimado]` |
+| **TRELLIS.2** (4B) | **MIT** | ≥24 GB `[oficial]`; `6 GB` local c/ `low_vram=True` + `24 GB` RAM WSL2 | melhor open de 2026 | sim (4 canais) | **cabe (`BF16/512`)** — medido: `301s`, `4.488 MiB` VRAM pico (D133) |
 | **Hunyuan3D-2.1** | Tencent (mesma cláusula) | 10 GB shape · 21 GB textura `[oficial]` | estado da arte PBR | sim | **inviável** |
 | **TRELLIS v1** | MIT | ≥16 GB `[oficial]` | boa | não | **inviável** |
 | **InstantMesh** | Apache-2.0 | ~15 GiB numa alocação `[terceiro]` | zero123++ | não | **inviável** |
 | **CraftsMan3D** | MIT | ~12–16 GB `[estimado]` | topologia regular | não | inviável |
-| **Pixal3D** | **MIT** `[oficial — LICENSE do repo verificada em 18/11/2026]` | ≥24 GB `[oficial]` | fine-tune do TRELLIS.2 com multi-view | sim | **entra** via endpoint/Colab (D112); `--low_vram` sem piso garantido em 6 GB |
+| **Pixal3D** | **MIT** `[oficial — LICENSE do repo verificada em 18/11/2026]` | ≥24 GB `[oficial]` | fine-tune do TRELLIS.2 com multi-view | sim | **MIT na allowlist** (D112); `--low_vram` sem piso garantido em 6 GB |
 | **SAM 3D Objects** | SAM License, gated | ≥32 GB `[oficial]` | objeto único | não | inviável |
 
 ### Correção de expectativa (comum em blog de 2024–2025)

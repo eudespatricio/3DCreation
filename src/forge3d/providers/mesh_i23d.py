@@ -436,6 +436,8 @@ def executar_i23d_step(
         "proteger_decimate": item.get("tipo")
         in ("personagem_humanoide", "criatura", "criatura_quadrupede", "criatura_alada", "montaria"),
     }
+    if resultado.get("provedor") == "trellis_remoto":
+        modelo["frente_origem"] = "-Y"
     if item.get("material_procedural"):
         modelo["material_procedural"] = str(item["material_procedural"])
     if item.get("quadriflow_faces"):

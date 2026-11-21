@@ -152,7 +152,9 @@ def _preparar_bruto_arquivo(
         _aplicar_transformes(rig_obj)
         grupos = {vg.name: vg for vg in obj.vertex_groups}
     if bruto.get("canonicalizar"):
-        info_gerada["canonicalizacao"] = canonicalizar(obj, item.get("tipo"))
+        info_gerada["canonicalizacao"] = canonicalizar(
+            obj, item.get("tipo"), frente_origem=bruto.get("frente_origem")
+        )
 
     mat_proc = str(
         job.get("material_procedural")
@@ -475,7 +477,11 @@ def _aplicar_rig_bruto_arquivo(
     autorig_mod=None,
 ) -> tuple:
     ar = autorig_mod if autorig_mod is not None else autorig
-    if bruto.get("canonicalizar") and item.get("tipo") == "personagem_humanoide":
+    if (
+        bruto.get("canonicalizar")
+        and item.get("tipo") == "personagem_humanoide"
+        and str(bruto.get("frente_origem") or "").strip().upper() != "-Y"
+    ):
         info_gerada["alinhamento_frente_pos_decimate"] = _alinhar_frente_humanoide(obj)
     res_esq = _resolver_esqueleto_auto_rig(job, item, perfil)
     if res_esq is not None:

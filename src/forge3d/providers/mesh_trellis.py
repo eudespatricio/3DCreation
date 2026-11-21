@@ -88,6 +88,24 @@ def _resolver_url_generate(endpoint: str) -> str:
     return endpoint.rstrip("/") + "/generate" if urllib.parse.urlsplit(endpoint).path in ("", "/") else endpoint
 
 
+def _resolver_url_job(endpoint: str, job_id: str) -> str:
+    """Resolve URL ``/jobs/<job_id>`` preservando eventual prefixo de caminho no endpoint."""
+    partes = urllib.parse.urlsplit(endpoint.strip())
+    caminho = partes.path.rstrip("/")
+    for sufixo in ("/generate", "/jobs"):
+        if caminho.endswith(sufixo):
+            caminho = caminho[: -len(sufixo)]
+            break
+    return urllib.parse.urlunsplit((partes.scheme, partes.netloc, f"{caminho}/jobs/{job_id}", "", ""))
+
+
+def _extrair_detalhe_http(exc: urllib.error.HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8", errors="replace")[:500]
+    except (OSError, ValueError, AttributeError) as r_exc:
+        return f"{exc} ({r_exc})"
+
+
 def _preparar_inputs_locais(imagem: Path, destino: Path, env: dict[str, str]) -> tuple[Path, Path | None]:
     input_png = destino / "input.png"
     if imagem.resolve() != input_png.resolve():
@@ -116,6 +134,70 @@ def _preparar_inputs_locais(imagem: Path, destino: Path, env: dict[str, str]) ->
     except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
         sys.stderr.write(f"[mesh_trellis] aviso recorte 2D indisponivel ({exc}); mantendo input opaco\n")
     return input_png, None
+
+
+_ATRASOS_POLL_S = (0.05, 0.2, 0.5, 1.5)
+
+
+def _aguardar_job_remoto(
+    ep: str,
+    job_id: str,
+    headers_get: dict[str, str],
+    timeout_s: int,
+    t0: float,
+    modelo_canon: str,
+    item_id: Any,
+    segredos: list[str],
+) -> dict[str, Any]:
+    """Faz polling de ``GET /jobs/<job_id>`` evitando o limite de 100s (HTTP 524) da Cloudflare."""
+    from . import cloud_ai
+
+    url_job = _resolver_url_job(ep, job_id)
+    idx = 0
+    falhas_consecutivas = 0
+    while True:
+        restante = timeout_s - (time.monotonic() - t0)
+        if restante <= 0:
+            raise erro_provider_run(f"timeout aguardando job TRELLIS remoto ({job_id}) apos {timeout_s}s", id=item_id, modelo="trellis")
+        espera = _ATRASOS_POLL_S[idx] if idx < len(_ATRASOS_POLL_S) else 3.0
+        time.sleep(min(espera, restante))
+        idx += 1
+
+        restante = timeout_s - (time.monotonic() - t0)
+        if restante <= 0:
+            raise erro_provider_run(f"timeout aguardando job TRELLIS remoto ({job_id}) apos {timeout_s}s", id=item_id, modelo="trellis")
+        req_poll = urllib.request.Request(url_job, headers=headers_get, method="GET")
+        try:
+            with urllib.request.urlopen(req_poll, timeout=min(30.0, max(1.0, restante))) as resp:
+                raw_poll = resp.read()
+            falhas_consecutivas = 0
+        except urllib.error.HTTPError as exc:
+            det = _extrair_detalhe_http(exc)
+            limpo = cloud_ai._sanitizar_texto_erro(f"HTTP {exc.code}: {det}", segredos)
+            if exc.code in (502, 503, 504) and falhas_consecutivas < 5:
+                falhas_consecutivas += 1
+                continue
+            raise erro_provider_run(f"falha HTTP TRELLIS remoto ({modelo_canon}): {limpo}", id=item_id, modelo="trellis") from None
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            limpo = cloud_ai._sanitizar_texto_erro(str(exc), segredos)
+            if falhas_consecutivas < 5:
+                falhas_consecutivas += 1
+                continue
+            raise erro_provider_run(f"falha de rede TRELLIS remoto ({modelo_canon}): {limpo}", id=item_id, modelo="trellis") from None
+
+        try:
+            dados = json.loads(raw_poll.decode("utf-8"))
+            if not isinstance(dados, dict):
+                raise ValueError("resposta JSON do job nao e objeto")
+        except (UnicodeDecodeError, ValueError) as exc:
+            limpo = cloud_ai._sanitizar_texto_erro(str(exc), segredos)
+            raise erro_provider_run(f"resposta invalida TRELLIS remoto: {limpo}", id=item_id, modelo="trellis") from None
+
+        if dados.get("ok") is False or dados.get("status") == "error":
+            msg_err = cloud_ai._sanitizar_texto_erro(str(dados.get("erro") or "job TRELLIS falhou"), segredos)
+            raise erro_provider_run(f"falha no job TRELLIS remoto ({modelo_canon}): {msg_err}", id=item_id, modelo="trellis")
+        if dados.get("glb_base64") or dados.get("glb"):
+            return dados
 
 
 def executar_i23d_remoto(
@@ -166,6 +248,7 @@ def executar_i23d_remoto(
         "texture_size": tex_size,
         "simplify": simplify,
         "decimation_target": decimation_target,
+        "async": True,
     }
     req = urllib.request.Request(
         _resolver_url_generate(ep),
@@ -180,10 +263,7 @@ def executar_i23d_remoto(
             ctype = str(getattr(resp, "headers", {}).get("Content-Type", "")).lower()
             raw_resp = resp.read()
     except urllib.error.HTTPError as exc:
-        try:
-            det = exc.read().decode("utf-8", errors="replace")[:500]
-        except (OSError, ValueError, AttributeError) as r_exc:
-            det = f"{exc} ({r_exc})"
+        det = _extrair_detalhe_http(exc)
         limpo = cloud_ai._sanitizar_texto_erro(f"HTTP {exc.code}: {det}", segredos)
         raise erro_provider_run(f"falha HTTP TRELLIS remoto ({modelo_canon}): {limpo}", id=item.get("id"), modelo="trellis") from None
     except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -200,8 +280,19 @@ def executar_i23d_remoto(
             dados = json.loads(raw_resp.decode("utf-8"))
             if not isinstance(dados, dict):
                 raise ValueError("resposta JSON nao e objeto")
-            if dados.get("ok") is False:
+            if dados.get("ok") is False or dados.get("status") == "error":
                 raise ValueError(str(dados.get("erro") or "servidor retornou ok=false"))
+        except (UnicodeDecodeError, ValueError, binascii.Error) as exc:
+            limpo = cloud_ai._sanitizar_texto_erro(str(exc), segredos)
+            raise erro_provider_run(f"resposta invalida TRELLIS remoto: {limpo}", id=item.get("id"), modelo="trellis") from None
+
+        if dados.get("job_id") and not (dados.get("glb_base64") or dados.get("glb")):
+            headers_get = {"Authorization": f"Bearer {token}"} if token else {}
+            dados = _aguardar_job_remoto(
+                ep, str(dados["job_id"]), headers_get, timeout_s, t0, modelo_canon, item.get("id"), segredos
+            )
+
+        try:
             b64_glb = dados.get("glb_base64") or dados.get("glb")
             if not isinstance(b64_glb, str) or not b64_glb.strip():
                 raise ValueError("resposta JSON sem glb_base64")

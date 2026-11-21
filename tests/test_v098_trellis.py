@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 import threading
+import time
 import types
 import urllib.error
 import urllib.request
@@ -493,3 +494,178 @@ print("OUT_T5_UV:" + json.dumps({{"uv_name": uv_name, "polys": len(obj.data.poly
     status = _uv_status(gltf, binario, forcar_area=True)
     assert status["fora_intervalo"] == 0 and status["uv_colapsada"] == 0 and status["uv_sobreposta"] == 0
     assert status["uv_area_total"] >= 0.25
+
+
+def test_colab_trellis_server_erro_inferencia_e_fila_async_polling(monkeypatch, tmp_path):
+    class _FakeGlb:
+        faces = [1, 2, 3]
+        def export(self, caminho: str) -> None: Path(caminho).write_bytes(b"glTF\x02\x00\x00\x00")
+
+    class _PipeErroSync:
+        def __init__(self, exc: Exception) -> None: self._exc = exc
+        def run(self, img: Any, seed: int = 1) -> Any: raise self._exc
+
+    b64 = _png_b64()
+    payload_sync = json.dumps({"images": {"front": b64}}).encode()
+    for exc in (ModuleNotFoundError("No module named 'flash_attn'"), TypeError("bad shape")):
+        srv = colab_trellis_server.criar_servidor("127.0.0.1", 0, pipeline=_PipeErroSync(exc))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{srv.server_port}/generate"
+            req = urllib.request.Request(url, data=payload_sync, headers={"Content-Type": "application/json"}, method="POST")
+            with pytest.raises(urllib.error.HTTPError) as http_exc:
+                urllib.request.urlopen(req, timeout=10)
+            assert http_exc.value.code == 500
+            corpo = json.loads(http_exc.value.read().decode())
+            assert corpo["ok"] is False and str(exc) in corpo["erro"]
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    iniciado, liberar = threading.Event(), threading.Event()
+    falhar_proximo = {"ativo": False}
+
+    class _PipeAsync:
+        def run(self, img: Any, seed: int = 1) -> Any:
+            iniciado.set()
+            assert liberar.wait(timeout=5)
+            if falhar_proximo["ativo"]:
+                raise ImportError("dependencia async ausente")
+            return _FakeGlb()
+
+    token = "tok-async-test-123"
+    srv_a = colab_trellis_server.criar_servidor("127.0.0.1", 0, pipeline=_PipeAsync(), token=token)
+    threading.Thread(target=srv_a.serve_forever, daemon=True).start()
+    ep = f"http://127.0.0.1:{srv_a.server_port}"
+    try:
+        with urllib.request.urlopen(f"{ep}/health", timeout=5) as rh:
+            assert json.loads(rh.read().decode()).get("async_jobs") is True
+
+        # Roundtrip HTTP async: POST -> 202, GET -> 202 (running), depois GET -> 200
+        req_p = urllib.request.Request(
+            f"{ep}/generate",
+            data=json.dumps({"images": {"front": b64}, "async": True}).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_p, timeout=10) as rp:
+            assert rp.status == 202
+            job_id = json.loads(rp.read().decode())["job_id"]
+        assert iniciado.wait(timeout=3)
+        req_g = urllib.request.Request(f"{ep}/jobs/{job_id}", headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req_g, timeout=10) as rg1:
+            assert rg1.status == 202 and json.loads(rg1.read().decode())["status"] in ("pending", "running")
+        liberar.set()
+        for _ in range(40):
+            with urllib.request.urlopen(req_g, timeout=10) as rg2:
+                if rg2.status == 200:
+                    done = json.loads(rg2.read().decode())
+                    assert done["ok"] is True and done["status"] == "done" and done["glb_base64"]
+                    break
+            time.sleep(0.02)
+        else:
+            raise AssertionError("job async nao concluiu")
+
+        # Roundtrip cliente executar_i23d_remoto com Bearer token + erro async 500
+        img_in = tmp_path / "front.png"
+        Image.new("RGBA", (16, 16), (255, 0, 0, 255)).save(img_in)
+        monkeypatch.setenv("FORGE3D_I23D_ENDPOINT", ep)
+        monkeypatch.setenv("FORGE3D_I23D_TOKEN", token)
+        iniciado.clear()
+        res_cli = mesh_trellis.executar_i23d_remoto({"id": "mob.async.01", "qualidade": "standard"}, tmp_path / "out_ok", img_in, None, {})
+        assert res_cli["ok"] is True and (tmp_path / "out_ok" / "modelo.glb").read_bytes().startswith(b"glTF")
+
+        falhar_proximo["ativo"] = True
+        iniciado.clear()
+        with pytest.raises(ForgeError) as err_cli:
+            mesh_trellis.executar_i23d_remoto({"id": "mob.async.err", "qualidade": "standard"}, tmp_path / "out_err", img_in, None, {})
+        assert err_cli.value.codigo == "FORGE-E-PROVIDER-RUN" and "dependencia async ausente" in str(err_cli.value)
+    finally:
+        liberar.set()
+        srv_a.shutdown()
+        srv_a.server_close()
+
+
+def test_colab_trellis_worker_ajusta_fp16_e_modo_512_apenas_pre_ampere_ou_baixa_vram(monkeypatch):
+    class _Mod:
+        def __init__(self, dtype: str) -> None:
+            self.dtype = dtype
+            self.convertidos: list[str] = []
+
+        def convert_to(self, novo: str) -> None:
+            self.dtype = novo
+            self.convertidos.append(novo)
+
+    def _rodar(cap: tuple[int, int], mem_gb: float, pipe_type: str = "1024_cascade"):
+        fake_torch = types.ModuleType("torch")
+        fake_torch.bfloat16 = "bf16"  # type: ignore[attr-defined]
+        fake_torch.float16 = "fp16"  # type: ignore[attr-defined]
+        fake_torch.cuda = types.SimpleNamespace(  # type: ignore[attr-defined]
+            is_available=lambda: True,
+            get_device_capability=lambda: cap,
+            get_device_properties=lambda _idx: types.SimpleNamespace(total_memory=int(mem_gb * (1024**3))),
+        )
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        monkeypatch.delenv("FORGE3D_TRELLIS_PIPELINE_TYPE", raising=False)
+        pipe = types.SimpleNamespace(
+            default_pipeline_type=pipe_type,
+            models={"dit_bf16": _Mod("bf16"), "vae_fp16": _Mod("fp16")},
+        )
+        colab_trellis_worker._ajustar_pipeline_gpu(pipe)
+        return pipe
+
+    p_t4 = _rodar((7, 5), 14.6)
+    assert p_t4.models["dit_bf16"].dtype == "fp16" and p_t4.models["vae_fp16"].convertidos == []
+    assert p_t4.default_pipeline_type == "512"
+
+    p_l4 = _rodar((8, 9), 23.0)
+    assert p_l4.models["dit_bf16"].dtype == "bf16" and p_l4.models["dit_bf16"].convertidos == []
+    assert p_l4.default_pipeline_type == "1024_cascade"
+
+
+@pytest.mark.blender
+def test_trellis_frente_origem_menos_y_alinha_criatura_com_calcanhar_largo():
+    codigo = f"""
+import json, sys
+sys.path.insert(0, {str(BLENDER_DIR)!r})
+import bpy
+import postprocess, postprocess_canon
+
+postprocess.limpar_cena()
+# Base larga atras (+Y) imitando calcanhares armadurados, ponta/cranio apontando para -Y
+bpy.ops.mesh.primitive_cube_add(size=1.0)
+obj = bpy.context.active_object
+bpy.ops.object.mode_set(mode="EDIT")
+bpy.ops.mesh.subdivide(number_cuts=6)
+bpy.ops.object.mode_set(mode="OBJECT")
+for v in obj.data.vertices:
+    v.co.z = (v.co.z + 0.5) * 2.0
+    if v.co.z >= 1.80:
+        v.co.x *= 0.22
+        v.co.y *= 0.12
+    elif v.co.z >= 1.50:
+        v.co.x *= 0.45
+        v.co.y *= 0.18
+        if v.co.y < -0.05:
+            v.co.y = -0.40
+    elif v.co.z >= 0.80:
+        v.co.x *= 0.90
+        v.co.y *= 0.28
+    else:
+        v.co.x *= 0.85
+        v.co.y *= 0.25
+        if v.co.z <= 0.12 and v.co.y > 0.0:
+            v.co.y = 0.24
+obj.data.update()
+
+info = postprocess_canon.canonicalizar(obj, "criatura", frente_origem="-Y")
+ys_topo = [v.co.y for v in obj.data.vertices if 1.50 <= v.co.z < 1.80]
+print("OUT_CANON:" + json.dumps({{"info": info, "max_y_topo": max(ys_topo), "min_y_topo": min(ys_topo)}}))
+"""
+    proc = _rodar_blender_py(codigo, timeout=60)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(next(ln for ln in proc.stdout.splitlines() if ln.startswith("OUT_CANON:"))[10:])
+    assert out["info"]["frente_origem"] == "-Y"
+    assert out["info"]["girado_frente"] is True
+    assert out["info"]["invertido"] is False
+    assert out["max_y_topo"] >= 0.30 and out["max_y_topo"] > abs(out["min_y_topo"])

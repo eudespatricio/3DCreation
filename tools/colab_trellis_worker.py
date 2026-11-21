@@ -204,6 +204,30 @@ def _candidatos_pipeline(modelo_id: str) -> list[tuple[str, str]]:
     return [("trellis.pipelines", "TrellisImageTo3DPipeline")]
 
 
+def _ajustar_pipeline_gpu(pipeline: Any) -> None:
+    """Converte DiTs BF16 para FP16 em GPUs < sm_80 (T4) e ajusta modo 512 em < 18 GB VRAM."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        maj, _ = torch.cuda.get_device_capability()
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        if maj < 8:
+            for nome, mod in getattr(pipeline, "models", {}).items():
+                if getattr(mod, "dtype", None) == torch.bfloat16 and hasattr(mod, "convert_to"):
+                    mod.convert_to(torch.float16)
+                    sys.stderr.write(f"[colab_trellis_worker] sm_{maj} < 8.0: {nome} -> float16\n")
+        pt_env = os.environ.get("FORGE3D_TRELLIS_PIPELINE_TYPE", "").strip()
+        if pt_env and hasattr(pipeline, "default_pipeline_type"):
+            pipeline.default_pipeline_type = pt_env
+        elif vram_gb < 18.0 and hasattr(pipeline, "default_pipeline_type"):
+            pipeline.default_pipeline_type = "512"
+            sys.stderr.write(f"[colab_trellis_worker] VRAM {vram_gb:.1f}GB < 18GB: default_pipeline_type=512\n")
+    except (ImportError, RuntimeError, AttributeError, TypeError, ValueError) as exc:
+        sys.stderr.write(f"[colab_trellis_worker] aviso ajuste GPU: {exc}\n")
+
+
 def carregar_pipeline_trellis(modelo: str) -> Any:
     """Importa e instancia pipeline MIT (``TRELLIS.2-4B``, ``Pixal3D`` ou fallback ``TRELLIS``)."""
     modelo_id = validar_modelo_trellis(modelo)
@@ -222,6 +246,7 @@ def carregar_pipeline_trellis(modelo: str) -> Any:
             continue
         if hasattr(pipeline, "cuda"):
             pipeline.cuda()
+        _ajustar_pipeline_gpu(pipeline)
         return pipeline
     raise RuntimeError(
         f"Nenhum pipeline compativel encontrado para '{modelo_id}' (instale TRELLIS.2, Pixal3D ou TRELLIS)."

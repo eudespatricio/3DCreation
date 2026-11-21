@@ -41,7 +41,18 @@ def _extensao_faixa(obj, z0: float, z1: float) -> float:
     return (max(xs) - min(xs)) * (max(ys) - min(ys))
 
 
-def canonicalizar(obj, tipo: str | None = None) -> dict:
+def _recentrar_na_origem(obj) -> None:
+    xs = [v.co.x for v in obj.data.vertices]
+    ys = [v.co.y for v in obj.data.vertices]
+    zs = [v.co.z for v in obj.data.vertices]
+    if not xs:
+        return
+    desloc = Vector((-(min(xs) + max(xs)) / 2.0, -(min(ys) + max(ys)) / 2.0, -min(zs)))
+    obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
+    _aplicar_transformes(obj)
+
+
+def canonicalizar(obj, tipo: str | None = None, frente_origem: str | None = None) -> dict:
     """Altura em Z, largura em X, profundidade em Y, base em Z=0 (tools/normalize_mesh.py)."""
     minimo, maximo = bbox_local()
     extensao = maximo - minimo
@@ -77,7 +88,8 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
         linha = [0.0, 0.0, 0.0]
         linha[origem] = 1.0
         linhas.append(linha)
-    if Matrix(linhas).determinant() < 0:
+    det_neg = Matrix(linhas).determinant() < 0
+    if det_neg:
         # permutacao impar espelharia a malha (logo/texto invertido)
         linhas[1] = [-v for v in linhas[1]]
     rot = Matrix(linhas).to_4x4()
@@ -90,16 +102,26 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
     obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
     _aplicar_transformes(obj)
 
-    info = {
+    info: dict = {
         "altura_eixo": "XYZ"[altura],
         "largura_eixo": "XYZ"[largura],
         "profundidade_eixo": "XYZ"[profundidade],
     }
+    frente_norm = str(frente_origem or "").strip().upper()
     if quadrupede:
         info["invertido"] = False
-        info["girado_frente"] = False
+        if frente_norm == "-Y" and not det_neg:
+            obj.matrix_world = Matrix.Rotation(math.pi, 4, "Z") @ obj.matrix_world
+            _aplicar_transformes(obj)
+            _recentrar_na_origem(obj)
+            info["girado_frente"] = True
+        else:
+            info["girado_frente"] = False
+        if frente_norm == "-Y":
+            info["frente_origem"] = "-Y"
         info["quadrupede"] = True
         return info
+
     if tipo in ("personagem_humanoide", "criatura"):
         minimo, maximo = bbox_local()
         altura_z = maximo.z - minimo.z
@@ -133,18 +155,27 @@ def canonicalizar(obj, tipo: str | None = None) -> dict:
             # rotacao pura 180 deg em X (det=+1): preserva lateralidade e winding sem espelhar
             obj.matrix_world = Matrix.Rotation(math.pi, 4, "X") @ obj.matrix_world
             _aplicar_transformes(obj)
-            minimo, maximo = bbox_local()
-            desloc = Vector(
-                (-(minimo.x + maximo.x) / 2.0, -(minimo.y + maximo.y) / 2.0, -minimo.z)
-            )
-            obj.matrix_world = Matrix.Translation(desloc) @ obj.matrix_world
-            _aplicar_transformes(obj)
+            _recentrar_na_origem(obj)
             info["invertido"] = True
         else:
             info["invertido"] = False
 
-        alinh = _alinhar_frente_humanoide(obj)
-        info.update(alinh)
+    if frente_norm == "-Y":
+        y_invertido = bool(det_neg) ^ bool(info.get("invertido"))
+        if not y_invertido:
+            obj.matrix_world = Matrix.Rotation(math.pi, 4, "Z") @ obj.matrix_world
+            _aplicar_transformes(obj)
+            _recentrar_na_origem(obj)
+            info["girado_frente"] = True
+        else:
+            info["girado_frente"] = False
+        info["frente_origem"] = "-Y"
+        if tipo in ("personagem_humanoide", "criatura"):
+            sf = _medir_score_frente_humanoide(obj)
+            if sf is not None:
+                info["score_frente"] = round(sf, 5)
+    elif tipo in ("personagem_humanoide", "criatura"):
+        info.update(_alinhar_frente_humanoide(obj))
     return info
 
 

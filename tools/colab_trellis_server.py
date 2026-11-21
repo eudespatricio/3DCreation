@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +28,7 @@ import colab_trellis_worker as _worker  # noqa: E402
 
 LIMITE_BODY_BYTES = 64 * 1024 * 1024
 ORDEM_VISTAS = ("front", "back", "left", "right")
+_INFER_EXCS = (RuntimeError, OSError, ValueError, TypeError, AttributeError, KeyError, ImportError, AssertionError, IndexError)
 
 
 class _EstadoTrellisServer:
@@ -44,11 +46,43 @@ class _EstadoTrellisServer:
         if pipeline is not None:
             self._pipelines[self.modelo_padrao] = pipeline
         self.gpu_lock = threading.Lock()
+        self._jobs_lock = threading.Lock()
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._max_jobs = 8
 
     def obter_pipeline(self, modelo_id: str) -> Any:
         if modelo_id not in self._pipelines:
             self._pipelines[modelo_id] = self._factory(modelo_id)
         return self._pipelines[modelo_id]
+
+    def criar_job(self) -> str:
+        job_id = uuid.uuid4().hex
+        with self._jobs_lock:
+            self._jobs[job_id] = {"status": "pending", "created_at": time.monotonic()}
+            if len(self._jobs) > self._max_jobs:
+                finalizados = sorted(
+                    (
+                        (jid, j["created_at"])
+                        for jid, j in self._jobs.items()
+                        if j.get("status") in ("done", "error") and jid != job_id
+                    ),
+                    key=lambda par: par[1],
+                )
+                while len(self._jobs) > self._max_jobs and finalizados:
+                    antigo_id, _ = finalizados.pop(0)
+                    self._jobs.pop(antigo_id, None)
+        return job_id
+
+    def atualizar_job(self, job_id: str, **campos: Any) -> None:
+        with self._jobs_lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job.update(campos)
+
+    def obter_job(self, job_id: str) -> dict[str, Any] | None:
+        with self._jobs_lock:
+            job = self._jobs.get(job_id)
+            return dict(job) if job is not None else None
 
 
 def _decodificar_imagens(imagens_raw: Any) -> list[Any]:
@@ -118,6 +152,68 @@ def _validar_simplify(valor: Any) -> float:
     return num
 
 
+def _executar_inferencia(
+    estado: _EstadoTrellisServer,
+    modelo_id: str,
+    imagens: list[Any],
+    *,
+    seed: int,
+    simplify: float,
+    texture_size: int,
+    decimation_target: int | None,
+) -> dict[str, Any]:
+    t0 = time.monotonic()
+    with estado.gpu_lock:
+        pipe = estado.obter_pipeline(modelo_id)
+        outputs = _worker.executar_pipeline_trellis(
+            pipe, imagens, seed=seed, preferir_single_sem_multi=True
+        )
+        glb_obj = _worker._exportar_saida_pipeline(
+            outputs,
+            modelo_id,
+            simplify=simplify,
+            texture_size=texture_size,
+            decimation_target=decimation_target,
+        )
+        glb_bytes, faces = _extrair_glb_e_faces(glb_obj)
+    return {
+        "ok": True,
+        "modelo": modelo_id,
+        "faces": faces,
+        "tempo_s": round(time.monotonic() - t0, 3),
+        "glb_base64": base64.b64encode(glb_bytes).decode("ascii"),
+    }
+
+
+def _rodar_job_async(
+    estado: _EstadoTrellisServer,
+    job_id: str,
+    modelo_id: str,
+    imagens: list[Any],
+    *,
+    seed: int,
+    simplify: float,
+    texture_size: int,
+    decimation_target: int | None,
+) -> None:
+    estado.atualizar_job(job_id, status="running")
+    try:
+        res = _executar_inferencia(
+            estado,
+            modelo_id,
+            imagens,
+            seed=seed,
+            simplify=simplify,
+            texture_size=texture_size,
+            decimation_target=decimation_target,
+        )
+    except _INFER_EXCS as exc:
+        sys.stderr.write(f"[colab_trellis_server] falha na inferencia (job {job_id}): {exc}\n")
+        estado.atualizar_job(job_id, status="error", erro=str(exc))
+        return
+    estado.atualizar_job(job_id, status="done", payload=res)
+
+
 class TrellisHTTPHandler(BaseHTTPRequestHandler):
     server_version = "Forge3DTrellis/0.9.8"
 
@@ -149,13 +245,45 @@ class TrellisHTTPHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         rota = self.path.split("?", 1)[0].rstrip("/") or "/"
         if rota == "/health":
-            self._responder_json(200, {"ok": True, "modelo": self._estado.modelo_padrao, "pronto": True})
+            self._responder_json(
+                200,
+                {"ok": True, "modelo": self._estado.modelo_padrao, "pronto": True, "async_jobs": True},
+            )
+            return
+        if rota.startswith("/jobs/"):
+            if not self._autenticado():
+                self._responder_json(401, {"ok": False, "erro": "token Bearer ausente ou invalido"})
+                return
+            job_id = rota[len("/jobs/"):]
+            job = self._estado.obter_job(job_id) if job_id and "/" not in job_id else None
+            if job is None:
+                self._responder_json(404, {"ok": False, "erro": f"job inexistente: {job_id}"})
+                return
+            status = str(job.get("status") or "")
+            if status in ("pending", "running"):
+                self._responder_json(
+                    202,
+                    {
+                        "ok": True,
+                        "job_id": job_id,
+                        "status": status,
+                        "elapsed_s": round(time.monotonic() - float(job["created_at"]), 3),
+                    },
+                )
+                return
+            if status == "done":
+                self._responder_json(200, {"status": "done", "job_id": job_id, **job["payload"]})
+                return
+            self._responder_json(
+                500,
+                {"ok": False, "job_id": job_id, "status": "error", "erro": str(job.get("erro") or "erro interno")},
+            )
             return
         self._responder_json(404, {"ok": False, "erro": f"rota inexistente: {rota}"})
 
     def do_POST(self) -> None:  # noqa: N802
         rota = self.path.split("?", 1)[0].rstrip("/") or "/"
-        if rota != "/generate":
+        if rota not in ("/generate", "/jobs"):
             self._responder_json(404, {"ok": False, "erro": f"rota inexistente: {rota}"})
             return
         if not self._autenticado():
@@ -175,6 +303,7 @@ class TrellisHTTPHandler(BaseHTTPRequestHandler):
             texture_size = _validar_texture_size(corpo.get("texture_size", 1024))
             decimation_target = _validar_decimation_target(corpo.get("decimation_target"))
             imagens = _decodificar_imagens(corpo.get("images"))
+            modo_async = (rota == "/jobs") or bool(corpo.get("async"))
         except ImportError as exc:
             sys.stderr.write(f"[colab_trellis_server] dependencia ausente: {exc}\n")
             self._responder_json(500, {"ok": False, "erro": f"dependencia ausente: {exc}"})
@@ -185,27 +314,38 @@ class TrellisHTTPHandler(BaseHTTPRequestHandler):
             self._responder_json(codigo, {"ok": False, "erro": str(exc)})
             return
 
-        t0 = time.monotonic()
+        if modo_async:
+            job_id = self._estado.criar_job()
+            threading.Thread(
+                target=_rodar_job_async,
+                args=(self._estado, job_id, modelo_id, imagens),
+                kwargs={
+                    "seed": seed,
+                    "simplify": simplify,
+                    "texture_size": texture_size,
+                    "decimation_target": decimation_target,
+                },
+                daemon=True,
+            ).start()
+            self._responder_json(202, {"ok": True, "job_id": job_id, "status": "pending"})
+            return
+
         try:
-            with self._estado.gpu_lock:
-                pipe = self._estado.obter_pipeline(modelo_id)
-                outputs = _worker.executar_pipeline_trellis(
-                    pipe, imagens, seed=seed, preferir_single_sem_multi=True
-                )
-                glb_obj = _worker._exportar_saida_pipeline(
-                    outputs,
-                    modelo_id,
-                    simplify=simplify,
-                    texture_size=texture_size,
-                    decimation_target=decimation_target,
-                )
-                glb_bytes, faces = _extrair_glb_e_faces(glb_obj)
-        except (RuntimeError, OSError, ValueError) as exc:
+            res = _executar_inferencia(
+                self._estado,
+                modelo_id,
+                imagens,
+                seed=seed,
+                simplify=simplify,
+                texture_size=texture_size,
+                decimation_target=decimation_target,
+            )
+        except _INFER_EXCS as exc:
             sys.stderr.write(f"[colab_trellis_server] falha na inferencia: {exc}\n")
             self._responder_json(500, {"ok": False, "erro": str(exc)})
             return
 
-        self._responder_json(200, {"ok": True, "modelo": modelo_id, "faces": faces, "tempo_s": round(time.monotonic() - t0, 3), "glb_base64": base64.b64encode(glb_bytes).decode("ascii")})
+        self._responder_json(200, res)
 
 
 def criar_servidor(

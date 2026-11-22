@@ -10,6 +10,14 @@ from .qc_glb_mat import _eh_int, _num_finito
 _SIN_30 = 0.5
 _COS_30_M1 = math.cos(math.radians(30.0)) - 1.0
 _NOMES_RAIZ = frozenset({"Root", "HumanoidRootPart"})
+_OSSOS_MEMBRO_CORE = frozenset(
+    {
+        "UpperArm.L", "UpperArm.R", "LowerArm.L", "LowerArm.R",
+        "UpperLeg.L", "UpperLeg.R", "LowerLeg.L", "LowerLeg.R",
+        "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm",
+        "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg",
+    }
+)
 
 
 def _pais_nos(nodes: list) -> dict[int, int]:
@@ -163,6 +171,7 @@ def _skin_status(gltf: dict, binario: bytes) -> dict:
             "pesos_invalidos": 0,
             "somente_raiz": 0,
             "sem_deformacao": 0,
+            "ossos_membro_vazios": [],
         }
 
     pares_skinned: list[tuple[dict, int, dict]] = []
@@ -188,12 +197,24 @@ def _skin_status(gltf: dict, binario: bytes) -> dict:
     pais = _pais_nos(nodes)
     mundos = _matrizes_mundo_nos(gltf)
     prims_skinned = sem_atributos = joints_invalidos = pesos_invalidos = somente_raiz = sem_deformacao = 0
+    skin_dom_stats: dict[int, tuple[dict[int, str], list[int], dict[str, int]]] = {}
 
     for malha_gltf, num_joints, skin_obj in pares_skinned:
         prims = malha_gltf.get("primitives", [])
         if not isinstance(prims, list):
             continue
         root_slots = _slots_raiz(skin_obj, nodes, pais, num_joints)
+        sid = id(skin_obj)
+        if sid not in skin_dom_stats:
+            j_raw = skin_obj.get("joints")
+            j_list = j_raw if isinstance(j_raw, list) else []
+            s_names = {
+                slot: str(nodes[n_idx].get("name") or "")
+                for slot, n_idx in enumerate(j_list[:num_joints])
+                if _eh_int(n_idx) and 0 <= n_idx < len(nodes) and isinstance(nodes[n_idx], dict)
+            }
+            skin_dom_stats[sid] = (s_names, [0], {})
+        slot_names, total_v_box, dom_counts = skin_dom_stats[sid]
         for prim in prims:
             if not isinstance(prim, dict):
                 continue
@@ -232,6 +253,7 @@ def _skin_status(gltf: dict, binario: bytes) -> dict:
             if total_v == 0:
                 sem_atributos += 1
                 continue
+            total_v_box[0] += total_v
             validos = 0
             joint_ruim = False
             peso_nao_raiz = 0.0
@@ -241,12 +263,23 @@ def _skin_status(gltf: dict, binario: bytes) -> dict:
                     continue
                 if 0.98 <= sum(wf) <= 1.02:
                     validos += 1
+                best_j = -1
+                best_w = 1e-6
                 for jv, wv in zip(j_vec, wf):
                     if wv > 1e-6:
                         if not _num_finito(jv) or int(jv) < 0 or int(jv) >= num_joints:
                             joint_ruim = True
-                        elif int(jv) not in root_slots:
-                            peso_nao_raiz += wv
+                        else:
+                            ji = int(jv)
+                            if ji not in root_slots:
+                                peso_nao_raiz += wv
+                            if wv > best_w:
+                                best_w = wv
+                                best_j = ji
+                if best_j >= 0:
+                    bname = slot_names.get(best_j, "")
+                    if bname:
+                        dom_counts[bname] = dom_counts.get(bname, 0) + 1
             if joint_ruim:
                 joints_invalidos += 1
             if validos / float(total_v) < 0.99:
@@ -270,12 +303,26 @@ def _skin_status(gltf: dict, binario: bytes) -> dict:
                 ):
                     sem_deformacao += 1
 
+    ossos_vazios_set: set[str] = set()
+    for slot_names, total_v_box, dom_counts in skin_dom_stats.values():
+        n_v_skin = total_v_box[0]
+        if n_v_skin < 100:
+            continue
+        for bname in slot_names.values():
+            if bname not in _OSSOS_MEMBRO_CORE:
+                continue
+            cnt = dom_counts.get(bname, 0)
+            if cnt == 0 or (n_v_skin >= 500 and cnt < 0.005 * n_v_skin):
+                ossos_vazios_set.add(bname)
+    ossos_membro_vazios = sorted(ossos_vazios_set)
+
     ok = (
         sem_atributos == 0
         and joints_invalidos == 0
         and pesos_invalidos == 0
         and somente_raiz == 0
         and sem_deformacao == 0
+        and not ossos_membro_vazios
     )
     return {
         "ok": ok,
@@ -285,4 +332,5 @@ def _skin_status(gltf: dict, binario: bytes) -> dict:
         "pesos_invalidos": pesos_invalidos,
         "somente_raiz": somente_raiz,
         "sem_deformacao": sem_deformacao,
+        "ossos_membro_vazios": ossos_membro_vazios,
     }

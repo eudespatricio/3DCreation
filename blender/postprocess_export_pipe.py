@@ -311,6 +311,17 @@ def _exportar_lods(
         if qualidade_item in ("hero", "ultra") and bytes_max_kb > 0:
             bytes_max_kb = max(bytes_max_kb, 4096)
         if nivel == 0 and bytes_max_kb > 0:
+            perfil_nome_low = str(perfil.get("perfil") or item.get("perfil") or "").strip().lower()
+            eh_roblox_ultra = perfil_nome_low.startswith("roblox") and str(qualidade_item or "").strip().lower() == "ultra"
+            piso_orc = 1024 if eh_roblox_ultra else bake_pbr.PISO_PX_ORCAMENTO
+            reexp_cb = lambda c=caminho, s=selecionados, t=usar_tangents, fmt=img_fmt: exportar(  # noqa: E731
+                c,
+                s,
+                rig_obj is not None,
+                com_animacao=bool(animacoes_geradas),
+                export_tangents=t,
+                export_image_format=fmt,
+            )
             if texturas_geradas:
                 bake_pbr.ajustar_resolucao_orcamento(
                     alvo_obj,
@@ -318,27 +329,13 @@ def _exportar_lods(
                     texturas_geradas,
                     caminho,
                     bytes_max_kb * 1024,
-                    lambda c=caminho, s=selecionados, t=usar_tangents, fmt=img_fmt: exportar(
-                        c,
-                        s,
-                        rig_obj is not None,
-                        com_animacao=bool(animacoes_geradas),
-                        export_tangents=t,
-                        export_image_format=fmt,
-                    ),
+                    reexp_cb,
+                    piso_px=piso_orc,
                 )
-            reduzir_orcamento_fn(
-                caminho,
-                bytes_max_kb * 1024,
-                lambda c=caminho, s=selecionados, t=usar_tangents, fmt=img_fmt: exportar(
-                    c,
-                    s,
-                    rig_obj is not None,
-                    com_animacao=bool(animacoes_geradas),
-                    export_tangents=t,
-                    export_image_format=fmt,
-                ),
-            )
+            if hasattr(reduzir_orcamento_fn, "__code__") and "piso_px" in reduzir_orcamento_fn.__code__.co_varnames:
+                reduzir_orcamento_fn(caminho, bytes_max_kb * 1024, reexp_cb, piso_px=piso_orc)
+            elif not eh_roblox_ultra:
+                reduzir_orcamento_fn(caminho, bytes_max_kb * 1024, reexp_cb)
         arquivos.append(
             {
                 "caminho": nome,

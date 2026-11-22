@@ -140,12 +140,8 @@ def executar_delight(
 
 
 def executar_extrude_2d(
-    item: dict,
-    destino: Path,
-    imagem: Path,
-    concept_meta: dict | None,
-    env: dict[str, str],
-    t0: float,
+    item: dict, destino: Path, imagem: Path, concept_meta: dict | None,
+    env: dict[str, str], t0: float,
     cutout_fn: Callable[[Path, Path, dict[str, str], Any], tuple[Path, dict[str, Any]]],
     delight_fn: Callable[[Path, Path, dict[str, str]], dict[str, Any]],
 ) -> tuple[str, list[Path], dict[str, Any]]:
@@ -154,77 +150,53 @@ def executar_extrude_2d(
     cutout_png, cutout_info = cutout_fn(imagem, destino, env, item.get("id"))
     delight_meta: dict[str, Any] = {"ativo": delight_ativo, "executado": False}
     arquivos_extras: list[Path] = []
-    metallic_hint = ""
-    roughness_hint = ""
-    emissive_hint = ""
-    origem_textura = ""
+    metallic_hint = roughness_hint = emissive_hint = origem_textura = ""
     if delight_ativo and dl_script.is_file() and cutout_png.is_file():
         dl = delight_fn(cutout_png, destino, env)
-        delight_meta = dl["report"]
-        origem_textura = dl["albedo"]
-        metallic_hint = dl["metallic_hint"]
-        roughness_hint = dl["roughness_hint"]
-        emissive_hint = dl.get("emissive_hint", "")
-        arquivos_extras = dl["arquivos"]
+        delight_meta, origem_textura = dl["report"], dl["albedo"]
+        metallic_hint, roughness_hint = dl["metallic_hint"], dl["roughness_hint"]
+        emissive_hint, arquivos_extras = dl.get("emissive_hint", ""), dl["arquivos"]
 
     modelo: dict[str, Any] = {
-        "schema": "forge3d/bruto-extrude@1",
-        "modo": str(item.get("parte") or "arma"),
-        "imagem": "input_cutout.png",
-        "origem_nome": imagem.name,
-        "pivos": {},
-        "concept": concept_meta,
+        "schema": "forge3d/bruto-extrude@1", "modo": str(item.get("parte") or "arma"),
+        "imagem": "input_cutout.png", "origem_nome": imagem.name, "pivos": {}, "concept": concept_meta,
     }
-    if origem_textura:
-        modelo["origem_textura"] = origem_textura
-    if metallic_hint:
-        modelo["metallic_hint"] = metallic_hint
-    if roughness_hint:
-        modelo["roughness_hint"] = roughness_hint
-    if emissive_hint:
-        modelo["emissive_hint"] = emissive_hint
+    for chave_m, val_m in (
+        ("origem_textura", origem_textura), ("metallic_hint", metallic_hint),
+        ("roughness_hint", roughness_hint), ("emissive_hint", emissive_hint),
+    ):
+        if val_m:
+            modelo[chave_m] = val_m
 
-    arq_modelo = destino / "modelo.json"
-    resultado_path = destino / "i23d_resultado.json"
+    arq_modelo, resultado_path = destino / "modelo.json", destino / "i23d_resultado.json"
     arquivos = [arq_modelo, cutout_png, resultado_path, *arquivos_extras]
     meta_raw: dict[str, Any] = {
-        "modelo": "procedural",
-        "modo": modelo["modo"],
-        "cutout": cutout_info,
-        "delight": delight_meta,
-        "concept": concept_meta,
+        "modelo": "procedural", "modo": modelo["modo"],
+        "cutout": cutout_info, "delight": delight_meta, "concept": concept_meta,
     }
     anexar_concept_vistas(modelo, meta_raw, arquivos, destino, item, concept_meta)
-    arq_modelo.write_text(
-        json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    arq_modelo.write_text(json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     resultado: dict[str, Any] = {
-        "ok": True,
-        "modo": "extrude_2d",
-        "modelo": "procedural",
-        "parte": modelo["modo"],
-        "cutout": cutout_info,
-        "delight": delight_meta,
-        "tempo_provider_s": round(time.monotonic() - t0, 3),
+        "ok": True, "modo": "extrude_2d", "modelo": "procedural", "parte": modelo["modo"],
+        "cutout": cutout_info, "delight": delight_meta, "tempo_provider_s": round(time.monotonic() - t0, 3),
     }
-    resultado_path.write_text(
-        json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8"
-    )
+    resultado_path.write_text(json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8")
     return "forge3d/bruto-extrude@1", arquivos, meta_raw
 
 
 def _processar_vistas_i23d(
-    vistas: dict[str, str],
-    modelo: dict[str, Any],
-    arquivos: list[Path],
-    destino: Path,
-    origem_textura: str,
-    delight_ativo: bool,
-    dl_script: Path,
-    delight_fn: Callable[[Path, Path, dict[str, str]], dict[str, Any]],
-    env: dict[str, str],
+    vistas: dict[str, str], modelo: dict[str, Any], arquivos: list[Path], destino: Path,
+    origem_textura: str, delight_ativo: bool, dl_script: Path,
+    delight_fn: Callable[[Path, Path, dict[str, str]], dict[str, Any]], env: dict[str, str],
 ) -> None:
+    if _diag.facade_attr("modelo_escolhido", _diag.modelo_escolhido)() == "trellis":
+        for v_extra in ("back", "left", "right"):
+            raw_rm = vistas.pop(v_extra, None)
+            if raw_rm:
+                p_rm = Path(raw_rm)
+                if p_rm in arquivos:
+                    arquivos.remove(p_rm)
+
     if "front" in vistas and origem_textura:
         front_tex = destino / origem_textura
         if front_tex.is_file():
@@ -447,8 +419,23 @@ def executar_i23d_step(
 
     arq_modelo = destino / "modelo.json"
     arquivos = [arq_modelo, glb, resultado_path, input_png, *arquivos_extras]
+    vistas_4_pedidas = (
+        (not isinstance(item.get("vistas"), bool) and item.get("vistas") in (4, "4"))
+        or bool((concept_meta or {}).get("vistas_extras_ignoradas_single_view"))
+        or any(k in ((concept_meta or {}).get("vistas") or {}) for k in ("back", "left", "right"))
+        or any(k in (item.get("vistas_ortograficas") or {}) for k in ("back", "left", "right"))
+    )
+    item_vistas, cmeta_vistas = item, concept_meta
+    if modelo_ativo == "trellis" and vistas_4_pedidas:
+        if isinstance(item.get("vistas_ortograficas"), dict):
+            vo_f = {k: v for k, v in item["vistas_ortograficas"].items() if k == "front"}
+            item_vistas = {**item, "vistas_ortograficas": vo_f}
+        if isinstance(concept_meta, dict) and isinstance(concept_meta.get("vistas"), dict):
+            cv_f = {k: v for k, v in concept_meta["vistas"].items() if k == "front"}
+            cmeta_vistas = {**concept_meta, "vistas": cv_f}
+
     vistas_meta: dict[str, Any] = {}
-    vistas = anexar_concept_vistas(modelo, vistas_meta, arquivos, destino, item, concept_meta)
+    vistas = anexar_concept_vistas(modelo, vistas_meta, arquivos, destino, item_vistas, cmeta_vistas)
     if vistas:
         _processar_vistas_i23d(
             vistas, modelo, arquivos, destino, origem_textura, delight_ativo, dl_script_fn(), delight_fn, env
@@ -457,6 +444,8 @@ def executar_i23d_step(
         json.dumps(modelo, sort_keys=True, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
+    if modelo_ativo == "trellis" and vistas_4_pedidas:
+        resultado["vistas_extras_ignoradas_single_view"] = True
     resultado["rembg"] = remover_fundo
     resultado["rembg_motivo"] = motivo_rembg
     resultado["pose_guard"] = pose_guard_report

@@ -1,9 +1,9 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 21/11/2026 · **`v0.9.9` (`D134`, Onda 2): R15 rígido `partes_combinadas` + `Motor6D` default (`DEF-06`), coerência hierárquica de skinning geodésico, contrato `manifest@7` e Gate `G16` validados em E2E real.** Contratos
-correntes `spec@6` e `manifest@7` (`D94–D134`; `@1`–`@6` compatíveis na leitura). Entrega game-ready
-para **Roblox R15** (`Pose` aninhada, 15 partes watertight all-pair `split_por_ossos`, `partes_combinadas.glb` rígido + `Motor6D` padrão em `export-r15 --model-id` / `--modo-rig bone` opcional, `SurfaceAppearance` 4 canais, `G12–G14`, `G16` `1,00×`), **Godot 4** (`ORMMaterial3D=1.0`,
-sidecars, `forge3d_post_imported`, `BoneMap`, `UV2`+`GI_MODE_STATIC`, `UCX_`, 17 clipes, skinning coerente `<=3` infs/vértice + `G16`) e **i23d** (`TRELLIS.2-4B`/`Pixal3D` MIT local via `tools/trellis2_infer.py` + `o_voxel` + PBR nativo `EMIT` + 4 vistas Gemini c/ A-pose `45°` + `ultra` `2048 px`).
+**Data:** 22/11/2026 · **`v0.9.10` (`D135`, Onda 3): Consolidação feedback Godot + Roblox (`F-01`–`F-07`) e caimento natural dos braços (`F-08`) validada em E2E real nos 3 bosses (`Tomb Warden`, `Iron Ram`, `Kragor`).** Contratos
+correntes `spec@6` e `manifest@7` (`D94–D135`; `@1`–`@6` compatíveis na leitura). Entrega game-ready
+para **Roblox R15** (`Pose` aninhada c/ caimento gravitacional + ground-clamp, 15 partes watertight `split_por_ossos`, `partes_combinadas.glb` rígido + `Motor6D` default / `--modo-rig bone` opcional, `StreamingEnabled=false`, `SurfaceAppearance` 4 canais, `G12–G14`, `G16` `1,00×`), **Godot 4** (`ORMMaterial3D=1.0`,
+sidecars, `forge3d_post_imported`, `BoneMap`, `UV2`+`GI_MODE_STATIC`, `UCX_`, 17 clipes, skinning coerente `<=3` infs/vértice + caimento natural em `Shoulder`/`UpperArm` + `G16`) e **i23d** (`TRELLIS.2-4B` local via `tools/trellis2_infer.py`, `o_voxel`, PBR nativo `EMIT` + lift emissivo em `_baseColor.png` + AO piso `0,45` + `TRELLIS` 1-vista, `ultra` `2048 px`).
 
 Verificação rápida: `.venv/bin/python -m pytest -m "not gpu and not blender" -q` e `bash tools/ci.sh`.
 
@@ -29,7 +29,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **Ondas 0–3 (`M1–M5`, `v0.9.5`)** | ✔ | CI/P0 + 54 RED (M1), Roblox R15 + G12–G14 (M2/D125), Godot 4 (M3/D126), 4-vistas/Cycles/TRELLIS.2/G15 sem `fal.run` (M4/D127), G1–G11 + `verify` G11 + zero `except` silencioso + `0.9.5` (M5/D128) |
 | **M6 (E2E Tiers 1–4)** | ✔ | **97/97** E2E (`Tiers 1–4`), `GAP-050`/`051`/`062` fechados, `UCX_` preservado, `ci.sh`/`ci_verify.sh` verdes (`D129`; Tier 5 dispensado por Opção A) |
 | **Onda 1 (`v0.9.6`–`v0.9.8`)** | ✔ | `TRELLIS.2-4B` local (`tools/trellis2_infer.py`, `BF16/512`), `EMIT` PBR nativo, `Solidify+Voxel+Shrinkwrap`, fallback UV0, remoção Colab (`D130`–`D133`) |
-| **Onda 2 (`v0.9.9`)** | ✔ | `manifest@7`, R15 rígido `partes_combinadas` + `Motor6D`, coerência geodésica e Gate `G16` validados em Kragor e Iron Ram (`D134`) |
+| **Onda 2 (`v0.9.9`)** | ✔ | `manifest@7`, R15 rígido `partes_combinadas` + `Motor6D`, coerência geodésica e Gate `G16` (`D134`) |
+| **Onda 3 (`v0.9.10`)** | ✔ | `F-01`–`F-08`: marcos/skinning/R15 split, roll sagital + `F-08` caimento natural, emissive/AO PBR, `StreamingEnabled=false`, E2E 3 bosses (`D135`) |
 
 ## O que foi entregue nesta janela
 
@@ -67,13 +68,15 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
   `DEF-06` `8,21×/230`; Iron Ram `15.758` tris, `0` NM, `uv=0,3268`, `G15` `0,8669`/`0,8803`, `pbr_nativo=true`,
   `DEF-06` `20,62×/901`).
 - **Integração local `TRELLIS.2-4B` (`D133`)** — PoC local na RTX 3060 6 GB (`BF16/512 tuned`, `low_vram=True` + 24 GB WSL2: `301,01 s`, `4488 MiB` VRAM, `87.839` faces, `11,9×` vs Colab T4; `mv4` 4-vistas descartada após rasgos em `604,65 s`) promovido para `~/.cache/forge3d/trellis2` com `tools/trellis2_infer.py`, `mesh_diag.VERSAO="0.1.11"` (D6 `tr2<sha8>`), fail-fast sem fallback quando `FORGE3D_MODELO_MESH=trellis2`, remoção de `tools/colab_trellis_*.py` e HTTP `/jobs`; `postprocess_canon.py` (eixo fixo com `frente_origem="-Y"` sem tombar criatura larga) e `postprocess_bruto.py` (Cycles `EMIT` + fallback UV0).
-- **Onda 2 `v0.9.9` (`D134`)** — `schemas/manifest.v7.schema.json` (`manifest@7` + `partes_combinadas` + `partes[].centro_bbox` + `G1–G16`; `@1`–`@6` aceitos na leitura sem dupla contagem `G11`), `export-r15 --model-id` montando `Motor6D` rígido (`16` partes/`15` `Motor6D` por padrão; `--modo-rig bone` preservado), coerência geodésica `<=3` influências/`dist_hier <= 2` (`autorig_pesos_coerencia.py`, `autorig_grafo.py`, `autorig_pesos_geo.py`, `autorig_pesos_aa.py`) e Gate `G16` (`postprocess_deform.py` + `qc_deformacao.py`). Kragor (`godot4-aa`): `run`+`verify` `exit=0` (`15.760` tris, `0` NM, `uv=0,4016`, Blender `G16` `7,7346×` / `f20=0,007586` / `f30=0,001651` / `glb_lbs` `7,7346×` / `f20=0,007656` / `f30=0,001621`); Iron Ram `TRELLIS.2` local (`roblox-aa-80`, `motor6d`): `run`+`verify` `exit=0` (`15.760` tris, `0` NM, `uv=0,3288`, `partes_combinadas` `16.742` tris/`15` partes, `G12=0,0 mm`, `G13=0,001 mm`, `G14` `56,0°`, `G15` `0,893`/`0,9162`, `G16=1,0×`), `export-r15 --model-id 72623231126473` `.rbxlx` OK; Studio MCP offline (`skip`).
+- **Onda 2 `v0.9.9` (`D134`)** — `schemas/manifest.v7.schema.json` (`manifest@7`, `partes_combinadas`, `G1–G16`), `export-r15 --model-id` `Motor6D` rígido padrão, coerência geodésica e Gate `G16` validados em Kragor e Iron Ram.
+- **Onda 3 `v0.9.10` (`D135`)** — consolida `F-01`–`F-08` sem bump em `manifest@7`: poda axila + trava pescoço/dorsal (`autorig_marcos_tronco.py`, `autorig_marcos.py`, `autorig_grafo.py`, `autorig_pesos_*.py`), `qc_roblox_partes.py` (`0` antebraço em perna), roll sagital + sync `qc_orientacao.py` (`F-05`), caimento gravitacional natural (`autorig_pose_natural.py`, `autorig_anim_sockets.py`, `animacao_pose.py`, `rbx_anim.py`), emissive GLB + lift `_baseColor` + AO `0,45` + `TRELLIS` 1-vista (`bake_pbr_emissive.py`, `bake_pbr_nativo_blend.py`), `adiar_reparo_high > limite_triangulos` (`postprocess_bruto.py`), `<bool name="StreamingEnabled">false</bool>` e `run` 31 kf. E2E `--no-cache` + `verify` verdes (`Tomb Warden` `7,3152×`, `Iron Ram` `G12=0,0mm` / rígido `1,0×` / skinned `6,9853×` / `.rbxlx`, `Kragor` `6,3406×`), DeepSeek review (`GAP-065`).
 
 ## Números medidos nesta máquina
 
 | Medida | Valor |
 |---|---|
-| Suíte Onda 2 (`v0.9.9`) | `pytest -m "not gpu and not blender"` (`ci.sh`) + `test_v099_def06_g16` `11/11` + `test_autorig_geodesico` `6/6` + `test_smart_fit_rig56_blender` `3/3` + `test_tier4_scenarios` `6/6` verdes |
+| Suíte Onda 3 (`v0.9.10`) | `bash tools/ci.sh` (`exit=0`) + `test_v0910_fixes` (`10/10`) + `test_v0910_blender` (`6/6`) + `test_v099_def06_g16` (`11/11`) + `test_autorig_geodesico` (`6/6`) verdes |
+| E2E 3 Bosses (`v0.9.10` `--no-cache`) | `Tomb Warden` (`7,3152×`/`0,009032`), `Iron Ram` (`G12=0,0mm`, rígido `1,0×`, skinned `6,9853×`/`0,009227`, `export-r15`), `Kragor` (`6,3406×`/`0,008434`): todos `verify exit=0` |
 | Descoberta RED→GREEN (`R2`–`R5`) | **54/54 verdes** (`16/16` R2 Roblox, `11/11` R3 Godot, `11/11` R4 Visual, `16/16` R5 QC) |
 | Suíte E2E (`tests/e2e/`) | **97/97 verdes** (`Tier 1: 41/41` · `Tier 2: 44/44` · `Tier 3: 6/6` · `Tier 4: 6/6`; `D129`) |
 | Hardening M5 (`F26`/`F27`/Blender UV) | `test_f27_silent_except` `7/7` · `test_qc_f26_hardening` `10/10` · `test_invariantes_e2e` `12/12` · `80/80` `modular_armor` + `15/15` `smart_fit` (`topo=(0,0,0)` `uv=(0,0,0,0)`) |
@@ -101,20 +104,20 @@ calibrado, `GAP-019`, Pixal3D MIT, `referencia_estilo` · `D114–D124` B23/B24,
 sidecars, `forge3d_post_imported`, `BoneMap`, `UCX_`, 17 clipes)** · **`D127` Onda 2 Visual (sub-rotas
 explícitas, 4 vistas Gemini/Cycles, zero `fal.run`, `TRELLIS.2-4B`/`Pixal3D`, `G15`)** · **`D128` Onda 3
 (`G1–G11`, `verify` `G11`, zero `except` silencioso, `PIPELINE_VERSION = "0.9.5"`)** · **`D129` Portão E2E `M6`
-(`97/97` E2E Tiers 1–4, Opção A Tier 5 dispensado, `GAP-050/051/062` fechados, `ci.sh`/`ci_verify.sh` `exit=0`)** · **`D130` Hardening `v0.9.6`** · **`D131` Fine-Tune `v0.9.7`** · **`D132` Onda 1 `v0.9.8` (`TRELLIS.2-4B` `o_voxel`, `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback UV0)** · **`D133` `TRELLIS.2-4B` local (`tools/trellis2_infer.py`, `BF16/512`, zero Colab)** · **`D134` Onda 2 `v0.9.9` (`manifest@7`, R15 rígido `partes_combinadas` + `Motor6D`, coerência geodésica e Gate `G16`)**.
+(`97/97` E2E Tiers 1–4, Opção A Tier 5 dispensado, `GAP-050/051/062` fechados, `ci.sh`/`ci_verify.sh` `exit=0`)** · **`D130` Hardening `v0.9.6`** · **`D131` Fine-Tune `v0.9.7`** · **`D132` Onda 1 `v0.9.8` (`TRELLIS.2-4B` `o_voxel`, `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback UV0)** · **`D133` `TRELLIS.2-4B` local (`tools/trellis2_infer.py`, `BF16/512`, zero Colab)** · **`D134` Onda 2 `v0.9.9` (`manifest@7`, R15 rígido `Motor6D`, coerência geodésica, `G16`)** · **`D135` Onda 3 `v0.9.10` (`F-01`–`F-08` feedback Godot/Roblox + caimento natural dos braços, `GAP-065`)**.
 
 ## Aberto
 
 `Q1` (D72) e `Q7` (D73) fechadas; `Q8` permanece em `DECISOES.md` §4. Plano P0–P6 e portões `M1–M6`
-completos (D83, D129); lacunas de backlog (`GAP-052`–`GAP-064`) vivem em `docs/gaps.md` e §Depois da
+completos (D83, D129); lacunas de backlog (`GAP-052`–`GAP-065`) vivem em `docs/gaps.md` e §Depois da
 P6 de `docs/roadmap.md`.
 
 ## Próximos passos — em ordem
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Quando Roblox Studio MCP estiver online, rodar `tools/r15_play_g14.py --model-id` no Iron Ram publicado (`Motor6D` 15 partes) e validar visualmente no cliente | 1 sessão Studio | validação visual Play G14 ao vivo |
-| **2** | Priorizar itens de backlog (`docs/gaps.md` `GAP-052`–`GAP-064`) conforme demanda dos jogos consumidores | sob demanda | débitos pós-`v0.9.9` |
+| **1** | Revalidar visualmente em lote os bosses `v0.9.10` nos projetos consumidores (`jogo-godot` e Roblox Studio via `tools/r15_play_g14.py` quando MCP Studio online) | 1 sessão Studio/Godot | aceite visual de campo |
+| **2** | Priorizar itens de backlog (`docs/gaps.md` `GAP-052`–`GAP-065`) conforme demanda dos jogos consumidores | sob demanda | débitos pós-`v0.9.10` |
 
 ## Comandos
 
@@ -135,7 +138,7 @@ python -m pytest -m "not gpu and not blender" -q
 python -m pytest tests/test_v099_def06_g16.py -v
 bash tools/ci.sh                               # pytest não-Blender + ruff + mypy + contexto + P0
 bash tools/ci_verify.sh                        # Blender 4.2.0 + verify + Godot headless QA
-bash tools/ci_dist.sh                          # wheel 0.9.9 em venv limpo
+bash tools/ci_dist.sh                          # wheel 0.9.10 em venv limpo
 bash tools/check-contexto.sh && python tools/check-p0.py && python tools/conformidade.py
 python tools/r15_play_g14.py --help            # harness Play Studio G14
 godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_check.gd" -- <glb> idle
@@ -159,7 +162,6 @@ godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_chec
 
 ## Como retomar
 
-> **Estado**: `v0.9.9` (`D134`, Onda 2 completa): `manifest@7`, R15 rígido `partes_combinadas` + `Motor6D` default,
-> coerência de skinning geodésico e Gate `G16` (`max_stretch`, `frac_gt_20`, `frac_gt_30`, `motor6d_rigido`) validados.
-> **Próximo passo**: Play test visual no Roblox Studio quando MCP estiver online (`r15_play_g14.py`).
+> **Estado**: `v0.9.10` (`D135`, Onda 3 completa): `F-01`–`F-08` (marcos/skinning/R15 split, caimento natural dos braços + roll sagital, ground-clamp, PBR emissive/AO e `.rbxlx` `StreamingEnabled=false`) validados E2E nos 3 bosses (`run --no-cache` + `verify exit=0`).
+> **Próximo passo**: Retomar geração em lote / teste visual nos repos consumidores Godot/Roblox com `PIPELINE_VERSION = "0.9.10"` (`GAP-052..065` em backlog).
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

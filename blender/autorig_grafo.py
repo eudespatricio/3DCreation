@@ -12,6 +12,7 @@ if __package__:
     from .autorig_const import (
         _OSSOS_BRACO,
         _OSSOS_BRACO_DISTAL,
+        _OSSOS_BRACO_PROXIMAL_R15,
         _OSSOS_CABECA,
         _OSSOS_CANELA,
         _OSSOS_COXA,
@@ -36,6 +37,7 @@ else:
     from autorig_const import (
         _OSSOS_BRACO,
         _OSSOS_BRACO_DISTAL,
+        _OSSOS_BRACO_PROXIMAL_R15,
         _OSSOS_CABECA,
         _OSSOS_CANELA,
         _OSSOS_COXA,
@@ -62,27 +64,49 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
     neck_hw = m.get("neck_hw", 0.038 * h)
     arm_z_cut = m["shoulder_z"] - 0.11 * h
     arm_z_cut_lo = arm_z_cut - 0.03 * h
-    arm_root_x = max(torso_hw * 1.06, 0.082 * h)
-    arm_deltoid_x = max(arm_root_x + 0.038 * h, torso_hw * 1.55, 0.118 * h)
-    ombro_min_x = max(torso_hw * 0.85, 0.066 * h)
+    sh_x = 0.5 * (abs(m["shoulder_x_L"]) + abs(m["shoulder_x_R"]))
+    arm_root_raw = max(torso_hw * 1.03, 0.075 * h)
+    arm_root_x = min(arm_root_raw, sh_x * 0.96) if sh_x > 1e-6 else arm_root_raw
+    arm_deltoid_x = max(arm_root_x + 0.032 * h, sh_x + 0.025 * h, 0.115 * h)
+    ombro_min_raw = max(torso_hw * 0.82, 0.062 * h)
+    ombro_min_x = min(ombro_min_raw, sh_x * 0.82) if sh_x > 1e-6 else ombro_min_raw
     ombro_max_x = max(abs(m["shoulder_x_L"]), abs(m["shoulder_x_R"]), arm_root_x) + 0.06 * h
     neck_max_x = min(max(neck_hw * 1.45, 0.052 * h), min(arm_root_x * 0.72, 0.095 * h))
     head_max_x = min(max(neck_max_x * 1.45, 0.14 * h), min(arm_root_x * 0.85, 0.115 * h))
     elbow_x = max(abs(float(m.get("elbow_x_L") or arm_deltoid_x)), abs(float(m.get("elbow_x_R") or arm_deltoid_x)), arm_deltoid_x)
     tronco_max_x = max(abs(m["shoulder_x_L"]), abs(m["shoulder_x_R"]), arm_deltoid_x, 0.14 * h) * 1.12
     leg_x_min = min(abs(m["leg_x_L"]), abs(m["leg_x_R"]))
+    leg_abs = max(abs(m["leg_x_L"]), abs(m["leg_x_R"]))
     x_tol_leg = min(0.015 * h, 0.25 * leg_x_min)
-    perna_max_x = max(torso_hw * 1.02, max(abs(m["leg_x_L"]), abs(m["leg_x_R"])) + 0.036 * h)
+    perna_max_x = max(torso_hw * 1.02, leg_abs + 0.036 * h)
+    el_xs = [abs(float(v)) for v in (m.get("elbow_x_L"), m.get("elbow_x_R")) if v is not None]
+    min_elbow_x = min(el_xs) if el_xs else 0.0
+    arms_abducted = bool(el_xs and min_elbow_x > leg_abs + 0.06 * h)
+    if arms_abducted:
+        perna_max_x = min(perna_max_x, 0.5 * (leg_abs + min_elbow_x) + 0.02 * h)
+    arm_z_hi = max(m["chest_top_z"] + 0.08 * h, m["shoulder_z"] + 0.12 * h)
+    if not tem_neck:
+        arm_z_hi = min(arm_z_hi, m["chest_top_z"] + 0.06 * h)
+    arm_z_hi_medial = min(arm_z_hi, (m["neck_z"] + 0.02 * h) if tem_neck else (m["chest_top_z"] + 0.045 * h))
+    el_zs = [float(m[k]["elbow"][2]) for k in ("braco_L", "braco_R") if isinstance(m.get(k), dict) and "elbow" in m[k]]
+    tem_el_baixo = bool(el_zs and max(el_zs) < m["shoulder_z"] - 0.04 * h)
+    arm_ext_z_soft = (max(el_zs) + 0.04 * h) if tem_el_baixo else arm_z_hi
+    arm_ext_z_hi = (max(el_zs) + 0.14 * h) if tem_el_baixo else arm_z_hi
     return {
         "h": h,
         "x_tol": 0.03 * h,
         "x_tol_leg": x_tol_leg,
         "torso_hw": torso_hw,
+        "arms_abducted": 1.0 if arms_abducted else 0.0,
         "neck_max_x": neck_max_x,
         "head_max_x": head_max_x,
         "ombro_min_x": ombro_min_x,
         "ombro_max_x": ombro_max_x,
-        "ombro_z_hi": m["head_top_z"] + 0.02 * h,
+        "ombro_z_hi": arm_z_hi,
+        "arm_z_hi": arm_z_hi,
+        "arm_z_hi_medial": arm_z_hi_medial,
+        "arm_ext_z_soft": arm_ext_z_soft,
+        "arm_ext_z_hi": arm_ext_z_hi,
         "arm_root_x": arm_root_x,
         "arm_deltoid_x": arm_deltoid_x,
         "arm_ext_z_max": m["shoulder_z"] - 0.02 * h,
@@ -99,12 +123,12 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
         "chest_z_min": m["spine1_z"] - 0.015 * h,
         "upper_torso_z_min": m["hip_z"] - 0.01 * h,
         "chest_z_max": (m["neck_z"] + 0.02 * h) if tem_neck else (m["chest_top_z"] + 0.035 * h),
-        "chest_z_max_collar": m["head_top_z"] + 0.02 * h,
+        "chest_z_max_collar": min(m["head_top_z"], max(m["chest_top_z"] + 0.08 * h, m["shoulder_z"] + 0.11 * h)),
         "spine1_z_min": m["hip_z"] - 0.01 * h,
         "spine1_z_max": m["chest_top_z"] - 0.02 * h,
         "spine_z_min": m["hip_z"] - 0.02 * h,
         "spine_z_max": m["chest_z"] + 0.02 * h,
-        "hips_z_max": m["chest_z"] + 0.03 * h,
+        "hips_z_max": min(m["chest_z"] - 0.01 * h, m["spine1_z"] + 0.03 * h),
         "leg_z_max": m["hip_z"] + 0.04 * h,
         "upper_leg_z_min": m["knee_z"] - 0.05 * h,
         "lower_leg_z_max": m["knee_z"] + 0.35 * max(0.05 * h, m["hip_z"] - m["knee_z"]),
@@ -136,23 +160,36 @@ def _osso_permitido(
     if abs_x <= b["x_tol"] and nome in _OSSOS_BRACO:
         return False
 
+    arms_abducted = b.get("arms_abducted", 0.0) > 0.5
+    if nome in _OSSOS_PERNA and arms_abducted and abs_x > b["perna_max_x"] + 0.03 * h:
+        return False
     if nome in _OSSOS_PE:
         return vz <= b["foot_z_max"]
     if nome in _OSSOS_CANELA:
         return b["z_min_floor"] <= vz <= b["lower_leg_z_max"]
     if nome in _OSSOS_COXA:
         return b["upper_leg_z_min"] <= vz <= b["leg_z_max"]
+    x_med_arm = (0.30 if not tem_neck else 0.245) * h
     if nome in _OSSOS_OMBROS:
+        if abs_x <= x_med_arm and vz > b["arm_z_hi_medial"]:
+            return False
         return b["arm_z_cut_lo"] <= vz <= b["ombro_z_hi"] and abs_x >= b["ombro_min_x"]
     if nome in _OSSOS_BRACO_DISTAL:
-        if nome in _OSSOS_EXTREMIDADE_BRACO and vz > b["arm_ext_z_max"] and abs_x < b["arm_ext_x_min"]:
+        if vz > b["arm_z_hi"] or (abs_x <= x_med_arm and vz > b["arm_z_hi_medial"]):
             return False
-        if vz >= b["arm_z_cut"] and abs_x >= b["arm_root_x"]:
+        if nome in _OSSOS_EXTREMIDADE_BRACO and (vz > b["arm_ext_z_hi"] or (vz > b["arm_ext_z_max"] and abs_x < b["arm_ext_x_min"])):
+            return False
+        z_cut_a = b["arm_z_cut_lo"] if nome in _OSSOS_BRACO_PROXIMAL_R15 else b["arm_z_cut"]
+        min_x_a = b["ombro_min_x"] if nome in _OSSOS_BRACO_PROXIMAL_R15 else b["arm_root_x"]
+        if vz >= z_cut_a and abs_x >= min_x_a:
             return True
         return bracos_baixos and abs_x > b["braco_baixo_min_x"] and vz >= b["arm_z_min"]
     if nome in _OSSOS_CABECA:
         z_lo_head = (b["head_z_min"] - 0.03 * h) if tem_neck else b["head_z_min"]
-        return vz >= z_lo_head and abs_x <= b["head_max_x"] + 0.04 * h
+        chifre_lat = (not tem_neck) and vz >= b["arm_z_hi_medial"] and abs_x > b["head_max_x"] + 0.04 * h
+        head_x_hi = 0.34 * h if chifre_lat else max(b["head_max_x"] + 0.04 * h, 0.24 * h)
+        head_x_lim = head_x_hi if (chifre_lat or vz >= m["neck_z"] + 0.015 * h) else (b["head_max_x"] + 0.04 * h)
+        return vz >= z_lo_head and abs_x <= head_x_lim
     if nome in _OSSOS_PESCOCO:
         return b["neck_z_min"] <= vz <= b["neck_z_max"] + 0.04 * h and abs_x <= b["neck_max_x"] + 0.04 * h
     if nome in _OSSOS_TRONCO:
@@ -167,6 +204,8 @@ def _osso_permitido(
         if nome == "Spine":
             return b["spine_z_min"] <= vz <= b["spine_z_max"]
         if nome in ("Hips", "LowerTorso"):
+            if arms_abducted and abs_x > b["perna_max_x"] + 0.03 * h:
+                return False
             return vz <= b["hips_z_max"]
     return True
 
@@ -195,10 +234,20 @@ def _osso_permitido_semente(
             return v.z <= m["knee_z"] + 0.04 * h
         return True
 
+    x_med_arm = (0.30 if not tem_neck else 0.245) * h
     if nome in _OSSOS_OMBROS:
-        return v.z >= m["shoulder_z"] - 0.08 * h and b["ombro_min_x"] <= abs_x <= b["ombro_max_x"]
+        if abs_x <= x_med_arm and v.z > b["arm_z_hi_medial"]:
+            return False
+        return m["shoulder_z"] - 0.08 * h <= v.z <= b["ombro_z_hi"] and b["ombro_min_x"] <= abs_x <= b["ombro_max_x"]
     if nome in _OSSOS_BRACO_DISTAL:
-        return abs_x >= b["arm_root_x"]
+        min_x = b["ombro_min_x"] if nome in _OSSOS_BRACO_PROXIMAL_R15 else b["arm_root_x"]
+        if nome in _OSSOS_EXTREMIDADE_BRACO and v.z > b["arm_ext_z_hi"]:
+            return False
+        if abs_x <= x_med_arm and v.z > min(b["arm_z_hi"], m["shoulder_z"] + 0.06 * h):
+            return False
+        if abs_x <= x_med_arm and v.z > b["arm_z_hi_medial"]:
+            return False
+        return v.z <= b["arm_z_hi"] and abs_x >= min_x
 
     if nome in _OSSOS_CABECA:
         return abs_x <= max(b["neck_max_x"], 0.12 * h)

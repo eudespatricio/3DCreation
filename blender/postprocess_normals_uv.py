@@ -198,26 +198,28 @@ def desdobrar_uv(obj, margem: float = 0.004, angle_limit_graus: float = 66.0) ->
         finally:
             bm.free()
     n_polys = len(obj.data.polygons)
-    smart_margin = max(0.0015, min(0.002 if n_polys >= 4000 else 0.02, float(margem)))
-    pack_cap = 0.002 if n_polys >= 4000 else (0.004 if n_polys >= 400 else 0.01)
-    pack_props = set(bpy.ops.uv.pack_islands.get_rna_type().properties.keys())
-    pack_raw = {"rotate": True, "scale": True, "margin": max(0.0015, min(pack_cap, float(margem))), "margin_method": "FRACTION", "shape_method": "CONCAVE"}
+    smart_margin = max(0.0015, min(0.0015 if n_polys >= 400 else 0.02, float(margem)))
+    pack_margin = 0.0015 if n_polys >= 400 else max(0.0015, min(0.01, float(margem)))
+    rna_props = bpy.ops.uv.pack_islands.get_rna_type().properties
+    pack_props = set(rna_props.keys())
+    pack_raw: dict[str, object] = {
+        "rotate": True, "scale": True, "margin": pack_margin, "margin_method": "FRACTION", "shape_method": "CONCAVE"
+    }
+    if "rotate_method" in pack_props and "ANY" in {it.identifier for it in rna_props["rotate_method"].enum_items}:
+        pack_raw["rotate_method"] = "ANY"
     pack_kwargs = {k: v for k, v in pack_raw.items() if k in pack_props}
-    angulos = [float(angle_limit_graus)] + [
-        a for a in (52.0, 45.0, 38.0) if a < float(angle_limit_graus) - 0.5
-    ]
+    angulos = [float(angle_limit_graus)] + [a for a in (52.0, 45.0, 38.0) if a < float(angle_limit_graus) - 0.5]
     _selecionar(obj)
     uv_sobreposta = False
     for ang in angulos:
         bpy.ops.object.mode_set(mode="EDIT")
         bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.uv.smart_project(
-            angle_limit=math.radians(ang),
-            island_margin=smart_margin,
-            area_weight=0.0,
-            correct_aspect=True,
-            scale_to_bounds=False,
+            angle_limit=math.radians(ang), island_margin=smart_margin,
+            area_weight=0.0, correct_aspect=True, scale_to_bounds=False,
         )
+        bpy.ops.uv.select_all(action="SELECT")
+        bpy.ops.uv.average_islands_scale()
         bpy.ops.object.mode_set(mode="OBJECT")
         if not obj.data.uv_layers or n_polys <= 0:
             break
@@ -403,35 +405,19 @@ def _propagar_deslocamento_zonas_uv(
 
 
 def _preparar_contexto_bake_pos_escala(
-    obj,
-    high_obj_src,
-    pbr_zonas_cfg,
-    info_gerada: dict,
-    alpha_cards_ativo: bool,
-    angulo_smooth_final: float,
-    desdobrar_uv_fn,
-    bake_pbr_mod,
+    obj, high_obj_src, pbr_zonas_cfg, info_gerada: dict, alpha_cards_ativo: bool,
+    angulo_smooth_final: float, desdobrar_uv_fn, bake_pbr_mod,
 ) -> tuple[dict, object, object, object, object]:
     """Prepara troca high/low pos-escala e callbacks preservando vertex_groups, UVs e weighted_normal."""
-    low_mesh_pronto = obj.data
-    high_mesh_src = high_obj_src.data
+    low_mesh_pronto, high_mesh_src = obj.data, high_obj_src.data
     pre_bake_high_max_x = max((v.co.x for v in high_mesh_src.vertices), default=0.0)
-    arm_states = [
-        (m, m.show_viewport, m.show_render)
-        for m in obj.modifiers
-        if m.type == "ARMATURE"
-    ]
+    arm_states = [(m, m.show_viewport, m.show_render) for m in obj.modifiers if m.type == "ARMATURE"]
     for m, _vp, _rn in arm_states:
-        m.show_viewport = False
-        m.show_render = False
+        m.show_viewport, m.show_render = False, False
     obj.data = high_mesh_src
     estado = {
-        "obj": obj,
-        "high_obj_src": high_obj_src,
-        "high_mesh_src": high_mesh_src,
-        "low_mesh_pronto": low_mesh_pronto,
-        "arm_states": arm_states,
-        "swapped_to_low": False,
+        "obj": obj, "high_obj_src": high_obj_src, "high_mesh_src": high_mesh_src,
+        "low_mesh_pronto": low_mesh_pronto, "arm_states": arm_states, "swapped_to_low": False,
     }
 
     def _decimar_cb(alvo_o, _lim_t: int) -> int:

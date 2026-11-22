@@ -15,25 +15,22 @@ import bpy
 from mathutils import Matrix, Vector
 
 if __package__:
-    from .split_por_ossos_sep import bisectar_sobrepostos as _bisectar_sobrepostos_impl
+    from .split_por_ossos_sep import (
+        _bl_para_yup,
+        _dist_ponto_segmento,
+        bisectar_sobrepostos as _bisectar_sobrepostos_impl,
+        face_valida_faminto as _face_valida_faminto,
+    )
 else:
     _BLENDER_DIR = str(Path(__file__).resolve().parent)
     if _BLENDER_DIR not in sys.path:
         sys.path.insert(0, _BLENDER_DIR)
-    from split_por_ossos_sep import bisectar_sobrepostos as _bisectar_sobrepostos_impl
-
-
-def _bl_para_yup(v: Vector) -> list[float]:
-    return [float(v.x), float(v.z), float(-v.y)]
-
-
-def _dist_ponto_segmento(p: Vector, a: Vector, b: Vector) -> float:
-    ab = b - a
-    denom = ab.length_squared
-    if denom < 1e-12:
-        return (p - a).length
-    t = max(0.0, min(1.0, (p - a).dot(ab) / denom))
-    return (p - (a + ab * t)).length
+    from split_por_ossos_sep import (
+        _bl_para_yup,
+        _dist_ponto_segmento,
+        bisectar_sobrepostos as _bisectar_sobrepostos_impl,
+        face_valida_faminto as _face_valida_faminto,
+    )
 
 
 def _extrair_ciclos_borda(bm) -> list[list]:
@@ -97,7 +94,7 @@ def _retrair_bordas(bm, bone_mid_local: Vector, retract_dist: float) -> None:
         alvo = sum((nv.co for nv in viz_int), Vector((0.0, 0.0, 0.0))) / len(viz_int) if viz_int else bone_mid_local
         delta = alvo - v.co
         if delta.length > 1e-6:
-            novas[v] = v.co + delta * (min(retract_dist, 0.15 * delta.length) / delta.length)
+            novas[v] = v.co + delta * (min(retract_dist, 0.08 * delta.length) / delta.length)
     for v, co in novas.items():
         v.co = co
 
@@ -332,12 +329,18 @@ def _atribuir_faces(bm_base, malha, mundo_malha: Matrix, segmentos: list[tuple[s
                 counts[cand] = counts.get(cand, 0) + 1
 
     faces = list(bm_base.faces)
+    zs_seg = [p.z for _n, sa, sb in segmentos for p in (sa, sb)]
+    altura_est = max((max(zs_seg) - min(zs_seg)) if zs_seg else 1.8, 0.1)
     famintos = {i for i in range(len(segmentos)) if counts.get(i, 0) == 0}
-    for p_idx, (_nome, seg_a, seg_b) in enumerate(segmentos):
+    for p_idx, (nome_p, seg_a, seg_b) in enumerate(segmentos):
         if counts.get(p_idx, 0) > 0:
             continue
         min_keep = 4 if any(counts.get(face_parte[f.index], 0) > 4 for f in faces) else 1
-        cands = [f for f in faces if counts.get(face_parte[f.index], 0) > min_keep]
+        base_cands = [f for f in faces if counts.get(face_parte[f.index], 0) > min_keep]
+        cands = [f for f in base_cands if _face_valida_faminto(nome_p, seg_a, seg_b, segmentos[face_parte[f.index]][0], mundo_malha @ f.calc_center_median(), altura_est)]
+        guarda_estrita = bool(cands)
+        if not cands:
+            cands = [f for f in base_cands if _face_valida_faminto(nome_p, seg_a, seg_b, segmentos[face_parte[f.index]][0], mundo_malha @ f.calc_center_median(), altura_est, lado_apenas=True)] or base_cands
         if not cands:
             continue
 
@@ -363,6 +366,8 @@ def _atribuir_faces(bm_base, malha, mundo_malha: Matrix, segmentos: list[tuple[s
                     if nf in seen or cur_nf == p_idx or counts.get(cur_nf, 0) <= min_keep:
                         continue
                     c_w = mundo_malha @ nf.calc_center_median()
+                    if guarda_estrita and not _face_valida_faminto(nome_p, seg_a, seg_b, segmentos[cur_nf][0], c_w, altura_est):
+                        continue
                     d_p = _dist_ponto_segmento(c_w, seg_a, seg_b)
                     d_c = _dist_ponto_segmento(c_w, segmentos[cur_nf][1], segmentos[cur_nf][2])
                     melhor_outro = any(_dist_ponto_segmento(c_w, segmentos[q][1], segmentos[q][2]) < d_p for q in famintos)
@@ -438,7 +443,7 @@ def main() -> None:
 
     zs_w = [(mundo_malha @ v.co).z for v in bm_base.verts]
     altura_w = (max(zs_w) - min(zs_w)) if zs_w else 1.8
-    retract_dist = 0.0006 * max(1.0, altura_w / 1.8)
+    retract_dist = 0.0003 * max(1.0, altura_w / 1.8)
 
     face_parte = _atribuir_faces(bm_base, malha, mundo_malha, segmentos)
     _empacotar_imagens_externas(glb.parent)

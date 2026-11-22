@@ -71,7 +71,7 @@ def _configurar_bsdf_vc_padrao(nt):
         if "Metallic" in bsdf.inputs:
             bsdf.inputs["Metallic"].default_value = 0.0
         if "Specular IOR Level" in bsdf.inputs:
-            bsdf.inputs["Specular IOR Level"].default_value = 0.18
+            bsdf.inputs["Specular IOR Level"].default_value = 0.50
     return bsdf
 
 

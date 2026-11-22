@@ -28,7 +28,9 @@ else:
     import bake_pbr_maps as _maps
     import bake_pbr_proj as _proj
 
-_SUBMODULOS_BPY = (_cfg, _proj, _proj._sh, _maps, _exec, _exec._passes, _exec._nat)
+_SUBMODULOS_BPY = (
+    _cfg, _proj, _proj._sh, _maps, _exec, _exec._passes, _exec._nat, _exec._nat_blend, _exec._emissive
+)
 
 
 def _sync_bpy() -> None:
@@ -94,7 +96,7 @@ def preparar_high_mesh_detalhe_alto(high_obj, cfg: dict | None) -> dict:
     return _cfg.preparar_high_mesh_detalhe_alto(high_obj, cfg)
 
 
-def _criar_material_pbr_gltf(nome_mat: str, img_bc, img_nm, img_orm):
+def _criar_material_pbr_gltf(nome_mat: str, img_bc, img_nm, img_orm, img_emissive=None):
     """Cria o material PBR final compativel com o exportador glTF 2.0 do Blender 4.2."""
     _sync_bpy()
     mat = bpy.data.materials.new(nome_mat)
@@ -106,7 +108,7 @@ def _criar_material_pbr_gltf(nome_mat: str, img_bc, img_nm, img_orm):
         if "Roughness" in bsdf.inputs:
             bsdf.inputs["Roughness"].default_value = 0.78
         if "Specular IOR Level" in bsdf.inputs:
-            bsdf.inputs["Specular IOR Level"].default_value = 0.18
+            bsdf.inputs["Specular IOR Level"].default_value = 0.50
 
     tex_bc = nt.nodes.new("ShaderNodeTexImage")
     tex_bc.image = img_bc
@@ -138,6 +140,15 @@ def _criar_material_pbr_gltf(nome_mat: str, img_bc, img_nm, img_orm):
     gltf_out.location = (220, -160)
     nt.links.new(sep.outputs["Red"], gltf_out.inputs["Occlusion"])
 
+    if img_emissive is not None and bsdf is not None:
+        tex_em = nt.nodes.new("ShaderNodeTexImage")
+        tex_em.image = img_emissive
+        tex_em.location = (-440, -560)
+        if "Emission Color" in bsdf.inputs:
+            nt.links.new(tex_em.outputs["Color"], bsdf.inputs["Emission Color"])
+        if "Emission Strength" in bsdf.inputs:
+            bsdf.inputs["Emission Strength"].default_value = 2.0
+
     return mat
 
 
@@ -154,6 +165,8 @@ def executar_bake_high_low(
     origem_textura: str | None = None,
     metallic_hint_png: str | None = None,
     roughness_hint_png: str | None = None,
+    emissive_hint: str | None = None,
+    emissive_hint_png: str | None = None,
     proteger_superficie: bool = False,
     perfil_nome: str | None = None,
     material_procedural: str | None = None,
@@ -179,6 +192,7 @@ def executar_bake_high_low(
         origem_textura=origem_textura,
         metallic_hint_png=metallic_hint_png,
         roughness_hint_png=roughness_hint_png,
+        emissive_hint=emissive_hint or emissive_hint_png,
         proteger_superficie=proteger_superficie,
         perfil_nome=perfil_nome,
         material_procedural=material_procedural,
@@ -221,8 +235,9 @@ def ajustar_resolucao_orcamento(
     glb_caminho: str,
     limite_bytes: int,
     reexportar_fn,
+    piso_px: int = PISO_PX_ORCAMENTO,
 ) -> None:
-    """Encolhe mapas acima de ``PISO_PX_ORCAMENTO`` (512px) ate caber no teto sem cair abaixo de 512px."""
+    """Encolhe mapas gradualmente (1024px antes de ``piso_px``) ate caber no teto."""
     _sync_bpy()
     _maps.ajustar_resolucao_orcamento(
         obj=obj,
@@ -231,4 +246,5 @@ def ajustar_resolucao_orcamento(
         glb_caminho=glb_caminho,
         limite_bytes=limite_bytes,
         reexportar_fn=reexportar_fn,
+        piso_px=piso_px,
     )

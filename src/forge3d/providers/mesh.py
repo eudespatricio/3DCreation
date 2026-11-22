@@ -215,6 +215,23 @@ class MeshProvider:
             return False, f"P3: modelo '{modelo}' reconhecido na licença, mas sem provider implementado"
         return self.preflight_triposr()
 
+    def _eh_trellis_vistas4_single_view(self, item: dict) -> bool:
+        if modelo_escolhido() != "trellis" or isinstance(item.get("vistas"), bool) or item.get("vistas") not in (4, "4"):
+            return False
+        sub = _resolver_subrota(item, self._rota_explicita)
+        if sub in ("template", "procedural", "extrude_2d"):
+            return False
+        return not (
+            sub is None
+            and (
+                _usar_makehuman_cabelo(item)
+                or _usar_modular_armor(item)
+                or _usar_template_criatura(item)
+                or _usar_template_humanoide(item)
+                or _usar_extrude_2d(item)
+            )
+        )
+
     def _preflight_modo(self, modo: str, item: dict) -> tuple[bool, str]:
         if modo in ("cabelo", "armor", "criatura", "humanoide", "extrude"):
             ok_b, msg_b = _preflight_blender_binario()
@@ -253,10 +270,13 @@ class MeshProvider:
             return (True, f"pronto ({rotulo}); concept: {c_razao}") if c_pronto else (False, c_razao)
 
         pronto, razao = self.preflight()
-        tem_orig_v1 = bool(str(item.get("origem") or "").strip()) and item.get("vistas") in (None, 1, "1") and not isinstance(item.get("vistas"), bool)
-        if not pronto or tem_orig_v1:
+        eh_tr_v4 = self._eh_trellis_vistas4_single_view(item)
+        tem_orig_ok = bool(str(item.get("origem") or "").strip()) and (
+            eh_tr_v4 or (item.get("vistas") in (None, 1, "1") and not isinstance(item.get("vistas"), bool))
+        )
+        if not pronto or tem_orig_ok:
             return pronto, razao
-        c_pronto, c_razao = _preflight_concept_item(item)
+        c_pronto, c_razao = _preflight_concept_item({**item, "vistas": 1} if eh_tr_v4 else item)
         return (True, f"{razao}; concept: {c_razao}") if c_pronto else (False, c_razao)
 
     def preflight_item(self, item: dict) -> tuple[bool, str]:
@@ -323,13 +343,19 @@ class MeshProvider:
         return _pose_concept.gerar_concept_com_retry(item, destino, env, max_tentativas=max_tentativas)
 
     def _resolver_entrada(self, item: dict, destino: Path, env: dict[str, str]) -> tuple[Path, dict[str, Any] | None]:
+        eh_tr_v4 = self._eh_trellis_vistas4_single_view(item)
         if str(item.get("origem") or "").strip():
             origem_png = _i23d.resolver_imagem_origem(item)
             if item.get("vistas") is not None and str(item.get("vistas")).strip() not in ("", "1"):
+                if eh_tr_v4:
+                    return origem_png, {"vistas_solicitadas": 4, "vistas_extras_ignoradas_single_view": True}
                 meta = _views_origem.gerar_vistas_de_origem(item, origem_png, destino, env)
                 front_png = destino / "concept_front.png"
                 return (front_png if front_png.is_file() else origem_png), meta
             return origem_png, None
+        if eh_tr_v4:
+            png_c, meta_c = self._gerar_concept_com_retry({**item, "vistas": 1}, destino, env)
+            return png_c, {**dict(meta_c or {}), "vistas_solicitadas": 4, "vistas_extras_ignoradas_single_view": True}
         return self._gerar_concept_com_retry(item, destino, env)
 
     def _gerar_triposr_i23d(self, item: dict, destino: Path, imagem: Path, concept_meta: dict | None, env: dict[str, str], t0: float) -> RawAsset:

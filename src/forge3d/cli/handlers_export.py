@@ -233,6 +233,12 @@ def export_r15(args) -> int:
             f"rbxlx {relatorio['saida']}  {relatorio['partes']} partes  "
             f"{relatorio['motores']} motores  {relatorio['bytes']} B{extra}"
         )
+        sa = relatorio.get("surface_appearance") or {}
+        if any(str(v).startswith("rbxassetid://") for v in sa.values()):
+            print(
+                "nota: PlaceId == 0 no .rbxlx local; no Roblox Studio use 'Save to Roblox' "
+                "(ou 3D Importer) para pre-carregar os Image rbxassetid:// do SurfaceAppearance."
+            )
     return 0
 
 

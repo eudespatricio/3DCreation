@@ -189,7 +189,7 @@ def _preparar_bruto_arquivo(
         and malha_triangulada(obj) > int(item["limite_triangulos"])
     ):
         usar_bake_high_low = True
-    adiar_reparo_high = (malha_triangulada(obj) > 60_000 or frente_neg_y) and tem_pbr_nativo and usar_bake_high_low
+    adiar_reparo_high = (malha_triangulada(obj) > int(item["limite_triangulos"]) or frente_neg_y) and tem_pbr_nativo and usar_bake_high_low
     if adiar_reparo_high:
         info_gerada["reparo_inicial"] = {"adiado_high_pbr_nativo": True, "faces_antes": len(obj.data.polygons)}
     else:

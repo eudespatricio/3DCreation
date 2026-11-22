@@ -247,7 +247,7 @@ def _configurar_render_png_linear(cena) -> None:
     cena.render.image_settings.file_format = "PNG"
     cena.render.image_settings.color_mode = "RGB"
     cena.render.image_settings.color_depth = "8"
-    cena.render.image_settings.compression = 100
+    cena.render.image_settings.compression = 90
 
 
 def _restaurar_estado_cena(cena, anterior: dict) -> None:

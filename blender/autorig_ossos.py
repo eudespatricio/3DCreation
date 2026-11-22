@@ -13,6 +13,7 @@ if __package__:
         _DEDOS_NOMES,
         _OSSOS_ASA,
         _OSSOS_BRACO,
+        _OSSOS_BRACO_DISTAL,
         _OSSOS_CAUDA,
         _OSSOS_PATA,
         _OSSOS_PERNA,
@@ -26,6 +27,7 @@ else:
         _DEDOS_NOMES,
         _OSSOS_ASA,
         _OSSOS_BRACO,
+        _OSSOS_BRACO_DISTAL,
         _OSSOS_CAUDA,
         _OSSOS_PATA,
         _OSSOS_PERNA,
@@ -141,7 +143,11 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
     if esqueleto == "godot-humanoid-aa@1":
         head_h = max(m["head_top_z"] - m["neck_z"], 0.10 * h)
         torso_hw = float(m.get("torso_hw", 0.10 * h))
-        cape_y = cy - max(0.055 * h, 0.55 * torso_hw)
+        cape_y_fb = cy - max(0.055 * h, 0.55 * torso_hw)
+        has_back_y = m.get("torso_back_y") is not None
+        cape_y_raw = float(m["torso_back_y"]) if has_back_y else cape_y_fb
+        cape_y = max(cy - 0.16 * h, min(cy - 0.04 * h, cape_y_raw))
+        cape_tail_y = max(cape_y_raw, cape_y - 0.015 * h) if has_back_y else (cape_y - 0.03 * h)
         u_h_l, _, _, len_h_l = _quadro_mao(bL["wrist"], bL["tip"], h, 1.0)
         u_h_r, _, _, len_h_r = _quadro_mao(bR["wrist"], bR["tip"], h, -1.0)
         hand_tail_l = Vector(bL["wrist"]) + u_h_l * (0.50 * len_h_l)
@@ -156,7 +162,7 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
             _osso("Jaw", "Head", (0.0, cy + 0.022 * h, m["neck_z"] + 0.18 * head_h), (0.0, cy + 0.070 * h, m["neck_z"] + 0.06 * head_h), ml),
             _osso("Eye.L", "Head", (0.020 * h, cy + 0.052 * h, m["neck_z"] + 0.56 * head_h), (0.020 * h, cy + 0.082 * h, m["neck_z"] + 0.56 * head_h), ml),
             _osso("Eye.R", "Head", (-0.020 * h, cy + 0.052 * h, m["neck_z"] + 0.56 * head_h), (-0.020 * h, cy + 0.082 * h, m["neck_z"] + 0.56 * head_h), ml),
-            _osso("Cape", "Chest", (0.0, cape_y, m["chest_top_z"] - 0.02 * h), (0.0, cape_y - 0.03 * h, m["hip_z"] - 0.04 * h), ml),
+            _osso("Cape", "Chest", (0.0, cape_y, m["chest_top_z"] - 0.02 * h), (0.0, cape_tail_y, m["hip_z"] - 0.04 * h), ml),
             _osso("Shoulder.L", "Chest", (bL["clav_x"], cy, bL["shoulder"].z), bL["shoulder"], ml),
             _osso("UpperArm.L", "Shoulder.L", bL["shoulder"], bL["elbow"], ml),
             _osso("LowerArm.L", "UpperArm.L", bL["elbow"], bL["wrist"], ml),
@@ -243,7 +249,7 @@ def _alinhar_roll_ossos(rig_obj) -> None:
                         alvo = n_canon.cross(eb_arm.y_axis)
                         if alvo.length > 1e-4:
                             alvos_braco[eb_arm.name] = alvo.normalized()
-                elif abs(n.x) > 0.5:
+                elif abs(n.x) >= 0.82 and abs(n.y) <= 0.30:
                     # Canoniza sinal lateral (+X) para simetria L/R e sem torcao de 180 deg
                     n_canon = n if n.x > 0.0 else -n
                     planos_lado[sup_n] = n_canon
@@ -294,6 +300,9 @@ def _alinhar_roll_ossos(rig_obj) -> None:
             eb.align_roll(cima)
         elif eb.name == "Cape":
             eb.align_roll(Vector((0.0, -1.0, 0.0)))
+        elif eb.name in _OSSOS_BRACO_DISTAL:
+            alvo = Vector((1.0, 0.0, 0.0)).cross(eb.y_axis)
+            eb.align_roll(alvo.normalized() if alvo.length > 1e-4 else frente)
         elif eb.name in _OSSOS_BRACO or eb.name in _OSSOS_PERNA or eb.name in ossos_eixo_criatura:
             alvo = cima if abs(eb.y_axis.y) > 0.85 else frente
             eb.align_roll(alvo)

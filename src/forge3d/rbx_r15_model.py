@@ -393,12 +393,18 @@ def exportar_r15_model(
         '<Item class="Workspace" referent="RBX0">',
         "<Properties>",
         '<string name="Name">Workspace</string>',
+        '<bool name="StreamingEnabled">false</bool>',
         "</Properties>",
     ]
+    raw_rig = manifesto.get("rig") if isinstance(manifesto, Mapping) else None
+    raw_anc = raw_rig.get("ancoras") if isinstance(raw_rig, Mapping) else None
+    ancoras_rig = raw_anc if isinstance(raw_anc, Mapping) else None
     ref_idx = 1
     for clipe in clipes:
         clipe_action = {**clipe, "priority": max(2, int(clipe.get("priority", 2)))}
-        itens, ref_idx = _sequencia_xml(clipe_action, ref_idx, mps=mps)
+        itens, ref_idx = _sequencia_xml(
+            clipe_action, ref_idx, mps=mps, ancoras=ancoras_rig, modo_rig=modo_rig
+        )
         linhas += itens
 
     linhas += [

@@ -219,6 +219,7 @@ def exportar_r15(
         f'<Item class="Workspace" referent="{refs["workspace"]}">',
         "<Properties>",
         '<string name="Name">Workspace</string>',
+        '<bool name="StreamingEnabled">false</bool>',
         "</Properties>",
     ]
     if modo_rig == "bone":
@@ -328,9 +329,14 @@ def exportar_r15(
         )
     )
     clipes = animacao.clipes(perfil, str(esqueleto_item or "r15@1"), pedidos_anim)
+    raw_rig = manifesto_eff.get("rig") if isinstance(manifesto_eff, Mapping) else None
+    raw_anc = raw_rig.get("ancoras") if isinstance(raw_rig, Mapping) else None
+    ancoras_rig = raw_anc if isinstance(raw_anc, Mapping) else None
     referent_anim = prox_ref
     for clipe in clipes:
-        itens, referent_anim = _sequencia_xml(clipe, referent_anim, mps=mps)
+        itens, referent_anim = _sequencia_xml(
+            clipe, referent_anim, mps=mps, ancoras=ancoras_rig, modo_rig=modo_rig
+        )
         linhas += itens
 
     linhas += [

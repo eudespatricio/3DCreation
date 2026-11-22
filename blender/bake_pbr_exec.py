@@ -12,8 +12,10 @@ except ImportError:  # pragma: no cover - permite import puro em testes fora do 
 
 if __package__:
     from . import bake_pbr_config as _cfg
+    from . import bake_pbr_emissive as _emissive
     from . import bake_pbr_maps as _maps
     from . import bake_pbr_nativo as _nat
+    from . import bake_pbr_nativo_blend as _nat_blend
     from . import bake_pbr_passes as _passes
     from . import bake_pbr_proj as _proj
 else:
@@ -21,8 +23,10 @@ else:
     if _BLENDER_DIR not in sys.path:
         sys.path.insert(0, _BLENDER_DIR)
     import bake_pbr_config as _cfg
+    import bake_pbr_emissive as _emissive
     import bake_pbr_maps as _maps
     import bake_pbr_nativo as _nat
+    import bake_pbr_nativo_blend as _nat_blend
     import bake_pbr_passes as _passes
     import bake_pbr_proj as _proj
 
@@ -56,10 +60,7 @@ def _descobrir_caminhos_hints_vistas(
     if isinstance(vistas_pbr_hints, dict):
         for k_raw, info_h in vistas_pbr_hints.items():
             k_low = str(k_raw or "").strip().lower()
-            v_canon = next(
-                (vc for vc, meta in _proj._VISTAS_ORTO_DEF.items() if k_low in meta["aliases"]),
-                None,
-            )
+            v_canon = next((vc for vc, meta in _proj._VISTAS_ORTO_DEF.items() if k_low in meta["aliases"]), None)
             if v_canon is None:
                 continue
             m_ex = r_ex = None
@@ -97,14 +98,10 @@ def _descobrir_caminhos_hints_vistas(
     for vk in ("front", "back", "right", "left"):
         m_c, r_c = explicitos.get(vk, (None, None))
         for pasta in dirs_por_vista[vk]:
-            if m_c is None:
-                cand_m = os.path.join(pasta, f"vista_{vk}_metallic_hint.png")
-                if os.path.isfile(cand_m):
-                    m_c = cand_m
-            if r_c is None:
-                cand_r = os.path.join(pasta, f"vista_{vk}_roughness_hint.png")
-                if os.path.isfile(cand_r):
-                    r_c = cand_r
+            if m_c is None and os.path.isfile(os.path.join(pasta, f"vista_{vk}_metallic_hint.png")):
+                m_c = os.path.join(pasta, f"vista_{vk}_metallic_hint.png")
+            if r_c is None and os.path.isfile(os.path.join(pasta, f"vista_{vk}_roughness_hint.png")):
+                r_c = os.path.join(pasta, f"vista_{vk}_roughness_hint.png")
         if vk == "front" and (vk in vistas_norm or vk in explicitos or dirs_por_vista["front"]):
             if m_c is None and metallic_hint_png and os.path.isfile(metallic_hint_png):
                 m_c = metallic_hint_png
@@ -151,6 +148,7 @@ def _executar_retorno_multimaterial(
             "reparo": info_reparo, "smooth": info_smooth, "uv": info_uv,
             "origem_textura_aplicada": False, "vistas_ortograficas_aplicadas": [],
             "metallic_hint_aplicado": False, "roughness_hint_aplicado": False,
+            "delight_hints_aplicados": False, "emissive_aplicado": False,
             "multimaterial_preservado": True, "materiais": len(obj.data.materials),
             "png_bytes": 0, "baseColor_bytes": 0, "normal_bytes": 0, "orm_bytes": 0,
         },
@@ -159,11 +157,7 @@ def _executar_retorno_multimaterial(
 
 
 def _calcular_parametros_cage(
-    diag: float,
-    proteger_superficie: bool,
-    tem_detalhe_alto: bool,
-    tem_zonas: bool,
-    tem_cor_vertice: bool,
+    diag: float, proteger_superficie: bool, tem_detalhe_alto: bool, tem_zonas: bool, tem_cor_vertice: bool,
 ) -> tuple[float, float]:
     if proteger_superficie:
         return max(0.010, 0.014 * diag), max(0.025, 0.036 * diag)
@@ -173,29 +167,16 @@ def _calcular_parametros_cage(
 
 
 def executar_bake_high_low(
-    obj,
-    saida_dir: str,
-    nome_base: str,
-    px: int,
-    limite_triangulos: int,
-    reparo_fn,
-    decimar_fn,
-    suavizar_fn,
-    uv_fn,
-    origem_textura: str | None = None,
-    metallic_hint_png: str | None = None,
-    roughness_hint_png: str | None = None,
-    proteger_superficie: bool = False,
-    perfil_nome: str | None = None,
-    material_procedural: str | None = None,
-    permitir_sem_cor_vertice: bool = False,
-    detalhe_alto: dict | None = None,
-    pbr_zonas: list[dict] | None = None,
-    px_sub: int | None = None,
-    qualidade: str | None = None,
-    vistas_ortograficas: dict[str, str] | None = None,
-    vistas_pbr_hints: dict | None = None,
-    criar_mat_pbr_fn=None,
+    obj, saida_dir: str, nome_base: str, px: int, limite_triangulos: int,
+    reparo_fn, decimar_fn, suavizar_fn, uv_fn,
+    origem_textura: str | None = None, metallic_hint_png: str | None = None,
+    roughness_hint_png: str | None = None, emissive_hint: str | None = None,
+    emissive_hint_png: str | None = None, proteger_superficie: bool = False,
+    perfil_nome: str | None = None, material_procedural: str | None = None,
+    permitir_sem_cor_vertice: bool = False, detalhe_alto: dict | None = None,
+    pbr_zonas: list[dict] | None = None, px_sub: int | None = None,
+    qualidade: str | None = None, vistas_ortograficas: dict[str, str] | None = None,
+    vistas_pbr_hints: dict | None = None, criar_mat_pbr_fn=None,
 ) -> dict:
     """Executa bake PBR High->Low (BaseColor, Normal, ORM) e atribui material glTF PBR em ``obj``."""
     if criar_mat_pbr_fn is None:
@@ -203,16 +184,14 @@ def executar_bake_high_low(
 
     tem_cor_vertice = bool(obj is not None and obj.data is not None and len(obj.data.color_attributes) > 0)
     preset_proc = str(material_procedural or "").strip().lower()
-    tem_procedural = bool(preset_proc)
-    tem_zonas = bool(pbr_zonas)
+    tem_procedural, tem_zonas = bool(preset_proc), bool(pbr_zonas)
     tem_detalhe_alto = bool(isinstance(detalhe_alto, dict) and detalhe_alto.get("ativo", True))
     vistas_norm = _proj._normalizar_vistas_ortograficas(vistas_ortograficas, origem_textura=origem_textura)
     tem_vistas_4v = bool(vistas_norm)
     tem_pbr_nativo = bool(not tem_procedural and not tem_zonas and _nat.objeto_tem_pbr_nativo(obj))
     tem_mat_uv = bool(
         (permitir_sem_cor_vertice or tem_zonas or tem_detalhe_alto or tem_pbr_nativo)
-        and obj is not None
-        and obj.data is not None
+        and obj is not None and obj.data is not None
         and (len(obj.data.uv_layers) > 0 or len(obj.data.materials) > 0 or tem_zonas or tem_detalhe_alto)
     )
     if obj is None or obj.data is None or (
@@ -223,13 +202,7 @@ def executar_bake_high_low(
     os.makedirs(saida_dir, exist_ok=True)
     px, px_sub = _resolver_dimensoes_bake(px, px_sub, qualidade)
 
-    if (
-        len(obj.data.materials) > 1
-        and not tem_cor_vertice
-        and not tem_zonas
-        and not tem_vistas_4v
-        and not str(perfil_nome or "").startswith("roblox")
-    ):
+    if len(obj.data.materials) > 1 and not (tem_cor_vertice or tem_zonas or tem_vistas_4v or str(perfil_nome or "").startswith("roblox")):
         return _executar_retorno_multimaterial(
             obj, px, px_sub, limite_triangulos, reparo_fn, decimar_fn, suavizar_fn, uv_fn, preset_proc
         )
@@ -260,13 +233,16 @@ def executar_bake_high_low(
 
     high_mat = high_hints_mat = low_bake_mat = tex_bake = cam_obj = cam_data = None
     high_mats_nativos: list = []
-    usar_pbr_nativo = (not tem_procedural and not tem_zonas and _nat.objeto_tem_pbr_nativo(high_obj))
-    img_origem = img_met = img_rough = img_hints_tmp = None
-    img_bc = img_nm = img_ao_tmp = img_orm_tmp = None
+    usar_pbr_nativo = not tem_procedural and not tem_zonas and _nat.objeto_tem_pbr_nativo(high_obj)
+    img_origem = img_met = img_rough = img_emissive_hint = img_hints_tmp = img_nat_dl_tmp = None
+    img_bc = img_nm = img_ao_tmp = img_orm_tmp = img_emissive_final = None
     imgs_vistas: dict[str, object] = {}
     imgs_nc_cache: dict[str, object] = {}
     imgs_hints_vistas: dict[str, tuple[object | None, object | None]] = {}
     info_detalhe_alto: dict = {"aplicado": False}
+    delight_hints_aplicados = False
+    emissive_aplicado = False
+    emissive_cam = emissive_hint or emissive_hint_png
     cena = bpy.context.scene
     estado_anterior = _cfg._capturar_estado_cena(cena)
 
@@ -286,52 +262,52 @@ def executar_bake_high_low(
             tris_high = int(info_detalhe_alto.get("tris_high_enriquecido") or _cfg._contar_triangulos(high_obj))
         suavizar_fn(high_obj)
 
-        if not tem_procedural and not usar_pbr_nativo:
-            if vistas_norm:
-                img_orig_pref = None
+        if not tem_procedural:
+            if usar_pbr_nativo:
                 if origem_textura and os.path.isfile(origem_textura):
-                    img_cand = bpy.data.images.load(origem_textura, check_existing=False)
-                    img_cand.colorspace_settings.name = "sRGB"
-                    front_atual = vistas_norm.get("front")
-                    diff_front = (
-                        not front_atual
-                        or os.path.abspath(origem_textura) != os.path.abspath(front_atual)
-                    )
-                    if (
-                        img_cand.size[0] > 0
-                        and img_cand.size[1] > 0
-                        and (diff_front or _proj._imagem_tem_alpha_valido(img_cand))
-                    ):
-                        img_orig_pref = img_cand
-                    else:
-                        if img_cand.name in bpy.data.images and img_cand.users == 0:
+                    img_origem = bpy.data.images.load(origem_textura, check_existing=False)
+                    img_origem.colorspace_settings.name = "sRGB"
+                img_met = _carregar_nc(metallic_hint_png)
+                img_rough = _carregar_nc(roughness_hint_png)
+                img_emissive_hint = _carregar_nc(emissive_cam)
+            else:
+                if vistas_norm:
+                    img_orig_pref = None
+                    if origem_textura and os.path.isfile(origem_textura):
+                        img_cand = bpy.data.images.load(origem_textura, check_existing=False)
+                        img_cand.colorspace_settings.name = "sRGB"
+                        front_atual = vistas_norm.get("front")
+                        diff_front = not front_atual or os.path.abspath(origem_textura) != os.path.abspath(front_atual)
+                        if img_cand.size[0] > 0 and img_cand.size[1] > 0 and (diff_front or _proj._imagem_tem_alpha_valido(img_cand)):
+                            img_orig_pref = img_cand
+                        elif img_cand.name in bpy.data.images and img_cand.users == 0:
                             bpy.data.images.remove(img_cand)
-                for vista_key, cam_v in vistas_norm.items():
-                    if vista_key == "front" and img_orig_pref is not None:
+                    for vista_key, cam_v in vistas_norm.items():
+                        if vista_key == "front" and img_orig_pref is not None:
+                            imgs_vistas["front"] = img_orig_pref
+                            continue
+                        img_v = bpy.data.images.load(cam_v, check_existing=False)
+                        img_v.colorspace_settings.name = "sRGB"
+                        imgs_vistas[vista_key] = img_v
+                    if "front" not in imgs_vistas and img_orig_pref is not None:
                         imgs_vistas["front"] = img_orig_pref
-                        continue
-                    img_v = bpy.data.images.load(cam_v, check_existing=False)
-                    img_v.colorspace_settings.name = "sRGB"
-                    imgs_vistas[vista_key] = img_v
-                if "front" not in imgs_vistas and img_orig_pref is not None:
-                    imgs_vistas["front"] = img_orig_pref
-                img_origem = imgs_vistas.get("front")
-            elif origem_textura and os.path.isfile(origem_textura):
-                img_origem = bpy.data.images.load(origem_textura, check_existing=False)
-                img_origem.colorspace_settings.name = "sRGB"
-            img_met = _carregar_nc(metallic_hint_png)
-            img_rough = _carregar_nc(roughness_hint_png)
-            cams_hints = _descobrir_caminhos_hints_vistas(
-                vistas_norm, vistas_ortograficas, vistas_pbr_hints,
-                metallic_hint_png, roughness_hint_png,
-            )
-            for vk_h, (cm_h, cr_h) in cams_hints.items():
-                im_m_h, im_r_h = _carregar_nc(cm_h), _carregar_nc(cr_h)
-                if im_m_h is not None or im_r_h is not None:
-                    imgs_hints_vistas[vk_h] = (im_m_h, im_r_h)
-            if "front" in imgs_hints_vistas:
-                img_met = img_met or imgs_hints_vistas["front"][0]
-                img_rough = img_rough or imgs_hints_vistas["front"][1]
+                    img_origem = imgs_vistas.get("front")
+                elif origem_textura and os.path.isfile(origem_textura):
+                    img_origem = bpy.data.images.load(origem_textura, check_existing=False)
+                    img_origem.colorspace_settings.name = "sRGB"
+                img_met = _carregar_nc(metallic_hint_png)
+                img_rough = _carregar_nc(roughness_hint_png)
+                img_emissive_hint = _carregar_nc(emissive_cam)
+                cams_hints = _descobrir_caminhos_hints_vistas(
+                    vistas_norm, vistas_ortograficas, vistas_pbr_hints, metallic_hint_png, roughness_hint_png
+                )
+                for vk_h, (cm_h, cr_h) in cams_hints.items():
+                    im_m_h, im_r_h = _carregar_nc(cm_h), _carregar_nc(cr_h)
+                    if im_m_h is not None or im_r_h is not None:
+                        imgs_hints_vistas[vk_h] = (im_m_h, im_r_h)
+                if "front" in imgs_hints_vistas:
+                    img_met = img_met or imgs_hints_vistas["front"][0]
+                    img_rough = img_rough or imgs_hints_vistas["front"][1]
 
         if usar_pbr_nativo:
             nome_visivel, vistas_dados, vistas_hints_dados = None, [], []
@@ -340,12 +316,9 @@ def executar_bake_high_low(
                 high_obj.data.uv_layers[0].active_render = True
         else:
             cam_obj, cam_data, nome_visivel, vistas_dados = _passes._preparar_projecao_high(
-                high_obj, nome_base, colecao, tem_zonas, img_origem, img_met, img_rough,
-                imgs_vistas, imgs_hints_vistas,
+                high_obj, nome_base, colecao, tem_zonas, img_origem, img_met, img_rough, imgs_vistas, imgs_hints_vistas
             )
-            vistas_hints_dados = _passes._montar_vistas_hints_dados(
-                high_obj, imgs_vistas, imgs_hints_vistas
-            )
+            vistas_hints_dados = _passes._montar_vistas_hints_dados(high_obj, imgs_vistas, imgs_hints_vistas)
 
         decimar_fn(obj, int(limite_triangulos))
         info_reparo = reparo_fn(obj)
@@ -370,11 +343,9 @@ def executar_bake_high_low(
             high_mats_nativos = _nat.clonar_materiais_nativos(high_obj, nome_base)
             proc_mod, usar_emit_proc, met_escalar_orig, rough_escalar_orig = None, False, 0.0, None
         else:
-            high_mat, proc_mod, usar_emit_proc, met_escalar_orig, rough_escalar_orig = (
-                _passes._configurar_high_material(
-                    high_obj, nome_base, nome_cor, tem_cor_vertice, tem_zonas, tem_procedural,
-                    preset_proc, pbr_zonas, detalhe_alto, proteger_superficie, img_origem, nome_visivel, vistas_dados,
-                )
+            high_mat, proc_mod, usar_emit_proc, met_escalar_orig, rough_escalar_orig = _passes._configurar_high_material(
+                high_obj, nome_base, nome_cor, tem_cor_vertice, tem_zonas, tem_procedural,
+                preset_proc, pbr_zonas, detalhe_alto, proteger_superficie, img_origem, nome_visivel, vistas_dados,
             )
 
         low_bake_mat, tex_bake = _maps._criar_material_alvo_bake(f"{nome_base}_low_bake_tmp")
@@ -394,30 +365,54 @@ def executar_bake_high_low(
             )
         )
 
+        if usar_pbr_nativo and img_hints_tmp is not None:
+            img_nat_dl_tmp = _nat_blend.assar_hints_delight_uv0(
+                cena, obj, px_sub, nome_base, img_origem, img_met, img_rough
+            )
+            info_nat_mod = _nat_blend.modular_hints_pbr_nativo(
+                img_hints_tmp, img_ao_tmp, px_sub, img_dl_hints=img_nat_dl_tmp, img_bc=img_bc
+            )
+            delight_hints_aplicados = bool(info_nat_mod.get("delight_hints_aplicados", False))
+            if img_nat_dl_tmp is not None and img_nat_dl_tmp.name in bpy.data.images and img_nat_dl_tmp.users == 0:
+                bpy.data.images.remove(img_nat_dl_tmp)
+                img_nat_dl_tmp = None
+        else:
+            delight_hints_aplicados = bool(
+                img_met is not None
+                or img_rough is not None
+                or any(m is not None or r is not None for m, r in imgs_hints_vistas.values())
+            )
+
         nome_orm = f"{nome_base}_orm.png"
         path_orm = os.path.join(saida_dir, nome_orm)
         piso_rough = 0.0 if usar_pbr_nativo else (0.68 if (proteger_superficie and not usar_emit_proc) else 0.0)
         img_orm_tmp = _maps._empacotar_orm(
             img_ao_tmp, f"{nome_base}_orm_tmp", px_sub, img_hints=img_hints_tmp,
-            piso_dieletrico_rough=piso_rough,
-            metallic_base=met_escalar_orig, roughness_base=rough_escalar_orig,
+            piso_dieletrico_rough=piso_rough, metallic_base=met_escalar_orig, roughness_base=rough_escalar_orig,
         )
         bpy.data.images.remove(img_ao_tmp)
         img_ao_tmp = None
-        canais_separados = _maps._extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
         extras_roblox = (
-            canais_separados
+            _maps._extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
             if (str(perfil_nome or "").startswith("roblox") or tem_zonas or tem_detalhe_alto)
             else []
         )
         img_orm = _maps._salvar_e_recarregar_png(img_orm_tmp, path_orm, "Non-Color", cena)
         img_orm_tmp = None
 
+        if img_emissive_hint is not None:
+            img_emissive_final, img_bc, emissive_aplicado = _emissive.assar_e_aplicar_emissive_uv0(
+                cena, obj, saida_dir, nome_base, px, px_sub, img_emissive_hint, img_origem, img_bc, path_bc
+            )
+
         for atributo in list(obj.data.color_attributes):
             obj.data.color_attributes.remove(atributo)
 
         obj.data.materials.clear()
-        mat_final = criar_mat_pbr_fn(f"{nome_base}_pbr", img_bc, img_nm, img_orm)
+        if img_emissive_final is not None:
+            mat_final = criar_mat_pbr_fn(f"{nome_base}_pbr", img_bc, img_nm, img_orm, img_emissive=img_emissive_final)
+        else:
+            mat_final = criar_mat_pbr_fn(f"{nome_base}_pbr", img_bc, img_nm, img_orm)
         if tem_procedural and proc_mod is not None:
             _maps._aplicar_opcoes_especiais_bsdf(mat_final, proc_mod.PRESETS_PBR.get(preset_proc, {}))
         elif met_escalar_orig > 0.0:
@@ -451,16 +446,9 @@ def executar_bake_high_low(
                 bpy.data.materials.remove(mat_tmp)
         vistos_img_ids: set[int] = set()
         for img_tmp in (
-            img_origem,
-            img_met,
-            img_rough,
-            img_hints_tmp,
-            img_ao_tmp,
-            img_orm_tmp,
-            img_bc,
-            img_nm,
-            *imgs_vistas.values(),
-            *imgs_nc_cache.values(),
+            img_origem, img_met, img_rough, img_emissive_hint, img_hints_tmp, img_nat_dl_tmp,
+            img_ao_tmp, img_orm_tmp, img_bc, img_nm, img_emissive_final,
+            *imgs_vistas.values(), *imgs_nc_cache.values(),
         ):
             if img_tmp is not None and id(img_tmp) not in vistos_img_ids:
                 vistos_img_ids.add(id(img_tmp))
@@ -483,11 +471,13 @@ def executar_bake_high_low(
             "bbox_diag": round(diag, 6), "cage_extrusion": round(cage_extrusion, 6),
             "triangulos_high": tris_high, "triangulos_low": tris_low,
             "reparo": info_reparo, "smooth": info_smooth, "uv": info_uv,
-            "origem_textura_aplicada": bool(img_origem is not None or bool(vistas_aplicadas)),
+            "origem_textura_aplicada": bool((not usar_pbr_nativo and img_origem is not None) or bool(vistas_aplicadas)),
             "vistas_ortograficas_aplicadas": vistas_aplicadas,
             "pbr_nativo_preservado": bool(usar_pbr_nativo),
             "metallic_hint_aplicado": bool(img_met is not None or tem_met_mv or usar_emit_proc or usar_pbr_nativo),
             "roughness_hint_aplicado": bool(img_rough is not None or tem_rough_mv or usar_emit_proc or usar_pbr_nativo),
+            "delight_hints_aplicados": bool(delight_hints_aplicados),
+            "emissive_aplicado": bool(emissive_aplicado),
             "png_bytes": bytes_bc, "baseColor_bytes": bytes_bc, "normal_bytes": bytes_nm, "orm_bytes": bytes_orm,
         },
         "arquivos_textura": [

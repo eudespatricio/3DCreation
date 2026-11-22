@@ -337,33 +337,39 @@ def _g2_orientacao(
         if eh_humanoid_godot:
             cos5 = math.cos(math.radians(5.0))
             alvos_braco: dict[str, tuple[float, float, float]] = {}
-            for sup_n, inf_n in (("UpperArm.L", "LowerArm.L"), ("UpperArm.R", "LowerArm.R")):
-                if sup_n not in por_nome or inf_n not in por_nome:
-                    continue
-                ms, mi = por_nome[sup_n], por_nome[inf_n]
-                c1_s = _vec3_norm((ms[1], ms[5], ms[9]))
-                c1_i = _vec3_norm((mi[1], mi[5], mi[9]))
-                cruz = _vec3_cross(c1_s, c1_i)
-                if math.sqrt(_vec3_dot(cruz, cruz)) > 0.08:
-                    n_ref = _vec3_norm(cruz)
-                    if abs(n_ref[0]) > 0.5:
-                        if n_ref[0] < 0.0:
-                            n_ref = (-n_ref[0], -n_ref[1], -n_ref[2])
-                        alvos_braco[sup_n] = n_ref
-                        alvos_braco[inf_n] = n_ref
+            planos_lado: dict[str, tuple[float, float, float]] = {}
 
-            ossos_check = (
-                "Shoulder.L", "Shoulder.R",
-                "UpperArm.L", "LowerArm.L", "UpperArm.R", "LowerArm.R",
-                "UpperLeg.L", "LowerLeg.L", "UpperLeg.R", "LowerLeg.R",
-                "Foot.L", "Foot.R",
-            )
+            def _proj_eixo_perp(alvo_v: tuple[float, float, float], c1_v: tuple[float, float, float]) -> tuple[float, float, float] | None:
+                cr = _vec3_cross(alvo_v, c1_v)
+                return _vec3_norm(_vec3_cross(c1_v, _vec3_norm(cr))) if math.sqrt(_vec3_dot(cr, cr)) > 1e-4 else None
+
+            for sup_n, inf_n in (("UpperArm.L", "LowerArm.L"), ("UpperArm.R", "LowerArm.R")):
+                if sup_n in por_nome and inf_n in por_nome:
+                    ms, mi = por_nome[sup_n], por_nome[inf_n]
+                    cruz = _vec3_cross(_vec3_norm((ms[1], ms[5], ms[9])), _vec3_norm((mi[1], mi[5], mi[9])))
+                    if math.sqrt(_vec3_dot(cruz, cruz)) > 0.08:
+                        n_ref = _vec3_norm(cruz)
+                        if abs(n_ref[0]) >= 0.82 and abs(n_ref[2]) <= 0.30:
+                            n_ref = (-n_ref[0], -n_ref[1], -n_ref[2]) if n_ref[0] < 0.0 else n_ref
+                            planos_lado[sup_n] = alvos_braco[sup_n] = alvos_braco[inf_n] = n_ref
+            for sup_n, inf_n, op_sup in (("UpperArm.L", "LowerArm.L", "UpperArm.R"), ("UpperArm.R", "LowerArm.R", "UpperArm.L")):
+                if sup_n not in planos_lado and op_sup in planos_lado:
+                    nr = planos_lado[op_sup]
+                    for bn in (sup_n, inf_n):
+                        if bn in por_nome:
+                            mb_op = por_nome[bn]
+                            p = _proj_eixo_perp((nr[0], -nr[1], -nr[2]), _vec3_norm((mb_op[1], mb_op[5], mb_op[9])))
+                            if p is not None:
+                                alvos_braco[bn] = p
+
+            ossos_check = ("Shoulder.L", "Shoulder.R", "UpperArm.L", "LowerArm.L", "UpperArm.R", "LowerArm.R",
+                           "UpperLeg.L", "LowerLeg.L", "UpperLeg.R", "LowerLeg.R", "Foot.L", "Foot.R")
             for bnome in ossos_check:
                 if bnome not in por_nome:
                     continue
                 mb = por_nome[bnome]
-                c0 = _vec3_norm((mb[0], mb[4], mb[8]))
-                c1 = _vec3_norm((mb[1], mb[5], mb[9]))
+                c0, c1 = _vec3_norm((mb[0], mb[4], mb[8])), _vec3_norm((mb[1], mb[5], mb[9]))
+                c0_sag = None
                 if bnome in alvos_braco:
                     c0_ref = alvos_braco[bnome]
                 else:
@@ -372,7 +378,9 @@ def _g2_orientacao(
                     if math.sqrt(_vec3_dot(cruz_cz, cruz_cz)) <= 1e-4:
                         continue
                     c0_ref = _vec3_norm(cruz_cz)
-                if _vec3_dot(c0, c0_ref) < cos5:
+                    if bnome in ("UpperArm.L", "LowerArm.L", "UpperArm.R", "LowerArm.R") and c1[1] < -0.1:
+                        c0_sag = _proj_eixo_perp((1.0, 0.0, 0.0), c1)
+                if _vec3_dot(c0, c0_ref) < cos5 and (c0_sag is None or _vec3_dot(c0, c0_sag) < cos5):
                     _marcar("roll_osso_desalinhado")
                     if bnome not in ossos_desalinhados:
                         ossos_desalinhados.append(bnome)
@@ -421,11 +429,7 @@ def _g2_orientacao(
     if entradas_sockets:
         nomes_ossos_validos = set(info.get("nomes_ossos") or [])
         if not nomes_ossos_validos:
-            nomes_ossos_validos = {
-                str(n.get("name"))
-                for n in nodes
-                if isinstance(n, dict) and isinstance(n.get("name"), str)
-            }
+            nomes_ossos_validos = {str(n.get("name")) for n in nodes if isinstance(n, dict) and isinstance(n.get("name"), str)}
         for sk_cfg in entradas_sockets:
             if not isinstance(sk_cfg, dict):
                 _marcar("socket_invalido")

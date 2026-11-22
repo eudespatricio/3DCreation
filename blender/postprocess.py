@@ -156,7 +156,7 @@ def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
         return False
 
 
-def desdobrar_uv(obj, margem: float = 0.02) -> str:
+def desdobrar_uv(obj, margem: float = 0.004) -> str:
     return _nuv.desdobrar_uv(obj, margem=margem)
 
 
@@ -164,22 +164,24 @@ def _reduzir_imagens_embutidas_orcamento(
     caminho_glb: str,
     bytes_max: int,
     exportar_fn,
+    piso_px: int = 512,
 ) -> None:
-    """Encolhe texturas embutidas (incluindo .mhclo) preservando POT e piso de 512px (G9)."""
+    """Encolhe texturas embutidas (incluindo .mhclo) preservando POT e piso_px (G9)."""
     if bytes_max <= 0 or not os.path.isfile(caminho_glb):
         return
     if os.path.getsize(caminho_glb) <= bytes_max:
         return
-    piso_px = 512
-    for teto in (1024, piso_px):
+    piso_efetivo = max(512, int(piso_px))
+    tetos = (1024, piso_efetivo) if piso_efetivo < 1024 else (piso_efetivo,)
+    for teto in tetos:
         mudou = False
         for img in _imagens_exportaveis():
             w, h = int(img.size[0]), int(img.size[1])
             maior = max(w, h)
             if maior > teto:
                 fator = float(teto) / float(maior)
-                min_w = piso_px if w >= piso_px else w
-                min_h = piso_px if h >= piso_px else h
+                min_w = piso_efetivo if w >= piso_efetivo else w
+                min_h = piso_efetivo if h >= piso_efetivo else h
                 nw = _pot_abaixo(max(min_w, int(round(w * fator))))
                 nh = _pot_abaixo(max(min_h, int(round(h * fator))))
                 if nw != w or nh != h:
@@ -348,6 +350,7 @@ def processar(job: dict) -> dict:
         origem_tex = _resolver_opcional_bruto(bruto_dir, bruto.get("origem_textura"))
         met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
         rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
+        emissive_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("emissive_hint"))
         vistas_orto = _sc._resolver_vistas_ortograficas(bruto_dir, bruto, job, item)
         mat_proc = ctx_bruto["mat_proc"]
         bake_ctx, decimar_cb, reparo_cb, suavizar_cb, uv_cb = (
@@ -376,6 +379,7 @@ def processar(job: dict) -> dict:
                 origem_textura=origem_tex,
                 metallic_hint_png=met_hint,
                 roughness_hint_png=rough_hint,
+                emissive_hint=emissive_hint,
                 proteger_superficie=ctx_bruto["proteger"],
                 perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
                 material_procedural=mat_proc or None,

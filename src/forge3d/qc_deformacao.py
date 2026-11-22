@@ -366,20 +366,9 @@ def _verificar_motor6d_rigido(item: dict, perfil: dict, pasta: Path, resultado: 
     return {"id": "G16", "status": "ok" if ok else "falhou", "medido": medido, "limite": limite, **({} if ok else {"codigo": "FORGE-E-QC"})}
 
 
-def verificar_g16_deformacao(
-    gltf: dict, binario: bytes, item: dict, perfil: dict, pasta: Path, resultado: dict, medidas: dict
-) -> dict[str, Any]:
-    """Gate G16: valida integridade de deformacao sob animacao (skinned LBS/Blender ou Motor6D rigido)."""
-    modo_rig = str((item.get("rig") or {}).get("modo") or (resultado.get("rig") or {}).get("modo") or "").strip()
-    if modo_rig == "motor6d":
-        return _verificar_motor6d_rigido(item, perfil, pasta, resultado)
-
-    tem_rig = bool(item.get("auto_rig")) or bool(modo_rig) or bool((item.get("anexo") or {}).get("skinned"))
-    deform_anim = medidas.get("deformacao_anim")
-    tem_anims = bool(item.get("animacoes_base") or item.get("clipes") or item.get("animacoes") or gltf.get("animations") or deform_anim)
-    if not tem_rig or not tem_anims:
-        return {"id": "G16", "status": "ok", "medido": {"aplicavel": False}}
-
+def _avaliar_deformacao_skinned(
+    gltf: dict, binario: bytes, deform_anim: Any
+) -> tuple[dict[str, Any], list[str]]:
     if isinstance(deform_anim, dict) and "max_stretch" in deform_anim:
         med: dict[str, Any] = {
             **deform_anim,
@@ -408,7 +397,40 @@ def verificar_g16_deformacao(
             problemas.append(f"frac_gt_20_excedida:{f20_f:.5f}>{LIMIAR_G16_FRAC_GT_2X}")
         if checar_frac and f30_f > LIMIAR_G16_FRAC_GT_3X:
             problemas.append(f"frac_gt_30_excedida:{f30_f:.5f}>{LIMIAR_G16_FRAC_GT_3X}")
+    return med, problemas
 
+
+def verificar_g16_deformacao(
+    gltf: dict, binario: bytes, item: dict, perfil: dict, pasta: Path, resultado: dict, medidas: dict
+) -> dict[str, Any]:
+    """Gate G16: valida integridade de deformacao sob animacao (skinned LBS/Blender ou Motor6D rigido)."""
+    deform_anim = resultado.get("deformacao_anim")
+    if not isinstance(deform_anim, dict):
+        deform_anim = medidas.get("deformacao_anim")
+
+    modo_rig = str((item.get("rig") or {}).get("modo") or (resultado.get("rig") or {}).get("modo") or "").strip()
+    if modo_rig == "motor6d":
+        res_rig = _verificar_motor6d_rigido(item, perfil, pasta, resultado)
+        tem_deform = isinstance(deform_anim, dict) and "max_stretch" in deform_anim
+        tem_skins = bool(isinstance(gltf.get("skins"), list) and gltf.get("skins"))
+        if not tem_deform and not tem_skins:
+            return res_rig
+        med_skin, prob_skin = _avaliar_deformacao_skinned(gltf, binario, deform_anim)
+        res_rig["medido"]["skinned"] = {**med_skin, **({"problemas": prob_skin} if prob_skin else {})}
+        if prob_skin:
+            res_rig["status"] = "falhou"
+            res_rig["codigo"] = "FORGE-E-QC"
+            probs = list(res_rig["medido"].get("problemas") or [])
+            probs.extend(f"skinned:{p}" for p in prob_skin)
+            res_rig["medido"]["problemas"] = probs
+        return res_rig
+
+    tem_rig = bool(item.get("auto_rig")) or bool(modo_rig) or bool((item.get("anexo") or {}).get("skinned"))
+    tem_anims = bool(item.get("animacoes_base") or item.get("clipes") or item.get("animacoes") or gltf.get("animations") or deform_anim)
+    if not tem_rig or not tem_anims:
+        return {"id": "G16", "status": "ok", "medido": {"aplicavel": False}}
+
+    med, problemas = _avaliar_deformacao_skinned(gltf, binario, deform_anim)
     ok = not problemas
     limite = {"max_stretch": LIMIAR_G16_MAX_STRETCH, "frac_gt_20": LIMIAR_G16_FRAC_GT_2X, "frac_gt_30": LIMIAR_G16_FRAC_GT_3X}
     return {

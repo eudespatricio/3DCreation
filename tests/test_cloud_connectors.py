@@ -701,7 +701,7 @@ def test_spec_v6_subrotas_vistas_plan_budget_e_post_forward(tmp_path):
     )
     assert job_prep["vistas"] == 4
     assert job_prep["vistas_ortograficas"] == {"front": "a.png"}
-    assert post.PIPELINE_VERSION == "0.9.9"
+    assert post.PIPELINE_VERSION == "0.9.10"
     assert profiles.carregar("godot4")["perfil"] == "godot4"
 
 

@@ -36,31 +36,20 @@ def _mascara_foreground_cv2(arr: Any) -> Any:
     rgb = arr[:, :, :3]
     c = max(1, min(8, min(h, w) // 16))
     cantos = np.concatenate(
-        [
-            rgb[:c, :c].reshape(-1, 3),
-            rgb[:c, -c:].reshape(-1, 3),
-            rgb[-c:, :c].reshape(-1, 3),
-            rgb[-c:, -c:].reshape(-1, 3),
-        ],
+        [rgb[:c, :c].reshape(-1, 3), rgb[:c, -c:].reshape(-1, 3), rgb[-c:, :c].reshape(-1, 3), rgb[-c:, -c:].reshape(-1, 3)],
         axis=0,
     ).astype(np.float32)
-    bordas = np.concatenate([rgb[0, :], rgb[-1, :], rgb[:, 0], rgb[:, -1]], axis=0).astype(
-        np.float32
-    )
+    bordas = np.concatenate([rgb[0, :], rgb[-1, :], rgb[:, 0], rgb[:, -1]], axis=0).astype(np.float32)
     bg_rgb = np.median(np.concatenate([cantos, bordas], axis=0), axis=0)
-    spread = float(np.percentile(np.linalg.norm(cantos - bg_rgb, axis=1), 90))
-    if spread >= 20.0:
+    if float(np.percentile(np.linalg.norm(cantos - bg_rgb, axis=1), 90)) >= 20.0:
         return fg
 
-    dist = np.linalg.norm(rgb.astype(np.float32) - bg_rgb, axis=2)
-    bg_cand = (dist < 14.0).astype(np.uint8)
+    bg_cand = (np.linalg.norm(rgb.astype(np.float32) - bg_rgb, axis=2) < 14.0).astype(np.uint8)
     n_labels, labels = cv2.connectedComponents(bg_cand, connectivity=4)
     if n_labels <= 1:
         return fg
 
-    borda_ids = np.unique(
-        np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]])
-    )
+    borda_ids = np.unique(np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]]))
     borda_ids = borda_ids[borda_ids > 0]
     if len(borda_ids) == 0:
         return fg
@@ -80,52 +69,32 @@ def _mascara_foreground_pil(rgba: Image.Image) -> list[int]:
         return [1 if a >= 24 else 0 for a in alphas]
 
     c = max(1, min(8, min(w, h) // 16))
-    cantos: list[tuple[int, int, int]] = []
     ys = list(range(min(c, h))) + list(range(max(0, h - c), h))
     xs = list(range(min(c, w))) + list(range(max(0, w - c), w))
-    for y in ys:
-        for x in xs:
-            off = (y * w + x) * 4
-            cantos.append((raw[off], raw[off + 1], raw[off + 2]))
+    cantos = [(raw[(y * w + x) * 4], raw[(y * w + x) * 4 + 1], raw[(y * w + x) * 4 + 2]) for y in ys for x in xs]
     bg_r = statistics.median(p[0] for p in cantos)
     bg_g = statistics.median(p[1] for p in cantos)
     bg_b = statistics.median(p[2] for p in cantos)
-    dists_cantos = sorted(
-        ((p[0] - bg_r) ** 2 + (p[1] - bg_g) ** 2 + (p[2] - bg_b) ** 2) ** 0.5
-        for p in cantos
-    )
-    spread = dists_cantos[min(len(dists_cantos) - 1, int(0.9 * (len(dists_cantos) - 1)))]
-    if spread >= 20.0:
+    dists_cantos = sorted(((p[0] - bg_r) ** 2 + (p[1] - bg_g) ** 2 + (p[2] - bg_b) ** 2) ** 0.5 for p in cantos)
+    if dists_cantos[min(len(dists_cantos) - 1, int(0.9 * (len(dists_cantos) - 1)))] >= 20.0:
         return [1] * (w * h)
 
     limiar2 = 14.0 * 14.0
 
     def _eh_bg(idx: int) -> bool:
         off = idx * 4
-        dr = raw[off] - bg_r
-        dg = raw[off + 1] - bg_g
-        db = raw[off + 2] - bg_b
-        return (dr * dr + dg * dg + db * db) < limiar2
+        return (raw[off] - bg_r) ** 2 + (raw[off + 1] - bg_g) ** 2 + (raw[off + 2] - bg_b) ** 2 < limiar2
 
     bg = bytearray(w * h)
     fila: deque[int] = deque()
-    for x in range(w):
-        for y in (0, h - 1):
-            idx = y * w + x
-            if not bg[idx] and _eh_bg(idx):
-                bg[idx] = 1
-                fila.append(idx)
-    for y in range(h):
-        for x in (0, w - 1):
-            idx = y * w + x
-            if not bg[idx] and _eh_bg(idx):
-                bg[idx] = 1
-                fila.append(idx)
+    for idx in (*(y * w + x for x in range(w) for y in (0, h - 1)), *(y * w + x for y in range(h) for x in (0, w - 1))):
+        if not bg[idx] and _eh_bg(idx):
+            bg[idx] = 1
+            fila.append(idx)
 
     while fila:
         idx = fila.popleft()
-        cx = idx % w
-        cy = idx // w
+        cx, cy = idx % w, idx // w
         for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
             if 0 <= nx < w and 0 <= ny < h:
                 n = ny * w + nx
@@ -175,6 +144,7 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     h, w = l_u8.shape
     k = max(5, min(11, (min(h, w) // 48) | 1))
     k_g = max(21, k)
+    k_fe = max(15, min(21, (min(h, w) // 8) | 1))
     if np.any(fg) and not np.all(fg):
         r_ext = max(3, k)
         kb = 2 * r_ext + 1
@@ -193,6 +163,7 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
 
     kernel = np.ones((k, k), dtype=np.uint8)
     kernel_g = np.ones((k_g, k_g), dtype=np.uint8)
+    kernel_fe = np.ones((k_fe, k_fe), dtype=np.uint8)
     local_max = cv2.dilate(l_contraste_u8, kernel, borderType=cv2.BORDER_REPLICATE).astype(np.float32)
     local_min = cv2.erode(l_contraste_u8, kernel, borderType=cv2.BORDER_REPLICATE).astype(np.float32)
     local_range = local_max - local_min
@@ -201,13 +172,14 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     ).astype(np.float32) - cv2.erode(
         l_contraste_u8, kernel_g, borderType=cv2.BORDER_REPLICATE
     ).astype(np.float32)
-    tem_meio_tom = (
-        cv2.dilate(
-            ((l_contraste_u8 >= 34) & (l_contraste_u8 <= 170)).astype(np.uint8),
-            kernel,
-            borderType=cv2.BORDER_REPLICATE,
-        )
-        > 0
+    l_max_fe = cv2.dilate(l_contraste_u8, kernel_fe, borderType=cv2.BORDER_REPLICATE).astype(np.float32)
+    l_min_fe = cv2.erode(l_contraste_u8, kernel_fe, borderType=cv2.BORDER_REPLICATE).astype(np.float32)
+    l_range_fe = l_max_fe - l_min_fe
+    base_ferro_f = (
+        (l_contraste_u8 >= 36) & (l_contraste_u8 <= 82) & (s_u8 < 58.0) & (cool_diff >= -3)
+    ).astype(np.float32)
+    frac_base_ferro = cv2.boxFilter(
+        base_ferro_f, -1, (k_fe, k_fe), normalize=True, borderType=cv2.BORDER_REPLICATE
     )
 
     prata = (s_u8 < 42.0) & (local_min >= 52.0) & (
@@ -218,14 +190,12 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     gunmetal = (s_u8 < 42.0) & (l_f32 >= 55.0) & (l_f32 < 95.0) & (local_min >= 48.0) & (
         ((local_max >= 115.0) & (local_range >= 32.0)) | ((cool_diff >= 4) & (local_range_g >= 2.0))
     )
-    ferro_escuro = (
-        (s_u8 < 62.0)
-        & (l_f32 >= 26.0)
-        & (l_f32 < 78.0)
-        & (local_range >= 24.0)
-        & (local_max >= 72.0)
-        & (local_min <= 58.0)
-        & tem_meio_tom
+    tem_espec_fe = ((cool_diff >= 2) & (l_max_fe >= 72.0) & (l_range_fe >= 24.0)) | (
+        (l_max_fe >= 96.0) & (l_range_fe >= 40.0)
+    )
+    ferro_escuro = (cool_diff >= -3) & tem_espec_fe & (
+        ((s_u8 < 62.0) & (l_f32 >= 26.0) & (l_f32 < 86.0) & (frac_base_ferro >= 0.20))
+        | ((s_u8 < 52.0) & (l_f32 >= 86.0) & (l_f32 <= 215.0) & (local_min <= 62.0) & (frac_base_ferro >= 0.35))
     )
     ouro = (h_deg >= 34.0) & (h_deg <= 48.0) & (s_u8 >= 110.0) & (s_u8 <= 205.0) & (v_u8 >= 165.0) & (
         ((local_max >= 200.0) & (local_range >= 40.0))
@@ -240,10 +210,11 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     )
     metal = (prata | gunmetal | ferro_escuro | ouro | bronze) & fg
 
+    l_fe_clamped = np.clip(l_f32 - 30.0, 0.0, 56.0)
     metallic = np.zeros((h, w), dtype=np.uint8)
     metallic[metal] = np.clip(np.rint(205.0 + (l_f32 - 95.0) * 0.14), 198.0, 230.0).astype(np.uint8)[metal]
     metallic[ferro_escuro & fg] = np.clip(
-        np.rint(170.0 + (l_f32 - 26.0) * 0.77), 170.0, 210.0
+        np.rint(188.0 + l_fe_clamped * 0.60), 188.0, 222.0
     ).astype(np.uint8)[ferro_escuro & fg]
     metallic[gunmetal & fg] = np.clip(np.rint(195.0 + (l_f32 - 50.0) * 0.35), 192.0, 218.0).astype(np.uint8)[gunmetal & fg]
     metallic[bronze & fg] = 208
@@ -255,11 +226,11 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     roughness[fg & (~metal) & (s_u8 >= 65.0) & (v_u8 >= 55.0) & (local_range >= 22.0)] = 158
     roughness[fg & (~metal) & (h_deg >= 1.5) & (h_deg <= 42.0) & (s_u8 >= 30.0) & (s_u8 <= 195.0) & (v_u8 >= 30.0) & (v_u8 <= 240.0)] = 140
     roughness[metal] = np.clip(np.rint(95.0 - (l_f32 / 255.0) * 26.0), 64.0, 97.0).astype(np.uint8)[metal]
+    roughness[gunmetal & fg] = np.clip(np.rint(96.0 - (l_f32 / 255.0) * 28.0), 68.0, 94.0).astype(np.uint8)[gunmetal & fg]
     roughness[ferro_escuro & fg] = np.clip(
-        np.rint(112.0 - (l_f32 - 26.0) * 0.58), 82.0, 112.0
+        np.rint(94.0 - l_fe_clamped * 0.50), 66.0, 94.0
     ).astype(np.uint8)[ferro_escuro & fg]
     roughness[bronze & fg] = np.clip(np.rint(102.0 - (l_f32 / 255.0) * 28.0), 64.0, 105.0).astype(np.uint8)[bronze & fg]
-    roughness[gunmetal & fg] = np.clip(np.rint(112.0 - (l_f32 / 255.0) * 32.0), 72.0, 115.0).astype(np.uint8)[gunmetal & fg]
 
     return Image.fromarray(metallic, mode="L"), Image.fromarray(roughness, mode="L")
 
@@ -274,6 +245,7 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
 
     k = max(5, min(11, (min(w, h) // 48) | 1))
     k_g = max(21, k)
+    k_fe = max(15, min(21, (min(w, h) // 8) | 1))
     if any(fg_mask) and not all(fg_mask):
         r_ext = max(3, k)
         fg_u8 = Image.frombytes("L", (w, h), bytes(255 if f else 0 for f in fg_mask))
@@ -299,12 +271,20 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
     l_min = l_limpo.filter(ImageFilter.MinFilter(k)).tobytes()
     l_max_g = l_limpo.filter(ImageFilter.MaxFilter(k_g)).tobytes()
     l_min_g = l_limpo.filter(ImageFilter.MinFilter(k_g)).tobytes()
+    l_max_fe = l_limpo.filter(ImageFilter.MaxFilter(k_fe)).tobytes()
+    l_min_fe = l_limpo.filter(ImageFilter.MinFilter(k_fe)).tobytes()
     l_limpo_b = l_limpo.tobytes()
-    mid_max = (
-        Image.frombytes("L", (w, h), bytes(255 if 34 <= px <= 170 else 0 for px in l_limpo_b))
-        .filter(ImageFilter.MaxFilter(k))
-        .tobytes()
-    )
+    base_fe_mask = bytearray(w * h)
+    for i_fe in range(w * h):
+        px_l = l_limpo_b[i_fe]
+        if 36 <= px_l <= 82:
+            off_fe = i_fe * 4
+            rf_fe, gf_fe, bf_fe = raw[off_fe], raw[off_fe + 1], raw[off_fe + 2]
+            cmax_fe = max(rf_fe, gf_fe, bf_fe)
+            s_fe = ((cmax_fe - min(rf_fe, gf_fe, bf_fe)) * 255.0 / cmax_fe) if cmax_fe > 0 else 0.0
+            if s_fe < 58.0 and (bf_fe - rf_fe) >= -3:
+                base_fe_mask[i_fe] = 255
+    blur_base_fe = Image.frombytes("L", (w, h), bytes(base_fe_mask)).filter(ImageFilter.BoxBlur(k_fe // 2)).tobytes()
 
     metallic = bytearray(w * h)
     roughness = bytearray([209] * (w * h))
@@ -318,6 +298,7 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         h_deg, s_u8, v_u8 = h_f * 360.0, s_f * 255.0, v_f * 255.0
         l_u8, l_mx, l_mn = l_bytes[idx], l_max[idx], l_min[idx]
         l_range, l_range_g, cool_diff = l_mx - l_mn, l_max_g[idx] - l_min_g[idx], b - r
+        l_mx_fe, l_rg_fe, frac_fe = l_max_fe[idx], l_max_fe[idx] - l_min_fe[idx], blur_base_fe[idx] / 255.0
 
         eh_ouro = (
             34.0 <= h_deg <= 48.0 and 110.0 <= s_u8 <= 205.0 and v_u8 >= 165.0
@@ -344,9 +325,10 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
             s_u8 < 42.0 and 55 <= l_u8 < 95 and l_mn >= 48
             and ((l_mx >= 115 and l_range >= 32) or (cool_diff >= 4 and l_range_g >= 2))
         )
-        eh_ferro_escuro = (
-            s_u8 < 62.0 and 26 <= l_u8 < 78 and l_range >= 24
-            and l_mx >= 72 and l_mn <= 58 and mid_max[idx] > 0
+        tem_espec_fe = (cool_diff >= 2 and l_mx_fe >= 72 and l_rg_fe >= 24) or (l_mx_fe >= 96 and l_rg_fe >= 40)
+        eh_ferro_escuro = cool_diff >= -3 and tem_espec_fe and (
+            (s_u8 < 62.0 and 26 <= l_u8 < 86 and frac_fe >= 0.20)
+            or (s_u8 < 52.0 and 86 <= l_u8 <= 215 and l_mn <= 62 and frac_fe >= 0.35)
         )
         if eh_ouro:
             metallic[idx] = 218
@@ -357,12 +339,13 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         elif eh_prata:
             metallic[idx] = max(198, min(230, round(205.0 + (l_u8 - 95.0) * 0.14)))
             roughness[idx] = max(64, min(97, round(95.0 - (l_u8 / 255.0) * 26.0)))
+        elif eh_ferro_escuro:
+            l_fe_c = max(0.0, min(56.0, float(l_u8 - 30)))
+            metallic[idx] = max(188, min(222, round(188.0 + l_fe_c * 0.60)))
+            roughness[idx] = max(66, min(94, round(94.0 - l_fe_c * 0.50)))
         elif eh_gunmetal:
             metallic[idx] = max(192, min(218, round(195.0 + (l_u8 - 50.0) * 0.35)))
-            roughness[idx] = max(72, min(115, round(112.0 - (l_u8 / 255.0) * 32.0)))
-        elif eh_ferro_escuro:
-            metallic[idx] = max(170, min(210, round(170.0 + (l_u8 - 26.0) * 0.77)))
-            roughness[idx] = max(82, min(112, round(112.0 - (l_u8 - 26.0) * 0.58)))
+            roughness[idx] = max(68, min(94, round(96.0 - (l_u8 / 255.0) * 28.0)))
         elif 1.5 <= h_deg <= 42.0 and 30.0 <= s_u8 <= 195.0 and 30.0 <= v_u8 <= 240.0:
             roughness[idx] = 140
         elif s_u8 >= 65.0 and v_u8 >= 55.0 and l_range >= 22:
@@ -390,12 +373,25 @@ def _emissive_cv2(rgba: Image.Image) -> Image.Image:
     rgb = arr[:, :, :3]
     fg = _mascara_foreground_cv2(arr)
     h_deg, s_u8, v_u8 = _rgb_para_hsv_f32_np(rgb)
+    fg_v_p75 = float(np.percentile(v_u8[fg], 75)) if np.any(fg) else 128.0
+    v_rel_lim = max(180.0, fg_v_p75 + 45.0)
 
+    v_warm_mod = max(195.0, fg_v_p75 + 65.0)
+    warm_glow = (
+        (h_deg >= 10.0)
+        & (h_deg <= 48.0)
+        & (s_u8 >= 150.0)
+        & (v_u8 >= v_rel_lim)
+        & ((s_u8 >= 206.0) | (v_u8 >= 238.0) | ((h_deg <= 37.5) & (v_u8 >= v_warm_mod)))
+    )
+    cool_glow = (h_deg >= 175.0) & (h_deg <= 260.0) & (s_u8 >= 145.0) & (v_u8 >= v_rel_lim)
     seed = fg & (
         ((v_u8 >= 250.0) & (s_u8 >= 140.0))
         | ((v_u8 >= 225.0) & (s_u8 >= 210.0) & ((h_deg < 20.0) | (h_deg > 50.0)))
+        | warm_glow
+        | cool_glow
     )
-    cand_branco = fg & (v_u8 >= 250.0)
+    cand_branco = fg & (v_u8 >= 248.0)
     ativo = seed.copy()
     if np.any(seed) and np.any(cand_branco & (~seed)):
         n_labels, labels = cv2.connectedComponents((seed | cand_branco).astype(np.uint8), connectivity=4)
@@ -406,9 +402,7 @@ def _emissive_cv2(rgba: Image.Image) -> Image.Image:
                 ativo = np.isin(labels, seed_labels)
 
     emissive = np.zeros(rgb.shape[:2], dtype=np.uint8)
-    valores = np.clip(
-        np.rint(180.0 + np.maximum(0.0, v_u8 - 235.0) * 3.75), 180.0, 255.0
-    ).astype(np.uint8)
+    valores = np.clip(np.rint(180.0 + np.maximum(0.0, v_u8 - 180.0)), 180.0, 255.0).astype(np.uint8)
     emissive[ativo] = valores[ativo]
     return Image.fromarray(emissive, mode="L")
 
@@ -420,32 +414,49 @@ def _emissive_pil(rgba: Image.Image) -> Image.Image:
     raw = rgba_conv.tobytes()
     seed = bytearray(w * h)
     branco = bytearray(w * h)
+    h_vals = [0.0] * (w * h)
+    s_vals = [0.0] * (w * h)
     v_vals = [0.0] * (w * h)
+    fg_vs: list[float] = []
     fila: deque[int] = deque()
 
     for idx in range(w * h):
         if not fg_mask[idx]:
             continue
         off = idx * 4
-        r, g, b = raw[off], raw[off + 1], raw[off + 2]
-        h_f, s_f, v_f = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
-        h_deg = h_f * 360.0
-        s_u8 = s_f * 255.0
-        v_u8 = v_f * 255.0
-        v_vals[idx] = v_u8
-        if (v_u8 >= 250.0 and s_u8 >= 140.0) or (
-            v_u8 >= 225.0 and s_u8 >= 210.0 and (h_deg < 20.0 or h_deg > 50.0)
+        h_f, s_f, v_f = colorsys.rgb_to_hsv(raw[off] / 255.0, raw[off + 1] / 255.0, raw[off + 2] / 255.0)
+        h_vals[idx], s_vals[idx], v_vals[idx] = h_f * 360.0, s_f * 255.0, v_f * 255.0
+        fg_vs.append(v_vals[idx])
+
+    fg_vs.sort()
+    fg_v_p75 = fg_vs[int(0.75 * (len(fg_vs) - 1))] if fg_vs else 128.0
+    v_rel_lim = max(180.0, fg_v_p75 + 45.0)
+    v_warm_mod = max(195.0, fg_v_p75 + 65.0)
+
+    for idx in range(w * h):
+        if not fg_mask[idx]:
+            continue
+        h_deg, s_u8, v_u8 = h_vals[idx], s_vals[idx], v_vals[idx]
+        eh_warm = (
+            10.0 <= h_deg <= 48.0 and s_u8 >= 150.0 and v_u8 >= v_rel_lim
+            and (s_u8 >= 206.0 or v_u8 >= 238.0 or (h_deg <= 37.5 and v_u8 >= v_warm_mod))
+        )
+        eh_cool = 175.0 <= h_deg <= 260.0 and s_u8 >= 145.0 and v_u8 >= v_rel_lim
+        if (
+            (v_u8 >= 250.0 and s_u8 >= 140.0)
+            or (v_u8 >= 225.0 and s_u8 >= 210.0 and (h_deg < 20.0 or h_deg > 50.0))
+            or eh_warm
+            or eh_cool
         ):
             seed[idx] = 1
             fila.append(idx)
-        elif v_u8 >= 250.0:
+        elif v_u8 >= 248.0:
             branco[idx] = 1
 
     ativo = bytearray(seed)
     while fila:
         idx = fila.popleft()
-        cx = idx % w
-        cy = idx // w
+        cx, cy = idx % w, idx // w
         for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
             if 0 <= nx < w and 0 <= ny < h:
                 n = ny * w + nx
@@ -456,7 +467,7 @@ def _emissive_pil(rgba: Image.Image) -> Image.Image:
     out = bytearray(w * h)
     for idx in range(w * h):
         if ativo[idx]:
-            out[idx] = max(180, min(255, round(180.0 + max(0.0, v_vals[idx] - 235.0) * 3.75)))
+            out[idx] = max(180, min(255, round(180.0 + max(0.0, v_vals[idx] - 180.0))))
     return Image.frombytes("L", (w, h), bytes(out))
 
 

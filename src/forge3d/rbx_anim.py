@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from html import escape
 from pathlib import Path
 from xml.etree import ElementTree
 
-from . import animacao, config, paths, spec
+from . import animacao, animacao_pose, config, paths, spec
 from .errors import erro_spec
 from .rbx_xml import (
     JOINT_R15_REV,
@@ -47,12 +48,27 @@ _NAO_LOOP_CLIPES = frozenset(
 )
 
 
-def _sequencia_xml(clipe: dict, referent: int, mps: float = 0.28) -> tuple[list[str], int]:
+def _sequencia_xml(
+    clipe: dict,
+    referent: int,
+    mps: float = 0.28,
+    *,
+    ancoras: Mapping[str, Sequence[float]] | None = None,
+    modo_rig: str = "motor6d",
+) -> tuple[list[str], int]:
     """KeyframeSequence do Roblox com arvore aninhada de ``Pose`` R15 (D69 / F05)."""
     mps_eff = float(mps) if mps and mps > 0 else 0.28
     nome_clipe = str(clipe.get("nome") or "")
     loop = bool(clipe.get("loop", nome_clipe not in _NAO_LOOP_CLIPES))
     prioridade = int(clipe.get("priority", _PRIORIDADE_CLIPE.get(nome_clipe, 2)))
+    usar_ancoras = ancoras is not None
+    drop_base = animacao_pose.calcular_aducao_braco_ancoras(ancoras) if usar_ancoras else 0.0
+    fator_altura, min_y_quadril_studs = (
+        animacao_pose.escala_deslocamento_ancoras(ancoras, mps=mps_eff)
+        if usar_ancoras
+        else (1.0, -1e9)
+    )
+    duracao_s = float(clipe.get("duracao_s") or 0.0)
     linhas = [
         f'<Item class="KeyframeSequence" referent="RBX{referent}">',
         "<Properties>",
@@ -108,7 +124,8 @@ def _sequencia_xml(clipe: dict, referent: int, mps: float = 0.28) -> tuple[list[
         linhas_out.append("</Item>")
         return ref_idx
 
-    for chave in clipe.get("chaves") or []:
+    chaves = clipe.get("chaves") or []
+    for idx_ch, chave in enumerate(chaves):
         linhas += [
             f'<Item class="Keyframe" referent="RBX{referent}">',
             "<Properties>",
@@ -130,11 +147,35 @@ def _sequencia_xml(clipe: dict, referent: int, mps: float = 0.28) -> tuple[list[
             dadas_q[parte] = q_p if parte not in dadas_q else _quat_mul(dadas_q[parte], q_p)
             desl = p.get("deslocamento_m")
             if isinstance(desl, (list, tuple)) and len(desl) == 3:
-                dx, dy, dz = float(desl[0]), float(desl[1]), float(desl[2])
+                dx = float(desl[0]) * fator_altura
+                dy = float(desl[1]) * fator_altura
+                dz = float(desl[2]) * fator_altura
                 acc = dadas_pos.setdefault(parte, [0.0, 0.0, 0.0])
                 acc[0] += dx / mps_eff
                 acc[1] += dz / mps_eff
                 acc[2] += -dy / mps_eff
+
+        if usar_ancoras:
+            if nome_clipe == "death" and "LowerTorso" in dadas_pos:
+                dadas_pos["LowerTorso"][1] = max(dadas_pos["LowerTorso"][1], min_y_quadril_studs)
+            if drop_base > 0.0:
+                if duracao_s > 0.0 and "segundos" in chave:
+                    fracao = max(0.0, min(1.0, float(chave["segundos"]) / duracao_s))
+                elif len(chaves) > 1:
+                    fracao = idx_ch / float(len(chaves) - 1)
+                else:
+                    fracao = 0.0
+                drop_eff = drop_base * animacao_pose.peso_gravidade_clipe(nome_clipe, fracao)
+                if drop_eff > 0.0:
+                    ang_l = drop_eff if modo_rig == "bone" else -drop_eff
+                    ang_r = -drop_eff if modo_rig == "bone" else drop_eff
+                    for parte_arm, ang_arm in (("LeftUpperArm", ang_l), ("RightUpperArm", ang_r)):
+                        q_drop = _quat_de_eixo_graus(ang_arm, "Z")
+                        dadas_q[parte_arm] = (
+                            q_drop
+                            if parte_arm not in dadas_q
+                            else _quat_mul(dadas_q[parte_arm], q_drop)
+                        )
 
         referent = _emit_pose("HumanoidRootPart", dadas_q, dadas_pos, linhas, referent)
         linhas.append("</Item>")

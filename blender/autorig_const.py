@@ -112,6 +112,25 @@ _OSSOS_BRACO = {
     "RightHand",
 }
 _OSSOS_BRACO_DISTAL = _OSSOS_BRACO - _OSSOS_OMBROS
+_OSSOS_BRACO_PROXIMAL_R15 = {"LeftUpperArm", "RightUpperArm"}
+_OSSOS_MEMBROS_CORE = {
+    "UpperArm.L",
+    "UpperArm.R",
+    "LowerArm.L",
+    "LowerArm.R",
+    "UpperLeg.L",
+    "UpperLeg.R",
+    "LowerLeg.L",
+    "LowerLeg.R",
+    "LeftUpperArm",
+    "RightUpperArm",
+    "LeftLowerArm",
+    "RightLowerArm",
+    "LeftUpperLeg",
+    "RightUpperLeg",
+    "LeftLowerLeg",
+    "RightLowerLeg",
+}
 _OSSOS_CABECA = {"Head"}
 _OSSOS_PESCOCO = {"Neck"}
 _OSSOS_TORAX = {"Chest", "UpperTorso"}

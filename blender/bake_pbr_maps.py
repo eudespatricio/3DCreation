@@ -35,7 +35,8 @@ def _criar_material_alvo_bake(nome_mat: str):
 
 
 def _salvar_e_recarregar_png(img, caminho: str, colorspace: str, cena):
-    """Salva PNG RGB 8-bit com compressao 100 e recarrega do disco para embutir comprimido no GLB."""
+    """Salva PNG RGB 8-bit com compressao 90 e recarrega do disco para embutir comprimido no GLB."""
+    cena.render.image_settings.compression = 90
     img.save_render(filepath=caminho, scene=cena)
     bpy.data.images.remove(img)
     recarregada = bpy.data.images.load(caminho, check_existing=False)
@@ -65,11 +66,12 @@ def _empacotar_orm(
     met_padrao = max(0.0, min(1.0, float(metallic_base)))
     orm_buf = array("f", [0.0]) * total_floats
     for i in range(0, total_floats, 4):
-        ao = ao_buf[i]
-        if ao < 0.0:
-            ao = 0.0
-        elif ao > 1.0:
-            ao = 1.0
+        ao_raw = ao_buf[i]
+        if ao_raw < 0.0:
+            ao_raw = 0.0
+        elif ao_raw > 1.0:
+            ao_raw = 1.0
+        ao = 0.45 + 0.55 * ao_raw
         rough_ao = 0.85 - 0.25 * (1.0 - ao)
         if rough_ao < 0.50:
             rough_ao = 0.50
@@ -132,6 +134,7 @@ def _extrair_canais_roblox(img_orm, saida_dir: str, nome_base: str, px: int, cen
         m_buf[i] = m_buf[i + 1] = m_buf[i + 2] = mv
         m_buf[i + 3] = 1.0
 
+    cena.render.image_settings.compression = 90
     saidas: list[dict] = []
     for sufixo, papel, buf in (
         ("roughness", "roughness", r_buf),
@@ -349,7 +352,7 @@ def aplicar_hints_orm_em_material(
             if "Roughness" in bsdf.inputs:
                 bsdf.inputs["Roughness"].default_value = 0.78
             if "Specular IOR Level" in bsdf.inputs:
-                bsdf.inputs["Specular IOR Level"].default_value = 0.18
+                bsdf.inputs["Specular IOR Level"].default_value = 0.50
         tex_orm = nt_orig.nodes.new("ShaderNodeTexImage")
         tex_orm.image = img_orm
         sep = nt_orig.nodes.new("ShaderNodeSeparateColor")
@@ -383,14 +386,16 @@ def _redimensionar_png_no_material(
     caminho: str,
     px_novo: int,
     colorspace: str,
+    piso_px: int = PISO_PX_ORCAMENTO,
 ) -> tuple[int, bool]:
-    """Redimensiona um mapa PNG ligado ao material de ``obj`` respeitando ``PISO_PX_ORCAMENTO``."""
-    px_alvo = max(PISO_PX_ORCAMENTO, int(px_novo))
+    """Redimensiona um mapa PNG ligado ao material de ``obj`` respeitando ``piso_px``."""
+    px_alvo = max(PISO_PX_ORCAMENTO, int(piso_px), int(px_novo))
     cena = bpy.context.scene
     anterior = _cfg._capturar_estado_cena(cena)
     alvo_nome = os.path.basename(caminho)
     try:
         _cfg._configurar_render_png_linear(cena)
+        cena.render.image_settings.compression = 90
 
         for mat in obj.data.materials:
             if not mat or not mat.use_nodes:
@@ -424,36 +429,46 @@ def ajustar_resolucao_orcamento(
     glb_caminho: str,
     limite_bytes: int,
     reexportar_fn,
+    piso_px: int = PISO_PX_ORCAMENTO,
 ) -> None:
-    """Encolhe mapas acima de ``PISO_PX_ORCAMENTO`` (512px) ate caber no teto sem cair abaixo de 512px."""
+    """Encolhe mapas gradualmente (1024px antes de ``piso_px``) ate caber em ``limite_bytes``."""
     if limite_bytes <= 0 or not os.path.isfile(glb_caminho):
         return
     if os.path.getsize(glb_caminho) <= limite_bytes:
         return
 
+    piso_efetivo = max(PISO_PX_ORCAMENTO, int(piso_px))
+    passos_px = [1024, piso_efetivo] if piso_efetivo < 1024 else [piso_efetivo]
     cs_por_papel = {"textura": "sRGB", "normal": "Non-Color", "orm": "Non-Color"}
-    alterou = False
-    for tex in texturas_geradas:
-        if tex.get("papel") in ("normal", "orm"):
-            cam = os.path.join(saida_dir, tex["caminho"])
-            if os.path.isfile(cam):
-                novo_bytes, mudou = _redimensionar_png_no_material(
-                    obj, cam, PISO_PX_ORCAMENTO, cs_por_papel[tex["papel"]]
-                )
-                tex["bytes"] = novo_bytes
-                alterou = alterou or mudou
-    if alterou:
-        reexportar_fn()
 
-    if os.path.getsize(glb_caminho) > limite_bytes:
+    for alvo_px in passos_px:
+        alterou_sub = False
         for tex in texturas_geradas:
-            if tex.get("papel") == "textura":
+            papel = tex.get("papel")
+            if papel in ("normal", "orm"):
                 cam = os.path.join(saida_dir, tex["caminho"])
                 if os.path.isfile(cam):
                     novo_bytes, mudou = _redimensionar_png_no_material(
-                        obj, cam, PISO_PX_ORCAMENTO, "sRGB"
+                        obj, cam, max(piso_efetivo, alvo_px), cs_por_papel[papel]
                     )
                     tex["bytes"] = novo_bytes
-                    if mudou:
-                        reexportar_fn()
-                break
+                    alterou_sub = alterou_sub or mudou
+        if alterou_sub:
+            reexportar_fn()
+            if os.path.getsize(glb_caminho) <= limite_bytes:
+                return
+
+        if os.path.getsize(glb_caminho) > limite_bytes:
+            for tex in texturas_geradas:
+                if tex.get("papel") == "textura":
+                    cam = os.path.join(saida_dir, tex["caminho"])
+                    if os.path.isfile(cam):
+                        novo_bytes, mudou = _redimensionar_png_no_material(
+                            obj, cam, max(piso_efetivo, alvo_px), "sRGB"
+                        )
+                        tex["bytes"] = novo_bytes
+                        if mudou:
+                            reexportar_fn()
+                            if os.path.getsize(glb_caminho) <= limite_bytes:
+                                return
+                    break

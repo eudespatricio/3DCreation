@@ -283,7 +283,7 @@ def test_render_preview_e_bake_pbr_calibracao_sem_estouro():
 
     bp_src = (RAIZ / "blender" / "bake_pbr.py").read_text(encoding="utf-8")
     assert 'bsdf.inputs["Roughness"].default_value = 0.78' in bp_src
-    assert 'bsdf.inputs["Specular IOR Level"].default_value = 0.18' in bp_src
+    assert 'bsdf.inputs["Specular IOR Level"].default_value = 0.50' in bp_src
 
 
 # ---------------------------------------------------------------- Blender headless: template_body + mhclo G1

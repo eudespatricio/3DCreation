@@ -377,10 +377,11 @@ def _propagar_deslocamento_zonas_uv(
     pbr_zonas_cfg,
     pre_bake_high_max_x: float,
     fn_shift=None,
+    passo_zona_x: float = 6.0,
 ) -> None:
     """Propaga deslocamento X de ``pbr_zonas`` do high-poly para o low-poly antes do Cycles bake."""
-    passo = 6.0
-    if abs(pre_bake_high_max_x) < 3.0 and high_mesh_src.vertices and obj.data.vertices:
+    passo = float(passo_zona_x or 6.0)
+    if abs(pre_bake_high_max_x) < passo * 0.5 and high_mesh_src.vertices and obj.data.vertices:
         from mathutils.kdtree import KDTree
 
         kd = KDTree(len(high_mesh_src.vertices))
@@ -431,8 +432,9 @@ def _preparar_contexto_bake_pos_escala(
             if zonas_shifted:
                 passes_mod = getattr(getattr(bake_pbr_mod, "_exec", None), "_passes", None)
                 fn_shift = getattr(passes_mod, "_deslocar_zonas_uv", None)
+                passo_obj = float(obj.get("forge3d_passo_zona_x", 6.0))
                 _propagar_deslocamento_zonas_uv(
-                    high_mesh_src, obj, pbr_zonas_cfg, pre_bake_high_max_x, fn_shift
+                    high_mesh_src, obj, pbr_zonas_cfg, pre_bake_high_max_x, fn_shift, passo_obj
                 )
         return malha_triangulada(alvo_o)
 

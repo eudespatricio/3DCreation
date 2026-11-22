@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -27,6 +28,13 @@ else:
     import bake_pbr_nativo as _nat
     import bake_pbr_proj as _proj
     import bake_pbr_shaders as _sh
+
+
+def _calcular_passo_zona_x(mesh) -> float:
+    if mesh is None or not getattr(mesh, "vertices", None):
+        return 6.0
+    max_abs_x = max((abs(v.co.x) for v in mesh.vertices), default=0.0)
+    return max(6.0, float(math.ceil(max_abs_x * 2.0 + 4.0)))
 
 
 def _deslocar_zonas_uv(obj, pbr_zonas: list[dict] | None, passo_zona_x: float = 6.0) -> bool:

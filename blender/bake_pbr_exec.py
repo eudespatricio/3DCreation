@@ -221,7 +221,8 @@ def executar_bake_high_low(
 
     tris_high = _cfg._contar_triangulos(obj)
     diag_original = _cfg._bbox_diag(obj)
-    passo_zona_x = 6.0
+    passo_zona_x = _passes._calcular_passo_zona_x(obj.data)
+    obj["forge3d_passo_zona_x"] = passo_zona_x
     zonas_deslocadas = _passes._deslocar_zonas_uv(obj, pbr_zonas, passo_zona_x) if tem_zonas else False
 
     high_mesh = obj.data.copy()
@@ -425,6 +426,8 @@ def executar_bake_high_low(
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
     finally:
+        if obj is not None and "forge3d_passo_zona_x" in obj:
+            del obj["forge3d_passo_zona_x"]
         if zonas_deslocadas and obj is not None and getattr(obj, "data", None) is not None:
             for v_obj in obj.data.vertices:
                 kz = int(round(v_obj.co.x / passo_zona_x))

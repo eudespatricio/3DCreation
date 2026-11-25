@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -18,33 +19,44 @@ else:
     from postprocess_scene import _selecionar, malha_triangulada
 
 
-def _remover_ilhas_de_uma_face(bm, *, permitir_bordas_abertas: bool = False) -> int:
-    """Ilha de uma face minuscula (sobra de decimate) vira borda aberta no G1."""
-    vistos = set()
-    remover = []
+def _limpar_soltos_bm(bm) -> None:
+    if (se := [e for e in bm.edges if not e.link_faces]):
+        bmesh.ops.delete(bm, geom=se, context="EDGES")
+    if (sv := [v for v in bm.verts if not v.link_faces]):
+        bmesh.ops.delete(bm, geom=sv, context="VERTS")
+
+
+def _componentes_faces_bm(bm) -> list[list]:
+    bm.faces.ensure_lookup_table()
+    vistos: set[int] = set()
+    comps: list[list] = []
     for face in bm.faces:
         if face.index in vistos:
             continue
-        pilha = [face]
-        componente = []
+        comp, pilha = [], [face]
         vistos.add(face.index)
         while pilha:
             atual = pilha.pop()
-            componente.append(atual)
+            comp.append(atual)
             for aresta in atual.edges:
                 for vizinha in aresta.link_faces:
                     if vizinha.index not in vistos:
                         vistos.add(vizinha.index)
                         pilha.append(vizinha)
-        if len(componente) == 1 and (
-            not permitir_bordas_abertas or componente[0].calc_area() < 1e-6
-        ):
-            remover.append(componente[0])
+        comps.append(comp)
+    return comps
+
+
+def _remover_ilhas_de_uma_face(bm, *, permitir_bordas_abertas: bool = False) -> int:
+    """Ilha de uma face minuscula (sobra de decimate) vira borda aberta no G1."""
+    remover = [
+        c[0]
+        for c in _componentes_faces_bm(bm)
+        if len(c) == 1 and (not permitir_bordas_abertas or c[0].calc_area() < 1e-6)
+    ]
     if remover:
         bmesh.ops.delete(bm, geom=remover, context="FACES")
-        soltos = [v for v in bm.verts if not v.link_faces]
-        if soltos:
-            bmesh.ops.delete(bm, geom=soltos, context="VERTS")
+        _limpar_soltos_bm(bm)
     return len(remover)
 
 
@@ -55,15 +67,12 @@ def _fechar_ciclos_borda_fan(bm) -> int:
         return 0
     dvert_lay = bm.verts.layers.deform.active
     uv_lays = list(bm.loops.layers.uv.values())
-    criadas = 0
-    visitadas: set = set()
+    criadas, visitadas = 0, set()
     for e0 in restantes:
         if e0 in visitadas or len(e0.link_faces) != 1:
             continue
-        comp_e = []
-        fila = [e0]
+        comp_e, fila, adj = [], [e0], {}
         visitadas.add(e0)
-        adj: dict = {}
         while fila:
             ec = fila.pop()
             comp_e.append(ec)
@@ -76,24 +85,20 @@ def _fechar_ciclos_borda_fan(bm) -> int:
         if len(comp_e) < 3 or any(len(es) != 2 for es in adj.values()):
             continue
         f_adj = comp_e[0].link_faces[0]
-        va, vb = comp_e[0].verts[0], comp_e[0].verts[1]
-        for lp in f_adj.loops:
-            if lp.edge == comp_e[0]:
-                va, vb = lp.link_loop_next.vert, lp.vert
-                break
-        ciclo = [va, vb]
-        usadas = {comp_e[0]}
+        va, vb = next(
+            ((lp.link_loop_next.vert, lp.vert) for lp in f_adj.loops if lp.edge == comp_e[0]),
+            (comp_e[0].verts[0], comp_e[0].verts[1]),
+        )
+        ciclo, usadas = [va, vb], {comp_e[0]}
         while len(ciclo) < len(comp_e):
-            atual = ciclo[-1]
-            prox_e = next((e for e in adj[atual] if e not in usadas), None)
+            prox_e = next((e for e in adj[ciclo[-1]] if e not in usadas), None)
             if prox_e is None:
                 break
             usadas.add(prox_e)
-            ciclo.append(prox_e.other_vert(atual))
+            ciclo.append(prox_e.other_vert(ciclo[-1]))
         if len(ciclo) != len(comp_e):
             continue
-        centro = sum((v.co for v in ciclo), Vector((0.0, 0.0, 0.0))) / len(ciclo)
-        vc = bm.verts.new(centro)
+        vc = bm.verts.new(sum((v.co for v in ciclo), Vector((0.0, 0.0, 0.0))) / len(ciclo))
         if dvert_lay is not None:
             pesos: dict[int, float] = {}
             for v in ciclo:
@@ -103,33 +108,22 @@ def _fechar_ciclos_borda_fan(bm) -> int:
             if tot > 1e-8:
                 for grp, w in pesos.items():
                     vc[dvert_lay][grp] = w / tot
-        uv_map: dict = {}
-        for uvl in uv_lays:
-            uv_map[uvl] = {
-                v: next((lp[uvl].uv.copy() for lp in v.link_loops), Vector((0.5, 0.5)))
-                for v in ciclo
-            }
-        mat_idx = f_adj.material_index
+        uv_map = {
+            uvl: {v: next((lp[uvl].uv.copy() for lp in v.link_loops), Vector((0.5, 0.5))) for v in ciclo}
+            for uvl in uv_lays
+        }
         for i in range(len(ciclo)):
-            v1 = ciclo[i]
-            v2 = ciclo[(i + 1) % len(ciclo)]
+            v1, v2 = ciclo[i], ciclo[(i + 1) % len(ciclo)]
             try:
                 nf = bm.faces.new((v1, v2, vc))
             except ValueError:
                 continue
-            nf.material_index = mat_idx
+            nf.material_index = f_adj.material_index
             criadas += 1
             for uvl in uv_lays:
-                uv1 = uv_map[uvl][v1]
-                uv2 = uv_map[uvl][v2]
                 uvc = sum(uv_map[uvl].values(), Vector((0.0, 0.0))) / len(ciclo)
                 for lp in nf.loops:
-                    if lp.vert == v1:
-                        lp[uvl].uv = uv1
-                    elif lp.vert == v2:
-                        lp[uvl].uv = uv2
-                    else:
-                        lp[uvl].uv = uvc
+                    lp[uvl].uv = uv_map[uvl].get(lp.vert, uvc)
     return criadas
 
 
@@ -152,12 +146,10 @@ def _colapsar_faces_degeneradas(bm, area_min: float = 1e-12) -> int:
         degs = [f for f in bm.faces if f.is_valid and f.calc_area() < area_min]
         if not degs:
             break
-        arestas_alvo = set()
-        for f in degs:
-            if not f.is_valid or not f.edges:
-                continue
-            arestas_alvo.add(min(f.edges, key=lambda e: e.calc_length()))
-        arestas_validas = [e for e in arestas_alvo if e.is_valid]
+        arestas_validas = [
+            e for e in {min(f.edges, key=lambda ed: ed.calc_length()) for f in degs if f.is_valid and f.edges}
+            if e.is_valid
+        ]
         if not arestas_validas:
             break
         bmesh.ops.collapse(bm, edges=arestas_validas)
@@ -177,16 +169,9 @@ def reparar_malha(obj, permitir_bordas_abertas: bool = False) -> dict:
     slivers = [f for f in bm.faces if f.calc_area() < 1e-12]
     if slivers:
         bmesh.ops.delete(bm, geom=slivers, context="FACES")
-    soltas_e = [e for e in bm.edges if not e.link_faces]
-    if soltas_e:
-        bmesh.ops.delete(bm, geom=soltas_e, context="EDGES")
-    soltos = [v for v in bm.verts if not v.link_faces]
-    if soltos:
-        bmesh.ops.delete(bm, geom=soltos, context="VERTS")
+    _limpar_soltos_bm(bm)
     ilhas = _remover_ilhas_de_uma_face(bm, permitir_bordas_abertas=permitir_bordas_abertas)
-    bordas_iniciais = _preencher_bordas_e_triangular(
-        bm, permitir_bordas_abertas=permitir_bordas_abertas
-    )
+    bordas_iniciais = _preencher_bordas_e_triangular(bm, permitir_bordas_abertas=permitir_bordas_abertas)
     for _ in range(3):
         vistos_faces: set[frozenset] = set()
         dups = []
@@ -199,39 +184,29 @@ def reparar_malha(obj, permitir_bordas_abertas: bool = False) -> dict:
         if dups:
             bmesh.ops.delete(bm, geom=dups, context="FACES")
         _colapsar_faces_degeneradas(bm, area_min=1e-12)
-        excedentes_nm = set()
+        bm.normal_update()
+        centro = sum((v.co for v in bm.verts), Vector((0.0, 0.0, 0.0))) / float(len(bm.verts)) if bm.verts else Vector((0.0, 0.0, 0.0))
+        excedentes_nm: set = set()
         for e in bm.edges:
             if len(e.link_faces) > 2:
-                ordenadas = sorted(e.link_faces, key=lambda f: f.calc_area(), reverse=True)
-                for f in ordenadas[2:]:
-                    excedentes_nm.add(f)
+                ordenadas = sorted(e.link_faces, key=lambda f: (f.normal.dot(f.calc_center_median() - centro) >= 0.0, f.calc_area()))
+                excedentes_nm.update(ordenadas[: len(ordenadas) - 2])
         if excedentes_nm:
             bmesh.ops.delete(bm, geom=list(excedentes_nm), context="FACES")
         _remover_ilhas_de_uma_face(bm, permitir_bordas_abertas=permitir_bordas_abertas)
-        bordas_pos = _preencher_bordas_e_triangular(
-            bm, permitir_bordas_abertas=permitir_bordas_abertas
-        )
+        bordas_pos = _preencher_bordas_e_triangular(bm, permitir_bordas_abertas=permitir_bordas_abertas)
         if not dups and not excedentes_nm and bordas_pos == 0:
             break
     _colapsar_faces_degeneradas(bm, area_min=1e-12)
-    soltas_e_pos = [e for e in bm.edges if not e.link_faces]
-    if soltas_e_pos:
-        bmesh.ops.delete(bm, geom=soltas_e_pos, context="EDGES")
-    soltos_pos = [v for v in bm.verts if not v.link_faces]
-    if soltos_pos:
-        bmesh.ops.delete(bm, geom=soltos_pos, context="VERTS")
+    _limpar_soltos_bm(bm)
     bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
     bm.to_mesh(obj.data)
     bm.free()
     obj.data.update()
     return {
-        "vertices_antes": antes[0],
-        "faces_antes": antes[1],
-        "vertices_depois": len(obj.data.vertices),
-        "faces_depois": len(obj.data.polygons),
-        "ilhas_removidas": ilhas,
-        "slivers_removidos": len(slivers),
-        "bordas_preenchidas": bordas_iniciais,
+        "vertices_antes": antes[0], "faces_antes": antes[1],
+        "vertices_depois": len(obj.data.vertices), "faces_depois": len(obj.data.polygons),
+        "ilhas_removidas": ilhas, "slivers_removidos": len(slivers), "bordas_preenchidas": bordas_iniciais,
     }
 
 
@@ -263,18 +238,16 @@ def _relaxar_arestas_dobradas_bm(bm, passadas: int = 3) -> int:
     total_movidos = 0
     for _ in range(passadas):
         bm.normal_update()
-        marcados: set[int] = set()
-        for e in bm.edges:
-            if len(e.link_faces) == 2 and e.link_faces[0].normal.dot(e.link_faces[1].normal) < -0.15:
-                marcados.add(e.verts[0].index)
-                marcados.add(e.verts[1].index)
+        marcados = {
+            v.index for e in bm.edges
+            if len(e.link_faces) == 2 and e.link_faces[0].normal.dot(e.link_faces[1].normal) < -0.15
+            for v in e.verts
+        }
         if not marcados:
             break
         bm.verts.ensure_lookup_table()
-        novos = {idx: _media_vizinhos(bm.verts[idx]) for idx in marcados}
-        for idx, destino in novos.items():
-            v = bm.verts[idx]
-            v.co = v.co.lerp(destino, 0.55)
+        for idx, destino in {idx: _media_vizinhos(bm.verts[idx]) for idx in marcados}.items():
+            bm.verts[idx].co = bm.verts[idx].co.lerp(destino, 0.55)
         total_movidos += len(marcados)
     bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
     return total_movidos
@@ -303,10 +276,14 @@ def _aplicar_mod(obj, mod) -> None:
     bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
-def _remesh_voxel_preservando_partes(obj) -> None:
-    """Limpa nao-manifold via Solidify+Voxel+Shrinkwrap mantendo partes >= 0.5% das faces."""
-    if not (obj and getattr(obj, "type", None) == "MESH" and obj.data and obj.data.vertices and obj.data.polygons):
-        return
+def _extensoes_mesh(mesh) -> tuple[float, float, float]:
+    if not mesh or not mesh.vertices:
+        return (0.0, 0.0, 0.0)
+    coords = [v.co for v in mesh.vertices]
+    return tuple(max(c[i] for c in coords) - min(c[i] for c in coords) for i in range(3))  # type: ignore[return-value]
+
+
+def _rodar_tentativa_voxel(obj, sw_ref, voxel_size: float) -> None:
     bm = bmesh.new()
     try:
         bm.from_mesh(obj.data)
@@ -316,36 +293,20 @@ def _remesh_voxel_preservando_partes(obj) -> None:
     finally:
         bm.free()
 
-    coords = [v.co for v in obj.data.vertices]
-    diag = sum((max(c[i] for c in coords) - min(c[i] for c in coords)) ** 2 for i in range(3)) ** 0.5
-    voxel_size = max(0.004, min(0.008, diag * 0.0045))
+    mod_sol = obj.modifiers.new("forge3d_voxel_solidify", "SOLIDIFY")
+    mod_sol.thickness, mod_sol.offset = voxel_size * 1.8, 0.0
+    _aplicar_mod(obj, mod_sol)
 
-    sw_mesh = obj.data.copy()
-    sw_ref = bpy.data.objects.new("forge3d_voxel_sw_ref", sw_mesh)
-    sw_ref.matrix_world = obj.matrix_world.copy()
-    bpy.context.collection.objects.link(sw_ref)
-    try:
-        mod_sol = obj.modifiers.new("forge3d_voxel_solidify", "SOLIDIFY")
-        mod_sol.thickness = voxel_size * 1.8
-        mod_sol.offset = 0.0
-        _aplicar_mod(obj, mod_sol)
+    mod = obj.modifiers.new("forge3d_voxel_remesh", "REMESH")
+    mod.mode, mod.voxel_size = "VOXEL", voxel_size
+    if hasattr(mod, "use_smooth_shade"):
+        mod.use_smooth_shade = True
+    _aplicar_mod(obj, mod)
 
-        mod = obj.modifiers.new("forge3d_voxel_remesh", "REMESH")
-        mod.mode = "VOXEL"
-        mod.voxel_size = voxel_size
-        if hasattr(mod, "use_smooth_shade"):
-            mod.use_smooth_shade = True
-        _aplicar_mod(obj, mod)
-
-        mod_sw = obj.modifiers.new("forge3d_voxel_shrinkwrap", "SHRINKWRAP")
-        mod_sw.target = sw_ref
-        mod_sw.wrap_method = "NEAREST_SURFACEPOINT"
-        mod_sw.offset = min(0.001, voxel_size * 0.2)
-        _aplicar_mod(obj, mod_sw)
-    finally:
-        bpy.data.objects.remove(sw_ref, do_unlink=True)
-        if sw_mesh.users == 0:
-            bpy.data.meshes.remove(sw_mesh)
+    mod_sw = obj.modifiers.new("forge3d_voxel_shrinkwrap", "SHRINKWRAP")
+    mod_sw.target, mod_sw.wrap_method = sw_ref, "NEAREST_SURFACEPOINT"
+    mod_sw.offset = min(0.001, voxel_size * 0.2)
+    _aplicar_mod(obj, mod_sw)
 
     bm_p = bmesh.new()
     try:
@@ -353,40 +314,68 @@ def _remesh_voxel_preservando_partes(obj) -> None:
         bm_p.faces.ensure_lookup_table()
         total_faces = len(bm_p.faces)
         if total_faces > 0:
-            vistos: set[int] = set()
-            comps: list[list] = []
-            for f0 in bm_p.faces:
-                if f0.index in vistos:
-                    continue
-                comp, pilha = [f0], [f0]
-                vistos.add(f0.index)
-                while pilha:
-                    fc = pilha.pop()
-                    for e in fc.edges:
-                        for fn in e.link_faces:
-                            if fn.index not in vistos:
-                                vistos.add(fn.index)
-                                comp.append(fn)
-                                pilha.append(fn)
-                comps.append(comp)
-            limiar = 0.005 * float(total_faces)
-            lixo = [f for c in comps if len(c) < limiar for f in c]
+            comps = _componentes_faces_bm(bm_p)
+            lixo = [f for c in comps if len(c) < 0.005 * float(total_faces) for f in c]
             if lixo and len(lixo) < total_faces:
                 bmesh.ops.delete(bm_p, geom=lixo, context="FACES")
-                soltos = [v for v in bm_p.verts if not v.link_faces]
-                if soltos:
-                    bmesh.ops.delete(bm_p, geom=soltos, context="VERTS")
+                _limpar_soltos_bm(bm_p)
             bmesh.ops.recalc_face_normals(bm_p, faces=list(bm_p.faces))
             bm_p.to_mesh(obj.data)
             obj.data.update()
     finally:
         bm_p.free()
 
-    if obj.data.polygons:
+
+def _trocar_mesh_seguro(obj, nova_mesh) -> None:
+    antiga = obj.data
+    obj.data = nova_mesh
+    if antiga is not nova_mesh and antiga.users == 0:
+        bpy.data.meshes.remove(antiga)
+
+
+def _remesh_voxel_preservando_partes(
+    obj, *, eh_organico: bool = True, max_encolhimento_h: float = 0.10
+) -> bool:
+    """Limpa nao-manifold via Solidify+Voxel+Shrinkwrap preservando partes e guardando encolhimento."""
+    if not eh_organico or not (
+        obj and getattr(obj, "type", None) == "MESH" and obj.data and obj.data.vertices and obj.data.polygons
+    ):
+        return False
+    backup_mesh = obj.data.copy()
+    orig_exts = _extensoes_mesh(backup_mesh)
+    diag = math.sqrt(sum(e * e for e in orig_exts))
+    voxel_base = max(0.004, min(0.008, diag * 0.0045))
+    sw_ref = bpy.data.objects.new("forge3d_voxel_sw_ref", backup_mesh)
+    sw_ref.matrix_world = obj.matrix_world.copy()
+    bpy.context.collection.objects.link(sw_ref)
+    sucesso = False
+    try:
+        for idx, vs in enumerate((voxel_base, voxel_base * 0.6)):
+            if idx > 0:
+                _trocar_mesh_seguro(obj, backup_mesh.copy())
+            _rodar_tentativa_voxel(obj, sw_ref, vs)
+            cur_exts = _extensoes_mesh(obj.data)
+            encolheu = (not obj.data.polygons) or any(
+                cur < (1.0 - max_encolhimento_h) * orig for cur, orig in zip(cur_exts, orig_exts) if orig > 1e-4
+            )
+            if not encolheu:
+                sucesso = True
+                break
+        if not sucesso:
+            _trocar_mesh_seguro(obj, backup_mesh)
+            return False
+    finally:
+        bpy.data.objects.remove(sw_ref, do_unlink=True)
+        if not sucesso and obj.data is not backup_mesh:
+            _trocar_mesh_seguro(obj, backup_mesh)
+        elif sucesso and backup_mesh.users == 0:
+            bpy.data.meshes.remove(backup_mesh)
+
+    if eh_organico and obj.data.polygons:
         mod_cs = obj.modifiers.new("forge3d_voxel_csmooth", "CORRECTIVE_SMOOTH")
-        mod_cs.factor = 0.25
-        mod_cs.iterations = 2
+        mod_cs.factor, mod_cs.iterations = 0.25, 2
         _aplicar_mod(obj, mod_cs)
+    return True
 
 
 def _criar_vg_protecao(obj) -> str | None:
@@ -413,46 +402,54 @@ def _criar_vg_protecao(obj) -> str | None:
             maos.append(v.index)
         else:
             resto.append(v.index)
-    if cabeca:
-        vg_temp.add(cabeca, 0.45, "REPLACE")
-    if pes:
-        vg_temp.add(pes, 0.55, "REPLACE")
-    if maos:
-        vg_temp.add(maos, 0.60, "REPLACE")
-    if resto:
-        vg_temp.add(resto, 1.0, "REPLACE")
+    for grupo, peso in ((cabeca, 0.45), (pes, 0.55), (maos, 0.60), (resto, 1.0)):
+        if grupo:
+            vg_temp.add(grupo, peso, "REPLACE")
     return vg_name
 
 
-def _aplicar_decimate_passo(obj, ratio: float, vg_name: str | None = None, vg_factor: float = 0.30) -> None:
+def _marcar_arestas_sharp(obj, angulo_graus: float) -> None:
+    if obj is None or getattr(obj, "data", None) is None:
+        return
+    _selecionar(obj)
+    if getattr(obj, "mode", "OBJECT") != "OBJECT" and hasattr(bpy.ops.object, "mode_set"):
+        bpy.ops.object.mode_set(mode="OBJECT")
+    if hasattr(obj.data, "set_sharp_from_angle"):
+        obj.data.set_sharp_from_angle(angle=math.radians(float(angulo_graus)))
+        obj.data.update()
+
+
+def _aplicar_decimate_passo(
+    obj, ratio: float, vg_name: str | None = None, vg_factor: float = 0.30, *, preservar_arestas: bool = False
+) -> None:
     mod = obj.modifiers.new("forge3d_decimate", "DECIMATE")
     mod.ratio = max(0.01, min(1.0, float(ratio)))
+    if preservar_arestas and hasattr(mod, "delimit"):
+        mod.delimit = {"SHARP", "SEAM"}
     if vg_name is not None:
-        mod.vertex_group = vg_name
-        mod.invert_vertex_group = False
+        mod.vertex_group, mod.invert_vertex_group = vg_name, False
         if hasattr(mod, "vertex_group_factor"):
             mod.vertex_group_factor = vg_factor
     _aplicar_mod(obj, mod)
 
 
-def _decimar_progressivo(obj, alvo_tris: int, proteger_cabeca_maos: bool) -> int:
+def _decimar_progressivo(
+    obj, alvo_tris: int, proteger_cabeca_maos: bool, *, preservar_arestas: bool = False
+) -> int:
     for _passo in range(10):
         cur = malha_triangulada(obj)
         if cur <= alvo_tris or cur <= 4:
             break
         if (alvo_tris / float(cur)) < 0.35:
-            ratio = max(0.45, (alvo_tris * 0.985) / float(cur))
-            vg_name = None
+            ratio, vg_name = max(0.45, (alvo_tris * 0.985) / float(cur)), None
         else:
             ratio = (alvo_tris * 0.985) / float(cur)
             vg_name = _criar_vg_protecao(obj) if (proteger_cabeca_maos and cur <= alvo_tris * 2.5) else None
         try:
-            _aplicar_decimate_passo(obj, ratio, vg_name=vg_name, vg_factor=0.30)
+            _aplicar_decimate_passo(obj, ratio, vg_name=vg_name, vg_factor=0.30, preservar_arestas=preservar_arestas)
         finally:
-            if vg_name is not None:
-                vg_ref = obj.vertex_groups.get(vg_name)
-                if vg_ref is not None:
-                    obj.vertex_groups.remove(vg_ref)
+            if vg_name is not None and (vg_ref := obj.vertex_groups.get(vg_name)) is not None:
+                obj.vertex_groups.remove(vg_ref)
         if malha_triangulada(obj) >= cur:
             break
 
@@ -460,7 +457,7 @@ def _decimar_progressivo(obj, alvo_tris: int, proteger_cabeca_maos: bool) -> int
     for _passo_fb in range(3):
         if tris_pos <= alvo_tris or tris_pos <= 4:
             break
-        _aplicar_decimate_passo(obj, (alvo_tris * 0.985) / float(tris_pos))
+        _aplicar_decimate_passo(obj, (alvo_tris * 0.985) / float(tris_pos), preservar_arestas=preservar_arestas)
         novo_tris = malha_triangulada(obj)
         if novo_tris >= tris_pos:
             break
@@ -469,26 +466,28 @@ def _decimar_progressivo(obj, alvo_tris: int, proteger_cabeca_maos: bool) -> int
 
 
 def decimar(
-    obj, alvo_tris: int, proteger_cabeca_maos: bool = False, *, taubin_fn=None
+    obj, alvo_tris: int, proteger_cabeca_maos: bool = False, *,
+    taubin_fn=None, eh_organico: bool | None = None, angulo_sharp_graus: float = 38.0,
 ) -> int:
     _ = taubin_fn
     tris = malha_triangulada(obj)
     if alvo_tris <= 0 or tris <= alvo_tris:
         return tris
+    organico = bool(proteger_cabeca_maos) if eh_organico is None else bool(eh_organico)
+    if not organico:
+        _marcar_arestas_sharp(obj, angulo_sharp_graus)
+        _decimar_progressivo(obj, alvo_tris, False, preservar_arestas=True)
+        return malha_triangulada(obj)
 
-    voxel_remesh_feito = False
-    if tris > max(alvo_tris * 2, 40_000):
-        nm_e, _nm_v = _contar_nao_manifold(obj, weld_dist=1e-6)
-        if nm_e >= 20:
-            _remesh_voxel_preservando_partes(obj)
-            voxel_remesh_feito = True
+    voxel_tentado = False
+    if tris > max(alvo_tris * 2, 40_000) and _contar_nao_manifold(obj, weld_dist=1e-6)[0] >= 20:
+        voxel_tentado = True
+        _remesh_voxel_preservando_partes(obj)
 
     tris_pos = _decimar_progressivo(obj, alvo_tris, proteger_cabeca_maos)
-    if proteger_cabeca_maos and not voxel_remesh_feito:
-        nm_e_pos, _ = _contar_nao_manifold(obj)
-        if tris_pos > alvo_tris or nm_e_pos >= 20:
-            _remesh_voxel_preservando_partes(obj)
-            tris_pos = _decimar_progressivo(obj, alvo_tris, proteger_cabeca_maos)
+    if proteger_cabeca_maos and not voxel_tentado:
+        if (tris_pos > alvo_tris or _contar_nao_manifold(obj)[0] >= 20) and _remesh_voxel_preservando_partes(obj):
+            _decimar_progressivo(obj, alvo_tris, proteger_cabeca_maos)
 
     if proteger_cabeca_maos and obj.data.vertices:
         bm_pos = bmesh.new()

@@ -8,6 +8,10 @@ from typing import Any
 
 from PIL import Image
 
+LIMIAR_IOU_G15 = 0.55
+LIMIAR_ASPECT_G15 = 0.60
+MARGEM_CANVAS_G15 = 4
+
 def _luminancia(r: int, g: int, b: int) -> float:
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
 
@@ -448,7 +452,7 @@ def _checar_silhueta_e_enquadramento(nome: str, info: dict[str, Any]) -> tuple[l
     defeitos = ([f"silhouette_blank ({nome}): cobertura de primeiro plano {cov:.3f} < 0.015"] if cov < 0.015 else []) + ([f"silhouette_clipped ({nome}): recorte nas bordas (top={clip_top:.2f}, left={clip_left:.2f}, right={clip_right:.2f}, cov={cov:.2f})"] if max(clip_top, clip_left, clip_right) > 0.15 or cov > 0.92 else [])
     return defeitos, {"cobertura": round(cov, 4), "clip_top": round(clip_top, 4), "clip_left": round(clip_left, 4), "clip_right": round(clip_right, 4)}
 
-def _extrair_silhueta_normalizada(info: dict[str, Any], tamanho: int = 64) -> tuple[list[int], list[int], tuple[float, float, float], float]:
+def _extrair_silhueta_normalizada(info: dict[str, Any], tamanho: int = 64, margem: int = MARGEM_CANVAS_G15) -> tuple[list[int], list[int], tuple[float, float, float], float]:
     px = _rgba_px(mask_img := Image.new("L", (max(1, int(info["w"])), max(1, int(info["h"]))), 0))
     for x, y, _rgb in info["fg_coords"]:
         px[x, y] = 255
@@ -456,15 +460,16 @@ def _extrair_silhueta_normalizada(info: dict[str, Any], tamanho: int = 64) -> tu
     if (bbox := info["bbox"]) is None or not info["fg_coords"]:
         return [0] * (tamanho * tamanho), mask_canvas, (0.0, 0.0, 0.0), 1.0
     bw, bh = max(1, bbox[2] - bbox[0] + 1), max(1, bbox[3] - bbox[1] + 1)
-    square = Image.new("L", (side := max(bw, bh), side), 0)
-    square.paste(mask_img.crop((bbox[0], bbox[1], bbox[2] + 1, bbox[3] + 1)), ((side - bw) // 2, (side - bh) // 2))
-    return list(square.resize((tamanho, tamanho), Image.Resampling.NEAREST).getdata()), mask_canvas, _media_rgb([rgb for _, _, rgb in info["fg_coords"]]), bw / float(bh)
+    nw, nh = max(1, int(round(bw * (ef := max(1, tamanho - 2 * margem) / float(max(bw, bh)))))), max(1, int(round(bh * ef)))
+    canvas = Image.new("L", (tamanho, tamanho), 0)
+    canvas.paste(mask_img.crop((bbox[0], bbox[1], bbox[2] + 1, bbox[3] + 1)).resize((nw, nh), Image.Resampling.NEAREST), ((tamanho - nw) // 2, (tamanho - nh) // 2))
+    return list(canvas.getdata()), mask_canvas, _media_rgb([rgb for _, _, rgb in info["fg_coords"]]), bw / float(bh)
 
 def _iou_binario(m1: list[int], m2: list[int]) -> float:
     inter, uniao = sum(1 for a, b in zip(m1, m2) if a > 0 and b > 0), sum(1 for a, b in zip(m1, m2) if a > 0 or b > 0)
     return inter / float(uniao) if uniao > 0 else 0.0
 
-def avaliar_fidelidade_concept_3d(concept_png: Path | str, render_png: Path | str, *, limiar_iou: float = 0.55, limiar_aspect: float = 0.50, limiar_score: float = 0.55) -> dict[str, Any]:
+def avaliar_fidelidade_concept_3d(concept_png: Path | str, render_png: Path | str, *, limiar_iou: float = LIMIAR_IOU_G15, limiar_aspect: float = LIMIAR_ASPECT_G15, limiar_score: float = 0.55) -> dict[str, Any]:
     """Compara silhueta/aspecto/cor entre concept 2D e render 3D (portao G15)."""
     c_path, r_path = Path(concept_png), Path(render_png)
     for p_chk, label in ((c_path, "concept"), (r_path, "render")):

@@ -30,6 +30,7 @@ if __package__:
         MAX_INFLUENCIAS_VERTICE,
         normalizar_top_k,
     )
+    from .autorig_pesos_limites import _limites_anatomicos
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
@@ -55,86 +56,7 @@ else:
         MAX_INFLUENCIAS_VERTICE,
         normalizar_top_k,
     )
-
-
-def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
-    """Pré-calcula fronteiras espaciais semânticas entre cabeça, pescoço, tórax, cintura, ombros e membros."""
-    h = m["altura"]
-    torso_hw = m.get("torso_hw", 0.12 * h)
-    neck_hw = m.get("neck_hw", 0.038 * h)
-    arm_z_cut = m["shoulder_z"] - 0.11 * h
-    arm_z_cut_lo = arm_z_cut - 0.03 * h
-    sh_x = 0.5 * (abs(m["shoulder_x_L"]) + abs(m["shoulder_x_R"]))
-    arm_root_raw = max(torso_hw * 1.03, 0.075 * h)
-    arm_root_x = min(arm_root_raw, sh_x * 0.96) if sh_x > 1e-6 else arm_root_raw
-    arm_deltoid_x = max(arm_root_x + 0.032 * h, sh_x + 0.025 * h, 0.115 * h)
-    ombro_min_raw = max(torso_hw * 0.82, 0.062 * h)
-    ombro_min_x = min(ombro_min_raw, sh_x * 0.82) if sh_x > 1e-6 else ombro_min_raw
-    ombro_max_x = max(abs(m["shoulder_x_L"]), abs(m["shoulder_x_R"]), arm_root_x) + 0.06 * h
-    neck_max_x = min(max(neck_hw * 1.45, 0.052 * h), min(arm_root_x * 0.72, 0.095 * h))
-    head_max_x = min(max(neck_max_x * 1.45, 0.14 * h), min(arm_root_x * 0.85, 0.115 * h))
-    elbow_x = max(abs(float(m.get("elbow_x_L") or arm_deltoid_x)), abs(float(m.get("elbow_x_R") or arm_deltoid_x)), arm_deltoid_x)
-    tronco_max_x = max(abs(m["shoulder_x_L"]), abs(m["shoulder_x_R"]), arm_deltoid_x, 0.14 * h) * 1.12
-    leg_x_min = min(abs(m["leg_x_L"]), abs(m["leg_x_R"]))
-    leg_abs = max(abs(m["leg_x_L"]), abs(m["leg_x_R"]))
-    x_tol_leg = min(0.015 * h, 0.25 * leg_x_min)
-    perna_max_x = max(torso_hw * 1.02, leg_abs + 0.036 * h)
-    el_xs = [abs(float(v)) for v in (m.get("elbow_x_L"), m.get("elbow_x_R")) if v is not None]
-    min_elbow_x = min(el_xs) if el_xs else 0.0
-    arms_abducted = bool(el_xs and min_elbow_x > leg_abs + 0.06 * h)
-    if arms_abducted:
-        perna_max_x = min(perna_max_x, 0.5 * (leg_abs + min_elbow_x) + 0.02 * h)
-    arm_z_hi = max(m["chest_top_z"] + 0.08 * h, m["shoulder_z"] + 0.12 * h)
-    if not tem_neck:
-        arm_z_hi = min(arm_z_hi, m["chest_top_z"] + 0.06 * h)
-    arm_z_hi_medial = min(arm_z_hi, (m["neck_z"] + 0.02 * h) if tem_neck else (m["chest_top_z"] + 0.045 * h))
-    el_zs = [float(m[k]["elbow"][2]) for k in ("braco_L", "braco_R") if isinstance(m.get(k), dict) and "elbow" in m[k]]
-    tem_el_baixo = bool(el_zs and max(el_zs) < m["shoulder_z"] - 0.04 * h)
-    arm_ext_z_soft = (max(el_zs) + 0.04 * h) if tem_el_baixo else arm_z_hi
-    arm_ext_z_hi = (max(el_zs) + 0.14 * h) if tem_el_baixo else arm_z_hi
-    return {
-        "h": h,
-        "x_tol": 0.03 * h,
-        "x_tol_leg": x_tol_leg,
-        "torso_hw": torso_hw,
-        "arms_abducted": 1.0 if arms_abducted else 0.0,
-        "neck_max_x": neck_max_x,
-        "head_max_x": head_max_x,
-        "ombro_min_x": ombro_min_x,
-        "ombro_max_x": ombro_max_x,
-        "ombro_z_hi": arm_z_hi,
-        "arm_z_hi": arm_z_hi,
-        "arm_z_hi_medial": arm_z_hi_medial,
-        "arm_ext_z_soft": arm_ext_z_soft,
-        "arm_ext_z_hi": arm_ext_z_hi,
-        "arm_root_x": arm_root_x,
-        "arm_deltoid_x": arm_deltoid_x,
-        "arm_ext_z_max": m["shoulder_z"] - 0.02 * h,
-        "arm_ext_x_min": 0.85 * elbow_x,
-        "arm_z_cut": arm_z_cut,
-        "arm_z_cut_lo": arm_z_cut_lo,
-        "arm_z_min": m["z_min"] + 0.20 * h,
-        "braco_baixo_min_x": max(torso_hw * 1.01, 0.04 * h),
-        "tronco_max_x": tronco_max_x,
-        "perna_max_x": perna_max_x,
-        "head_z_min": (m["neck_z"] - 0.022 * h) if tem_neck else (m["chest_top_z"] - 0.008 * h),
-        "neck_z_min": m["chest_top_z"] - 0.012 * h,
-        "neck_z_max": m["neck_z"] + 0.045 * h,
-        "chest_z_min": m["spine1_z"] - 0.015 * h,
-        "upper_torso_z_min": m["hip_z"] - 0.01 * h,
-        "chest_z_max": (m["neck_z"] + 0.02 * h) if tem_neck else (m["chest_top_z"] + 0.035 * h),
-        "chest_z_max_collar": min(m["head_top_z"], max(m["chest_top_z"] + 0.08 * h, m["shoulder_z"] + 0.11 * h)),
-        "spine1_z_min": m["hip_z"] - 0.01 * h,
-        "spine1_z_max": m["chest_top_z"] - 0.02 * h,
-        "spine_z_min": m["hip_z"] - 0.02 * h,
-        "spine_z_max": m["chest_z"] + 0.02 * h,
-        "hips_z_max": min(m["chest_z"] - 0.01 * h, m["spine1_z"] + 0.03 * h),
-        "leg_z_max": m["hip_z"] + 0.04 * h,
-        "upper_leg_z_min": m["knee_z"] - 0.05 * h,
-        "lower_leg_z_max": m["knee_z"] + 0.35 * max(0.05 * h, m["hip_z"] - m["knee_z"]),
-        "foot_z_max": m["knee_z"] - 0.03 * h,
-        "z_min_floor": m["z_min"] - 0.01 * h,
-    }
+    from autorig_pesos_limites import _limites_anatomicos
 
 
 def _osso_permitido(
@@ -183,6 +105,8 @@ def _osso_permitido(
         min_x_a = b["ombro_min_x"] if nome in _OSSOS_BRACO_PROXIMAL_R15 else b["arm_root_x"]
         if vz >= z_cut_a and abs_x >= min_x_a:
             return True
+        if arms_abducted and vz <= b.get("arm_hip_block_z", -1e9) and abs_x < b.get("hips_max_x", b["perna_max_x"] + 0.03 * h):
+            return False
         return bracos_baixos and abs_x > b["braco_baixo_min_x"] and vz >= b["arm_z_min"]
     if nome in _OSSOS_CABECA:
         z_lo_head = (b["head_z_min"] - 0.03 * h) if tem_neck else b["head_z_min"]
@@ -193,7 +117,15 @@ def _osso_permitido(
     if nome in _OSSOS_PESCOCO:
         return b["neck_z_min"] <= vz <= b["neck_z_max"] + 0.04 * h and abs_x <= b["neck_max_x"] + 0.04 * h
     if nome in _OSSOS_TRONCO:
-        if abs_x > b["tronco_max_x"] and vz >= b["arm_z_cut_lo"]:
+        if nome in ("Hips", "LowerTorso"):
+            if abs_x > b["tronco_max_x"] and vz >= b["arm_z_cut_lo"]:
+                return False
+            if arms_abducted and abs_x > b.get("hips_max_x", b["perna_max_x"] + 0.03 * h):
+                return False
+            return vz <= b["hips_z_max"]
+        # Em A-pose abduzida, fecha a brecha abaixo de arm_z_cut_lo para impedir vazamento de tronco no cotovelo/antebraco.
+        z_cut_tronco = (b["spine_z_min"] if nome == "Spine" else b["upper_torso_z_min"]) if arms_abducted else b["arm_z_cut_lo"]
+        if abs_x > b["tronco_max_x"] and vz >= z_cut_tronco:
             return False
         if nome in ("Chest", "UpperTorso"):
             z_lo = b["chest_z_min"] if nome == "Chest" else b["upper_torso_z_min"]
@@ -203,10 +135,6 @@ def _osso_permitido(
             return b["spine1_z_min"] <= vz <= b["spine1_z_max"]
         if nome == "Spine":
             return b["spine_z_min"] <= vz <= b["spine_z_max"]
-        if nome in ("Hips", "LowerTorso"):
-            if arms_abducted and abs_x > b["perna_max_x"] + 0.03 * h:
-                return False
-            return vz <= b["hips_z_max"]
     return True
 
 

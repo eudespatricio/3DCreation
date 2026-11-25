@@ -13,8 +13,10 @@ except ImportError:  # pragma: no cover - permite import puro em testes fora do 
 if __package__:
     from . import bake_pbr_config as _cfg
     from . import bake_pbr_emissive as _emissive
+    from . import bake_pbr_heal as _heal
     from . import bake_pbr_maps as _maps
     from . import bake_pbr_nativo as _nat
+    from . import bake_pbr_nativo_back as _nat_back
     from . import bake_pbr_nativo_blend as _nat_blend
     from . import bake_pbr_passes as _passes
     from . import bake_pbr_proj as _proj
@@ -24,28 +26,30 @@ else:
         sys.path.insert(0, _BLENDER_DIR)
     import bake_pbr_config as _cfg
     import bake_pbr_emissive as _emissive
+    import bake_pbr_heal as _heal
     import bake_pbr_maps as _maps
     import bake_pbr_nativo as _nat
+    import bake_pbr_nativo_back as _nat_back
     import bake_pbr_nativo_blend as _nat_blend
     import bake_pbr_passes as _passes
     import bake_pbr_proj as _proj
 
+_TIPOS_PROJ_FRONTAL_NATIVO = frozenset({
+    "personagem_humanoide", "criatura", "criatura_quadrupede", "criatura_alada", "montaria"
+})
+
 
 def _resolver_dimensoes_bake(px: int, px_sub: int | None, qualidade: str | None) -> tuple[int, int]:
-    px_clamped = max(64, min(int(px), 4096))
+    px_c = max(64, min(int(px), 4096))
     if px_sub is not None and int(px_sub) > 0:
-        sub = max(64, min(int(px_sub), px_clamped))
-        if px_clamped >= 1024 and sub < 1024:
-            sub = 1024
-        return px_clamped, sub
+        sub = max(64, min(int(px_sub), px_c))
+        return px_c, (1024 if px_c >= 1024 and sub < 1024 else sub)
     q_low = str(qualidade or "").strip().lower()
-    if px_clamped >= 4096:
-        return px_clamped, (4096 if q_low == "ultra" else 2048)
-    if px_clamped >= 2048:
-        return px_clamped, (2048 if q_low == "ultra" else 1024)
-    if px_clamped >= 1024:
-        return px_clamped, 1024
-    return px_clamped, px_clamped
+    if px_c >= 4096:
+        return px_c, (4096 if q_low == "ultra" else 2048)
+    if px_c >= 2048:
+        return px_c, (2048 if q_low == "ultra" else 1024)
+    return px_c, (1024 if px_c >= 1024 else px_c)
 
 
 def _descobrir_caminhos_hints_vistas(
@@ -63,15 +67,14 @@ def _descobrir_caminhos_hints_vistas(
             v_canon = next((vc for vc, meta in _proj._VISTAS_ORTO_DEF.items() if k_low in meta["aliases"]), None)
             if v_canon is None:
                 continue
-            m_ex = r_ex = None
             if isinstance(info_h, dict):
-                cm = info_h.get("metallic") or info_h.get("metallic_hint")
-                cr = info_h.get("roughness") or info_h.get("roughness_hint")
-                m_ex = str(cm) if cm and os.path.isfile(str(cm)) else None
-                r_ex = str(cr) if cr and os.path.isfile(str(cr)) else None
+                cm, cr = info_h.get("metallic") or info_h.get("metallic_hint"), info_h.get("roughness") or info_h.get("roughness_hint")
             elif isinstance(info_h, (tuple, list)) and len(info_h) >= 2:
-                m_ex = str(info_h[0]) if info_h[0] and os.path.isfile(str(info_h[0])) else None
-                r_ex = str(info_h[1]) if info_h[1] and os.path.isfile(str(info_h[1])) else None
+                cm, cr = info_h[0], info_h[1]
+            else:
+                cm = cr = None
+            m_ex = str(cm) if cm and os.path.isfile(str(cm)) else None
+            r_ex = str(cr) if cr and os.path.isfile(str(cr)) else None
             if m_ex or r_ex:
                 explicitos[v_canon] = (m_ex, r_ex)
 
@@ -98,30 +101,24 @@ def _descobrir_caminhos_hints_vistas(
     for vk in ("front", "back", "right", "left"):
         m_c, r_c = explicitos.get(vk, (None, None))
         for pasta in dirs_por_vista[vk]:
-            if m_c is None and os.path.isfile(os.path.join(pasta, f"vista_{vk}_metallic_hint.png")):
-                m_c = os.path.join(pasta, f"vista_{vk}_metallic_hint.png")
-            if r_c is None and os.path.isfile(os.path.join(pasta, f"vista_{vk}_roughness_hint.png")):
-                r_c = os.path.join(pasta, f"vista_{vk}_roughness_hint.png")
+            p_m, p_r = os.path.join(pasta, f"vista_{vk}_metallic_hint.png"), os.path.join(pasta, f"vista_{vk}_roughness_hint.png")
+            if m_c is None and os.path.isfile(p_m):
+                m_c = p_m
+            if r_c is None and os.path.isfile(p_r):
+                r_c = p_r
         if vk == "front" and (vk in vistas_norm or vk in explicitos or dirs_por_vista["front"]):
-            if m_c is None and metallic_hint_png and os.path.isfile(metallic_hint_png):
-                m_c = metallic_hint_png
-            if r_c is None and roughness_hint_png and os.path.isfile(roughness_hint_png):
-                r_c = roughness_hint_png
+            m_c = m_c or (metallic_hint_png if metallic_hint_png and os.path.isfile(metallic_hint_png) else None)
+            r_c = r_c or (roughness_hint_png if roughness_hint_png and os.path.isfile(roughness_hint_png) else None)
             for pasta in dirs_por_vista["front"]:
-                if m_c is None and os.path.isfile(os.path.join(pasta, "metallic_hint.png")):
-                    m_c = os.path.join(pasta, "metallic_hint.png")
-                if r_c is None and os.path.isfile(os.path.join(pasta, "roughness_hint.png")):
-                    r_c = os.path.join(pasta, "roughness_hint.png")
+                p_m, p_r = os.path.join(pasta, "metallic_hint.png"), os.path.join(pasta, "roughness_hint.png")
+                m_c = m_c or (p_m if os.path.isfile(p_m) else None)
+                r_c = r_c or (p_r if os.path.isfile(p_r) else None)
         if m_c is not None or r_c is not None:
             saida[vk] = (m_c, r_c)
     return saida
 
 
-def _executar_retorno_multimaterial(
-    obj, px: int, px_sub: int, limite_triangulos: int,
-    reparo_fn, decimar_fn, suavizar_fn, uv_fn, preset_proc: str,
-) -> dict:
-    tris_high = _cfg._contar_triangulos(obj)
+def _preparar_malha_low(obj, limite_triangulos: int, reparo_fn, decimar_fn, suavizar_fn, uv_fn) -> tuple[dict, dict, str, int]:
     decimar_fn(obj, int(limite_triangulos))
     info_reparo = reparo_fn(obj)
     if _cfg._contar_triangulos(obj) > int(limite_triangulos):
@@ -131,7 +128,17 @@ def _executar_retorno_multimaterial(
     info_uv = uv_fn(obj)
     if not obj.data.uv_layers:
         raise RuntimeError("malha low-poly sem camada UV apos uv_fn")
-    tris_low = _cfg._contar_triangulos(obj)
+    return info_reparo, info_smooth, info_uv, _cfg._contar_triangulos(obj)
+
+
+def _executar_retorno_multimaterial(
+    obj, px: int, px_sub: int, limite_triangulos: int,
+    reparo_fn, decimar_fn, suavizar_fn, uv_fn, preset_proc: str,
+) -> dict:
+    tris_high = _cfg._contar_triangulos(obj)
+    info_reparo, info_smooth, info_uv, tris_low = _preparar_malha_low(
+        obj, limite_triangulos, reparo_fn, decimar_fn, suavizar_fn, uv_fn
+    )
     bpy.context.view_layer.update()
     diag = _cfg._bbox_diag(obj)
     bpy.ops.object.select_all(action="DESELECT")
@@ -158,7 +165,10 @@ def _executar_retorno_multimaterial(
 
 def _calcular_parametros_cage(
     diag: float, proteger_superficie: bool, tem_detalhe_alto: bool, tem_zonas: bool, tem_cor_vertice: bool,
+    usar_pbr_nativo: bool = False,
 ) -> tuple[float, float]:
+    if usar_pbr_nativo:
+        return max(0.002, 0.004 * diag), max(0.008, 0.014 * diag)
     if proteger_superficie:
         return max(0.010, 0.014 * diag), max(0.025, 0.036 * diag)
     if (tem_detalhe_alto or tem_zonas) and not tem_cor_vertice:
@@ -176,9 +186,10 @@ def executar_bake_high_low(
     permitir_sem_cor_vertice: bool = False, detalhe_alto: dict | None = None,
     pbr_zonas: list[dict] | None = None, px_sub: int | None = None,
     qualidade: str | None = None, vistas_ortograficas: dict[str, str] | None = None,
-    vistas_pbr_hints: dict | None = None, criar_mat_pbr_fn=None,
+    vistas_pbr_hints: dict | None = None, criar_mat_pbr_fn=None, tipo_item: str | None = None,
 ) -> dict:
     """Executa bake PBR High->Low (BaseColor, Normal, ORM) e atribui material glTF PBR em ``obj``."""
+    emissive_cam = _emissive._resolver_emissive_hint_alias(emissive_hint, emissive_hint_png)
     if criar_mat_pbr_fn is None:
         raise ValueError("criar_mat_pbr_fn obrigatorio")
 
@@ -214,16 +225,16 @@ def executar_bake_high_low(
         nome_cor = f"pbr_zonas:{len(pbr_zonas or [])}"
     elif tem_procedural:
         nome_cor = f"procedural:{preset_proc}"
-    elif tem_pbr_nativo:
-        nome_cor = "pbr_nativo"
     else:
-        nome_cor = "uv_material"
+        nome_cor = "pbr_nativo" if tem_pbr_nativo else "uv_material"
 
-    tris_high = _cfg._contar_triangulos(obj)
-    diag_original = _cfg._bbox_diag(obj)
     passo_zona_x = _passes._calcular_passo_zona_x(obj.data)
     obj["forge3d_passo_zona_x"] = passo_zona_x
     zonas_deslocadas = _passes._deslocar_zonas_uv(obj, pbr_zonas, passo_zona_x) if tem_zonas else False
+    info_casca = {"aplicado": False, "faces_removidas": 0, "faces_restantes": 0}
+    if tem_pbr_nativo and not zonas_deslocadas:
+        info_casca = _cfg.remover_espuma_interna_malha(obj, suavizar_fn=suavizar_fn)
+    tris_high, diag_original = _cfg._contar_triangulos(obj), _cfg._bbox_diag(obj)
 
     high_mesh = obj.data.copy()
     high_mesh.name = f"{nome_base}_high_mesh"
@@ -236,14 +247,13 @@ def executar_bake_high_low(
     high_mats_nativos: list = []
     usar_pbr_nativo = not tem_procedural and not tem_zonas and _nat.objeto_tem_pbr_nativo(high_obj)
     img_origem = img_met = img_rough = img_emissive_hint = img_hints_tmp = img_nat_dl_tmp = None
-    img_bc = img_nm = img_ao_tmp = img_orm_tmp = img_emissive_final = None
+    img_bc = img_nm = img_ao_tmp = img_orm_tmp = img_emissive_final = img_em_nativo = None
     imgs_vistas: dict[str, object] = {}
     imgs_nc_cache: dict[str, object] = {}
     imgs_hints_vistas: dict[str, tuple[object | None, object | None]] = {}
-    info_detalhe_alto: dict = {"aplicado": False}
-    delight_hints_aplicados = False
-    emissive_aplicado = False
-    emissive_cam = emissive_hint or emissive_hint_png
+    info_detalhe_alto, info_back, info_front = {"aplicado": False}, {}, {}
+    info_heal, stats_cage = {"aplicado": False}, {"aplicado": False}
+    delight_hints_aplicados = emissive_aplicado = False
     cena = bpy.context.scene
     estado_anterior = _cfg._capturar_estado_cena(cena)
 
@@ -258,19 +268,21 @@ def executar_bake_high_low(
         return imgs_nc_cache[chave]
 
     try:
-        if tem_detalhe_alto:
+        if tem_detalhe_alto and usar_pbr_nativo:
+            info_detalhe_alto = {"aplicado": False, "motivo": "pbr_nativo_organico", "tris_high_inicial": tris_high}
+        elif tem_detalhe_alto:
             info_detalhe_alto = _cfg.preparar_high_mesh_detalhe_alto(high_obj, detalhe_alto)
             tris_high = int(info_detalhe_alto.get("tris_high_enriquecido") or _cfg._contar_triangulos(high_obj))
         suavizar_fn(high_obj)
 
         if not tem_procedural:
+            img_met = _carregar_nc(metallic_hint_png)
+            img_rough = _carregar_nc(roughness_hint_png)
+            img_emissive_hint = _carregar_nc(emissive_cam)
             if usar_pbr_nativo:
                 if origem_textura and os.path.isfile(origem_textura):
                     img_origem = bpy.data.images.load(origem_textura, check_existing=False)
                     img_origem.colorspace_settings.name = "sRGB"
-                img_met = _carregar_nc(metallic_hint_png)
-                img_rough = _carregar_nc(roughness_hint_png)
-                img_emissive_hint = _carregar_nc(emissive_cam)
             else:
                 if vistas_norm:
                     img_orig_pref = None
@@ -296,13 +308,9 @@ def executar_bake_high_low(
                 elif origem_textura and os.path.isfile(origem_textura):
                     img_origem = bpy.data.images.load(origem_textura, check_existing=False)
                     img_origem.colorspace_settings.name = "sRGB"
-                img_met = _carregar_nc(metallic_hint_png)
-                img_rough = _carregar_nc(roughness_hint_png)
-                img_emissive_hint = _carregar_nc(emissive_cam)
-                cams_hints = _descobrir_caminhos_hints_vistas(
+                for vk_h, (cm_h, cr_h) in _descobrir_caminhos_hints_vistas(
                     vistas_norm, vistas_ortograficas, vistas_pbr_hints, metallic_hint_png, roughness_hint_png
-                )
-                for vk_h, (cm_h, cr_h) in cams_hints.items():
+                ).items():
                     im_m_h, im_r_h = _carregar_nc(cm_h), _carregar_nc(cr_h)
                     if im_m_h is not None or im_r_h is not None:
                         imgs_hints_vistas[vk_h] = (im_m_h, im_r_h)
@@ -321,24 +329,26 @@ def executar_bake_high_low(
             )
             vistas_hints_dados = _passes._montar_vistas_hints_dados(high_obj, imgs_vistas, imgs_hints_vistas)
 
-        decimar_fn(obj, int(limite_triangulos))
-        info_reparo = reparo_fn(obj)
-        if _cfg._contar_triangulos(obj) > int(limite_triangulos):
-            decimar_fn(obj, max(50, int(int(limite_triangulos) * 0.97)))
-            info_reparo = reparo_fn(obj)
-        info_smooth = suavizar_fn(obj)
-        info_uv = uv_fn(obj)
-        if not obj.data.uv_layers:
-            raise RuntimeError("malha low-poly sem camada UV apos uv_fn")
+        info_reparo, info_smooth, info_uv, tris_low = _preparar_malha_low(
+            obj, limite_triangulos, reparo_fn, decimar_fn, suavizar_fn, uv_fn
+        )
         if tem_zonas and not high_obj.data.uv_layers:
             uv_fn(high_obj)
-        tris_low = _cfg._contar_triangulos(obj)
 
         bpy.context.view_layer.update()
         diag = diag_original if zonas_deslocadas else _cfg._bbox_diag(obj)
-        cage_extrusion, max_ray_dist = _calcular_parametros_cage(
-            diag, proteger_superficie, tem_detalhe_alto, tem_zonas, tem_cor_vertice
+        if usar_pbr_nativo and not zonas_deslocadas and not info_casca.get("aplicado"):
+            info_casca = _cfg.filtrar_casca_interna_high(high_obj, obj, suavizar_fn=suavizar_fn, eh_organico=bool(proteger_superficie))
+        cage_base, max_ray_base = _calcular_parametros_cage(
+            diag, proteger_superficie, tem_detalhe_alto, tem_zonas, tem_cor_vertice, usar_pbr_nativo=usar_pbr_nativo,
         )
+        if not tem_procedural and not tem_zonas:
+            eh_org_cage = (tipo_item in _TIPOS_PROJ_FRONTAL_NATIVO) if tipo_item is not None else bool(proteger_superficie)
+            cage_extrusion, max_ray_dist, stats_cage = _heal.calcular_cage_adaptativo(
+                obj, high_obj, diag, cage_base, max_ray_base, eh_organico=eh_org_cage
+            )
+        else:
+            cage_extrusion, max_ray_dist = cage_base, max_ray_base
 
         if usar_pbr_nativo:
             high_mats_nativos = _nat.clonar_materiais_nativos(high_obj, nome_base)
@@ -357,30 +367,43 @@ def executar_bake_high_low(
         samples_bake = 8 if (usar_emit_proc or permitir_sem_cor_vertice) else 1
         samples_ao = 8 if (usar_emit_proc or permitir_sem_cor_vertice) else 4
 
-        nome_bc, path_bc, img_bc, nome_nm, path_nm, img_nm, img_ao_tmp, img_hints_tmp, high_hints_mat = (
-            _passes._executar_passes_cycles(
-                cena, obj, high_obj, high_mat, low_bake_mat, tex_bake, saida_dir, nome_base, px, px_sub,
-                samples_bake, samples_ao, cage_extrusion, max_ray_dist, usar_emit_proc, proc_mod,
-                img_met, img_rough, img_origem, nome_cor, tem_cor_vertice, nome_visivel, vistas_hints_dados,
-                usar_pbr_nativo=usar_pbr_nativo, high_mats_nativos=high_mats_nativos,
-            )
+        nome_bc, path_bc, img_bc, nome_nm, path_nm, img_nm, img_ao_tmp, img_hints_tmp, high_hints_mat, img_em_nativo = _passes._executar_passes_cycles(
+            cena, obj, high_obj, high_mat, low_bake_mat, tex_bake, saida_dir, nome_base, px, px_sub,
+            samples_bake, samples_ao, cage_extrusion, max_ray_dist, usar_emit_proc, proc_mod,
+            img_met, img_rough, img_origem, nome_cor, tem_cor_vertice, nome_visivel, vistas_hints_dados,
+            usar_pbr_nativo=usar_pbr_nativo, high_mats_nativos=high_mats_nativos,
         )
+        if usar_pbr_nativo and img_bc is not None and img_hints_tmp is not None:
+            img_bc, img_nm, info_heal = _heal.curar_ray_misses_pbr(
+                cena, obj, high_obj, high_mats_nativos, low_bake_mat, tex_bake,
+                img_bc, path_bc, img_nm, path_nm, img_ao_tmp, img_hints_tmp,
+                px, px_sub, diag, cage_extrusion, max_ray_dist, stats_cage, samples_bake, samples_ao,
+                _passes._margem_bake_px(px, submapa=False), _passes._margem_bake_px(px_sub, submapa=True),
+            )
+        if usar_pbr_nativo and img_bc is not None:
+            if vistas_norm.get("back"):
+                info_back = _nat_back.aplicar_vista_traseira_pbr_nativo(
+                    cena, obj, img_bc, path_bc, px, nome_base, vistas_norm["back"], img_hints_valid=img_hints_tmp
+                )
+            cam_front_nat = origem_textura if (origem_textura and os.path.isfile(origem_textura)) else vistas_norm.get("front")
+            if (tipo_item in _TIPOS_PROJ_FRONTAL_NATIVO) or (tipo_item is None and bool(proteger_superficie)):
+                if cam_front_nat:
+                    info_front = _nat_back.aplicar_vista_frontal_pbr_nativo(
+                        cena, obj, img_bc, path_bc, px, nome_base, cam_front_nat, img_hints_valid=img_hints_tmp
+                    )
+            else:
+                info_front = {"vista_front_aplicada": False, "motivo": "ignorado_hard_surface"}
 
         if usar_pbr_nativo and img_hints_tmp is not None:
-            img_nat_dl_tmp = _nat_blend.assar_hints_delight_uv0(
-                cena, obj, px_sub, nome_base, img_origem, img_met, img_rough
-            )
-            info_nat_mod = _nat_blend.modular_hints_pbr_nativo(
-                img_hints_tmp, img_ao_tmp, px_sub, img_dl_hints=img_nat_dl_tmp, img_bc=img_bc
-            )
+            img_nat_dl_tmp = _nat_blend.assar_hints_delight_uv0(cena, obj, px_sub, nome_base, img_origem, img_met, img_rough)
+            info_nat_mod = _nat_blend.modular_hints_pbr_nativo(img_hints_tmp, img_ao_tmp, px_sub, img_dl_hints=img_nat_dl_tmp, img_bc=img_bc)
             delight_hints_aplicados = bool(info_nat_mod.get("delight_hints_aplicados", False))
             if img_nat_dl_tmp is not None and img_nat_dl_tmp.name in bpy.data.images and img_nat_dl_tmp.users == 0:
                 bpy.data.images.remove(img_nat_dl_tmp)
                 img_nat_dl_tmp = None
         else:
             delight_hints_aplicados = bool(
-                img_met is not None
-                or img_rough is not None
+                img_met is not None or img_rough is not None
                 or any(m is not None or r is not None for m, r in imgs_hints_vistas.values())
             )
 
@@ -393,27 +416,21 @@ def executar_bake_high_low(
         )
         bpy.data.images.remove(img_ao_tmp)
         img_ao_tmp = None
-        extras_roblox = (
-            _maps._extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
-            if (str(perfil_nome or "").startswith("roblox") or tem_zonas or tem_detalhe_alto)
-            else []
-        )
+        extras_roblox = _maps._extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena) if (str(perfil_nome or "").startswith("roblox") or tem_zonas or tem_detalhe_alto) else []
         img_orm = _maps._salvar_e_recarregar_png(img_orm_tmp, path_orm, "Non-Color", cena)
         img_orm_tmp = None
 
-        if img_emissive_hint is not None:
-            img_emissive_final, img_bc, emissive_aplicado = _emissive.assar_e_aplicar_emissive_uv0(
-                cena, obj, saida_dir, nome_base, px, px_sub, img_emissive_hint, img_origem, img_bc, path_bc
-            )
+        img_emissive_final, img_bc, emissive_aplicado = _passes._assar_emissive_cycles(
+            cena, obj, saida_dir, nome_base, px, px_sub, img_emissive_hint, img_origem, img_bc, path_bc,
+            img_em_nativo=img_em_nativo,
+        )
+        img_em_nativo = None
 
         for atributo in list(obj.data.color_attributes):
             obj.data.color_attributes.remove(atributo)
 
         obj.data.materials.clear()
-        if img_emissive_final is not None:
-            mat_final = criar_mat_pbr_fn(f"{nome_base}_pbr", img_bc, img_nm, img_orm, img_emissive=img_emissive_final)
-        else:
-            mat_final = criar_mat_pbr_fn(f"{nome_base}_pbr", img_bc, img_nm, img_orm)
+        mat_final = criar_mat_pbr_fn(f"{nome_base}_pbr", img_bc, img_nm, img_orm, **({"img_emissive": img_emissive_final} if img_emissive_final is not None else {}))
         if tem_procedural and proc_mod is not None:
             _maps._aplicar_opcoes_especiais_bsdf(mat_final, proc_mod.PRESETS_PBR.get(preset_proc, {}))
         elif met_escalar_orig > 0.0:
@@ -421,7 +438,6 @@ def executar_bake_high_low(
             if bsdf_f is not None and "Metallic" in bsdf_f.inputs:
                 bsdf_f.inputs["Metallic"].default_value = met_escalar_orig
         obj.data.materials.append(mat_final)
-
         bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
@@ -430,18 +446,15 @@ def executar_bake_high_low(
             del obj["forge3d_passo_zona_x"]
         if zonas_deslocadas and obj is not None and getattr(obj, "data", None) is not None:
             for v_obj in obj.data.vertices:
-                kz = int(round(v_obj.co.x / passo_zona_x))
-                if kz > 0:
+                if (kz := int(round(v_obj.co.x / passo_zona_x))) > 0:
                     v_obj.co.x -= float(kz) * passo_zona_x
             obj.data.update()
-        if cam_obj is not None and cam_obj.name in bpy.data.objects:
-            bpy.data.objects.remove(cam_obj, do_unlink=True)
-        if cam_data is not None and cam_data.name in bpy.data.cameras and cam_data.users == 0:
-            bpy.data.cameras.remove(cam_data)
-        if high_obj is not None and high_obj.name in bpy.data.objects:
-            bpy.data.objects.remove(high_obj, do_unlink=True)
-        if high_mesh is not None and high_mesh.name in bpy.data.meshes and high_mesh.users == 0:
-            bpy.data.meshes.remove(high_mesh)
+        for obj_t in (cam_obj, high_obj):
+            if obj_t is not None and obj_t.name in bpy.data.objects:
+                bpy.data.objects.remove(obj_t, do_unlink=True)
+        for col, item_t in ((bpy.data.cameras, cam_data), (bpy.data.meshes, high_mesh)):
+            if item_t is not None and item_t.name in col and item_t.users == 0:
+                col.remove(item_t)
         if tex_bake is not None:
             tex_bake.image = None
         for mat_tmp in (high_mat, high_hints_mat, low_bake_mat, *high_mats_nativos):
@@ -450,7 +463,7 @@ def executar_bake_high_low(
         vistos_img_ids: set[int] = set()
         for img_tmp in (
             img_origem, img_met, img_rough, img_emissive_hint, img_hints_tmp, img_nat_dl_tmp,
-            img_ao_tmp, img_orm_tmp, img_bc, img_nm, img_emissive_final,
+            img_ao_tmp, img_orm_tmp, img_bc, img_nm, img_emissive_final, img_em_nativo,
             *imgs_vistas.values(), *imgs_nc_cache.values(),
         ):
             if img_tmp is not None and id(img_tmp) not in vistos_img_ids:
@@ -464,29 +477,21 @@ def executar_bake_high_low(
     tem_met_mv = any(m is not None for m, _ in imgs_hints_vistas.values())
     tem_rough_mv = any(r is not None for _, r in imgs_hints_vistas.values())
     return {
-        "textura_px": px,
-        "normal_px": px_sub,
-        "orm_px": px_sub,
+        "textura_px": px, "normal_px": px_sub, "orm_px": px_sub,
         "bake": {
             "textura_px": px, "normal_px": px_sub, "orm_px": px_sub, "cor_atributo": nome_cor,
             "material_procedural": preset_proc or None, "pbr_zonas": len(pbr_zonas) if tem_zonas else 0,
             "detalhe_alto": info_detalhe_alto, "dispositivo_cycles": dispositivo_cycles, "samples": samples_bake,
             "bbox_diag": round(diag, 6), "cage_extrusion": round(cage_extrusion, 6),
-            "triangulos_high": tris_high, "triangulos_low": tris_low,
-            "reparo": info_reparo, "smooth": info_smooth, "uv": info_uv,
+            "cage_adaptativo": stats_cage, "ray_miss_heal": info_heal, "triangulos_high": tris_high,
+            "triangulos_low": tris_low, "reparo": info_reparo, "smooth": info_smooth, "uv": info_uv,
             "origem_textura_aplicada": bool((not usar_pbr_nativo and img_origem is not None) or bool(vistas_aplicadas)),
-            "vistas_ortograficas_aplicadas": vistas_aplicadas,
-            "pbr_nativo_preservado": bool(usar_pbr_nativo),
+            "vistas_ortograficas_aplicadas": vistas_aplicadas, "pbr_nativo_preservado": bool(usar_pbr_nativo),
+            "vista_back_nativo": info_back, "vista_front_nativo": info_front, "casca_interna_removida": info_casca,
             "metallic_hint_aplicado": bool(img_met is not None or tem_met_mv or usar_emit_proc or usar_pbr_nativo),
             "roughness_hint_aplicado": bool(img_rough is not None or tem_rough_mv or usar_emit_proc or usar_pbr_nativo),
-            "delight_hints_aplicados": bool(delight_hints_aplicados),
-            "emissive_aplicado": bool(emissive_aplicado),
+            "delight_hints_aplicados": bool(delight_hints_aplicados), "emissive_aplicado": bool(emissive_aplicado),
             "png_bytes": bytes_bc, "baseColor_bytes": bytes_bc, "normal_bytes": bytes_nm, "orm_bytes": bytes_orm,
         },
-        "arquivos_textura": [
-            {"caminho": nome_bc, "papel": "textura", "bytes": bytes_bc},
-            {"caminho": nome_nm, "papel": "normal", "bytes": bytes_nm},
-            {"caminho": nome_orm, "papel": "orm", "bytes": bytes_orm},
-            *extras_roblox,
-        ],
+        "arquivos_textura": [{"caminho": nome_bc, "papel": "textura", "bytes": bytes_bc}, {"caminho": nome_nm, "papel": "normal", "bytes": bytes_nm}, {"caminho": nome_orm, "papel": "orm", "bytes": bytes_orm}, *extras_roblox],
     }

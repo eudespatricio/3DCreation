@@ -60,19 +60,42 @@ def _salvar(caminho: str | Path, obj: dict[str, Any]) -> None:
     )
 
 
+def _dilatar_fundo_borda_cv2(rgb: Any, fg_mask: Any) -> Any:
+    """Estende a cor local da borda do foreground para fora antes dos blurs de luminancia."""
+    if not np.any(fg_mask) or np.all(fg_mask):
+        return rgb
+    h, w = rgb.shape[:2]
+    r_ext = max(5, min(21, min(h, w) // 24))
+    kb = 2 * r_ext + 1
+    media_rgb = np.mean(rgb[fg_mask], axis=0).astype(np.float32)
+    cur_rgb = rgb.astype(np.float32).copy()
+    cur_mask = fg_mask.copy()
+    cur_rgb[~cur_mask] = 0.0
+    for _ in range(2):
+        if np.all(cur_mask):
+            break
+        w_f = cur_mask.astype(np.float32)
+        soma_w = cv2.boxFilter(w_f, -1, (kb, kb), normalize=False, borderType=cv2.BORDER_REPLICATE)
+        soma_c = cv2.boxFilter(
+            cur_rgb * w_f[:, :, None], -1, (kb, kb), normalize=False, borderType=cv2.BORDER_REPLICATE
+        )
+        novos = (~cur_mask) & (soma_w > 1e-4)
+        if not np.any(novos):
+            break
+        cur_rgb[novos] = soma_c[novos] / soma_w[novos, None]
+        cur_mask[novos] = True
+    if np.any(~cur_mask):
+        cur_rgb[~cur_mask] = media_rgb
+    return np.clip(np.rint(cur_rgb), 0, 255).astype(np.uint8)
+
+
 def _delight_cv2(rgba: Image.Image) -> Image.Image:
     arr = np.array(rgba.convert("RGBA"))
     rgb = arr[:, :, :3].copy()
     alpha = arr[:, :, 3]
-    fg_mask = _mascara_foreground_cv2(arr)
+    fg_mask = _mascara_foreground_cv2(arr, alpha_min=24)
 
-    # Preenche fundo com a cor media do objeto para nao vazar borda no blur.
-    if np.any(fg_mask) and not np.all(fg_mask):
-        media_rgb = np.mean(rgb[fg_mask], axis=0).astype(np.uint8)
-        rgb_preenchido = rgb.copy()
-        rgb_preenchido[~fg_mask] = media_rgb
-    else:
-        rgb_preenchido = rgb
+    rgb_preenchido = _dilatar_fundo_borda_cv2(rgb, fg_mask)
 
     lab = cv2.cvtColor(rgb_preenchido, cv2.COLOR_RGB2LAB).astype(np.float32)
     l_chan = lab[:, :, 0]
@@ -98,7 +121,8 @@ def _delight_cv2(rgba: Image.Image) -> Image.Image:
     excesso = np.maximum(0.0, l_chan - 210.0)
     l_retinex = np.where(l_chan > 210.0, l_retinex - 0.48 * excesso, l_retinex)
 
-    fator_blend = np.where(l_chan < l_ref, 0.62, 0.42)
+    t_blend = np.clip((l_chan - (l_ref - 20.0)) / 40.0, 0.0, 1.0)
+    fator_blend = 0.62 - 0.20 * t_blend
     l_out = (1.0 - fator_blend) * l_chan + fator_blend * l_retinex
     l_out = np.where(l_chan > 210.0, np.minimum(l_out, l_chan - 0.48 * excesso), l_out)
 
@@ -122,16 +146,48 @@ def _delight_cv2(rgba: Image.Image) -> Image.Image:
     return Image.fromarray(saida, mode="RGBA")
 
 
+def _dilatar_y_borda_pil(y_img: Image.Image, fg_mask: list[int], w: int, h: int) -> Image.Image:
+    """Estende a luminancia da borda do foreground com BoxBlur ponderado (fallback media_y)."""
+    if not any(fg_mask) or all(fg_mask):
+        return y_img
+    r_ext = max(5, min(21, min(h, w) // 24))
+    y_bytes = y_img.tobytes()
+    fg_vals = [y_bytes[i] for i, f in enumerate(fg_mask) if f]
+    media_y = round(sum(fg_vals) / max(len(fg_vals), 1))
+    cur_y = bytearray(y_bytes[i] if fg_mask[i] else 0 for i in range(w * h))
+    cur_m = bytearray(255 if f else 0 for f in fg_mask)
+    for _ in range(2):
+        if all(cur_m):
+            break
+        m_img = Image.frombytes("L", (w, h), bytes(cur_m))
+        v_img = Image.frombytes("L", (w, h), bytes(cur_y))
+        blur_w = m_img.filter(ImageFilter.BoxBlur(r_ext)).tobytes()
+        blur_v = v_img.filter(ImageFilter.BoxBlur(r_ext)).tobytes()
+        mudou = False
+        for i in range(w * h):
+            if not cur_m[i] and blur_w[i] > 0:
+                cur_y[i] = min(255, round(blur_v[i] * 255.0 / blur_w[i]))
+                cur_m[i] = 255
+                mudou = True
+        if not mudou:
+            break
+    for i in range(w * h):
+        if not cur_m[i]:
+            cur_y[i] = media_y
+    return Image.frombytes("L", (w, h), bytes(cur_y))
+
+
 def _delight_pil(rgba: Image.Image) -> Image.Image:
     rgba_conv = rgba.convert("RGBA")
     w, h = rgba_conv.size
     alfa = rgba_conv.getchannel("A")
-    fg_mask = _mascara_foreground_pil(rgba_conv)
+    fg_mask = _mascara_foreground_pil(rgba_conv, alpha_min=24)
     ycbcr = rgba_conv.convert("RGB").convert("YCbCr")
     y_img, cb_img, cr_img = ycbcr.split()
 
+    y_preenchido = _dilatar_y_borda_pil(y_img, fg_mask, w, h)
     raio = max(3, min(w, h) // 16)
-    ilum_img = y_img.filter(ImageFilter.GaussianBlur(radius=raio))
+    ilum_img = y_preenchido.filter(ImageFilter.GaussianBlur(radius=raio))
 
     y_bytes = y_img.tobytes()
     ilum_bytes = ilum_img.tobytes()
@@ -156,7 +212,8 @@ def _delight_pil(rgba: Image.Image) -> Image.Image:
             l_ret -= 0.70 * excesso
             cb_out[i] = max(0, min(255, round(128 + (cb_bytes[i] - 128) * 0.88)))
             cr_out[i] = max(0, min(255, round(128 + (cr_bytes[i] - 128) * 0.88)))
-        peso = 0.62 if yv < l_ref else 0.42
+        t_blend = max(0.0, min(1.0, (float(yv) - (l_ref - 20.0)) / 40.0))
+        peso = 0.62 - 0.20 * t_blend
         l_val = (1.0 - peso) * yv + peso * l_ret
         if yv > 190:
             l_val = min(l_val, yv - 0.70 * excesso)

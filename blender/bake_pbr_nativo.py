@@ -59,6 +59,53 @@ def objeto_tem_pbr_nativo(obj) -> bool:
     return False
 
 
+def _material_tem_emissive_nativo(mat) -> bool:
+    if mat is None or not getattr(mat, "use_nodes", False) or getattr(mat, "node_tree", None) is None:
+        return False
+    nodes = getattr(mat.node_tree, "nodes", ())
+    bsdf = next((n for n in nodes if getattr(n, "type", "") == "BSDF_PRINCIPLED"), None) or mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf is not None:
+        em_str = bsdf.inputs.get("Emission Strength")
+        bsdf_ativo = not (
+            em_str is not None and not (em_str.is_linked and em_str.links) and float(em_str.default_value) <= 1e-4
+        )
+        em_col = (bsdf.inputs.get("Emission Color") or bsdf.inputs.get("Emission")) if bsdf_ativo else None
+        if em_col is not None:
+            if em_col.is_linked and em_col.links:
+                return True
+            val = getattr(em_col, "default_value", (0.0, 0.0, 0.0, 1.0))
+            if max(float(val[0]), float(val[1]), float(val[2])) > 1e-4:
+                return True
+    out_node = next(
+        (n for n in nodes if getattr(n, "type", "") == "OUTPUT_MATERIAL" and getattr(n, "is_active_output", True)),
+        None,
+    ) or next((n for n in nodes if getattr(n, "type", "") == "OUTPUT_MATERIAL"), None)
+    if out_node is not None:
+        for n in _nodos_upstream(out_node):
+            if getattr(n, "type", "") == "EMISSION":
+                s_in = n.inputs.get("Strength")
+                c_in = n.inputs.get("Color")
+                s_ok = (s_in is not None and s_in.is_linked and bool(s_in.links)) or (
+                    s_in is not None and float(s_in.default_value) > 1e-4
+                )
+                if s_ok and c_in is not None:
+                    if c_in.is_linked and c_in.links:
+                        return True
+                    cv = getattr(c_in, "default_value", (0.0, 0.0, 0.0, 1.0))
+                    if max(float(cv[0]), float(cv[1]), float(cv[2])) > 1e-4:
+                        return True
+    return False
+
+
+def objeto_tem_emissive_nativo(mats) -> bool:
+    """True se algum material nativo tiver emissao ativa (Principled BSDF ou Emission)."""
+    if mats is None:
+        return False
+    itens = getattr(getattr(mats, "data", None), "materials", None)
+    seq = itens if itens is not None else mats
+    return any(_material_tem_emissive_nativo(m) for m in (seq or ()))
+
+
 def clonar_materiais_nativos(high_obj, nome_base: str) -> list:
     """Clona slots de material da copia temporaria ``high_obj`` (isolada de ``obj`` e limpa em ``finally``)."""
     clonados: list = []
@@ -132,6 +179,54 @@ def configurar_saida_orm_emit_nativos(mats: list) -> list[tuple]:
         comb.inputs[2].default_value = 1.0
         nt.links.new(comb.outputs["Color"], emit.inputs["Color"])
         tokens.append((nt, out_node, antigos, [emit, comb]))
+    return tokens
+
+
+def configurar_saida_emissive_emit_nativos(mats: list) -> list[tuple]:
+    """Desvia canal emissivo de cada material nativo para ``Emission`` de bake e retorna tokens."""
+    tokens: list[tuple] = []
+    for mat in mats:
+        prep = _preparar_emit_output(mat)
+        if prep is None:
+            continue
+        nt, out_node, bsdf, antigos, emit = prep
+        src_node = antigos[0].node if antigos else None
+        em_up = (
+            next((n for n in _nodos_upstream(src_node) if getattr(n, "type", "") == "EMISSION"), None)
+            if src_node is not None
+            else None
+        )
+        if bsdf is not None:
+            em_col = bsdf.inputs.get("Emission Color") or bsdf.inputs.get("Emission")
+            em_str = bsdf.inputs.get("Emission Strength")
+            str_zero = (
+                em_str is not None
+                and not (em_str.is_linked and em_str.links)
+                and float(em_str.default_value) <= 1e-4
+            )
+            col_zero = (
+                em_col is None
+                or (
+                    not (em_col.is_linked and em_col.links)
+                    and max(float(em_col.default_value[0]), float(em_col.default_value[1]), float(em_col.default_value[2])) <= 1e-4
+                )
+            )
+            if not str_zero and not col_zero and em_col is not None:
+                _ligar_ou_valor(nt, em_col, emit.inputs["Color"], (0.0, 0.0, 0.0, 1.0))
+                _ligar_ou_valor(nt, em_str, emit.inputs["Strength"], 1.0)
+            elif em_up is not None:
+                _ligar_ou_valor(nt, em_up.inputs.get("Color"), emit.inputs["Color"], (0.0, 0.0, 0.0, 1.0))
+                _ligar_ou_valor(nt, em_up.inputs.get("Strength"), emit.inputs["Strength"], 1.0)
+            else:
+                emit.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+                emit.inputs["Strength"].default_value = 0.0
+        elif em_up is not None:
+            _ligar_ou_valor(nt, em_up.inputs.get("Color"), emit.inputs["Color"], (0.0, 0.0, 0.0, 1.0))
+            _ligar_ou_valor(nt, em_up.inputs.get("Strength"), emit.inputs["Strength"], 1.0)
+        else:
+            emit.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+            emit.inputs["Strength"].default_value = 0.0
+        tokens.append((nt, out_node, antigos, [emit]))
     return tokens
 
 

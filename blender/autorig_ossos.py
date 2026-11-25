@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -187,15 +188,24 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
         return ossos_aa
     if esqueleto == "r15@1":
         hip_leg_z = max(m["leg_top_z"] + 0.02 * h, m["hip_z"] - 0.015 * h)
+        # r15@1 nao possui osso Shoulder clavicular: ancora cabeca na junta do ombro para nao girar de dentro do torax.
+        sh_l_x = math.copysign(
+            max(abs(float(bL["clav_x"])), 0.92 * abs(float(bL["shoulder"].x))),
+            float(bL["clav_x"]) or 1.0,
+        )
+        sh_r_x = math.copysign(
+            max(abs(float(bR["clav_x"])), 0.92 * abs(float(bR["shoulder"].x))),
+            float(bR["clav_x"]) or -1.0,
+        )
         return [
             _osso("HumanoidRootPart", None, (0.0, 0.0, z0), (0.0, 0.0, z0 + 0.05 * h), ml),
             _osso("LowerTorso", "HumanoidRootPart", (0.0, cy, m["leg_top_z"]), (0.0, cy, m["spine_z"]), ml),
             _osso("UpperTorso", "LowerTorso", (0.0, cy, m["spine_z"]), (0.0, cy, m["chest_top_z"]), ml),
             _osso("Head", "UpperTorso", (0.0, cy, m["chest_top_z"]), (0.0, cy, m["head_top_z"]), ml),
-            _osso("LeftUpperArm", "UpperTorso", (bL["clav_x"], cy, bL["shoulder"].z), bL["elbow"], ml),
+            _osso("LeftUpperArm", "UpperTorso", (sh_l_x, cy, bL["shoulder"].z), bL["elbow"], ml),
             _osso("LeftLowerArm", "LeftUpperArm", bL["elbow"], bL["wrist"], ml),
             _osso("LeftHand", "LeftLowerArm", bL["wrist"], bL["tip"], ml),
-            _osso("RightUpperArm", "UpperTorso", (bR["clav_x"], cy, bR["shoulder"].z), bR["elbow"], ml),
+            _osso("RightUpperArm", "UpperTorso", (sh_r_x, cy, bR["shoulder"].z), bR["elbow"], ml),
             _osso("RightLowerArm", "RightUpperArm", bR["elbow"], bR["wrist"], ml),
             _osso("RightHand", "RightLowerArm", bR["wrist"], bR["tip"], ml),
             _osso("LeftUpperLeg", "LowerTorso", (m["leg_x_L"], cy, hip_leg_z), (m["leg_x_L"], cy, m["knee_z"]), ml),
@@ -206,6 +216,9 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
             _osso("RightFoot", "RightLowerLeg", (m["leg_x_R"], cy, m["ankle_z"]), (m["leg_x_R"], cy + m["foot_y"], z0 + 0.02 * h), ml),
         ]
     raise ValueError(f"esqueleto nao suportado pelo auto-rig: {esqueleto}")
+
+
+_definicoes_ossos = _construir_ossos
 
 
 def _alinhar_roll_ossos(rig_obj) -> None:

@@ -11,7 +11,7 @@ from typing import Any
 
 from .. import locks, paths
 
-VERSAO = "0.1.11"
+VERSAO = "0.1.12"
 MODELO_PADRAO = "triposr"
 MODELO_HF = "stabilityai/TripoSR"
 VRAM_MINIMA_MB = 4200
@@ -193,10 +193,12 @@ def _rembg_modelo() -> str:
     env = os.environ.get("FORGE3D_REMBG_MODELO", "").strip()
     if env:
         return env
+    if facade_attr("_device", _device)().startswith("cpu"):
+        return "u2net"
     u2net_home = Path(os.environ.get("U2NET_HOME", str(Path.home() / ".u2net"))).expanduser()
     if (u2net_home / "birefnet-general-lite.onnx").is_file():
         return "birefnet-general-lite"
-    return "birefnet-general"
+    return "u2net"
 
 
 def _pose_guard_modo(item: dict | None = None) -> str:

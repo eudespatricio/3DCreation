@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from . import animacao, locks, paths, post, profiles, providers, publish, spec
 from .canonical import sha256_arquivo
@@ -106,8 +108,19 @@ def executar_item(
         staging.mkdir(parents=True, exist_ok=True)
         if getattr(provider, "usa_gpu", False):
             # D11/I6: um job de GPU por vez; o segundo falha com exit 6 em vez de CUDA OOM
-            with locks.lock_gpu(run_id, esperar=False):
-                bruto = provider.gerar(item, perfil, staging)
+            gerar_fn: Callable[..., Any] = provider.gerar
+            if getattr(provider, "gerencia_lock_gpu", False) and (
+                "gpu_lock_factory" in inspect.signature(gerar_fn).parameters
+            ):
+                bruto = gerar_fn(
+                    item,
+                    perfil,
+                    staging,
+                    gpu_lock_factory=lambda: locks.lock_gpu(run_id, esperar=False),
+                )
+            else:
+                with locks.lock_gpu(run_id, esperar=False):
+                    bruto = provider.gerar(item, perfil, staging)
         else:
             bruto = provider.gerar(item, perfil, staging)
 

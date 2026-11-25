@@ -23,13 +23,13 @@ except ImportError:
     _TEM_CV2 = False
 
 
-def _mascara_foreground_cv2(arr: Any) -> Any:
+def _mascara_foreground_cv2(arr: Any, alpha_min: int = 200) -> Any:
     """Detecta foreground mesmo em imagem opaca sobre fundo neutro uniforme."""
     h, w = arr.shape[:2]
     if h <= 0 or w <= 0:
         raise ValueError(f"imagem invalida: {w}x{h}")
     alpha = arr[:, :, 3]
-    fg = alpha >= 24
+    fg = alpha >= alpha_min
     if int(alpha.min()) < 250:
         return fg
 
@@ -58,7 +58,7 @@ def _mascara_foreground_cv2(arr: Any) -> Any:
     return fg & (~eh_bg_borda[labels])
 
 
-def _mascara_foreground_pil(rgba: Image.Image) -> list[int]:
+def _mascara_foreground_pil(rgba: Image.Image, alpha_min: int = 200) -> list[int]:
     """Versao Pillow puro de deteccao de foreground (0=fundo, 1=objeto)."""
     w, h = rgba.size
     if w <= 0 or h <= 0:
@@ -66,7 +66,7 @@ def _mascara_foreground_pil(rgba: Image.Image) -> list[int]:
     raw = rgba.tobytes()
     alphas = raw[3::4]
     if min(alphas) < 250:
-        return [1 if a >= 24 else 0 for a in alphas]
+        return [1 if a >= alpha_min else 0 for a in alphas]
 
     c = max(1, min(8, min(w, h) // 16))
     ys = list(range(min(c, h))) + list(range(max(0, h - c), h))
@@ -182,31 +182,31 @@ def _mapas_pbr_cv2(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         base_ferro_f, -1, (k_fe, k_fe), normalize=True, borderType=cv2.BORDER_REPLICATE
     )
 
-    prata = (s_u8 < 42.0) & (local_min >= 52.0) & (
+    prata = (s_u8 < 26.0) & (neutral_rg <= 6) & (local_min >= 52.0) & (cool_diff >= -6) & (
         ((l_f32 >= 95.0) & (l_f32 <= 240.0) & (local_range >= 42.0) & (local_max >= 175.0))
-        | ((l_f32 >= 95.0) & (l_f32 <= 232.0) & (cool_diff >= 4) & (local_range_g >= 2.0))
-        | ((s_u8 < 25.0) & (l_f32 >= 160.0) & (l_f32 <= 186.0) & (cool_diff >= 4) & (neutral_rg <= 2))
+        | ((s_u8 < 18.0) & (l_f32 >= 160.0) & (l_f32 <= 192.0) & (cool_diff >= 4) & (neutral_rg <= 2) & (local_range_g >= 2.0))
     )
-    gunmetal = (s_u8 < 42.0) & (l_f32 >= 55.0) & (l_f32 < 95.0) & (local_min >= 48.0) & (
-        ((local_max >= 115.0) & (local_range >= 32.0)) | ((cool_diff >= 4) & (local_range_g >= 2.0))
+    gunmetal = (
+        (s_u8 < 26.0) & (neutral_rg <= 6) & (l_f32 >= 55.0) & (l_f32 < 95.0)
+        & (local_min >= 48.0) & (local_max >= 115.0) & (local_range >= 32.0)
     )
-    tem_espec_fe = ((cool_diff >= 2) & (l_max_fe >= 72.0) & (l_range_fe >= 24.0)) | (
+    tem_espec_fe = ((cool_diff >= 2) & (l_max_fe >= 72.0) & (l_range_fe >= 32.0)) | (
         (l_max_fe >= 96.0) & (l_range_fe >= 40.0)
     )
-    ferro_escuro = (cool_diff >= -3) & tem_espec_fe & (
-        ((s_u8 < 62.0) & (l_f32 >= 26.0) & (l_f32 < 86.0) & (frac_base_ferro >= 0.20))
-        | ((s_u8 < 52.0) & (l_f32 >= 86.0) & (l_f32 <= 215.0) & (local_min <= 62.0) & (frac_base_ferro >= 0.35))
+    ferro_escuro = (neutral_rg <= 6) & (cool_diff >= -3) & tem_espec_fe & (
+        ((s_u8 < 48.0) & (l_f32 >= 26.0) & (l_f32 < 86.0) & (frac_base_ferro >= 0.20))
+        | ((s_u8 < 42.0) & (l_f32 >= 86.0) & (l_f32 <= 215.0) & (local_min <= 62.0) & (frac_base_ferro >= 0.35))
     )
-    ouro = (h_deg >= 34.0) & (h_deg <= 48.0) & (s_u8 >= 110.0) & (s_u8 <= 205.0) & (v_u8 >= 165.0) & (
-        ((local_max >= 200.0) & (local_range >= 40.0))
+    # Exclui pele quente e ocre fosco sem realce especular para nao contaminar hints de metal.
+    pele_quente = (h_deg < 28.0) & (s_u8 < 152.0)
+    ouro = (~pele_quente) & (h_deg >= 36.0) & (h_deg <= 48.0) & (s_u8 >= 140.0) & (s_u8 <= 205.0) & (v_u8 >= 175.0) & (
+        ((local_max >= 200.0) & (local_range >= 32.0))
         | (v_u8 >= 230.0)
         | (local_range >= 55.0)
         | ((s_u8 >= 160.0) & (s_u8 <= 192.0) & (v_u8 >= 208.0) & (local_range <= 8.0))
     )
-    bronze = (h_deg >= 16.0) & (h_deg <= 33.5) & (s_u8 >= 105.0) & (s_u8 <= 190.0) & (v_u8 >= 135.0) & (
-        (local_range >= 45.0)
-        | ((v_u8 >= 230.0) & (local_range >= 28.0))
-        | ((h_deg >= 28.0) & (s_u8 >= 155.0) & (s_u8 <= 176.0) & (v_u8 >= 160.0) & (local_range_g >= 2.0) & (local_range_g <= 18.0))
+    bronze = (~pele_quente) & (h_deg >= 16.0) & (h_deg <= 34.0) & (s_u8 >= 115.0) & (s_u8 <= 195.0) & (v_u8 >= 145.0) & (
+        (local_max >= 195.0) & (local_range >= 58.0)
     )
     metal = (prata | gunmetal | ferro_escuro | ouro | bronze) & fg
 
@@ -300,35 +300,35 @@ def _mapas_pbr_pil(rgba: Image.Image) -> tuple[Image.Image, Image.Image]:
         l_range, l_range_g, cool_diff = l_mx - l_mn, l_max_g[idx] - l_min_g[idx], b - r
         l_mx_fe, l_rg_fe, frac_fe = l_max_fe[idx], l_max_fe[idx] - l_min_fe[idx], blur_base_fe[idx] / 255.0
 
+        neutral_rg = abs(r - g)
+        eh_pele_quente = h_deg < 28.0 and s_u8 < 152.0
         eh_ouro = (
-            34.0 <= h_deg <= 48.0 and 110.0 <= s_u8 <= 205.0 and v_u8 >= 165.0
+            not eh_pele_quente
+            and 36.0 <= h_deg <= 48.0 and 140.0 <= s_u8 <= 205.0 and v_u8 >= 175.0
             and (
-                (l_mx >= 200 and l_range >= 40) or v_u8 >= 230.0 or l_range >= 55
+                (l_mx >= 200 and l_range >= 32) or v_u8 >= 230.0 or l_range >= 55
                 or (160.0 <= s_u8 <= 192.0 and v_u8 >= 208.0 and l_range <= 8)
             )
         )
         eh_bronze = (
-            16.0 <= h_deg <= 33.5 and 105.0 <= s_u8 <= 190.0 and v_u8 >= 135.0
-            and (
-                l_range >= 45 or (v_u8 >= 230.0 and l_range >= 28)
-                or (28.0 <= h_deg <= 33.5 and 155.0 <= s_u8 <= 176.0 and v_u8 >= 160.0 and 2 <= l_range_g <= 18)
-            )
+            not eh_pele_quente
+            and 16.0 <= h_deg <= 34.0 and 115.0 <= s_u8 <= 195.0 and v_u8 >= 145.0
+            and l_mx >= 195 and l_range >= 58
         )
         eh_prata = (
-            s_u8 < 42.0 and l_mn >= 52 and (
+            s_u8 < 26.0 and neutral_rg <= 6 and l_mn >= 52 and cool_diff >= -6 and (
                 (95 <= l_u8 <= 240 and l_range >= 42 and l_mx >= 175)
-                or (95 <= l_u8 <= 232 and cool_diff >= 4 and l_range_g >= 2)
-                or (160 <= l_u8 <= 186 and cool_diff >= 4 and abs(r - g) <= 2 and s_u8 < 25.0)
+                or (s_u8 < 18.0 and 160 <= l_u8 <= 192 and cool_diff >= 4 and neutral_rg <= 2 and l_range_g >= 2)
             )
         )
         eh_gunmetal = (
-            s_u8 < 42.0 and 55 <= l_u8 < 95 and l_mn >= 48
-            and ((l_mx >= 115 and l_range >= 32) or (cool_diff >= 4 and l_range_g >= 2))
+            s_u8 < 26.0 and neutral_rg <= 6 and 55 <= l_u8 < 95
+            and l_mn >= 48 and l_mx >= 115 and l_range >= 32
         )
-        tem_espec_fe = (cool_diff >= 2 and l_mx_fe >= 72 and l_rg_fe >= 24) or (l_mx_fe >= 96 and l_rg_fe >= 40)
-        eh_ferro_escuro = cool_diff >= -3 and tem_espec_fe and (
-            (s_u8 < 62.0 and 26 <= l_u8 < 86 and frac_fe >= 0.20)
-            or (s_u8 < 52.0 and 86 <= l_u8 <= 215 and l_mn <= 62 and frac_fe >= 0.35)
+        tem_espec_fe = (cool_diff >= 2 and l_mx_fe >= 72 and l_rg_fe >= 32) or (l_mx_fe >= 96 and l_rg_fe >= 40)
+        eh_ferro_escuro = neutral_rg <= 6 and cool_diff >= -3 and tem_espec_fe and (
+            (s_u8 < 48.0 and 26 <= l_u8 < 86 and frac_fe >= 0.20)
+            or (s_u8 < 42.0 and 86 <= l_u8 <= 215 and l_mn <= 62 and frac_fe >= 0.35)
         )
         if eh_ouro:
             metallic[idx] = 218
@@ -384,16 +384,24 @@ def _emissive_cv2(rgba: Image.Image) -> Image.Image:
         & (v_u8 >= v_rel_lim)
         & ((s_u8 >= 206.0) | (v_u8 >= 238.0) | ((h_deg <= 37.5) & (v_u8 >= v_warm_mod)))
     )
-    cool_glow = (h_deg >= 175.0) & (h_deg <= 260.0) & (s_u8 >= 145.0) & (v_u8 >= v_rel_lim)
+    v_cool_hi = max(225.0, fg_v_p75 + 55.0)
+    v_cool_sat = max(215.0, fg_v_p75 + 80.0)
+    faixa_cool = (h_deg >= 175.0) & (h_deg <= 260.0)
+    cool_glow = faixa_cool & (
+        ((s_u8 >= 195.0) & (v_u8 >= v_cool_hi))
+        | ((s_u8 >= 220.0) & (v_u8 >= 235.0))
+        | ((s_u8 >= 210.0) & (v_u8 >= v_cool_sat))
+        | ((s_u8 >= 170.0) & (v_u8 >= 246.0) & (fg_v_p75 <= 195.0))
+    )
     seed = fg & (
-        ((v_u8 >= 250.0) & (s_u8 >= 140.0))
-        | ((v_u8 >= 225.0) & (s_u8 >= 210.0) & ((h_deg < 20.0) | (h_deg > 50.0)))
+        ((~faixa_cool) & (v_u8 >= 250.0) & (s_u8 >= 140.0))
+        | ((~faixa_cool) & (v_u8 >= 225.0) & (s_u8 >= 210.0) & ((h_deg < 20.0) | (h_deg > 50.0)))
         | warm_glow
         | cool_glow
     )
     cand_branco = fg & (v_u8 >= 248.0)
     ativo = seed.copy()
-    if np.any(seed) and np.any(cand_branco & (~seed)):
+    if fg_v_p75 <= 210.0 and np.any(seed) and np.any(cand_branco & (~seed)):
         n_labels, labels = cv2.connectedComponents((seed | cand_branco).astype(np.uint8), connectivity=4)
         if n_labels > 1:
             seed_labels = np.unique(labels[seed])
@@ -433,6 +441,9 @@ def _emissive_pil(rgba: Image.Image) -> Image.Image:
     v_rel_lim = max(180.0, fg_v_p75 + 45.0)
     v_warm_mod = max(195.0, fg_v_p75 + 65.0)
 
+    v_cool_hi = max(225.0, fg_v_p75 + 55.0)
+    v_cool_sat = max(215.0, fg_v_p75 + 80.0)
+
     for idx in range(w * h):
         if not fg_mask[idx]:
             continue
@@ -441,16 +452,22 @@ def _emissive_pil(rgba: Image.Image) -> Image.Image:
             10.0 <= h_deg <= 48.0 and s_u8 >= 150.0 and v_u8 >= v_rel_lim
             and (s_u8 >= 206.0 or v_u8 >= 238.0 or (h_deg <= 37.5 and v_u8 >= v_warm_mod))
         )
-        eh_cool = 175.0 <= h_deg <= 260.0 and s_u8 >= 145.0 and v_u8 >= v_rel_lim
+        faixa_cool = 175.0 <= h_deg <= 260.0
+        eh_cool = faixa_cool and (
+            (s_u8 >= 195.0 and v_u8 >= v_cool_hi)
+            or (s_u8 >= 220.0 and v_u8 >= 235.0)
+            or (s_u8 >= 210.0 and v_u8 >= v_cool_sat)
+            or (s_u8 >= 170.0 and v_u8 >= 246.0 and fg_v_p75 <= 195.0)
+        )
         if (
-            (v_u8 >= 250.0 and s_u8 >= 140.0)
-            or (v_u8 >= 225.0 and s_u8 >= 210.0 and (h_deg < 20.0 or h_deg > 50.0))
+            (not faixa_cool and v_u8 >= 250.0 and s_u8 >= 140.0)
+            or (not faixa_cool and v_u8 >= 225.0 and s_u8 >= 210.0 and (h_deg < 20.0 or h_deg > 50.0))
             or eh_warm
             or eh_cool
         ):
             seed[idx] = 1
             fila.append(idx)
-        elif v_u8 >= 248.0:
+        elif fg_v_p75 <= 210.0 and v_u8 >= 248.0:
             branco[idx] = 1
 
     ativo = bytearray(seed)

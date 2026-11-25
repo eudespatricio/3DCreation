@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+from array import array
 
 try:
     import bmesh
@@ -15,6 +16,7 @@ except ImportError:  # pragma: no cover - permite import puro em testes fora do 
 
 if __package__:
     from . import bake_pbr_config as _cfg
+    from . import bake_pbr_emissive as _emissive
     from . import bake_pbr_maps as _maps
     from . import bake_pbr_nativo as _nat
     from . import bake_pbr_proj as _proj
@@ -24,10 +26,16 @@ else:
     if _BLENDER_DIR not in sys.path:
         sys.path.insert(0, _BLENDER_DIR)
     import bake_pbr_config as _cfg
+    import bake_pbr_emissive as _emissive
     import bake_pbr_maps as _maps
     import bake_pbr_nativo as _nat
     import bake_pbr_proj as _proj
     import bake_pbr_shaders as _sh
+
+
+def _margem_bake_px(px: int, *, submapa: bool = False) -> int:
+    """Margem proporcional de sangria de ilhas UV para evitar costuras/seams em mipmaps."""
+    return max(4 if submapa else 6, min(16, int(px) // 128))
 
 
 def _calcular_passo_zona_x(mesh) -> float:
@@ -268,32 +276,21 @@ def _configurar_high_material(
     return high_mat, proc_mod, usar_emit_proc, met_escalar_orig, rough_escalar_orig
 
 
+def _preparar_pass_bake(cena, obj, high_obj, low_bake_mat, tex_bake, img_alvo, samples: int, margem: int) -> None:
+    tex_bake.image = img_alvo
+    tex_bake.select = True
+    low_bake_mat.node_tree.nodes.active = tex_bake
+    cena.cycles.samples = samples
+    cena.render.bake.margin = margem
+    _cfg._selecionar_high_para_low(high_obj, obj)
+
+
 def _executar_passes_cycles(
-    cena,
-    obj,
-    high_obj,
-    high_mat,
-    low_bake_mat,
-    tex_bake,
-    saida_dir: str,
-    nome_base: str,
-    px: int,
-    px_sub: int,
-    samples_bake: int,
-    samples_ao: int,
-    cage_extrusion: float,
-    max_ray_dist: float,
-    usar_emit_proc: bool,
-    proc_mod,
-    img_met,
-    img_rough,
-    img_origem,
-    nome_cor: str,
-    tem_cor_vertice: bool,
-    nome_visivel: str | None,
-    vistas_hints: list | None = None,
-    usar_pbr_nativo: bool = False,
-    high_mats_nativos: list | None = None,
+    cena, obj, high_obj, high_mat, low_bake_mat, tex_bake, saida_dir: str, nome_base: str,
+    px: int, px_sub: int, samples_bake: int, samples_ao: int, cage_extrusion: float, max_ray_dist: float,
+    usar_emit_proc: bool, proc_mod, img_met, img_rough, img_origem, nome_cor: str, tem_cor_vertice: bool,
+    nome_visivel: str | None, vistas_hints: list | None = None, usar_pbr_nativo: bool = False,
+    high_mats_nativos: list | None = None, emissive_ativo_nativo: bool | None = None,
 ):
     cena.cycles.use_denoising = False
     cena.render.bake.use_selected_to_active = True
@@ -304,19 +301,16 @@ def _executar_passes_cycles(
     cena.render.bake.use_clear = True
     _cfg._configurar_render_png_linear(cena)
 
-    img_bc_tmp = img_bc = img_nm_tmp = img_nm = img_ao_tmp = img_hints_tmp = high_hints_mat = None
+    margem_bc = _margem_bake_px(px, submapa=False)
+    margem_sub = _margem_bake_px(px_sub, submapa=True)
+    img_bc_tmp = img_bc = img_nm_tmp = img_nm = img_ao_tmp = img_hints_tmp = high_hints_mat = img_em_nativo = None
     try:
         # 1. BaseColor em `px`
         nome_bc = f"{nome_base}_baseColor.png"
         path_bc = os.path.join(saida_dir, nome_bc)
         img_bc_tmp = bpy.data.images.new(f"{nome_base}_bc_tmp", width=px, height=px, alpha=False)
         img_bc_tmp.colorspace_settings.name = "sRGB"
-        tex_bake.image = img_bc_tmp
-        tex_bake.select = True
-        low_bake_mat.node_tree.nodes.active = tex_bake
-        cena.cycles.samples = samples_bake
-        cena.render.bake.margin = max(4, px // 128)
-        _cfg._selecionar_high_para_low(high_obj, obj)
+        _preparar_pass_bake(cena, obj, high_obj, low_bake_mat, tex_bake, img_bc_tmp, samples_bake, margem_bc)
         if usar_pbr_nativo and high_mats_nativos:
             tokens_bc = _nat.configurar_saida_basecolor_emit_nativos(high_mats_nativos)
             try:
@@ -347,16 +341,9 @@ def _executar_passes_cycles(
         path_nm = os.path.join(saida_dir, nome_nm)
         img_nm_tmp = bpy.data.images.new(f"{nome_base}_nm_tmp", width=px_sub, height=px_sub, alpha=False)
         img_nm_tmp.colorspace_settings.name = "Non-Color"
-        tex_bake.image = img_nm_tmp
-        tex_bake.select = True
-        low_bake_mat.node_tree.nodes.active = tex_bake
-        cena.cycles.samples = samples_bake
         cena.render.bake.normal_space = "TANGENT"
-        cena.render.bake.normal_r = "POS_X"
-        cena.render.bake.normal_g = "POS_Y"
-        cena.render.bake.normal_b = "POS_Z"
-        cena.render.bake.margin = max(4, px_sub // 128)
-        _cfg._selecionar_high_para_low(high_obj, obj)
+        cena.render.bake.normal_r, cena.render.bake.normal_g, cena.render.bake.normal_b = "POS_X", "POS_Y", "POS_Z"
+        _preparar_pass_bake(cena, obj, high_obj, low_bake_mat, tex_bake, img_nm_tmp, samples_bake, margem_sub)
         _cfg._executar_bake_seguro(cena, type="NORMAL")
         _maps._corrigir_normais_invertidas(img_nm_tmp, px_sub)
         img_nm = _maps._salvar_e_recarregar_png(img_nm_tmp, path_nm, "Non-Color", cena)
@@ -365,38 +352,37 @@ def _executar_passes_cycles(
         # 3. ORM via AO + hints opcionais/procedurais em `px_sub`
         img_ao_tmp = bpy.data.images.new(f"{nome_base}_ao_tmp", width=px_sub, height=px_sub, alpha=False)
         img_ao_tmp.colorspace_settings.name = "Non-Color"
-        tex_bake.image = img_ao_tmp
-        tex_bake.select = True
-        low_bake_mat.node_tree.nodes.active = tex_bake
-        cena.cycles.samples = samples_ao
-        cena.render.bake.margin = max(4, px_sub // 128)
-        _cfg._selecionar_high_para_low(high_obj, obj)
+        _preparar_pass_bake(cena, obj, high_obj, low_bake_mat, tex_bake, img_ao_tmp, samples_ao, margem_sub)
         _cfg._executar_bake_seguro(cena, type="AO")
 
         if usar_pbr_nativo and high_mats_nativos:
             img_hints_tmp = bpy.data.images.new(f"{nome_base}_hints_tmp", width=px_sub, height=px_sub, alpha=False)
             img_hints_tmp.colorspace_settings.name = "Non-Color"
-            tex_bake.image = img_hints_tmp
-            tex_bake.select = True
-            low_bake_mat.node_tree.nodes.active = tex_bake
-            cena.cycles.samples = samples_bake
-            cena.render.bake.margin = max(4, px_sub // 128)
-            _cfg._selecionar_high_para_low(high_obj, obj)
+            _preparar_pass_bake(cena, obj, high_obj, low_bake_mat, tex_bake, img_hints_tmp, samples_bake, margem_sub)
             tokens_orm = _nat.configurar_saida_orm_emit_nativos(high_mats_nativos)
             try:
                 _cfg._executar_bake_seguro(cena, type="EMIT")
             finally:
                 _nat.restaurar_saidas_nativos(tokens_orm)
+            em_nat_ok = (
+                bool(emissive_ativo_nativo)
+                if emissive_ativo_nativo is not None
+                else _nat.objeto_tem_emissive_nativo(high_mats_nativos)
+            )
+            if em_nat_ok:
+                img_em_nativo = bpy.data.images.new(f"{nome_base}_em_nativo_tmp", width=px_sub, height=px_sub, alpha=False)
+                img_em_nativo.colorspace_settings.name = "sRGB"
+                _preparar_pass_bake(cena, obj, high_obj, low_bake_mat, tex_bake, img_em_nativo, samples_bake, margem_sub)
+                tokens_em = _nat.configurar_saida_emissive_emit_nativos(high_mats_nativos)
+                try:
+                    _cfg._executar_bake_seguro(cena, type="EMIT")
+                finally:
+                    _nat.restaurar_saidas_nativos(tokens_em)
         elif usar_emit_proc and proc_mod is not None:
             proc_mod.configurar_saida_orm_hints_emit(high_mat)
             img_hints_tmp = bpy.data.images.new(f"{nome_base}_hints_tmp", width=px_sub, height=px_sub, alpha=False)
             img_hints_tmp.colorspace_settings.name = "Non-Color"
-            tex_bake.image = img_hints_tmp
-            tex_bake.select = True
-            low_bake_mat.node_tree.nodes.active = tex_bake
-            cena.cycles.samples = samples_bake
-            cena.render.bake.margin = max(4, px_sub // 128)
-            _cfg._selecionar_high_para_low(high_obj, obj)
+            _preparar_pass_bake(cena, obj, high_obj, low_bake_mat, tex_bake, img_hints_tmp, samples_bake, margem_sub)
             _cfg._executar_bake_seguro(cena, type="EMIT")
             proc_mod.configurar_saida_pbr_bsdf(high_mat)
         elif img_met is not None or img_rough is not None or bool(vistas_hints):
@@ -414,12 +400,7 @@ def _executar_passes_cycles(
             high_obj.data.materials.append(high_hints_mat)
             img_hints_tmp = bpy.data.images.new(f"{nome_base}_hints_tmp", width=px_sub, height=px_sub, alpha=False)
             img_hints_tmp.colorspace_settings.name = "Non-Color"
-            tex_bake.image = img_hints_tmp
-            tex_bake.select = True
-            low_bake_mat.node_tree.nodes.active = tex_bake
-            cena.cycles.samples = 1
-            cena.render.bake.margin = max(4, px_sub // 128)
-            _cfg._selecionar_high_para_low(high_obj, obj)
+            _preparar_pass_bake(cena, obj, high_obj, low_bake_mat, tex_bake, img_hints_tmp, 1, margem_sub)
             _cfg._executar_bake_seguro(cena, type="EMIT")
     except Exception:
         tex_bake.image = None
@@ -427,19 +408,67 @@ def _executar_passes_cycles(
             high_obj.data.materials.clear()
             if high_hints_mat.name in bpy.data.materials and high_hints_mat.users == 0:
                 bpy.data.materials.remove(high_hints_mat)
-        for img_tmp in (img_bc_tmp, img_bc, img_nm_tmp, img_nm, img_ao_tmp, img_hints_tmp):
+        for img_tmp in (img_bc_tmp, img_bc, img_nm_tmp, img_nm, img_ao_tmp, img_hints_tmp, img_em_nativo):
             if img_tmp is not None and img_tmp.name in bpy.data.images and img_tmp.users == 0:
                 bpy.data.images.remove(img_tmp)
         raise
 
-    return (
-        nome_bc,
-        path_bc,
-        img_bc,
-        nome_nm,
-        path_nm,
-        img_nm,
-        img_ao_tmp,
-        img_hints_tmp,
-        high_hints_mat,
-    )
+    return (nome_bc, path_bc, img_bc, nome_nm, path_nm, img_nm, img_ao_tmp, img_hints_tmp, high_hints_mat, img_em_nativo)
+
+
+def _assar_emissive_cycles(
+    cena, obj, saida_dir: str, nome_base: str, px: int, px_sub: int,
+    img_emissive_hint, img_origem, img_bc, path_bc: str, img_em_nativo=None,
+):
+    """Consome ``img_emissive_hint`` (UV0) ou empacota emissive nativo em memoria para o GLB."""
+    if img_emissive_hint is not None:
+        img_em_hint, img_bc_out, em_ok = _emissive.assar_e_aplicar_emissive_uv0(
+            cena, obj, saida_dir, nome_base, px, px_sub, img_emissive_hint, img_origem, img_bc, path_bc
+        )
+        if em_ok:
+            if img_em_nativo is not None and img_em_nativo.name in bpy.data.images and img_em_nativo.users == 0:
+                bpy.data.images.remove(img_em_nativo)
+            return img_em_hint, img_bc_out, True
+
+    if img_em_nativo is not None:
+        sz = getattr(img_em_nativo, "size", ())
+        w, h = (int(sz[0]), int(sz[1])) if len(sz) >= 2 else (0, 0)
+        total_f = w * h * 4
+        if w > 0 and h > 0 and len(getattr(img_em_nativo, "pixels", ())) == total_f:
+            em_buf = array("f", [0.0]) * total_f
+            img_em_nativo.pixels.foreach_get(em_buf)
+            ativos = 0
+            for i in range(0, total_f, 4):
+                er, eg, eb = em_buf[i], em_buf[i + 1], em_buf[i + 2]
+                if max(er, eg, eb) > 0.02:
+                    ativos += 1
+                    em_buf[i] = min(1.0, max(0.0, er))
+                    em_buf[i + 1] = min(1.0, max(0.0, eg))
+                    em_buf[i + 2] = min(1.0, max(0.0, eb))
+                else:
+                    em_buf[i] = em_buf[i + 1] = em_buf[i + 2] = 0.0
+                em_buf[i + 3] = 1.0
+            if ativos > 0:
+                img_em_nativo.pixels.foreach_set(em_buf)
+                tmp_pack = os.path.join(saida_dir, f".{nome_base}_em_nat_pack_tmp.png")
+                estado_cena = _cfg._capturar_estado_cena(cena)
+                try:
+                    _cfg._configurar_render_png_linear(cena)
+                    cena.render.image_settings.compression = 90
+                    img_em_nativo.save_render(filepath=tmp_pack, scene=cena)
+                    if img_em_nativo.name in bpy.data.images and img_em_nativo.users == 0:
+                        bpy.data.images.remove(img_em_nativo)
+                    img_em_final = bpy.data.images.load(tmp_pack, check_existing=False)
+                    img_em_final.name = f"{nome_base}_emissive"
+                    img_em_final.colorspace_settings.name = "sRGB"
+                    img_em_final.pack()
+                    img_em_final.filepath, img_em_final.filepath_raw = "", ""
+                    return img_em_final, img_bc, True
+                finally:
+                    _cfg._restaurar_estado_cena(cena, estado_cena)
+                    if os.path.isfile(tmp_pack):
+                        os.remove(tmp_pack)
+        if img_em_nativo.name in bpy.data.images and img_em_nativo.users == 0:
+            bpy.data.images.remove(img_em_nativo)
+
+    return None, img_bc, False

@@ -22,6 +22,7 @@ from .qc_geom import convexidade, topologia
 from .qc_glb import analisar, ler_glb_bin, malha
 from .qc_glb_mat import _eh_int
 from .qc_midia import _silhueta_iou_lod, _skin_status, _uv_status, animacoes
+from .qc_volumetria import avaliar_volumetria_glb
 
 logger = logging.getLogger(__name__)
 
@@ -416,19 +417,39 @@ def _resp_g15(status: str, limite: dict[str, float], codigo: str | None = None, 
     return {"id": "G15", "status": status, "medido": medido, "limite": limite, **({"codigo": codigo} if codigo is not None else {})}
 
 
+def _resolver_vista_back_g15(pasta: Path, resultado: dict) -> Path | None:
+    if not isinstance(c_meta := resultado.get("concept"), dict) or not isinstance(vistas := c_meta.get("vistas"), dict):
+        return None
+    raw_back = vistas.get("back")
+    if not isinstance(raw_back, str) or not raw_back.strip():
+        return None
+    bruto_dir = pasta.parent / "bruto" if (pasta.parent / "bruto").is_dir() else None
+    cand = _resolver_arquivo_rel(raw_back, pasta, bruto_dir)
+    return cand if cand is not None and cand.is_file() else None
+
+
 def _avaliar_g15(gltf: dict, binario: bytes, item: dict, perfil: dict, info: dict, pasta: Path, resultado: dict) -> dict[str, Any]:
     del perfil
     estrito = bool(item.get("g15_estrito") or resultado.get("g15_estrito"))
     limite = {"iou_min": LIMIAR_IOU_G15, "aspect_ratio_min": LIMIAR_ASPECT_G15}
     concept_path, render_path, via_origem_apenas = _resolver_caminhos_g15(item, pasta, resultado)
+    vol_res = avaliar_volumetria_glb(gltf, binario, item, info, concept_back=_resolver_vista_back_g15(pasta, resultado))
+    vol_extra = {"volumetrico": vol_res} if vol_res["aplicavel"] else {}
+    vol_falhou = bool(vol_res["aplicavel"] and not vol_res["aprovado"])
     if concept_path is None and render_path is None:
-        return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, erro="concept ausente com g15_estrito=True") if estrito else _resp_g15("ok", limite, aplicavel=False)
+        if estrito:
+            return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, erro="concept ausente com g15_estrito=True")
+        if vol_falhou:
+            return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, modo="volumetrico", motivo="volumetria_g15b_reprovada", volumetrico=vol_res)
+        return _resp_g15("ok", limite, None, aplicavel=bool(vol_res["aplicavel"]), **vol_extra)
     if concept_path is None:
         return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, erro="render_png informado sem concept_png")
     if render_path is not None:
         try:
             res = avaliar_fidelidade_concept_3d(concept_path, render_path)
-            return _resp_g15("ok" if res["aprovado"] else "falhou", limite, None if res["aprovado"] else "FORGE-E-QC", aplicavel=True, modo="render_pair", **res)
+            if res["aprovado"] and vol_falhou:
+                return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, modo="render_pair", **{**res, "aprovado": False, "motivo": "volumetria_g15b_reprovada"}, volumetrico=vol_res)
+            return _resp_g15("ok" if res["aprovado"] else "falhou", limite, None if res["aprovado"] else "FORGE-E-QC", aplicavel=True, modo="render_pair", **res, **vol_extra)
         except ForgeError as exc:
             return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, concept=str(concept_path), render=str(render_path), erro=str(exc))
     try:
@@ -438,14 +459,20 @@ def _avaliar_g15(gltf: dict, binario: bytes, item: dict, perfil: dict, info: dic
     if m_concept["vazia"]:
         return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, concept=str(concept_path), motivo="concept_vazio_sem_silhueta")
     if m_concept["uniforme"]:
-        return _resp_g15("falhou" if estrito else "warn", limite, "FORGE-E-QC" if estrito else "FORGE-W-FIDELIDADE", aplicavel=True, concept=str(concept_path), motivo="concept_uniforme_sem_silhueta")
+        if not estrito and vol_falhou:
+            return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, concept=str(concept_path), motivo="volumetria_g15b_reprovada", volumetrico=vol_res)
+        return _resp_g15("falhou" if estrito else "warn", limite, "FORGE-E-QC" if estrito else "FORGE-W-FIDELIDADE", aplicavel=True, concept=str(concept_path), motivo="concept_uniforme_sem_silhueta", **vol_extra)
     if (m_modelo := rasterizar_silhueta_frontal_glb(gltf, binario))["vazia"]:
-        return _resp_g15("falhou" if estrito else "warn", limite, "FORGE-E-QC" if estrito else "FORGE-W-FIDELIDADE", aplicavel=True, concept=str(concept_path), motivo="glb_sem_silhueta")
+        return _resp_g15("falhou" if estrito else "warn", limite, "FORGE-E-QC" if estrito else "FORGE-W-FIDELIDADE", aplicavel=True, concept=str(concept_path), motivo="glb_sem_silhueta", **vol_extra)
     if (comp := _comparar_mascaras(m_concept, m_modelo))["aprovado"]:
-        return _resp_g15("ok", limite, aplicavel=True, modo="glb_frontal", concept=str(concept_path), **comp)
+        if vol_falhou:
+            return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, modo="glb_frontal", concept=str(concept_path), **{**comp, "aprovado": False, "motivo": "volumetria_g15b_reprovada"}, volumetrico=vol_res)
+        return _resp_g15("ok", limite, None, aplicavel=True, modo="glb_frontal", concept=str(concept_path), **comp, **vol_extra)
     eh_extrude2d = (bool(item.get("extrudir_2d")) or str(item.get("rota") or "") == "extrude_2d") and str(item.get("pivot") or "empunhadura") == "empunhadura" and str(item.get("parte") or "arma") == "arma"
     if not estrito and eh_extrude2d and (comp_180 := _comparar_mascaras({**m_concept, "mask": m_concept["mask"][::-1]}, m_modelo))["aprovado"]:
-        return _resp_g15("ok", limite, aplicavel=True, modo="glb_frontal", concept=str(concept_path), rotacionado_180=True, **comp_180)
+        return _resp_g15("ok", limite, None, aplicavel=True, modo="glb_frontal", concept=str(concept_path), rotacionado_180=True, **comp_180)
     if not estrito and (_eh_stub_sintetico(gltf, info) or via_origem_apenas):
-        return _resp_g15("warn", limite, "FORGE-W-FIDELIDADE", aplicavel=True, modo="glb_frontal", concept=str(concept_path), motivo="divergencia_stub_sintetico", **comp)
-    return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, modo="glb_frontal", concept=str(concept_path), motivo="baixa_fidelidade_concept_3d", **comp)
+        if not _eh_stub_sintetico(gltf, info) and vol_falhou:
+            return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, modo="glb_frontal", concept=str(concept_path), **{**comp, "motivo": "volumetria_g15b_reprovada"}, volumetrico=vol_res)
+        return _resp_g15("warn", limite, "FORGE-W-FIDELIDADE", aplicavel=True, modo="glb_frontal", concept=str(concept_path), **{**comp, "motivo": "divergencia_stub_sintetico"}, **vol_extra)
+    return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, modo="glb_frontal", concept=str(concept_path), **{**comp, "motivo": "baixa_fidelidade_concept_3d"}, **vol_extra)

@@ -200,7 +200,7 @@ def test_bug_t2_calcular_decimation_target_e_cli_local(monkeypatch, tmp_path):
     assert capturado_cmd[capturado_cmd.index("--quant") + 1] == "BF16"
     assert capturado_cmd[capturado_cmd.index("--pipeline-type") + 1] == "512"
     assert capturado_cmd[capturado_cmd.index("--steps") + 1] == "25"
-    assert capturado_cmd[capturado_cmd.index("--remesh-project") + 1] == "1.0"
+    assert capturado_cmd[capturado_cmd.index("--remesh-project") + 1] == "0.9"
 
 
 @pytest.mark.blender

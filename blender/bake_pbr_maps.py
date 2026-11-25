@@ -66,52 +66,24 @@ def _empacotar_orm(
     met_padrao = max(0.0, min(1.0, float(metallic_base)))
     orm_buf = array("f", [0.0]) * total_floats
     for i in range(0, total_floats, 4):
-        ao_raw = ao_buf[i]
-        if ao_raw < 0.0:
-            ao_raw = 0.0
-        elif ao_raw > 1.0:
-            ao_raw = 1.0
+        ao_raw = min(1.0, max(0.0, ao_buf[i]))
         ao = 0.45 + 0.55 * ao_raw
-        rough_ao = 0.85 - 0.25 * (1.0 - ao)
-        if rough_ao < 0.50:
-            rough_ao = 0.50
-        elif rough_ao > 0.90:
-            rough_ao = 0.90
+        rough_ao = min(0.90, max(0.50, 0.85 - 0.25 * (1.0 - ao)))
         if roughness_base is not None:
-            rb = max(0.04, min(1.0, float(roughness_base)))
-            rough_ao = 0.65 * rb + 0.35 * rough_ao
+            rough_ao = 0.65 * max(0.04, min(1.0, float(roughness_base))) + 0.35 * rough_ao
 
         if hints_buf is not None:
-            met = hints_buf[i]
-            if met < 0.0:
-                met = 0.0
-            elif met > 1.0:
-                met = 1.0
-            rough_hint = hints_buf[i + 1]
-            if rough_hint < 0.04:
-                rough_hint = 0.04
-            elif rough_hint > 1.0:
-                rough_hint = 1.0
-            front_w = hints_buf[i + 2]
-            if front_w < 0.0:
-                front_w = 0.0
-            elif front_w > 1.0:
-                front_w = 1.0
+            met = min(1.0, max(0.0, hints_buf[i]))
+            rough_hint = min(1.0, max(0.04, hints_buf[i + 1]))
+            front_w = min(1.0, max(0.0, hints_buf[i + 2]))
             rough = rough_ao * (1.0 - front_w) + rough_hint * front_w
             if piso_dieletrico_rough > 0.0 and met < 0.1 and rough < piso_dieletrico_rough:
                 rough = piso_dieletrico_rough
-            if rough < 0.04:
-                rough = 0.04
-            elif rough > 1.0:
-                rough = 1.0
+            rough = min(1.0, max(0.04, rough))
         else:
-            rough = rough_ao
-            met = met_padrao
+            rough, met = rough_ao, met_padrao
 
-        orm_buf[i] = ao
-        orm_buf[i + 1] = rough
-        orm_buf[i + 2] = met
-        orm_buf[i + 3] = 1.0
+        orm_buf[i], orm_buf[i + 1], orm_buf[i + 2], orm_buf[i + 3] = ao, rough, met, 1.0
 
     img_orm = bpy.data.images.new(nome_img, width=px, height=px, alpha=False)
     img_orm.colorspace_settings.name = "Non-Color"
@@ -151,19 +123,20 @@ def _extrair_canais_roblox(img_orm, saida_dir: str, nome_base: str, px: int, cen
     return saidas
 
 
+def _obter_emissive_mod():
+    if __package__:
+        from . import bake_pbr_emissive as mod
+        return mod
+    import bake_pbr_emissive as mod
+    return mod
+
+
 def _obter_grupo_gltf_occlusion():
     """Obtem ou cria o node group ``glTF Material Output`` com socket ``Occlusion``."""
-    ng = bpy.data.node_groups.get("glTF Material Output")
-    if ng is None:
-        ng = bpy.data.node_groups.new("glTF Material Output", "ShaderNodeTree")
-    existe = any(
-        getattr(item, "in_out", None) == "INPUT" and item.name == "Occlusion"
-        for item in ng.interface.items_tree
-    )
+    ng = bpy.data.node_groups.get("glTF Material Output") or bpy.data.node_groups.new("glTF Material Output", "ShaderNodeTree")
+    existe = any(getattr(it, "in_out", None) == "INPUT" and it.name == "Occlusion" for it in ng.interface.items_tree)
     if not existe:
-        sock = ng.interface.new_socket(
-            name="Occlusion", in_out="INPUT", socket_type="NodeSocketFloat"
-        )
+        sock = ng.interface.new_socket(name="Occlusion", in_out="INPUT", socket_type="NodeSocketFloat")
         sock.default_value = 1.0
     return ng
 
@@ -247,11 +220,13 @@ def aplicar_hints_orm_em_material(
     metallic_hint_png: str | None = None,
     roughness_hint_png: str | None = None,
     perfil_nome: str | None = None,
+    emissive_hint: str | None = None,
 ) -> dict | None:
-    """Assa hints opcionais de ORM em objeto que ja tem UVMap e material (ex.: extrude_2d)."""
+    """Assa hints opcionais de ORM/Emissive em objeto que ja tem UVMap e material (ex.: extrude_2d)."""
     tem_met = bool(metallic_hint_png and os.path.isfile(metallic_hint_png))
     tem_rough = bool(roughness_hint_png and os.path.isfile(roughness_hint_png))
-    if not tem_met and not tem_rough:
+    tem_em = bool(emissive_hint and os.path.isfile(emissive_hint))
+    if not tem_met and not tem_rough and not tem_em:
         return None
     if obj is None or not obj.data.materials or not obj.data.uv_layers:
         return None
@@ -262,52 +237,11 @@ def aplicar_hints_orm_em_material(
     estado_anterior = _cfg._capturar_estado_cena(cena)
 
     mat_orig = obj.data.materials[0]
-    uv_orig = obj.data.uv_layers[0].name
-    img_met = None
-    img_rough = None
-    img_ao_tmp = None
-    img_hints_tmp = None
-    bake_mat = None
+    poly_mat_indices = [int(p.material_index) for p in obj.data.polygons]
+    img_met = img_rough = img_ao_tmp = img_hints_tmp = bake_mat = img_em_hint = img_em_final = None
+    nome_orm, path_orm, extras_roblox, em_ok = "", "", [], False
 
     try:
-        if tem_met:
-            img_met = bpy.data.images.load(metallic_hint_png, check_existing=False)
-            img_met.colorspace_settings.name = "Non-Color"
-        if tem_rough:
-            img_rough = bpy.data.images.load(roughness_hint_png, check_existing=False)
-            img_rough.colorspace_settings.name = "Non-Color"
-
-        bake_mat, tex_bake = _criar_material_alvo_bake(f"{nome_base}_ext_hints_tmp")
-        nt = bake_mat.node_tree
-        out = nt.nodes.get("Material Output")
-        uv_node = nt.nodes.new("ShaderNodeUVMap")
-        uv_node.uv_map = uv_orig
-        comb = nt.nodes.new("ShaderNodeCombineColor")
-        comb.mode = "RGB"
-        if img_met is not None:
-            tex_m = nt.nodes.new("ShaderNodeTexImage")
-            tex_m.image = img_met
-            tex_m.extension = "EXTEND"
-            nt.links.new(uv_node.outputs["UV"], tex_m.inputs["Vector"])
-            nt.links.new(tex_m.outputs["Color"], comb.inputs[0])
-        else:
-            comb.inputs[0].default_value = 0.0
-        if img_rough is not None:
-            tex_r = nt.nodes.new("ShaderNodeTexImage")
-            tex_r.image = img_rough
-            tex_r.extension = "EXTEND"
-            nt.links.new(uv_node.outputs["UV"], tex_r.inputs["Vector"])
-            nt.links.new(tex_r.outputs["Color"], comb.inputs[1])
-            comb.inputs[2].default_value = 1.0
-        else:
-            comb.inputs[1].default_value = 0.0
-            comb.inputs[2].default_value = 0.0
-        emit = nt.nodes.new("ShaderNodeEmission")
-        emit.inputs["Strength"].default_value = 1.0
-        nt.links.new(comb.outputs["Color"], emit.inputs["Color"])
-        nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
-
-        obj.data.materials[0] = bake_mat
         cena.render.engine = "CYCLES"
         cena.cycles.device = "CPU"
         cena.cycles.use_denoising = False
@@ -315,70 +249,140 @@ def aplicar_hints_orm_em_material(
         cena.render.bake.use_clear = True
         _cfg._configurar_render_png_linear(cena)
 
-        img_ao_tmp = bpy.data.images.new(f"{nome_base}_ext_ao", width=px_sub, height=px_sub, alpha=False)
-        img_ao_tmp.colorspace_settings.name = "Non-Color"
-        tex_bake.image = img_ao_tmp
-        tex_bake.select = True
-        nt.nodes.active = tex_bake
-        cena.cycles.samples = 4
-        cena.render.bake.margin = max(4, px_sub // 128)
-        bpy.ops.object.select_all(action="DESELECT")
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
-        _cfg._executar_bake_seguro(cena, type="AO")
-
-        img_hints_tmp = bpy.data.images.new(f"{nome_base}_ext_ht", width=px_sub, height=px_sub, alpha=False)
-        img_hints_tmp.colorspace_settings.name = "Non-Color"
-        tex_bake.image = img_hints_tmp
-        tex_bake.select = True
-        nt.nodes.active = tex_bake
-        cena.cycles.samples = 1
-        _cfg._executar_bake_seguro(cena, type="EMIT")
-
-        nome_orm = f"{nome_base}_orm.png"
-        path_orm = os.path.join(saida_dir, nome_orm)
-        img_orm_tmp = _empacotar_orm(img_ao_tmp, f"{nome_base}_orm_tmp", px_sub, img_hints=img_hints_tmp)
-        extras_roblox = (
-            _extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
-            if str(perfil_nome or "").startswith("roblox")
-            else []
-        )
-        img_orm = _salvar_e_recarregar_png(img_orm_tmp, path_orm, "Non-Color", cena)
-
-        obj.data.materials[0] = mat_orig
         nt_orig = mat_orig.node_tree
-        bsdf = nt_orig.nodes.get("Principled BSDF")
-        if bsdf is not None:
-            if "Roughness" in bsdf.inputs:
-                bsdf.inputs["Roughness"].default_value = 0.78
-            if "Specular IOR Level" in bsdf.inputs:
-                bsdf.inputs["Specular IOR Level"].default_value = 0.50
-        tex_orm = nt_orig.nodes.new("ShaderNodeTexImage")
-        tex_orm.image = img_orm
-        sep = nt_orig.nodes.new("ShaderNodeSeparateColor")
-        sep.mode = "RGB"
-        nt_orig.links.new(tex_orm.outputs["Color"], sep.inputs["Color"])
-        nt_orig.links.new(sep.outputs["Green"], bsdf.inputs["Roughness"])
-        nt_orig.links.new(sep.outputs["Blue"], bsdf.inputs["Metallic"])
-        ng = _obter_grupo_gltf_occlusion()
-        gltf_out = nt_orig.nodes.new("ShaderNodeGroup")
-        gltf_out.node_tree = ng
-        nt_orig.links.new(sep.outputs["Red"], gltf_out.inputs["Occlusion"])
+        bsdf = nt_orig.nodes.get("Principled BSDF") if nt_orig else None
+
+        if tem_met or tem_rough:
+            uv_orig = obj.data.uv_layers[0].name
+            if tem_met:
+                img_met = bpy.data.images.load(metallic_hint_png, check_existing=False)
+                img_met.colorspace_settings.name = "Non-Color"
+            if tem_rough:
+                img_rough = bpy.data.images.load(roughness_hint_png, check_existing=False)
+                img_rough.colorspace_settings.name = "Non-Color"
+
+            bake_mat, tex_bake = _criar_material_alvo_bake(f"{nome_base}_ext_hints_tmp")
+            nt = bake_mat.node_tree
+            out = nt.nodes.get("Material Output")
+            uv_node = nt.nodes.new("ShaderNodeUVMap")
+            uv_node.uv_map = uv_orig
+            comb = nt.nodes.new("ShaderNodeCombineColor")
+            comb.mode = "RGB"
+            if img_met is not None:
+                tex_m = nt.nodes.new("ShaderNodeTexImage")
+                tex_m.image, tex_m.extension = img_met, "EXTEND"
+                nt.links.new(uv_node.outputs["UV"], tex_m.inputs["Vector"])
+                nt.links.new(tex_m.outputs["Color"], comb.inputs[0])
+            else:
+                comb.inputs[0].default_value = 0.0
+            if img_rough is not None:
+                tex_r = nt.nodes.new("ShaderNodeTexImage")
+                tex_r.image, tex_r.extension = img_rough, "EXTEND"
+                nt.links.new(uv_node.outputs["UV"], tex_r.inputs["Vector"])
+                nt.links.new(tex_r.outputs["Color"], comb.inputs[1])
+                comb.inputs[2].default_value = 1.0
+            else:
+                comb.inputs[1].default_value, comb.inputs[2].default_value = 0.0, 0.0
+            emit = nt.nodes.new("ShaderNodeEmission")
+            emit.inputs["Strength"].default_value = 1.0
+            nt.links.new(comb.outputs["Color"], emit.inputs["Color"])
+            nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+
+            obj.data.materials[0] = bake_mat
+            img_ao_tmp = bpy.data.images.new(f"{nome_base}_ext_ao", width=px_sub, height=px_sub, alpha=False)
+            img_ao_tmp.colorspace_settings.name = "Non-Color"
+            tex_bake.image, tex_bake.select, nt.nodes.active = img_ao_tmp, True, tex_bake
+            cena.cycles.samples = 4
+            cena.render.bake.margin = max(4, min(16, px_sub // 128))
+            bpy.ops.object.select_all(action="DESELECT")
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            _cfg._executar_bake_seguro(cena, type="AO")
+
+            img_hints_tmp = bpy.data.images.new(f"{nome_base}_ext_ht", width=px_sub, height=px_sub, alpha=False)
+            img_hints_tmp.colorspace_settings.name = "Non-Color"
+            tex_bake.image, tex_bake.select, nt.nodes.active = img_hints_tmp, True, tex_bake
+            cena.cycles.samples = 1
+            _cfg._executar_bake_seguro(cena, type="EMIT")
+
+            nome_orm = f"{nome_base}_orm.png"
+            path_orm = os.path.join(saida_dir, nome_orm)
+            img_orm_tmp = _empacotar_orm(img_ao_tmp, f"{nome_base}_orm_tmp", px_sub, img_hints=img_hints_tmp)
+            extras_roblox = (
+                _extrair_canais_roblox(img_orm_tmp, saida_dir, nome_base, px_sub, cena)
+                if str(perfil_nome or "").startswith("roblox")
+                else []
+            )
+            img_orm = _salvar_e_recarregar_png(img_orm_tmp, path_orm, "Non-Color", cena)
+            obj.data.materials[0] = mat_orig
+            for poly, idx_mat in zip(obj.data.polygons, poly_mat_indices):
+                poly.material_index = idx_mat
+
+            if bsdf is not None:
+                if "Roughness" in bsdf.inputs:
+                    bsdf.inputs["Roughness"].default_value = 0.78
+                if "Specular IOR Level" in bsdf.inputs:
+                    bsdf.inputs["Specular IOR Level"].default_value = 0.50
+                tex_orm = nt_orig.nodes.new("ShaderNodeTexImage")
+                tex_orm.image = img_orm
+                sep = nt_orig.nodes.new("ShaderNodeSeparateColor")
+                sep.mode = "RGB"
+                nt_orig.links.new(tex_orm.outputs["Color"], sep.inputs["Color"])
+                nt_orig.links.new(sep.outputs["Green"], bsdf.inputs["Roughness"])
+                nt_orig.links.new(sep.outputs["Blue"], bsdf.inputs["Metallic"])
+                gltf_out = nt_orig.nodes.new("ShaderNodeGroup")
+                gltf_out.node_tree = _obter_grupo_gltf_occlusion()
+                nt_orig.links.new(sep.outputs["Red"], gltf_out.inputs["Occlusion"])
+
+        if tem_em:
+            tex_bc = img_bc = None
+            if bsdf is not None and "Base Color" in bsdf.inputs and bsdf.inputs["Base Color"].is_linked:
+                src_n = bsdf.inputs["Base Color"].links[0].from_node
+                if getattr(src_n, "type", "") == "TEX_IMAGE":
+                    tex_bc, img_bc = src_n, src_n.image
+            cand_bc = os.path.join(saida_dir, f"{nome_base}_baseColor.png")
+            path_bc = ((img_bc.filepath_raw or img_bc.filepath) if img_bc is not None else "") or (
+                cand_bc if os.path.isfile(cand_bc) else ""
+            )
+            img_em_hint = bpy.data.images.load(emissive_hint, check_existing=False)
+            img_em_hint.colorspace_settings.name = "Non-Color"
+            em_mod = _obter_emissive_mod()
+            img_em_final, img_bc_nova, em_ok = em_mod.assar_e_aplicar_emissive_uv0(
+                cena, obj, saida_dir, nome_base, int(px), px_sub,
+                img_em_hint, None, img_bc, path_bc or None, bilateral=True,
+            )
+            if tex_bc is not None and img_bc_nova is not None:
+                tex_bc.image = img_bc_nova
+                img_bc_nova.pack()
+            if em_ok and img_em_final is not None and bsdf is not None and nt_orig is not None:
+                if getattr(img_em_final, "packed_file", None) is None:
+                    img_em_final.pack()
+                tex_em = nt_orig.nodes.new("ShaderNodeTexImage")
+                tex_em.image = img_em_final
+                if "Emission Color" in bsdf.inputs:
+                    nt_orig.links.new(tex_em.outputs["Color"], bsdf.inputs["Emission Color"])
+                if "Emission Strength" in bsdf.inputs:
+                    bsdf.inputs["Emission Strength"].default_value = 2.0
     finally:
         if obj.data.materials and obj.data.materials[0] != mat_orig:
             obj.data.materials[0] = mat_orig
+        for poly, idx_mat in zip(obj.data.polygons, poly_mat_indices):
+            poly.material_index = idx_mat
         if bake_mat is not None and bake_mat.name in bpy.data.materials and bake_mat.users == 0:
             bpy.data.materials.remove(bake_mat)
-        for img_tmp in (img_met, img_rough, img_ao_tmp, img_hints_tmp):
+        for img_tmp in (img_met, img_rough, img_ao_tmp, img_hints_tmp, img_em_hint, img_em_final):
             if img_tmp is not None and img_tmp.name in bpy.data.images and img_tmp.users == 0:
                 bpy.data.images.remove(img_tmp)
         _cfg._restaurar_estado_cena(cena, estado_anterior)
 
-    bytes_orm = os.path.getsize(path_orm)
-    return {
-        "orm_px": px_sub,
-        "arquivos_textura": [{"caminho": nome_orm, "papel": "orm", "bytes": bytes_orm}, *extras_roblox],
-    }
+    if tem_met or tem_rough:
+        bytes_orm = os.path.getsize(path_orm)
+        return {
+            "orm_px": px_sub,
+            "emissive_aplicado": bool(em_ok),
+            "arquivos_textura": [{"caminho": nome_orm, "papel": "orm", "bytes": bytes_orm}, *extras_roblox],
+        }
+    return {"orm_px": 0, "emissive_aplicado": True, "arquivos_textura": []} if em_ok else None
 
 
 def _redimensionar_png_no_material(

@@ -5,10 +5,12 @@ Canal unico: arquivo JSON de entrada e arquivo JSON de saida (I9). Nada de parse
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import traceback
 
+import bmesh
 import bpy
 from mathutils import Vector
 
@@ -103,48 +105,114 @@ _tem_normal_map = _lc._tem_normal_map
 exportar = _lc.exportar
 
 
-def decimar(obj, alvo_tris: int, proteger_cabeca_maos: bool = False) -> int:
+def decimar(
+    obj,
+    alvo_tris: int,
+    proteger_cabeca_maos: bool = False,
+    *,
+    eh_organico: bool | None = None,
+    angulo_sharp_graus: float = 38.0,
+) -> int:
     return _rp.decimar(
-        obj,
-        alvo_tris,
-        proteger_cabeca_maos=proteger_cabeca_maos,
-        taubin_fn=_suavizar_taubin_bm,
+        obj, alvo_tris, proteger_cabeca_maos=proteger_cabeca_maos,
+        taubin_fn=_suavizar_taubin_bm, eh_organico=eh_organico, angulo_sharp_graus=angulo_sharp_graus,
     )
 
 
-def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
+def calcular_quadriflow_faces(
+    alvo_tris: int, alvo_faces: int = 0, *, qualidade: str = "standard", eh_landmark: bool = False
+) -> int:
+    """Calcula numero alvo de quad-faces para retopologia Quadriflow."""
+    if int(alvo_faces or 0) >= 100:
+        return int(alvo_faces)
+    q = str(qualidade).strip().lower()
+    factor = 0.42 if (eh_landmark or int(alvo_tris) > 2500 or q in ("hero", "ultra")) else 0.38
+    return max(160, int(round(int(alvo_tris) * factor)))
+
+
+def _soldar_in_place(obj, weld_dist: float) -> None:
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(obj.data)
+        bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=weld_dist)
+        bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+        bm.to_mesh(obj.data)
+        obj.data.update()
+    finally:
+        bm.free()
+
+
+def retopologizar_quadriflow(
+    obj,
+    alvo_tris: int,
+    alvo_faces: int = 0,
+    *,
+    eh_organico: bool = True,
+    angulo_sharp_graus: float = 38.0,
+    qualidade: str = "standard",
+    forcar_hard_surface: bool = False,
+    eh_landmark: bool = False,
+) -> bool:
     """Retopologia Quadriflow deterministica; devolve False e restaura malha se falhar ou zerar faces."""
+    if not eh_organico and not forcar_hard_surface:
+        return False
     if obj is None or obj.type != "MESH" or not obj.data or len(obj.data.polygons) < 4:
         return False
     _selecionar(obj)
-    alvos_quads = int(alvo_faces) if int(alvo_faces or 0) >= 100 else max(250, int(alvo_tris) // 2)
+    if getattr(obj, "mode", "OBJECT") != "OBJECT" and hasattr(bpy.ops.object, "mode_set"):
+        bpy.ops.object.mode_set(mode="OBJECT")
+    qual_str = str(qualidade or "standard").strip().lower() or "standard"
+    alvos_quads = calcular_quadriflow_faces(
+        alvo_tris, alvo_faces, qualidade=qual_str, eh_landmark=eh_landmark
+    )
     backup = obj.data.copy()
     try:
-        nm_edges, nm_verts = _rp._contar_nao_manifold(obj)
+        weld_dist = max(1e-7, min(1e-5, 1e-5 * max(obj.dimensions.length, 1e-6)))
+        nm_edges, nm_verts = _rp._contar_nao_manifold(obj, weld_dist=weld_dist)
         tris = malha_triangulada(obj)
         remeshed = False
         if nm_edges > 0 or nm_verts > 0 or tris > 60_000:
-            _rp._remesh_voxel_preservando_partes(obj)
             alvo_pre = max(alvos_quads * 3, 24_000)
-            if malha_triangulada(obj) > alvo_pre:
-                decimar(obj, alvo_pre)
-            reparar_malha(obj)
-            remeshed = True
+            if eh_organico and _rp._remesh_voxel_preservando_partes(obj):
+                if malha_triangulada(obj) > alvo_pre:
+                    decimar(obj, alvo_pre, eh_organico=True, angulo_sharp_graus=angulo_sharp_graus)
+                reparar_malha(obj)
+                remeshed = True
+            else:
+                if not eh_organico and tris > 60_000 and tris > alvo_pre:
+                    decimar(obj, alvo_pre, eh_organico=False, angulo_sharp_graus=angulo_sharp_graus)
+                _soldar_in_place(obj, weld_dist)
+                reparar_malha(obj)
             _selecionar(obj)
+        else:
+            # Solda costuras UV duplicadas in-place sem degradar silhueta com voxel remesh.
+            _soldar_in_place(obj, weld_dist)
+        if not remeshed and hasattr(obj.data, "set_sharp_from_angle"):
+            if getattr(obj, "mode", "OBJECT") != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            obj.data.set_sharp_from_angle(angle=math.radians(float(angulo_sharp_graus)))
+            obj.data.update()
         props = set(bpy.ops.object.quadriflow_remesh.get_rna_type().properties.keys())
         kw = {
-            "use_mesh_symmetry": False,
-            "use_preserve_sharp": not remeshed,
-            "use_preserve_boundary": True,
-            "preserve_attributes": True,
-            "smooth_normals": True,
-            "target_faces": alvos_quads,
-            "seed": 0,
+            "use_mesh_symmetry": False, "use_preserve_sharp": not remeshed,
+            "use_preserve_boundary": True, "preserve_attributes": True,
+            "smooth_normals": True, "target_faces": alvos_quads, "seed": 0,
         }
         kw = {k: v for k, v in kw.items() if k in props}
-        bpy.ops.object.quadriflow_remesh(**kw)
-        if len(obj.data.polygons) < 4 or len(obj.data.vertices) < 4:
-            raise RuntimeError("quadriflow retornou 0 faces")
+        try:
+            bpy.ops.object.quadriflow_remesh(**kw)
+            if len(obj.data.polygons) < 4 or len(obj.data.vertices) < 4:
+                raise RuntimeError("quadriflow retornou 0 faces")
+        except (RuntimeError, TypeError, ValueError) as exc_qf:
+            if not kw.get("use_preserve_sharp"):
+                raise
+            print(f"[postprocess] aviso quadriflow sharp em {obj.name}: {exc_qf}; tentando sem preserve_sharp", file=sys.stderr)
+            _rp._trocar_mesh_seguro(obj, backup.copy())
+            _soldar_in_place(obj, weld_dist)
+            kw["use_preserve_sharp"] = False
+            bpy.ops.object.quadriflow_remesh(**kw)
+            if len(obj.data.polygons) < 4 or len(obj.data.vertices) < 4:
+                raise RuntimeError("quadriflow retornou 0 faces") from exc_qf
         bpy.data.meshes.remove(backup)
         return True
     except (RuntimeError, TypeError, ValueError, AttributeError) as exc:
@@ -156,8 +224,10 @@ def retopologizar_quadriflow(obj, alvo_tris: int, alvo_faces: int = 0) -> bool:
         return False
 
 
-def desdobrar_uv(obj, margem: float = 0.004) -> str:
-    return _nuv.desdobrar_uv(obj, margem=margem)
+def desdobrar_uv(
+    obj, margem: float = 0.004, angle_limit_graus: float = 66.0, *, eh_organico: bool = True
+) -> str:
+    return _nuv.desdobrar_uv(obj, margem=margem, angle_limit_graus=angle_limit_graus, eh_organico=eh_organico)
 
 
 def _reduzir_imagens_embutidas_orcamento(
@@ -258,29 +328,17 @@ def processar(job: dict) -> dict:
             if not rig_pre_existente:
                 _br._prealinhar_se_criatura_rig(obj, job, item, perfil, autorig_mod=autorig)
             high_obj_src = _br._clonar_high_nao_linkado(obj, nome_base)
-            smooth_normals_aplicado, weighted_normals_aplicado, qf_ok = (
-                _br._preparar_low_antes_escala(
-                    obj,
-                    ctx_bruto,
-                    info_gerada,
-                    alpha_cards_ativo,
-                    bruto,
-                    rig_obj,
-                    cfg_suav,
-                    retopologizar_quadriflow,
-                    decimar,
-                    desdobrar_uv,
-                )
+            smooth_normals_aplicado, weighted_normals_aplicado, qf_ok = _br._preparar_low_antes_escala(
+                obj, ctx_bruto, info_gerada, alpha_cards_ativo, bruto, rig_obj,
+                cfg_suav, retopologizar_quadriflow, decimar, desdobrar_uv,
             )
             if qf_ok:
                 quadriflow_aplicado = True
             usar_bake_pendente = True
         else:
-            smooth_normals_aplicado, weighted_normals_aplicado, qf_ok = (
-                _br._reduzir_e_suavizar_sem_bake(
-                    obj, rig_obj, bruto, ctx_bruto, cfg_suav, alpha_cards_ativo, info_gerada,
-                    retopologizar_quadriflow, decimar, desdobrar_uv,
-                )
+            smooth_normals_aplicado, weighted_normals_aplicado, qf_ok = _br._reduzir_e_suavizar_sem_bake(
+                obj, rig_obj, bruto, ctx_bruto, cfg_suav, alpha_cards_ativo, info_gerada,
+                retopologizar_quadriflow, decimar, desdobrar_uv,
             )
             if qf_ok:
                 quadriflow_aplicado = True
@@ -291,10 +349,7 @@ def processar(job: dict) -> dict:
         )
         if high_obj_src is not None:
             _br._sincronizar_high_pos_rig(
-                high_obj_src,
-                obj,
-                info_gerada,
-                rig_criado_agora=(not rig_pre_existente and rig_obj is not None),
+                high_obj_src, obj, info_gerada, rig_criado_agora=(not rig_pre_existente and rig_obj is not None),
             )
     else:
         raise RuntimeError(f"bruto desconhecido: {bruto['schema']}")
@@ -312,18 +367,13 @@ def processar(job: dict) -> dict:
         raise RuntimeError("geometria com altura zero")
     escala_preservada = bool(bruto.get("escala_preservada"))
     if escala_preservada:
-        escala = 1.0 * escala_saida
-        pivo = Vector((0.0, 0.0, 0.0))
-        origem_regra = "preservada"
+        escala, pivo, origem_regra = 1.0 * escala_saida, Vector((0.0, 0.0, 0.0)), "preservada"
     else:
         raw_alt = item.get("altura_metros")
-        alvo = float(raw_alt) if raw_alt is not None else altura_atual
-        escala = (alvo / altura_atual) * escala_saida
+        escala = ((float(raw_alt) if raw_alt is not None else altura_atual) / altura_atual) * escala_saida
         pivot_nome = item.get("pivot", "base")
         pivo_declarado = (bruto.get("pivos") or {}).get(pivot_nome)
-        pivo, origem_regra = calcular_pivo(
-            pivot_nome, minimo * escala, maximo * escala, pivo_declarado
-        )
+        pivo, origem_regra = calcular_pivo(pivot_nome, minimo * escala, maximo * escala, pivo_declarado)
         if pivo_declarado:
             pivo = Vector(pivo_declarado) * escala
 
@@ -337,14 +387,8 @@ def processar(job: dict) -> dict:
 
     if usar_bake_pendente and ctx_bruto is not None and high_obj_src is not None:
         _ep._reparar_e_suavizar_pos_escala(
-            obj,
-            rig_obj,
-            escala,
-            alpha_cards_ativo,
-            smooth_normals_aplicado,
-            angulo_smooth_final,
-            weighted_normals_aplicado,
-            info_gerada,
+            obj, rig_obj, escala, alpha_cards_ativo, smooth_normals_aplicado,
+            angulo_smooth_final, weighted_normals_aplicado, info_gerada,
             rig_pre_existente=rig_pre_existente,
         )
         origem_tex = _resolver_opcional_bruto(bruto_dir, bruto.get("origem_textura"))
@@ -353,69 +397,45 @@ def processar(job: dict) -> dict:
         emissive_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("emissive_hint"))
         vistas_orto = _sc._resolver_vistas_ortograficas(bruto_dir, bruto, job, item)
         mat_proc = ctx_bruto["mat_proc"]
-        bake_ctx, decimar_cb, reparo_cb, suavizar_cb, uv_cb = (
-            _nuv._preparar_contexto_bake_pos_escala(
-                obj,
-                high_obj_src,
-                pbr_zonas_cfg,
-                info_gerada,
-                alpha_cards_ativo,
-                angulo_smooth_final,
-                desdobrar_uv,
-                bake_pbr,
-            )
+        bake_ctx, decimar_cb, reparo_cb, suavizar_cb, uv_cb = _nuv._preparar_contexto_bake_pos_escala(
+            obj, high_obj_src, pbr_zonas_cfg, info_gerada, alpha_cards_ativo,
+            angulo_smooth_final, desdobrar_uv, bake_pbr,
         )
         try:
             res_bake = bake_pbr.executar_bake_high_low(
-                obj,
-                saida_dir,
-                nome_base,
-                ctx_bruto["px"],
-                ctx_bruto["limite_tris"],
-                reparo_cb,
-                decimar_cb,
-                suavizar_cb,
-                uv_cb,
-                origem_textura=origem_tex,
-                metallic_hint_png=met_hint,
-                roughness_hint_png=rough_hint,
-                emissive_hint=emissive_hint,
+                obj, saida_dir, nome_base, ctx_bruto["px"], ctx_bruto["limite_tris"],
+                reparo_cb, decimar_cb, suavizar_cb, uv_cb,
+                origem_textura=origem_tex, metallic_hint_png=met_hint,
+                roughness_hint_png=rough_hint, emissive_hint=emissive_hint,
                 proteger_superficie=ctx_bruto["proteger"],
                 perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
                 material_procedural=mat_proc or None,
                 permitir_sem_cor_vertice=bool(
-                    mat_proc
-                    or pbr_zonas_cfg
-                    or detalhe_alto_cfg
+                    mat_proc or pbr_zonas_cfg or detalhe_alto_cfg
                     or str(ctx_bruto["item_bake_check"].get("material") or "").strip().lower() == "pbr"
                     or ctx_bruto["retopologia_pedida"] == "quadriflow"
                 ),
                 detalhe_alto=detalhe_alto_cfg if isinstance(detalhe_alto_cfg, dict) else None,
                 pbr_zonas=list(pbr_zonas_cfg) if isinstance(pbr_zonas_cfg, list) else None,
-                px_sub=ctx_bruto["px_sub"],
-                qualidade=qualidade_item or None,
-                vistas_ortograficas=vistas_orto,
+                px_sub=ctx_bruto["px_sub"], qualidade=qualidade_item or None, vistas_ortograficas=vistas_orto,
+                tipo_item=str(item.get("tipo") or ""),
             )
         finally:
             _nuv._finalizar_contexto_bake_pos_escala(bake_ctx)
 
         bake_meta = res_bake["bake"]
-        info_gerada["triangulos_antes_decimate"] = bake_meta["triangulos_high"]
-        info_gerada["triangulos_pos_decimate"] = bake_meta["triangulos_low"]
-        info_gerada["reparo_pos_decimate"] = bake_meta["reparo"]
-        info_gerada["smooth"] = bake_meta["smooth"]
-        info_gerada["uv"] = bake_meta["uv"]
-        info_gerada["bake"] = bake_meta
+        info_gerada.update({
+            "triangulos_antes_decimate": bake_meta["triangulos_high"],
+            "triangulos_pos_decimate": bake_meta["triangulos_low"],
+            "reparo_pos_decimate": bake_meta["reparo"],
+            "smooth": bake_meta["smooth"], "uv": bake_meta["uv"], "bake": bake_meta,
+        })
         if mat_proc:
             info_gerada["material_procedural"] = mat_proc
         smooth_normals_aplicado = True
         texturas_geradas.extend(res_bake["arquivos_textura"])
 
-    if bruto["schema"] != "forge3d/bruto-blocky@1" and item.get("tipo") in (
-        "modulo_cenario",
-        "prop_estatico",
-        "mapa_setor",
-    ):
+    if bruto["schema"] != "forge3d/bruto-blocky@1" and item.get("tipo") in ("modulo_cenario", "prop_estatico", "mapa_setor"):
         gerar_uv_lightmap(obj)
 
     animacoes_geradas, sockets_extraidos = _ep._pos_escala_rig_e_animacao(
@@ -424,17 +444,10 @@ def processar(job: dict) -> dict:
         info_gerada, autorig_mod=autorig, pular_reparo_pos_escala=usar_bake_pendente,
     )
     sombreamento_meta = {
-        "smooth_normals": bool(smooth_normals_aplicado),
-        "angulo_graus": round(float(angulo_smooth_final), 2),
-        "weighted_normals": bool(weighted_normals_aplicado),
-        "quadriflow_aplicado": bool(quadriflow_aplicado),
+        "smooth_normals": bool(smooth_normals_aplicado), "angulo_graus": round(float(angulo_smooth_final), 2),
+        "weighted_normals": bool(weighted_normals_aplicado), "quadriflow_aplicado": bool(quadriflow_aplicado),
     }
-    orientacao_export_meta = {
-        "frente_gltf": "-Z",
-        "cima_gltf": "+Y",
-        "direita_gltf": "+X",
-        "det_matriz": 1,
-    }
+    orientacao_export_meta = {"frente_gltf": "-Z", "cima_gltf": "+Y", "direita_gltf": "+X", "det_matriz": 1}
     medidas_base = _ep._montar_medidas_lod0(
         obj, rig_obj, escala_saida, origem_regra, escala_preservada,
         animacoes_geradas, sockets_extraidos, esqueleto_efetivo, esqueleto_pedido,
@@ -443,14 +456,12 @@ def processar(job: dict) -> dict:
     arquivos = _ep._exportar_lods(
         obj, rig_obj, grupos, job, item, perfil, bruto, saida_dir, nome_base,
         qualidade_item, alpha_cards_ativo, smooth_normals_aplicado, angulo_smooth_final,
-        animacoes_geradas, texturas_geradas, medidas_base,
-        _reduzir_imagens_embutidas_orcamento,
+        animacoes_geradas, texturas_geradas, medidas_base, _reduzir_imagens_embutidas_orcamento,
     )
     return _ep._finalizar_colisor_e_resultado(
         obj, rig_obj, job, item, perfil, bruto, bruto_dir, saida_dir, nome_base,
         escala_saida, esqueleto_efetivo, info_gerada, detalhe_alto_cfg, pbr_zonas_cfg,
-        texturas_geradas, sockets_extraidos, sombreamento_meta, orientacao_export_meta,
-        medidas_base, arquivos,
+        texturas_geradas, sockets_extraidos, sombreamento_meta, orientacao_export_meta, medidas_base, arquivos,
     )
 
 
@@ -459,19 +470,11 @@ def main() -> int:
     if "--" not in argv:
         print("uso: blender -b -P postprocess.py -- <job.json>", file=sys.stderr)
         return 2
-    job_path = argv[argv.index("--") + 1]
-    job = jload(job_path)
+    job = jload(argv[argv.index("--") + 1])
     try:
         resultado = processar(job)
     except Exception as exc:  # noqa: BLE001 - o erro precisa sair como arquivo
-        jsave(
-            job["saida_resultado"],
-            {
-                "ok": False,
-                "erro": str(exc),
-                "traceback": traceback.format_exc(limit=8),
-            },
-        )
+        jsave(job["saida_resultado"], {"ok": False, "erro": str(exc), "traceback": traceback.format_exc(limit=8)})
         print(f"FORGE3D_BPY_FALHOU: {exc}", file=sys.stderr)
         return 1
     jsave(job["saida_resultado"], resultado)

@@ -331,3 +331,149 @@ def _executar_bake_seguro(cena, **kwargs) -> None:
             bpy.ops.object.bake(**kwargs)
         else:
             raise
+
+
+def _diag_bmesh_verts(bm) -> float:
+    if not bm.verts:
+        return 0.0
+    xs, ys, zs = [v.co.x for v in bm.verts], [v.co.y for v in bm.verts], [v.co.z for v in bm.verts]
+    return math.sqrt((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2 + (max(zs) - min(zs)) ** 2)
+
+
+def _deletar_faces_e_orfaos(bm, faces: list) -> None:
+    bmesh.ops.delete(bm, geom=faces, context="FACES")
+    soltas_e = [e for e in bm.edges if not e.link_faces]
+    if soltas_e:
+        bmesh.ops.delete(bm, geom=soltas_e, context="EDGES")
+    soltos_v = [v for v in bm.verts if not v.link_faces]
+    if soltos_v:
+        bmesh.ops.delete(bm, geom=soltos_v, context="VERTS")
+
+
+def filtrar_casca_interna_high(
+    high_obj, low_obj, suavizar_fn=None, *, eh_organico: bool = True
+) -> dict:
+    """Remove casca interna invertida coplanar de dual-contouring preservando paredes finas."""
+    vazio = {"aplicado": False, "faces_removidas": 0, "faces_restantes": 0}
+    if (
+        bmesh is None or high_obj is None or low_obj is None
+        or getattr(high_obj, "type", None) != "MESH" or getattr(low_obj, "type", None) != "MESH"
+        or getattr(high_obj, "data", None) is None or getattr(low_obj, "data", None) is None
+        or not high_obj.data.polygons or not low_obj.data.polygons
+    ):
+        return vazio
+
+    from mathutils.bvhtree import BVHTree
+
+    bm_low, bm_high = bmesh.new(), bmesh.new()
+    try:
+        bm_low.from_mesh(low_obj.data)
+        bmesh.ops.transform(bm_low, matrix=high_obj.matrix_world.inverted_safe() @ low_obj.matrix_world, verts=list(bm_low.verts))
+        bm_low.normal_update()
+        diag = _diag_bmesh_verts(bm_low)
+        if diag <= 1e-6:
+            return {"aplicado": False, "faces_removidas": 0, "faces_restantes": len(high_obj.data.polygons)}
+        bvh_low = BVHTree.FromBMesh(bm_low)
+
+        bm_high.from_mesh(high_obj.data)
+        bm_high.normal_update()
+        bvh_high = BVHTree.FromBMesh(bm_high)
+        total = len(bm_high.faces)
+        max_dist = (0.005 if eh_organico else 0.002) * diag
+        dot_lim = -0.55 if eh_organico else -0.85
+        ray_eps = 1e-5 * diag
+        neg_faces, pos_count = [], 0
+        for f in bm_high.faces:
+            centro_f = f.calc_center_median()
+            loc, n_low, _idx, dist = bvh_low.find_nearest(centro_f)
+            if loc is None:
+                continue
+            d = f.normal.dot(n_low)
+            if d < dot_lim and dist <= max_dist and f.normal.length > 1e-8:
+                hit_loc, hit_n, hit_idx, _hit_d = bvh_high.ray_cast(centro_f - f.normal * ray_eps, -f.normal, max_dist)
+                if hit_loc is not None and hit_idx != f.index and hit_n.dot(f.normal) < -0.50:
+                    neg_faces.append(f)
+            elif d > 0.15:
+                pos_count += 1
+
+        if total < 200 or len(neg_faces) < 100 or (len(neg_faces) / float(total)) < 0.15 or (pos_count / float(total)) < 0.20:
+            return {"aplicado": False, "faces_removidas": 0, "faces_restantes": total}
+
+        _deletar_faces_e_orfaos(bm_high, neg_faces)
+        weld_dist = max(1e-5, min(1e-4, 1.5e-5 * diag))
+        if bm_high.verts:
+            bmesh.ops.remove_doubles(bm_high, verts=list(bm_high.verts), dist=weld_dist)
+        bm_high.normal_update()
+        bm_high.to_mesh(high_obj.data)
+        high_obj.data.update()
+        n_removidas = len(neg_faces)
+    finally:
+        bm_high.free()
+        bm_low.free()
+
+    if callable(suavizar_fn):
+        suavizar_fn(high_obj)
+    return {"aplicado": True, "faces_removidas": n_removidas, "faces_restantes": len(high_obj.data.polygons)}
+
+
+def remover_espuma_interna_malha(obj, suavizar_fn=None) -> dict:
+    """Remove espuma/casca interna presa por visibilidade de 9 raios hemisfericos em espaco local."""
+    if (
+        bmesh is None or obj is None or getattr(obj, "type", None) != "MESH"
+        or getattr(obj, "data", None) is None or not obj.data.polygons
+    ):
+        return {"aplicado": False, "faces_removidas": 0, "faces_restantes": 0}
+
+    from mathutils.bvhtree import BVHTree
+
+    bm = bmesh.new()
+    aplicado, rem, total = False, 0, len(obj.data.polygons)
+    try:
+        bm.from_mesh(obj.data)
+        bm.normal_update()
+        bm.faces.ensure_lookup_table()
+        total = len(bm.faces)
+        diag = _diag_bmesh_verts(bm)
+        if total < 200 or diag <= 1e-6:
+            return {"aplicado": False, "faces_removidas": 0, "faces_restantes": total}
+
+        vol_before = bm.calc_volume(signed=True)
+        bvh = BVHTree.FromBMesh(bm)
+        eps = 1e-4 * diag
+        ref_x, ref_y = Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0))
+        presas = []
+        for f in bm.faces:
+            if f.normal.length <= 1e-8:
+                continue
+            n = f.normal.normalized()
+            t1 = n.cross(ref_x if abs(n.x) < 0.9 else ref_y).normalized()
+            t2 = n.cross(t1).normalized()
+            d1, d2 = (t1 + t2).normalized(), (t1 - t2).normalized()
+            orig = f.calc_center_median() + n * eps
+            raios = (
+                n, (n + t1).normalized(), (n - t1).normalized(), (n + t2).normalized(), (n - t2).normalized(),
+                (0.45 * n + d1).normalized(), (0.45 * n - d1).normalized(),
+                (0.45 * n + d2).normalized(), (0.45 * n - d2).normalized(),
+            )
+            if all(bvh.ray_cast(orig, d)[0] is not None for d in raios):
+                presas.append(f)
+
+        rem = len(presas)
+        if rem < 100 or not (0.15 <= (rem / float(total)) <= 0.85):
+            return {"aplicado": False, "faces_removidas": 0, "faces_restantes": total}
+
+        _deletar_faces_e_orfaos(bm, presas)
+        bm.normal_update()
+        vol_after = bm.calc_volume(signed=True)
+        if abs(vol_after) < max(abs(vol_before) * 0.70, 1e-6):
+            return {"aplicado": False, "faces_removidas": 0, "faces_restantes": total}
+
+        bm.to_mesh(obj.data)
+        obj.data.update()
+        aplicado = True
+    finally:
+        bm.free()
+
+    if aplicado and callable(suavizar_fn):
+        suavizar_fn(obj)
+    return {"aplicado": True, "faces_removidas": rem, "faces_restantes": total - rem, "modo": "espuma_interna_9raios"}

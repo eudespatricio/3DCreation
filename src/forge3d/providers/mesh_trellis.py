@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -10,11 +11,13 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from .. import paths
 from ..errors import ForgeError, erro_licenca, erro_provider_run
+from . import concept_preflight as _preflight
 from . import mesh_diag as _diag
 from .mesh_templates import ler_json_obrigatorio
 
@@ -122,7 +125,7 @@ def tex_guidance_trellis2() -> float:
 
 
 def remesh_project_trellis2() -> float:
-    raw = os.environ.get("FORGE3D_TRELLIS2_REMESH_PROJECT", "1.0").strip() or "1.0"
+    raw = os.environ.get("FORGE3D_TRELLIS2_REMESH_PROJECT", "0.9").strip() or "0.9"
     val = float(raw)
     if not math.isfinite(val) or not (0.0 <= val <= 1.0):
         raise ValueError(f"FORGE3D_TRELLIS2_REMESH_PROJECT deve estar em [0.0, 1.0]: {raw!r}")
@@ -147,7 +150,7 @@ def cache_tag_trellis2() -> str:
         os.environ.get("FORGE3D_TRELLIS2_STEPS", "25").strip() or "25",
         os.environ.get("FORGE3D_TRELLIS2_SHAPE_GUIDANCE", "7.5").strip() or "7.5",
         os.environ.get("FORGE3D_TRELLIS2_TEX_GUIDANCE", "3.0").strip() or "3.0",
-        os.environ.get("FORGE3D_TRELLIS2_REMESH_PROJECT", "1.0").strip() or "1.0",
+        os.environ.get("FORGE3D_TRELLIS2_REMESH_PROJECT", "0.9").strip() or "0.9",
         os.environ.get("FORGE3D_I23D_DECIMATION_TARGET", "").strip(),
         str(dir_repo_trellis2()),
         str(dir_models_trellis2()),
@@ -377,6 +380,7 @@ def executar_i23d_trellis2_local(
     destino: Path,
     imagem: Path,
     env: dict[str, str],
+    gpu_lock_factory: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     """Executa TRELLIS.2-4B local em subprocesso isolado via ``tools/trellis2_infer.py`` (I9)."""
     from . import LICENCAS
@@ -385,10 +389,7 @@ def executar_i23d_trellis2_local(
     if _diag.facade_attr("_device", _diag._device)().startswith("cpu"):
         raise erro_provider_run("TRELLIS.2 local requer GPU CUDA (CPU nao suportado)", id=item.get("id"), modelo="trellis")
 
-    venv_py = dir_venv_trellis2() / "bin" / "python"
-    repo_dir = dir_repo_trellis2()
-    models_dir = dir_models_trellis2()
-    script = script_trellis2_infer()
+    venv_py, repo_dir, models_dir, script = dir_venv_trellis2() / "bin" / "python", dir_repo_trellis2(), dir_models_trellis2(), script_trellis2_infer()
     if not venv_py.is_file():
         raise erro_provider_run(f"venv TRELLIS.2 ausente em {dir_venv_trellis2()}", id=item.get("id"), modelo="trellis")
     if not (repo_dir / "trellis2_gguf").is_dir():
@@ -397,18 +398,13 @@ def executar_i23d_trellis2_local(
         raise erro_provider_run(f"script trellis2_infer.py ausente em {script}", id=item.get("id"), modelo="trellis")
 
     try:
-        quant = quant_trellis2()
-        pipe_type = pipeline_type_trellis2()
-        steps = steps_trellis2()
-        shape_cfg = shape_guidance_trellis2()
-        tex_cfg = tex_guidance_trellis2()
-        remesh_proj = remesh_project_trellis2()
+        quant, pipe_type, steps = quant_trellis2(), pipeline_type_trellis2(), steps_trellis2()
+        shape_cfg, tex_cfg, remesh_proj = shape_guidance_trellis2(), tex_guidance_trellis2(), remesh_project_trellis2()
         decimation_target = calcular_decimation_target(item)
         seed_raw = item.get("seed")
         seed = int(seed_raw) if seed_raw is not None else 1
         qual = _diag.facade_attr("_qualidade", _diag._qualidade)(item)
-        tex_def = "2048" if qual in ("hero", "ultra") else "1024"
-        tex_size = int(os.environ.get("FORGE3D_TEX_PX", tex_def))
+        tex_size = int(os.environ.get("FORGE3D_TEX_PX", "2048" if qual in ("hero", "ultra") else "1024"))
         timeout_s = max(1, int(os.environ.get("FORGE3D_I23D_TIMEOUT", "1200")))
     except (TypeError, ValueError) as exc:
         raise erro_provider_run(f"parametro invalido para TRELLIS.2 local: {exc}", id=item.get("id"), modelo="trellis") from exc
@@ -420,33 +416,34 @@ def executar_i23d_trellis2_local(
     destino.mkdir(parents=True, exist_ok=True)
     input_png, input_rgba = _preparar_inputs_locais(imagem, destino, env)
     front_src = input_rgba if (input_rgba and input_rgba.is_file()) else input_png
+    front_src, preflight_2d = _preflight.validar_e_preparar_concept_2d(front_src, destino, item=item, env=env)
+    if not preflight_2d.get("ok", True):
+        erros_pf = ", ".join(str(e) for e in (preflight_2d.get("erros") or ())) or "invalido"
+        raise erro_provider_run(
+            f"preflight 2D reprovou concept ({erros_pf})",
+            id=item.get("id"), modelo="trellis", preflight_2d=preflight_2d,
+        )
+    if preflight_2d.get("auto_padded") and input_rgba is not None and front_src.is_file() and front_src.resolve() != input_rgba.resolve():
+        shutil.copyfile(front_src, input_rgba)
+
     resultado_path = destino / "i23d_resultado.json"
     if resultado_path.exists():
         resultado_path.unlink()
 
     comando = [
-        str(venv_py), str(script),
-        "--imagem", str(front_src),
-        "--saida-dir", str(destino),
-        "--resultado", str(resultado_path),
-        "--models-dir", str(models_dir),
-        "--repo-dir", str(repo_dir),
-        "--modelo", modelo_canon,
-        "--seed", str(seed),
-        "--quant", quant,
-        "--pipeline-type", pipe_type,
-        "--steps", str(steps),
-        "--shape-guidance", str(shape_cfg),
-        "--tex-guidance", str(tex_cfg),
-        "--texture-size", str(tex_size),
-        "--decimation-target", str(decimation_target),
-        "--remesh-project", str(remesh_proj),
+        str(venv_py), str(script), "--imagem", str(front_src), "--saida-dir", str(destino),
+        "--resultado", str(resultado_path), "--models-dir", str(models_dir), "--repo-dir", str(repo_dir),
+        "--modelo", modelo_canon, "--seed", str(seed), "--quant", quant, "--pipeline-type", pipe_type,
+        "--steps", str(steps), "--shape-guidance", str(shape_cfg), "--tex-guidance", str(tex_cfg),
+        "--texture-size", str(tex_size), "--decimation-target", str(decimation_target), "--remesh-project", str(remesh_proj),
     ]
+    lock_fn = gpu_lock_factory if gpu_lock_factory is not None else contextlib.nullcontext
     t0 = time.monotonic()
     try:
-        proc = _diag.subproc_run(
-            comando, capture_output=True, text=True, timeout=timeout_s, env=env_subprocesso_trellis2(env)
-        )
+        with lock_fn():
+            proc = _diag.subproc_run(
+                comando, capture_output=True, text=True, timeout=timeout_s, env=env_subprocesso_trellis2(env)
+            )
     except subprocess.TimeoutExpired:
         raise erro_provider_run(f"timeout de {timeout_s}s na inferencia TRELLIS.2 local", id=item.get("id"), modelo="trellis") from None
     except OSError as exc:
@@ -455,18 +452,13 @@ def executar_i23d_trellis2_local(
     if not resultado_path.is_file():
         raise erro_provider_run(
             "trellis2_infer nao escreveu i23d_resultado.json",
-            id=item.get("id"),
-            modelo="trellis",
-            exit=proc.returncode,
-            stderr=(proc.stderr or proc.stdout or "")[-2000:],
+            id=item.get("id"), modelo="trellis", exit=proc.returncode, stderr=(proc.stderr or proc.stdout or "")[-2000:],
         )
     resultado = ler_json_obrigatorio(resultado_path, "trellis2_local", item.get("id"))
     if not resultado.get("ok"):
         raise erro_provider_run(
             f"TRELLIS.2 local falhou: {resultado.get('erro')}",
-            id=item.get("id"),
-            modelo="trellis",
-            stderr=(resultado.get("traceback") or "")[-2000:],
+            id=item.get("id"), modelo="trellis", stderr=(resultado.get("traceback") or "")[-2000:],
         )
     glb_out = destino / "modelo.glb"
     if not glb_out.is_file() or glb_out.stat().st_size == 0:
@@ -475,6 +467,7 @@ def executar_i23d_trellis2_local(
     resultado["provedor"] = "trellis2_local"
     resultado["modelo"] = validar_modelo_trellis_licenca(str(resultado.get("modelo") or modelo_canon))
     resultado["licenca"] = dict(LICENCAS["trellis"])
+    resultado["preflight_2d"] = preflight_2d
     resultado.setdefault("tempo_s", round(time.monotonic() - t0, 3))
     resultado_path.write_text(json.dumps(resultado, sort_keys=True, indent=1) + "\n", encoding="utf-8")
     return resultado

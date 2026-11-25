@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import inspect
 import json
 import os
 import shutil
@@ -12,6 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from . import concept_preflight as _preflight
 from . import mesh_diag as _diag
 from . import mesh_trellis as _trellis
 from .mesh_templates import anexar_concept_vistas, ler_json_obrigatorio
@@ -189,8 +192,9 @@ def _processar_vistas_i23d(
     origem_textura: str, delight_ativo: bool, dl_script: Path,
     delight_fn: Callable[[Path, Path, dict[str, str]], dict[str, Any]], env: dict[str, str],
 ) -> None:
-    if _diag.facade_attr("modelo_escolhido", _diag.modelo_escolhido)() == "trellis":
-        for v_extra in ("back", "left", "right"):
+    eh_trellis = _diag.facade_attr("modelo_escolhido", _diag.modelo_escolhido)() == "trellis"
+    if eh_trellis:
+        for v_extra in ("left", "right"):
             raw_rm = vistas.pop(v_extra, None)
             if raw_rm:
                 p_rm = Path(raw_rm)
@@ -250,7 +254,7 @@ def _processar_vistas_i23d(
             else:
                 sys.stderr.write(f"[mesh_i23d] aviso pose_guard.py ausente ({pg_script}); mantendo vista '{v}' original\n")
 
-        if delight_ativo and dl_script.is_file() and v_atual.is_file():
+        if delight_ativo and not eh_trellis and dl_script.is_file() and v_atual.is_file():
             subdir_v = destino / f"_dl_{v}"
             subdir_v.mkdir(parents=True, exist_ok=True)
             try:
@@ -290,14 +294,11 @@ def _processar_vistas_i23d(
 
 
 def executar_i23d_step(
-    item: dict,
-    destino: Path,
-    imagem: Path,
-    concept_meta: dict | None,
-    env: dict[str, str],
-    t0: float,
+    item: dict, destino: Path, imagem: Path, concept_meta: dict | None,
+    env: dict[str, str], t0: float,
     pose_guard_fn: Callable[[dict, Path, Path, dict[str, str]], tuple[Path, dict[str, Any]]],
     delight_fn: Callable[[Path, Path, dict[str, str]], dict[str, Any]],
+    gpu_lock_factory: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     from ..errors import erro_provider_run
 
@@ -311,56 +312,65 @@ def executar_i23d_step(
     if modelo_ativo == "trellis":
         remover_fundo, motivo_rembg = decidir_rembg(imagem, concept_meta)
         pose_guard_report: dict[str, Any] = {"modo": "trellis2_local", "ignorado": True}
-        resultado = _trellis.executar_i23d_trellis2_local(item, destino, imagem, env)
+        fn_tr = _trellis.executar_i23d_trellis2_local
+        if "gpu_lock_factory" in inspect.signature(fn_tr).parameters:
+            resultado = fn_tr(item, destino, imagem, env, gpu_lock_factory=gpu_lock_factory)
+        else:
+            resultado = fn_tr(item, destino, imagem, env)
+        preflight_2d = resultado.get("preflight_2d")
     else:
         dir_venv_fn = _diag.facade_attr("dir_venv", _diag.dir_venv)
         infer_fn = _diag.facade_attr("script_inferencia", _diag.script_inferencia)
         rembg_mod_fn = _diag.facade_attr("_rembg_modelo", _diag._rembg_modelo)
         device_fn = _diag.facade_attr("_device", _diag._device)
         imagem, pose_guard_report = pose_guard_fn(item, imagem, destino, env)
+        destino.mkdir(parents=True, exist_ok=True)
+        imagem, preflight_2d = _preflight.validar_e_preparar_concept_2d(imagem, destino, item=item, env=env)
+        if not preflight_2d.get("ok", True):
+            erros_pf = ", ".join(str(e) for e in (preflight_2d.get("erros") or ())) or "invalido"
+            raise erro_provider_run(f"preflight 2D reprovou concept ({erros_pf})", id=item.get("id"), preflight_2d=preflight_2d)
+
         mc_default = "320" if qualidade_fn(item) in ("hero", "ultra") else "256"
         resolucao = os.environ.get("FORGE3D_MC_RESOLUTION", mc_default)
         timeout_s = _diag.facade_attr("TIMEOUT_S", _diag.TIMEOUT_S)
         modelo_hf = _diag.facade_attr("MODELO_HF", _diag.MODELO_HF)
+        dev_str = device_fn()
         comando = [
-            str(dir_venv_fn() / "bin" / "python"),
-            str(infer_fn()),
-            "--imagem", str(imagem),
-            "--saida-dir", str(destino),
-            "--resultado", str(resultado_path),
-            "--modelo", modelo_hf,
-            "--mc-resolution", str(int(resolucao)),
-            "--device", device_fn(),
+            str(dir_venv_fn() / "bin" / "python"), str(infer_fn()), "--imagem", str(imagem),
+            "--saida-dir", str(destino), "--resultado", str(resultado_path),
+            "--modelo", modelo_hf, "--mc-resolution", str(int(resolucao)), "--device", dev_str,
         ]
         remover_fundo, motivo_rembg = decidir_rembg(imagem, concept_meta)
         if remover_fundo:
             comando.extend(["--remover-fundo", "--rembg-modelo", rembg_mod_fn()])
 
+        lock_ctx = (
+            gpu_lock_factory()
+            if (gpu_lock_factory is not None and not dev_str.startswith("cpu"))
+            else contextlib.nullcontext()
+        )
         try:
-            proc = _diag.subproc_run(
-                comando, capture_output=True, text=True, timeout=timeout_s, env=env
-            )
+            with lock_ctx:
+                proc = _diag.subproc_run(
+                    comando, capture_output=True, text=True, timeout=timeout_s, env=env
+                )
         except subprocess.TimeoutExpired:
-            raise erro_provider_run(
-                f"timeout de {timeout_s}s na inferência i23d", id=item.get("id")
-            ) from None
+            raise erro_provider_run(f"timeout de {timeout_s}s na inferência i23d", id=item.get("id")) from None
         except OSError as exc:
             raise erro_provider_run(f"falha ao executar a venv de i23d: {exc}", id=item.get("id")) from exc
 
         if not resultado_path.is_file():
             raise erro_provider_run(
                 "i23d não escreveu resultado.json",
-                id=item.get("id"),
-                exit=proc.returncode,
-                stderr=(proc.stderr or proc.stdout or "")[-2000:],
+                id=item.get("id"), exit=proc.returncode, stderr=(proc.stderr or proc.stdout or "")[-2000:],
             )
         resultado = ler_json_obrigatorio(resultado_path, "i23d", item.get("id"))
         if not resultado.get("ok"):
             raise erro_provider_run(
                 f"i23d falhou: {resultado.get('erro')}",
-                id=item.get("id"),
-                stderr=(resultado.get("traceback") or "")[-2000:],
+                id=item.get("id"), stderr=(resultado.get("traceback") or "")[-2000:],
             )
+        resultado["preflight_2d"] = preflight_2d
 
     glb = destino / "modelo.glb"
     if not glb.is_file():
@@ -428,10 +438,10 @@ def executar_i23d_step(
     item_vistas, cmeta_vistas = item, concept_meta
     if modelo_ativo == "trellis" and vistas_4_pedidas:
         if isinstance(item.get("vistas_ortograficas"), dict):
-            vo_f = {k: v for k, v in item["vistas_ortograficas"].items() if k == "front"}
+            vo_f = {k: v for k, v in item["vistas_ortograficas"].items() if k in ("front", "back")}
             item_vistas = {**item, "vistas_ortograficas": vo_f}
         if isinstance(concept_meta, dict) and isinstance(concept_meta.get("vistas"), dict):
-            cv_f = {k: v for k, v in concept_meta["vistas"].items() if k == "front"}
+            cv_f = {k: v for k, v in concept_meta["vistas"].items() if k in ("front", "back")}
             cmeta_vistas = {**concept_meta, "vistas": cv_f}
 
     vistas_meta: dict[str, Any] = {}

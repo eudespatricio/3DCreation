@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from .qc_glb import malha
 
 
-def topologia(gltf: dict, binario: bytes) -> dict:
+def topologia(
+    gltf: dict | Sequence[tuple[float, float, float]],
+    binario: bytes | bytearray | Sequence[tuple[int, int, int]],
+) -> dict:
     """Mede G1 em Python puro: solda por posicao, arestas != 2 faces e cascas invertidas."""
-    posicoes, triangulos = malha(gltf, binario)
+    if isinstance(gltf, dict):
+        if not isinstance(binario, (bytes, bytearray)):
+            raise TypeError("binario deve ser bytes quando gltf for dict")
+        posicoes: Sequence[tuple[float, float, float]]
+        triangulos: Sequence[tuple[int, int, int]]
+        posicoes, triangulos = malha(gltf, bytes(binario))
+    else:
+        if not isinstance(binario, Sequence) or isinstance(binario, (str, bytes, bytearray)):
+            raise TypeError("triangulos deve ser sequencia quando posicoes for sequencia")
+        posicoes, triangulos = gltf, binario
 
     # solda por posicao, a mesma tolerancia do bpy (1e-5 m)
     mapa: dict[tuple[float, float, float], int] = {}
@@ -117,18 +131,30 @@ def topologia(gltf: dict, binario: bytes) -> dict:
 
     invertidas = invertidas_abertas
     for vol_in, mn_in, mx_in, conflito_w in cascas:
-        if vol_in >= -1e-9:
-            if conflito_w:
-                invertidas += 1
+        if conflito_w:
+            invertidas += 1
             continue
+        if vol_in >= -1e-9:
+            continue
+        # Interiores caminhaveis abertos possuem vao (1 casca positiva); casca fechada >=70% e dupla-casca invertida.
         cavidade = any(
             vol_out > 1e-9
-            and vol_out > abs(vol_in) * 1.05
+            and (abs(vol_in) / vol_out) < 0.70
             and all(mn_in[d] >= mn_out[d] - 1e-5 and mx_in[d] <= mx_out[d] + 1e-5 for d in range(3))
             for vol_out, mn_out, mx_out, _cw in cascas
         )
         if not cavidade:
             invertidas += 1
+
+    vol_total = sum(v for v, *_ in cascas)
+    if posicoes:
+        dx = max(p[0] for p in posicoes) - min(p[0] for p in posicoes)
+        dy = max(p[1] for p in posicoes) - min(p[1] for p in posicoes)
+        dz = max(p[2] for p in posicoes) - min(p[2] for p in posicoes)
+        vol_aabb = dx * dy * dz
+    else:
+        vol_aabb = 0.0
+    aabb_fill = round(max(0.0, vol_total) / vol_aabb, 4) if vol_aabb > 1e-12 else 0.0
 
     bordas_abertas = sum(1 for n in arestas.values() if n == 1)
     arestas_t = sum(1 for n in arestas.values() if n > 2)
@@ -140,6 +166,8 @@ def topologia(gltf: dict, binario: bytes) -> dict:
         "invertidas": invertidas,
         "vertices": len(mapa),
         "triangulos": len(triangulos),
+        "volume_total": round(vol_total, 8),
+        "aabb_fill": aabb_fill,
     }
 
 

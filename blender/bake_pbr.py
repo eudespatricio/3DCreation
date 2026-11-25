@@ -29,7 +29,7 @@ else:
     import bake_pbr_proj as _proj
 
 _SUBMODULOS_BPY = (
-    _cfg, _proj, _proj._sh, _maps, _exec, _exec._passes, _exec._nat, _exec._nat_blend, _exec._emissive
+    _cfg, _proj, _proj._sh, _maps, _exec, _exec._passes, _exec._nat, _exec._nat_back, _exec._nat_blend, _exec._emissive, _exec._heal
 )
 
 
@@ -176,9 +176,11 @@ def executar_bake_high_low(
     px_sub: int | None = None,
     qualidade: str | None = None,
     vistas_ortograficas: dict[str, str] | None = None,
+    tipo_item: str | None = None,
 ) -> dict:
     """Executa bake PBR High->Low (BaseColor, Normal, ORM) e atribui material glTF PBR em ``obj``."""
     _sync_bpy()
+    emissive_cam = _exec._emissive._resolver_emissive_hint_alias(emissive_hint, emissive_hint_png)
     return _exec.executar_bake_high_low(
         obj=obj,
         saida_dir=saida_dir,
@@ -192,7 +194,7 @@ def executar_bake_high_low(
         origem_textura=origem_textura,
         metallic_hint_png=metallic_hint_png,
         roughness_hint_png=roughness_hint_png,
-        emissive_hint=emissive_hint or emissive_hint_png,
+        emissive_hint=emissive_cam,
         proteger_superficie=proteger_superficie,
         perfil_nome=perfil_nome,
         material_procedural=material_procedural,
@@ -202,6 +204,7 @@ def executar_bake_high_low(
         px_sub=px_sub,
         qualidade=qualidade,
         vistas_ortograficas=vistas_ortograficas,
+        tipo_item=tipo_item,
         criar_mat_pbr_fn=_criar_material_pbr_gltf,
     )
 
@@ -214,6 +217,7 @@ def aplicar_hints_orm_em_material(
     metallic_hint_png: str | None = None,
     roughness_hint_png: str | None = None,
     perfil_nome: str | None = None,
+    emissive_hint: str | None = None,
 ) -> dict | None:
     """Assa hints opcionais de ORM em objeto que ja tem UVMap e material (ex.: extrude_2d)."""
     _sync_bpy()
@@ -225,6 +229,7 @@ def aplicar_hints_orm_em_material(
         metallic_hint_png=metallic_hint_png,
         roughness_hint_png=roughness_hint_png,
         perfil_nome=perfil_nome,
+        emissive_hint=emissive_hint,
     )
 
 

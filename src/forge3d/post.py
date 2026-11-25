@@ -17,7 +17,7 @@ from .errors import ForgeError, erro_ambiente, erro_bpy
 
 __all__ = ["binario", "versao", "script", "executar", "preflight", "PIPELINE_VERSION"]
 
-PIPELINE_VERSION = "0.9.10"
+PIPELINE_VERSION = "0.9.11"
 VERSAO_MIN = (4, 2)
 VERSAO_MAX = (4, 3)
 

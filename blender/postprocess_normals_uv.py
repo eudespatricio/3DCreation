@@ -185,7 +185,9 @@ def aplicar_weighted_normal(obj) -> dict:
     return {"weighted_normal": True}
 
 
-def desdobrar_uv(obj, margem: float = 0.004, angle_limit_graus: float = 66.0) -> str:
+def desdobrar_uv(
+    obj, margem: float = 0.004, angle_limit_graus: float = 66.0, *, eh_organico: bool = True
+) -> str:
     if obj is not None and obj.type == "MESH" and obj.data and len(obj.data.polygons) > 4:
         bm = bmesh.new()
         try:
@@ -198,8 +200,12 @@ def desdobrar_uv(obj, margem: float = 0.004, angle_limit_graus: float = 66.0) ->
         finally:
             bm.free()
     n_polys = len(obj.data.polygons)
-    smart_margin = max(0.0015, min(0.0015 if n_polys >= 400 else 0.02, float(margem)))
-    pack_margin = 0.0015 if n_polys >= 400 else max(0.0015, min(0.01, float(margem)))
+    if n_polys >= 400:
+        smart_margin = max(0.003, min(0.004, float(margem)))
+        pack_margin = max(0.0035, min(0.004, float(margem)))
+    else:
+        smart_margin = max(0.0015, min(0.02, float(margem)))
+        pack_margin = max(0.0015, min(0.01, float(margem)))
     rna_props = bpy.ops.uv.pack_islands.get_rna_type().properties
     pack_props = set(rna_props.keys())
     pack_raw: dict[str, object] = {
@@ -223,7 +229,8 @@ def desdobrar_uv(obj, margem: float = 0.004, angle_limit_graus: float = 66.0) ->
         bpy.ops.object.mode_set(mode="OBJECT")
         if not obj.data.uv_layers or n_polys <= 0:
             break
-        aplicar_prioridade_uv_cabeca(obj, fator=1.35)
+        if eh_organico:
+            aplicar_prioridade_uv_cabeca(obj, fator=1.50)
         bpy.ops.object.mode_set(mode="EDIT")
         bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.uv.select_all(action="SELECT")
@@ -242,7 +249,7 @@ def desdobrar_uv(obj, margem: float = 0.004, angle_limit_graus: float = 66.0) ->
 def gerar_uv_lightmap(obj) -> str:
     """Gera UVMap_Lightmap (TEXCOORD_1) sem substituir o UV principal (TEXCOORD_0)."""
     if not obj.data.uv_layers:
-        desdobrar_uv(obj)
+        desdobrar_uv(obj, eh_organico=False)
     nome_primario = obj.data.uv_layers[0].name
     lm = obj.data.uv_layers.get("UVMap_Lightmap") or obj.data.uv_layers.new(name="UVMap_Lightmap")
     nome_lm = lm.name

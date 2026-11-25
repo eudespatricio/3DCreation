@@ -143,16 +143,21 @@ def modular_hints_pbr_nativo(img_nat_hints, img_ao, px_sub: int, img_dl_hints=No
 
     dl_frente = [i for i in amostra if dl_buf is not None and dl_buf[i + 2] >= 0.25]
     frac_dl_met = (sum(1 for i in dl_frente if dl_buf[i] >= 0.50) / float(len(dl_frente))) if dl_frente else 0.0
-    ferro_lamacento = (p50_met < 0.55) and (frac_dl_met >= 0.03 or p90_met >= 0.70)
+    ferro_lamacento = (p50_met < 0.55) and (p90_met >= 0.70)
     saturado_ou_plano = (p50_met > 0.85) or (std_rough < 0.03)
+    nativo_saudavel = (not saturado_ou_plano) and (not ferro_lamacento)
 
-    if dl_buf is None and not ferro_lamacento:
+    stats = {"p50_met": round(p50_met, 4), "p90_met": round(p90_met, 4), "std_rough": round(std_rough, 4)}
+    if nativo_saudavel:
+        return {"delight_hints_aplicados": False, "nativo_puro_preservado": True, **stats}
+
+    if dl_buf is None:
         if std_rough < 0.03:
             for i in validos:
                 ao_c = max(0.0, min(1.0, ao_buf[i]))
                 nat_buf[i + 1] = max(0.04, min(1.0, nat_buf[i + 1] + 0.05 * (0.65 - ao_c)))
             img_nat_hints.pixels.foreach_set(nat_buf)
-        return {"delight_hints_aplicados": False, "p50_met": round(p50_met, 4), "std_rough": round(std_rough, 4)}
+        return {"delight_hints_aplicados": False, "nativo_puro_preservado": False, **stats}
 
     fb_met = 0.80 * frac_dl_met + 0.10 * (1.0 - frac_dl_met)
     fb_rough = 0.32 * frac_dl_met + 0.76 * (1.0 - frac_dl_met)
@@ -160,12 +165,14 @@ def modular_hints_pbr_nativo(img_nat_hints, img_ao, px_sub: int, img_dl_hints=No
         nm = max(0.0, min(1.0, nat_buf[i]))
         nr = max(0.04, min(1.0, nat_buf[i + 1]))
         ao_c = max(0.0, min(1.0, ao_buf[i]))
-        dm = max(0.0, min(1.0, dl_buf[i])) if dl_buf is not None else 0.0
-        dr = max(0.04, min(1.0, dl_buf[i + 1])) if dl_buf is not None else 0.75
-        dw = max(0.0, min(1.0, dl_buf[i + 2])) if dl_buf is not None else 0.0
+        dm = max(0.0, min(1.0, dl_buf[i]))
+        dr = max(0.04, min(1.0, dl_buf[i + 1]))
+        dw = max(0.0, min(1.0, dl_buf[i + 2]))
 
         if ferro_lamacento:
-            forca = max(0.0, min(1.0, max((nm - 0.35) / 0.45, dm * dw)))
+            # Exige presenca metalica nativa minima para evitar contaminar pele/tecido com falsos positivos 2D.
+            dm_eff = (dm * dw) if nm >= 0.20 else 0.0
+            forca = max(0.0, min(1.0, max((nm - 0.35) / 0.45, dm_eff)))
             m_hi = min(0.895, max(nm, 0.755 + 0.140 * forca))
             r_hi = max(0.225, min(0.375, 0.35 - 0.11 * forca + 0.05 * (1.0 - ao_c)))
             m_lo = min(nm, 0.20)
@@ -188,4 +195,4 @@ def modular_hints_pbr_nativo(img_nat_hints, img_ao, px_sub: int, img_dl_hints=No
         nat_buf[i + 2] = 1.0
 
     img_nat_hints.pixels.foreach_set(nat_buf)
-    return {"delight_hints_aplicados": bool(dl_buf is not None), "p50_met": round(p50_met, 4), "std_rough": round(std_rough, 4)}
+    return {"delight_hints_aplicados": True, "nativo_puro_preservado": False, **stats}

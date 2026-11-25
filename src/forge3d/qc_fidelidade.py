@@ -15,6 +15,7 @@ from .qc_midia import _validar_bytes_imagem
 _EXTS_IMAGEM = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 LIMIAR_IOU_G15 = 0.55
 LIMIAR_ASPECT_G15 = 0.60
+MARGEM_CANVAS_G15 = 4
 
 
 def _rgba_px(img: Image.Image) -> Any:
@@ -415,7 +416,7 @@ def _recortar_front_turntable(rgba: Image.Image) -> Image.Image:
     return rgba if min_v > 0.01 or min_h > 0.005 or ponte_h or ponte_v or ponte_bot else rgba.crop((0, 0, hw, hh))
 
 
-def _extrair_mascara_imagem(img: Image.Image, tamanho: int = 64, margem: int = 4) -> dict[str, Any]:
+def _extrair_mascara_imagem(img: Image.Image, tamanho: int = 64, margem: int = MARGEM_CANVAS_G15) -> dict[str, Any]:
     w0, h0 = (rgba := img.convert("RGBA")).size
     if max(1, max(w0, h0)) > 256:
         escala = 256.0 / float(max(w0, h0))
@@ -444,7 +445,7 @@ def _extrair_mascara_imagem(img: Image.Image, tamanho: int = 64, margem: int = 4
     return {"vazia": False, "uniforme": False, "mask": list(canvas.getdata()), "aspect_ratio": bw / float(bh), "cobertura": fg_count / float(max(1, w * h))}
 
 
-def rasterizar_silhueta_frontal_glb(gltf: dict, binario: bytes, tamanho: int = 64, margem: int = 4) -> dict[str, Any]:
+def rasterizar_silhueta_frontal_glb(gltf: dict, binario: bytes, tamanho: int = 64, margem: int = MARGEM_CANVAS_G15) -> dict[str, Any]:
     """Rasteriza silhueta ortografica frontal ``(-x, y)`` do GLB em grade ``tamanho x tamanho``."""
     pos, tris = malha(gltf, binario) if gltf.get("meshes") else ([], [])
     if not pos or not tris:
@@ -469,7 +470,7 @@ def _comparar_mascaras(m_concept: dict[str, Any], m_modelo: dict[str, Any]) -> d
     return {"aprovado": iou >= LIMIAR_IOU_G15 and aspect_score >= LIMIAR_ASPECT_G15, "iou_silhueta": round(iou, 4), "aspect_ratio_score": round(aspect_score, 4), "score": round(0.70 * iou + 0.30 * aspect_score, 4), "aspect_concept": round(ac, 4), "aspect_modelo": round(am, 4)}
 
 
-def _carregar_mascara_arquivo(caminho: Path, *, extrair_turntable: bool = False) -> dict[str, Any]:
+def _carregar_mascara_arquivo(caminho: Path, *, extrair_turntable: bool = False, tamanho: int = 64, margem: int = MARGEM_CANVAS_G15) -> dict[str, Any]:
     if not caminho.is_file():
         raise erro_qc(f"imagem de fidelidade G15 ausente: {caminho}", arquivo=str(caminho))
     try:
@@ -477,7 +478,7 @@ def _carregar_mascara_arquivo(caminho: Path, *, extrair_turntable: bool = False)
             raise erro_qc(f"imagem de fidelidade G15 invalida/corrompida: {caminho}", arquivo=str(caminho))
         with Image.open(caminho) as im:
             rgba = im.convert("RGBA")
-            return _extrair_mascara_imagem(_recortar_front_turntable(rgba) if extrair_turntable else rgba)
+            return _extrair_mascara_imagem(_recortar_front_turntable(rgba) if extrair_turntable else rgba, tamanho=tamanho, margem=margem)
     except ForgeError:
         raise
     except (OSError, ValueError, EOFError, struct.error, UnidentifiedImageError) as exc:

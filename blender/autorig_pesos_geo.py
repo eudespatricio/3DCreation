@@ -11,7 +11,7 @@ from mathutils import Vector
 if __package__:
     from .autorig_const import (
         _OSSOS_BRACO, _OSSOS_BRACO_DISTAL, _OSSOS_BRACO_PROXIMAL_R15, _OSSOS_CABECA,
-        _OSSOS_CANELA, _OSSOS_COXA, _OSSOS_MEMBROS_CORE, _OSSOS_OMBROS, _OSSOS_PE,
+        _OSSOS_CANELA, _OSSOS_MEMBROS_CORE, _OSSOS_OMBROS, _OSSOS_PE,
         _OSSOS_PERNA, _OSSOS_PESCOCO, _OSSOS_TRONCO, _RAIZES, _dist_ponto_segmento, _lado_osso,
     )
     from .autorig_grafo import _dijkstra_osso, _limites_anatomicos, _osso_permitido, _pesos_vertice_inverso
@@ -19,13 +19,14 @@ if __package__:
         _OSSOS_EXTREMIDADE_BRACO, MAX_INFLUENCIAS_VERTICE, construir_hierarquia_ossos,
         filtrar_pesos_coerentes, mediar_costuras_distantes,
     )
+    from .autorig_pesos_limites import _construir_meta
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
         sys.path.insert(0, _BLENDER_DIR)
     from autorig_const import (
         _OSSOS_BRACO, _OSSOS_BRACO_DISTAL, _OSSOS_BRACO_PROXIMAL_R15, _OSSOS_CABECA,
-        _OSSOS_CANELA, _OSSOS_COXA, _OSSOS_MEMBROS_CORE, _OSSOS_OMBROS, _OSSOS_PE,
+        _OSSOS_CANELA, _OSSOS_MEMBROS_CORE, _OSSOS_OMBROS, _OSSOS_PE,
         _OSSOS_PERNA, _OSSOS_PESCOCO, _OSSOS_TRONCO, _RAIZES, _dist_ponto_segmento, _lado_osso,
     )
     from autorig_grafo import _dijkstra_osso, _limites_anatomicos, _osso_permitido, _pesos_vertice_inverso
@@ -33,6 +34,7 @@ else:
         _OSSOS_EXTREMIDADE_BRACO, MAX_INFLUENCIAS_VERTICE, construir_hierarquia_ossos,
         filtrar_pesos_coerentes, mediar_costuras_distantes,
     )
+    from autorig_pesos_limites import _construir_meta
 
 
 def _sementes_osso_ilha(
@@ -236,20 +238,6 @@ def _fallback_sementes_membro(
     return {vi: d for d, vi in pool[:8]}
 
 
-def _construir_meta(mapas: list[tuple[str, list[float]]]) -> list[tuple[str, list[float], int, int]]:
-    meta: list[tuple[str, list[float], int, int]] = []
-    fixos = {"Chest": 8, "UpperTorso": 9, "Spine1": 10, "Spine": 11, "Hips": 12, "LowerTorso": 12}
-    grupos = ((_OSSOS_COXA, 1), (_OSSOS_CANELA, 2), (_OSSOS_PE, 3), (_OSSOS_OMBROS, 4), (_OSSOS_BRACO_DISTAL, 5), (_OSSOS_CABECA, 6), (_OSSOS_PESCOCO, 7))
-    for nome, dist_v in mapas:
-        lado = _lado_osso(nome)
-        lado_id = 1 if lado == "L" else (-1 if lado == "R" else 0)
-        cat_id = fixos.get(nome, 0)
-        if not cat_id:
-            cat_id = next((cid for grp, cid in grupos if nome in grp), 0)
-        meta.append((nome, dist_v, lado_id, cat_id))
-    return meta
-
-
 def _pesos_ilha_geodesicos(
     ilha: list[int],
     adj: list[list[tuple[int, float]]],
@@ -312,7 +300,8 @@ def _pesos_ilha_geodesicos(
     cy, shoulder_z_hi, sh_x_eff = float(m.get("cy", 0.0)), m["shoulder_z"] + 0.025 * h, 0.5 * (abs(m["shoulder_x_L"]) + abs(m["shoulder_x_R"]))
     arm_ext_z_max, arm_ext_x_min, arm_root_x, arm_deltoid_x = b["arm_ext_z_max"], b["arm_ext_x_min"], b["arm_root_x"], b["arm_deltoid_x"]
     braco_baixo_min_x, tronco_max_x, neck_max_x = b["braco_baixo_min_x"], b["tronco_max_x"], b["neck_max_x"]
-    perna_max_x, arms_abducted = b["perna_max_x"], b.get("arms_abducted", 0.0) > 0.5
+    perna_max_x, hips_max_x, arm_hip_block_z = b["perna_max_x"], b.get("hips_max_x", b["perna_max_x"] + 0.03 * h), b.get("arm_hip_block_z", -1e9)
+    arms_abducted = b.get("arms_abducted", 0.0) > 0.5
     head_z_min, head_max_x, head_horn_z, head_x_horn = b["head_z_min"], b["head_max_x"], m["neck_z"] + 0.015 * h, max(b["head_max_x"] + 0.04 * h, 0.24 * h)
     head_z_soft = (head_z_min - 0.03 * h) if tem_neck else head_z_min
     prox_arm_geral = _OSSOS_BRACO_PROXIMAL_R15 | {"UpperArm.L", "UpperArm.R"}
@@ -384,7 +373,7 @@ def _pesos_ilha_geodesicos(
                     z_hi_a = m["shoulder_z"] if prox_r15 else shoulder_z_hi
                     if vz > z_hi_a:
                         d += (vz - z_hi_a) * (14.0 if prox_r15 else 3.5)
-                elif not (bracos_baixos and abs_x > braco_baixo_min_x and vz >= arm_z_min):
+                elif (arms_abducted and vz <= arm_hip_block_z and abs_x < hips_max_x) or not (bracos_baixos and abs_x > braco_baixo_min_x and vz >= arm_z_min):
                     continue
             elif cat_id == 6:
                 acima_pescoco = vz >= head_horn_z
@@ -408,13 +397,17 @@ def _pesos_ilha_geodesicos(
                 if abs_x > neck_max_x:
                     d += (abs_x - neck_max_x) * 5.0
             elif cat_id >= 8:
-                if abs_x > tronco_max_x and vz >= arm_z_cut_lo:
+                z_cut_tr = (spine_z_min if cat_id == 11 else upper_torso_z_min) if (arms_abducted and cat_id <= 11) else arm_z_cut_lo
+                if abs_x > tronco_max_x and vz >= z_cut_tr:
                     continue
                 if cat_id in (8, 9):
                     z_lo = chest_z_min if cat_id == 8 else upper_torso_z_min
                     z_hi = chest_z_max_collar if abs_x > head_max_x * 0.9 else chest_z_max + 0.06 * h
                     if vz < z_lo or vz > z_hi:
                         continue
+                    # Rampa lateral suave na axila/deltoide para evitar degrau brusco em tronco_max_x.
+                    if arms_abducted and arm_root_x < abs_x <= tronco_max_x:
+                        d += (abs_x - arm_root_x) * 8.0
                     if cat_id == 8 and vz > chest_z_max and abs_x <= head_max_x * 0.9:
                         d += (vz - chest_z_max) * 4.0
                 elif cat_id == 10 and (vz < spine1_z_min or vz > spine1_z_max):
@@ -422,7 +415,7 @@ def _pesos_ilha_geodesicos(
                 elif cat_id == 11 and (vz < spine_z_min or vz > spine_z_max):
                     continue
                 elif cat_id == 12:
-                    if vz > hips_z_max or (arms_abducted and abs_x > perna_max_x + 0.03 * h):
+                    if vz > hips_z_max or (arms_abducted and abs_x > hips_max_x):
                         continue
                     if abs_x > tronco_max_x:
                         d += (abs_x - tronco_max_x) * 6.0
@@ -484,6 +477,8 @@ def _pesos_ilha_geodesicos(
                     prox_r15 = (not tem_ombro) and (nome in _OSSOS_BRACO_PROXIMAL_R15)
                     fator_d = 3.0 if cat_id == 4 else (2.0 if prox_r15 else 4.5)
                     d += (arm_deltoid_x - abs_x) * fator_d
+                elif cat_id in (8, 9) and arms_abducted and arm_root_x < abs_x <= tronco_max_x:
+                    d += (abs_x - arm_root_x) * 8.0
                 de = d + eps
                 de2 = de * de
                 brutos_wn.append((1.0 / (de2 * de2), nome))

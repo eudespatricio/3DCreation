@@ -10,7 +10,26 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import concept_preflight as _preflight
 from . import mesh_diag as _diag
+
+_DICA_EYE_LEVEL = (
+    "strictly eye-level horizontal front view camera, 3D volumetric shading and depth, "
+    "no top-down angle, no flat 2D icon"
+)
+
+
+def _alerta_preflight_concept(pf: dict[str, Any]) -> bool:
+    return (
+        "vista_topo_45_suspeita" in (pf.get("avisos") or ())
+        or "icone_2d_plano" in (pf.get("erros") or ())
+    )
+
+
+def _aplicar_dica_eye_level(sub_item: dict[str, Any]) -> dict[str, Any]:
+    prompt_at = str(sub_item.get("prompt") or "").strip()
+    novo = f"{prompt_at}, {_DICA_EYE_LEVEL}" if prompt_at else _DICA_EYE_LEVEL
+    return {**sub_item, "prompt": novo}
 
 
 def executar_pose_guard(
@@ -156,84 +175,7 @@ def executar_pose_guard(
     return imagem, report
 
 
-def gerar_concept_com_retry(
-    item: dict,
-    destino: Path,
-    env: dict[str, str],
-    max_tentativas: int = 3,
-) -> tuple[Path, dict[str, Any]]:
-    from . import concept as _concept
-
-    prov = _concept.ConceptProvider()
-    eh_rigged = item.get("tipo") == "personagem_humanoide" and bool(item.get("auto_rig"))
-    tentativas = max(1, int(max_tentativas)) if eh_rigged else 1
-    if tentativas == 1:
-        res = prov.gerar(item, destino)
-        return res["png"], res["meta"]
-
-    pg_script = _diag.facade_attr("script_pose_guard", _diag.script_pose_guard)()
-    py_img = _diag.facade_attr("_python_imagem", _diag._python_imagem)()
-    melhor_score = -1.0
-    melhor: tuple[Path, dict[str, Any]] | None = None
-    seed_base = int(item.get("seed", 20261110))
-    historico: list[dict[str, Any]] = []
-
-    for i in range(tentativas):
-        sub_dir = destino / f"concept_try_{i}"
-        sub_item = dict(item)
-        sub_item["seed"] = seed_base + i * 101
-        res = prov.gerar(sub_item, sub_dir)
-        png_i: Path = res["png"]
-        meta_i: dict[str, Any] = dict(res["meta"])
-
-        score = 0.0
-        apto = False
-        pose_erro: str | None = None
-        if pg_script.is_file() and py_img.is_file():
-            res_pg = sub_dir / "pose_detect.json"
-            try:
-                proc = _diag.subproc_run(
-                    [
-                        str(py_img),
-                        str(pg_script),
-                        "--acao",
-                        "detectar",
-                        "--imagem",
-                        str(png_i),
-                        "--resultado",
-                        str(res_pg),
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    env=env,
-                    check=False,
-                )
-                if proc.returncode == 0 and res_pg.is_file():
-                    info_pg = json.loads(res_pg.read_text(encoding="utf-8"))
-                    score = float(info_pg.get("score_pose", 0.0))
-                    apto = bool(info_pg.get("apto_rig", False))
-            except (OSError, subprocess.SubprocessError, ValueError) as exc:
-                pose_erro = str(exc)
-                sys.stderr.write(f"[mesh] aviso pose_guard detect (tentativa {i + 1}): {exc}\n")
-
-        hist_entry: dict[str, Any] = {
-            "tentativa": i + 1,
-            "seed": sub_item["seed"],
-            "score_pose": score,
-            "apto_rig": apto,
-        }
-        if pose_erro:
-            hist_entry["pose_detect_erro"] = pose_erro
-        historico.append(hist_entry)
-        if melhor is None or score > melhor_score:
-            melhor_score = score
-            melhor = (png_i, meta_i)
-        if apto or score >= 0.72:
-            break
-
-    assert melhor is not None
-    png_escolhido, meta_escolhido = melhor
+def _copiar_conceito_escolhido(png_escolhido: Path, meta_escolhido: dict[str, Any], destino: Path) -> Path:
     destino.mkdir(parents=True, exist_ok=True)
     destino_png = destino / png_escolhido.name
     if png_escolhido != destino_png:
@@ -258,17 +200,115 @@ def gerar_concept_com_retry(
             shutil.copyfile(src_concept_json, dst_concept_json)
         else:
             if isinstance(concept_data, dict) and isinstance(concept_data.get("vistas"), dict):
-                if isinstance(meta_escolhido.get("vistas"), dict):
-                    concept_data["vistas"] = dict(meta_escolhido["vistas"])
-                else:
-                    concept_data["vistas"] = {
-                        str(k): str(destino / Path(str(v)).name)
-                        for k, v in concept_data["vistas"].items()
-                    }
+                concept_data["vistas"] = (
+                    dict(meta_escolhido["vistas"])
+                    if isinstance(meta_escolhido.get("vistas"), dict)
+                    else {str(k): str(destino / Path(str(v)).name) for k, v in concept_data["vistas"].items()}
+                )
             dst_concept_json.write_text(
                 json.dumps(concept_data, sort_keys=True, indent=1, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
+    return destino_png
+
+
+def gerar_concept_com_retry(
+    item: dict,
+    destino: Path,
+    env: dict[str, str],
+    max_tentativas: int = 3,
+) -> tuple[Path, dict[str, Any]]:
+    from . import concept as _concept
+
+    prov = _concept.ConceptProvider()
+    eh_rigged = item.get("tipo") == "personagem_humanoide" and bool(item.get("auto_rig"))
+    max_t = max(1, int(max_tentativas))
+    tentativas = max_t if eh_rigged else 1
+    if tentativas == 1:
+        res = prov.gerar(item, destino)
+        png_0, meta_0 = res["png"], dict(res["meta"])
+        pf_0: dict[str, Any] = _preflight.avaliar_concept_2d(png_0, item=item) if png_0.is_file() else {"ok": True, "erros": [], "avisos": []}
+        meta_0["preflight_2d"] = pf_0
+        if max_t > 1 and _alerta_preflight_concept(pf_0):
+            sub_dir = destino / "concept_retry_preflight"
+            sub_it = _aplicar_dica_eye_level({**item, "seed": int(item.get("seed", 20261110)) + 101})
+            res_1 = prov.gerar(sub_it, sub_dir)
+            png_1, meta_1 = res_1["png"], dict(res_1["meta"])
+            pf_1: dict[str, Any] = _preflight.avaliar_concept_2d(png_1, item=sub_it) if png_1.is_file() else pf_0
+            if not _alerta_preflight_concept(pf_1) or len(pf_1.get("erros") or ()) < len(pf_0.get("erros") or ()):
+                meta_1["preflight_2d"] = pf_1
+                meta_1["concept_retry_preflight"] = True
+                return _copiar_conceito_escolhido(png_1, meta_1, destino), meta_1
+            meta_0["concept_retry_preflight"] = True
+        return png_0, meta_0
+
+    pg_script = _diag.facade_attr("script_pose_guard", _diag.script_pose_guard)()
+    py_img = _diag.facade_attr("_python_imagem", _diag._python_imagem)()
+    melhor_score = -1.0
+    melhor_ord = -10.0
+    melhor: tuple[Path, dict[str, Any]] | None = None
+    seed_base = int(item.get("seed", 20261110))
+    historico: list[dict[str, Any]] = []
+    usar_dica_eye = False
+    retry_pf_usado = False
+
+    for i in range(tentativas):
+        sub_dir = destino / f"concept_try_{i}"
+        sub_item = dict(item)
+        sub_item["seed"] = seed_base + i * 101
+        if usar_dica_eye:
+            sub_item = _aplicar_dica_eye_level(sub_item)
+            usar_dica_eye = False
+        res = prov.gerar(sub_item, sub_dir)
+        png_i: Path = res["png"]
+        meta_i: dict[str, Any] = dict(res["meta"])
+        pf_i = _preflight.avaliar_concept_2d(png_i, item=sub_item) if png_i.is_file() else {"ok": True, "erros": [], "avisos": []}
+        meta_i["preflight_2d"] = pf_i
+        alerta_pf = _alerta_preflight_concept(pf_i)
+
+        score = 0.0
+        apto = False
+        pose_erro: str | None = None
+        if pg_script.is_file() and py_img.is_file():
+            res_pg = sub_dir / "pose_detect.json"
+            try:
+                proc = _diag.subproc_run(
+                    [
+                        str(py_img), str(pg_script), "--acao", "detectar",
+                        "--imagem", str(png_i), "--resultado", str(res_pg),
+                    ],
+                    capture_output=True, text=True, timeout=60, env=env, check=False,
+                )
+                if proc.returncode == 0 and res_pg.is_file():
+                    info_pg = json.loads(res_pg.read_text(encoding="utf-8"))
+                    score = float(info_pg.get("score_pose", 0.0))
+                    apto = bool(info_pg.get("apto_rig", False))
+            except (OSError, subprocess.SubprocessError, ValueError, TypeError) as exc:
+                pose_erro = str(exc)
+                sys.stderr.write(f"[mesh] aviso pose_guard detect (tentativa {i + 1}): {exc}\n")
+
+        hist_entry: dict[str, Any] = {
+            "tentativa": i + 1, "seed": sub_item["seed"], "score_pose": score, "apto_rig": apto,
+            "preflight_2d": {"ok": pf_i.get("ok", True), "erros": pf_i.get("erros", []), "avisos": pf_i.get("avisos", [])},
+        }
+        if pose_erro:
+            hist_entry["pose_detect_erro"] = pose_erro
+        historico.append(hist_entry)
+        score_ord = score - (0.35 if alerta_pf else 0.0)
+        if melhor is None or score_ord > melhor_ord:
+            melhor_ord = score_ord
+            melhor_score = score
+            melhor = (png_i, meta_i)
+        if alerta_pf and not retry_pf_usado and (i + 1) < tentativas:
+            usar_dica_eye = True
+            retry_pf_usado = True
+            continue
+        if apto or score >= 0.72:
+            break
+
+    assert melhor is not None
+    png_escolhido, meta_escolhido = melhor
+    destino_png = _copiar_conceito_escolhido(png_escolhido, meta_escolhido, destino)
     meta_escolhido["concept_tentativas"] = len(historico)
     meta_escolhido["concept_score_pose"] = round(max(0.0, melhor_score), 4)
     meta_escolhido["concept_historico"] = historico

@@ -6,9 +6,12 @@ compatibilidade integral de monkeypatch e contratos AST em ``forge3d.providers.m
 
 from __future__ import annotations
 
+import contextlib
+import inspect
 import os
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -81,10 +84,23 @@ def _preflight_blender_binario() -> tuple[bool, str]:
     return True, "ok"
 
 
+def _conceito_usa_gpu_local(item: dict) -> bool:
+    if str(item.get("origem") or "").strip():
+        return False
+    from . import concept as _concept
+
+    try:
+        prov_c = _concept.resolver_provider_conceito(item)
+    except ValueError:
+        return False
+    return prov_c == "sd15" and not _concept._device().startswith("cpu")
+
+
 class MeshProvider:
     nome = "mesh"
     determinism = "D2"  # image-to-3D nunca e D1 (D7)
     usa_gpu = True
+    gerencia_lock_gpu = True
     _rota_explicita: str | None = None
 
     @property
@@ -221,16 +237,7 @@ class MeshProvider:
         sub = _resolver_subrota(item, self._rota_explicita)
         if sub in ("template", "procedural", "extrude_2d"):
             return False
-        return not (
-            sub is None
-            and (
-                _usar_makehuman_cabelo(item)
-                or _usar_modular_armor(item)
-                or _usar_template_criatura(item)
-                or _usar_template_humanoide(item)
-                or _usar_extrude_2d(item)
-            )
-        )
+        return not (sub is None and (_usar_makehuman_cabelo(item) or _usar_modular_armor(item) or _usar_template_criatura(item) or _usar_template_humanoide(item) or _usar_extrude_2d(item)))
 
     def _preflight_modo(self, modo: str, item: dict) -> tuple[bool, str]:
         if modo in ("cabelo", "armor", "criatura", "humanoide", "extrude"):
@@ -241,17 +248,11 @@ class MeshProvider:
             if not script_template_body().is_file():
                 return False, "script blender/template_body.py ausente"
             estilo = _extrair_estilo_makehuman(item)
-            if not estilo:
-                return False, "makehuman_cabelo / origem makehuman://hair/<estilo> vazio"
-            return True, f"pronto (cabelo MakeHuman/MPFB2 CC0: {estilo})"
+            return (True, f"pronto (cabelo MakeHuman/MPFB2 CC0: {estilo})") if estilo else (False, "makehuman_cabelo / origem makehuman://hair/<estilo> vazio")
         if modo == "armor":
-            if not script_modular_armor().is_file():
-                return False, "script blender/modular_armor.py ausente"
-            return True, f"pronto (modular armor MakeHuman/MPFB2 CC0: {item.get('parte')})"
+            return (True, f"pronto (modular armor MakeHuman/MPFB2 CC0: {item.get('parte')})") if script_modular_armor().is_file() else (False, "script blender/modular_armor.py ausente")
         if modo == "criatura":
-            if not script_organic_sculpt().is_file():
-                return False, "script blender/organic_sculpt.py ausente"
-            return True, f"pronto (criatura anatomica 4-patas: {item.get('tipo')})"
+            return (True, f"pronto (criatura anatomica 4-patas: {item.get('tipo')})") if script_organic_sculpt().is_file() else (False, "script blender/organic_sculpt.py ausente")
         if modo in ("humanoide", "extrude"):
             if not _python_imagem().is_file():
                 return False, f"P3: venv de imagem ausente em {dir_venv()}"
@@ -263,18 +264,14 @@ class MeshProvider:
                 if not script_pose_guard().is_file():
                     return False, f"script tools/pose_guard.py ausente em {script_pose_guard()}"
                 rotulo = "extrude 2D"
-            tem_orig_v1 = bool(str(item.get("origem") or "").strip()) and item.get("vistas") in (None, 1, "1") and not isinstance(item.get("vistas"), bool)
-            if tem_orig_v1:
+            if bool(str(item.get("origem") or "").strip()) and item.get("vistas") in (None, 1, "1") and not isinstance(item.get("vistas"), bool):
                 return True, f"pronto ({rotulo} com origem)"
             c_pronto, c_razao = _preflight_concept_item(item)
             return (True, f"pronto ({rotulo}); concept: {c_razao}") if c_pronto else (False, c_razao)
 
         pronto, razao = self.preflight()
         eh_tr_v4 = self._eh_trellis_vistas4_single_view(item)
-        tem_orig_ok = bool(str(item.get("origem") or "").strip()) and (
-            eh_tr_v4 or (item.get("vistas") in (None, 1, "1") and not isinstance(item.get("vistas"), bool))
-        )
-        if not pronto or tem_orig_ok:
+        if not pronto or (bool(str(item.get("origem") or "").strip()) and (eh_tr_v4 or (item.get("vistas") in (None, 1, "1") and not isinstance(item.get("vistas"), bool)))):
             return pronto, razao
         c_pronto, c_razao = _preflight_concept_item({**item, "vistas": 1} if eh_tr_v4 else item)
         return (True, f"{razao}; concept: {c_razao}") if c_pronto else (False, c_razao)
@@ -285,20 +282,11 @@ class MeshProvider:
         erro = _validar_subrota_item(subrota, item, self._rota_explicita)
         if erro:
             return False, erro
-
-        if subrota == "i23d":
-            return self._preflight_modo("i23d", item)
-        if subrota == "procedural":
-            return self._preflight_modo("criatura", item)
-        if subrota == "extrude_2d":
-            return self._preflight_modo("extrude", item)
+        mapa_sub = {"i23d": "i23d", "procedural": "criatura", "extrude_2d": "extrude"}
+        if subrota in mapa_sub:
+            return self._preflight_modo(mapa_sub[subrota], item)
         if subrota == "template":
-            if _usar_makehuman_cabelo(item):
-                return self._preflight_modo("cabelo", item)
-            if _usar_modular_armor(item):
-                return self._preflight_modo("armor", item)
-            return self._preflight_modo("humanoide", item)
-
+            return self._preflight_modo("cabelo" if _usar_makehuman_cabelo(item) else ("armor" if _usar_modular_armor(item) else "humanoide"), item)
         if _usar_makehuman_cabelo(item):
             return self._preflight_modo("cabelo", item)
         if _usar_modular_armor(item):
@@ -307,9 +295,7 @@ class MeshProvider:
             return self._preflight_modo("criatura", item)
         if _usar_template_humanoide(item):
             return self._preflight_modo("humanoide", item)
-        if _usar_extrude_2d(item):
-            return self._preflight_modo("extrude", item)
-        return self._preflight_modo("i23d", item)
+        return self._preflight_modo("extrude" if _usar_extrude_2d(item) else "i23d", item)
 
     def _executar_pose_guard(self, item: dict, imagem: Path, destino: Path, env: dict[str, str]) -> tuple[Path, dict[str, Any]]:
         return _pose_concept.executar_pose_guard(item, imagem, destino, env)
@@ -342,61 +328,70 @@ class MeshProvider:
     def _gerar_concept_com_retry(self, item: dict, destino: Path, env: dict[str, str], max_tentativas: int = 3) -> tuple[Path, dict[str, Any]]:
         return _pose_concept.gerar_concept_com_retry(item, destino, env, max_tentativas=max_tentativas)
 
-    def _resolver_entrada(self, item: dict, destino: Path, env: dict[str, str]) -> tuple[Path, dict[str, Any] | None]:
+    def _resolver_entrada(
+        self, item: dict, destino: Path, env: dict[str, str], gpu_lock_factory: Callable[[], Any] | None = None,
+    ) -> tuple[Path, dict[str, Any] | None]:
         eh_tr_v4 = self._eh_trellis_vistas4_single_view(item)
         if str(item.get("origem") or "").strip():
             origem_png = _i23d.resolver_imagem_origem(item)
             if item.get("vistas") is not None and str(item.get("vistas")).strip() not in ("", "1"):
                 if eh_tr_v4:
-                    return origem_png, {"vistas_solicitadas": 4, "vistas_extras_ignoradas_single_view": True}
+                    return origem_png, _views_origem.anexar_vista_back_trellis(item, origem_png, None, destino, env)
                 meta = _views_origem.gerar_vistas_de_origem(item, origem_png, destino, env)
                 front_png = destino / "concept_front.png"
                 return (front_png if front_png.is_file() else origem_png), meta
             return origem_png, None
+        ctx_c = gpu_lock_factory() if (gpu_lock_factory is not None and _conceito_usa_gpu_local(item)) else contextlib.nullcontext()
         if eh_tr_v4:
-            png_c, meta_c = self._gerar_concept_com_retry({**item, "vistas": 1}, destino, env)
-            return png_c, {**dict(meta_c or {}), "vistas_solicitadas": 4, "vistas_extras_ignoradas_single_view": True}
-        return self._gerar_concept_com_retry(item, destino, env)
+            with ctx_c:
+                png_c, meta_c = self._gerar_concept_com_retry({**item, "vistas": 1}, destino, env)
+            return png_c, _views_origem.anexar_vista_back_trellis(item, png_c, meta_c, destino, env)
+        with ctx_c:
+            return self._gerar_concept_com_retry(item, destino, env)
 
-    def _gerar_triposr_i23d(self, item: dict, destino: Path, imagem: Path, concept_meta: dict | None, env: dict[str, str], t0: float) -> RawAsset:
-        dados = _i23d.executar_i23d_step(
-            item, destino, imagem, concept_meta, env, t0, self._executar_pose_guard, self._executar_delight
-        )
-        res = dados["resultado"]
-        if res.get("provedor") == "trellis2_local":
-            modelo_lic = "trellis"
-            modelo_hf_meta = str(res.get("modelo") or _trellis.MODELO_TRELLIS_PADRAO)
+    def _chamar_resolver_entrada(
+        self, item: dict, destino: Path, env: dict[str, str], gpu_lock_factory: Callable[[], Any] | None = None,
+    ) -> tuple[Path, dict[str, Any] | None]:
+        resolver_fn = self._resolver_entrada
+        if "gpu_lock_factory" in inspect.signature(resolver_fn).parameters:
+            return resolver_fn(item, destino, env, gpu_lock_factory=gpu_lock_factory)
+        return resolver_fn(item, destino, env)
+
+    def _gerar_triposr_i23d(
+        self, item: dict, destino: Path, imagem: Path, concept_meta: dict | None,
+        env: dict[str, str], t0: float, gpu_lock_factory: Callable[[], Any] | None = None,
+    ) -> RawAsset:
+        step_fn = _i23d.executar_i23d_step
+        if "gpu_lock_factory" in inspect.signature(step_fn).parameters:
+            dados = step_fn(item, destino, imagem, concept_meta, env, t0, self._executar_pose_guard, self._executar_delight, gpu_lock_factory=gpu_lock_factory)
         else:
-            modelo_lic = modelo_escolhido()
-            modelo_hf_meta = MODELO_HF
+            dados = step_fn(item, destino, imagem, concept_meta, env, t0, self._executar_pose_guard, self._executar_delight)
+        res = dados["resultado"]
+        modelo_lic, modelo_hf_meta = (
+            ("trellis", str(res.get("modelo") or _trellis.MODELO_TRELLIS_PADRAO))
+            if res.get("provedor") == "trellis2_local"
+            else (modelo_escolhido(), MODELO_HF)
+        )
         return RawAsset(
-            dir=destino,
-            schema=str(dados["schema"]),
-            determinism=self.determinism,
-            arquivos=dados["arquivos"],
+            dir=destino, schema=str(dados["schema"]), determinism=self.determinism, arquivos=dados["arquivos"],
             meta={
-                # chave da allowlist (pipeline.licenca_de); o repo HF fica so como proveniencia
-                "modelo": modelo_lic,
-                "modelo_hf": modelo_hf_meta,
-                "torch": res.get("torch"),
-                "mc_resolution": res.get("mc_resolution"),
-                "tempos_s": res.get("tempos_s"),
-                "vram_pico_mb": res.get("vram_pico_mb"),
-                "faces": res.get("faces"),
-                "rembg": dados["remover_fundo"],
-                "rembg_motivo": dados["motivo_rembg"],
-                "rembg_modelo": res.get("rembg_modelo"),
-                "rembg_fallback": res.get("rembg_fallback"),
-                "pose_guard": dados["pose_guard_report"],
-                "delight": dados["delight_report"],
-                "concept": concept_meta,
+                "modelo": modelo_lic, "modelo_hf": modelo_hf_meta, "torch": res.get("torch"),
+                "mc_resolution": res.get("mc_resolution"), "tempos_s": res.get("tempos_s"),
+                "vram_pico_mb": res.get("vram_pico_mb"), "faces": res.get("faces"),
+                "rembg": dados["remover_fundo"], "rembg_motivo": dados["motivo_rembg"],
+                "rembg_modelo": res.get("rembg_modelo"), "rembg_fallback": res.get("rembg_fallback"),
+                "pose_guard": dados["pose_guard_report"], "delight": dados["delight_report"], "concept": concept_meta,
+                **({"preflight_2d": res["preflight_2d"]} if res.get("preflight_2d") else {}),
                 **({"vistas_ortograficas": dados["vistas_ortograficas"]} if dados.get("vistas_ortograficas") else {}),
             },
         )
 
-    def gerar(self, item: dict, perfil: dict, destino: Path) -> RawAsset:
+    def gerar(
+        self, item: dict, perfil: dict, destino: Path, gpu_lock_factory: Callable[[], Any] | None = None,
+    ) -> RawAsset:
         from ..errors import erro_provider_run, erro_recurso
 
+        lock_fn = gpu_lock_factory if gpu_lock_factory is not None else contextlib.nullcontext
         subrota = _resolver_subrota(item, self._rota_explicita)
         erro_sub = _validar_subrota_item(subrota, item, self._rota_explicita)
         if erro_sub:
@@ -421,19 +416,19 @@ class MeshProvider:
         t0 = time.monotonic()
 
         if subrota == "i23d":
-            imagem, concept_meta = self._resolver_entrada(item, destino, env)
-            return self._gerar_triposr_i23d(item, destino, imagem, concept_meta, env, t0)
+            imagem, concept_meta = self._chamar_resolver_entrada(item, destino, env, lock_fn)
+            return self._gerar_triposr_i23d(item, destino, imagem, concept_meta, env, t0, lock_fn)
         if subrota == "procedural":
             return self._gerar_criatura_anatomica(item, perfil, destino, env, t0)
         if subrota == "extrude_2d":
-            imagem, concept_meta = self._resolver_entrada(item, destino, env)
+            imagem, concept_meta = self._chamar_resolver_entrada(item, destino, env, lock_fn)
             return self._gerar_extrude_2d(item, destino, imagem, concept_meta, env, t0)
         if subrota == "template":
             if _usar_makehuman_cabelo(item):
                 return self._gerar_makehuman_cabelo(item, perfil, destino, env, t0)
             if _usar_modular_armor(item):
                 return self._gerar_modular_armor(item, perfil, destino, env, t0)
-            imagem, concept_meta = self._resolver_entrada(item, destino, env)
+            imagem, concept_meta = self._chamar_resolver_entrada(item, destino, env, lock_fn)
             return self._gerar_template_humanoide(item, perfil, destino, imagem, concept_meta, env, t0)
 
         if _usar_makehuman_cabelo(item):
@@ -442,12 +437,12 @@ class MeshProvider:
             return self._gerar_modular_armor(item, perfil, destino, env, t0)
         if _usar_template_criatura(item):
             return self._gerar_criatura_anatomica(item, perfil, destino, env, t0)
-        imagem, concept_meta = self._resolver_entrada(item, destino, env)
+        imagem, concept_meta = self._chamar_resolver_entrada(item, destino, env, lock_fn)
         if _usar_template_humanoide(item):
             return self._gerar_template_humanoide(item, perfil, destino, imagem, concept_meta, env, t0)
         if _usar_extrude_2d(item):
             return self._gerar_extrude_2d(item, destino, imagem, concept_meta, env, t0)
-        return self._gerar_triposr_i23d(item, destino, imagem, concept_meta, env, t0)
+        return self._gerar_triposr_i23d(item, destino, imagem, concept_meta, env, t0, lock_fn)
 
 
 class I23DProvider(MeshProvider):

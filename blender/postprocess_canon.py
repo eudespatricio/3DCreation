@@ -68,7 +68,7 @@ def canonicalizar(obj, tipo: str | None = None, frente_origem: str | None = None
         tipo == "criatura_alada"
         and extensao[2] >= 0.30 * max(extensao)
     )
-    if frente_norm == "-Y":
+    if frente_norm == "-Y" or tipo in ("prop_estatico", "modulo_cenario"):
         largura, profundidade, altura = 0, 1, 2
     elif quadrupede:
         altura = 2

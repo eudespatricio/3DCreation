@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import os
 import sys
@@ -12,6 +13,7 @@ from mathutils import Matrix, Vector
 
 if __package__:
     from . import autorig, bake_pbr, extrude_2d, organic_sculpt
+    from . import postprocess_normals_uv as _nuv
     from .postprocess_canon import _alinhar_frente_humanoide, canonicalizar
     from .postprocess_normals_uv import aplicar_weighted_normal, suavizar_por_angulo
     from .postprocess_repair import reparar_malha
@@ -28,6 +30,7 @@ else:
     import bake_pbr
     import extrude_2d
     import organic_sculpt
+    import postprocess_normals_uv as _nuv
     from postprocess_canon import _alinhar_frente_humanoide, canonicalizar
     from postprocess_normals_uv import aplicar_weighted_normal, suavizar_por_angulo
     from postprocess_repair import reparar_malha
@@ -36,6 +39,24 @@ else:
         _resolver_opcional_bruto, criar_armadura, importar_fonte, malha_triangulada,
         objetos_colisao_ucx, unir_malhas,
     )
+
+
+def _chamar_compat(fn, *args, **kwargs):
+    """Chama ``fn`` repassando apenas kwargs aceitos por sua assinatura (compat mocks 1/2-arg)."""
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return fn(*args)
+    params = sig.parameters
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return fn(*args, **kwargs)
+    aceitos = {
+        k: v
+        for k, v in kwargs.items()
+        if (p := params.get(k)) is not None
+        and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    return fn(*args, **aceitos)
 
 
 def _inspecionar_ou_podar_ilhas_organicas(obj) -> tuple[bool, int]:
@@ -107,7 +128,11 @@ def _processar_bruto_extrude(
     info_gerada["reparo_inicial"] = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
     limite_tris = int(item["limite_triangulos"])
     if malha_triangulada(obj) > limite_tris:
-        decimar_fn(obj, limite_tris)
+        _chamar_compat(
+            decimar_fn, obj, limite_tris,
+            eh_organico=bool(cfg_suav.get("eh_organico", False)),
+            angulo_sharp_graus=float(cfg_suav.get("angulo_graus", 38.0)),
+        )
         info_gerada["reparo_pos_decimate"] = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
     angulo_smooth = float(cfg_suav["angulo_graus"])
     info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth)
@@ -117,13 +142,15 @@ def _processar_bruto_extrude(
         weighted = True
     met_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("metallic_hint"))
     rough_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("roughness_hint"))
-    if met_hint or rough_hint:
+    em_hint = _resolver_opcional_bruto(bruto_dir, bruto.get("emissive_hint"))
+    if met_hint or rough_hint or em_hint:
         px_ext, _ = bake_pbr.px_bake_recomendado(
             qualidade_item, bruto.get("textura_px"), teto_perfil=textura_max_perfil or None
         )
         res_hints = bake_pbr.aplicar_hints_orm_em_material(
             obj, saida_dir, nome_base, px_ext,
             metallic_hint_png=met_hint, roughness_hint_png=rough_hint,
+            emissive_hint=em_hint,
             perfil_nome=str(perfil.get("perfil") or item.get("perfil") or ""),
         )
         if res_hints:
@@ -251,23 +278,25 @@ def _reduzir_low(
     alvo_o, lim_t: int, ctx: dict, cfg_suav: dict, info_gerada: dict, retopo_fn, decimar_fn
 ) -> tuple[int, bool]:
     qf_aplicado = False
-    retopo = ctx["retopologia_pedida"]
-    qf_faces = ctx["quadriflow_faces"]
-    proteger = ctx["proteger"]
+    retopo, qf_faces, proteger = ctx["retopologia_pedida"], ctx["quadriflow_faces"], ctx["proteger"]
+    eh_org = bool(cfg_suav.get("eh_organico", proteger))
+    ang_sharp = float(ctx.get("angulo_smooth", 38.0))
     if retopo == "quadriflow":
-        if retopo_fn(alvo_o, lim_t, alvo_faces=qf_faces):
+        if _chamar_compat(
+            retopo_fn, alvo_o, lim_t, alvo_faces=qf_faces, eh_organico=eh_org,
+            angulo_sharp_graus=ang_sharp, qualidade=ctx.get("qualidade_item", "standard"),
+            forcar_hard_surface=True,
+        ):
             qf_aplicado = True
             info_gerada["retopologia"] = "quadriflow"
-            if malha_triangulada(alvo_o) > lim_t:
-                decimar_fn(alvo_o, lim_t, proteger_cabeca_maos=proteger)
-        elif malha_triangulada(alvo_o) > lim_t:
-            decimar_fn(alvo_o, lim_t, proteger_cabeca_maos=proteger)
-    elif malha_triangulada(alvo_o) > lim_t:
-        decimar_fn(alvo_o, lim_t, proteger_cabeca_maos=proteger)
+    if malha_triangulada(alvo_o) > lim_t:
+        _chamar_compat(
+            decimar_fn, alvo_o, lim_t, proteger_cabeca_maos=proteger,
+            eh_organico=eh_org, angulo_sharp_graus=ang_sharp,
+        )
     if cfg_suav["corrective_smooth"] and malha_triangulada(alvo_o) >= 120:
         if ctx.get("usar_bake_high_low"):
-            qual_low = str(ctx.get("qualidade_item") or "").strip().lower()
-            if qual_low not in ("hero", "ultra"):
+            if str(ctx.get("qualidade_item") or "").strip().lower() not in ("hero", "ultra"):
                 info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
                     alvo_o, iteracoes=1, fator=0.10
                 )
@@ -279,46 +308,39 @@ def _reduzir_low(
 
 
 def _reduzir_e_suavizar_sem_bake(
-    obj,
-    rig_obj,
-    bruto: dict,
-    ctx: dict,
-    cfg_suav: dict,
-    alpha_cards_ativo: bool,
-    info_gerada: dict,
-    retopo_fn,
-    decimar_fn,
-    uv_fn,
+    obj, rig_obj, bruto: dict, ctx: dict, cfg_suav: dict, alpha_cards_ativo: bool,
+    info_gerada: dict, retopo_fn, decimar_fn, uv_fn,
 ) -> tuple[bool, bool, bool]:
     if not obj.data.uv_layers:
-        raise RuntimeError(
-            "malha importada sem UV e sem cor por vertice: nao ha como assar textura"
-        )
-    limite_tris = ctx["limite_tris"]
-    proteger = ctx["proteger"]
-    angulo_smooth = ctx["angulo_smooth"]
+        raise RuntimeError("malha importada sem UV e sem cor por vertice: nao ha como assar textura")
+    limite_tris, proteger, angulo_smooth = ctx["limite_tris"], ctx["proteger"], ctx["angulo_smooth"]
+    eh_org = bool(cfg_suav.get("eh_organico", proteger))
+    fn_uv_ov = getattr(_nuv, "tem_uv_sobreposta", None)
     qf_aplicado = False
     info_gerada["triangulos_antes_decimate"] = malha_triangulada(obj)
     if ctx["retopologia_pedida"] == "quadriflow":
-        if retopo_fn(obj, limite_tris, alvo_faces=ctx["quadriflow_faces"]):
+        if _chamar_compat(
+            retopo_fn, obj, limite_tris, alvo_faces=ctx["quadriflow_faces"], eh_organico=eh_org,
+            angulo_sharp_graus=angulo_smooth, qualidade=ctx.get("qualidade_item", "standard"),
+            forcar_hard_surface=True,
+        ):
             qf_aplicado = True
             info_gerada["retopologia"] = "quadriflow"
-            uv_fn(obj)
+            _chamar_compat(uv_fn, obj, eh_organico=eh_org)
     if malha_triangulada(obj) > limite_tris:
-        decimar_fn(obj, limite_tris, proteger_cabeca_maos=proteger)
-        info_gerada["reparo_pos_decimate"] = reparar_malha(
-            obj, permitir_bordas_abertas=alpha_cards_ativo
+        _chamar_compat(
+            decimar_fn, obj, limite_tris, proteger_cabeca_maos=proteger,
+            eh_organico=eh_org, angulo_sharp_graus=angulo_smooth,
         )
-        if not obj.data.uv_layers:
-            info_gerada["uv"] = uv_fn(obj)
+        info_gerada["reparo_pos_decimate"] = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
+        if not obj.data.uv_layers or (callable(fn_uv_ov) and fn_uv_ov(obj)):
+            info_gerada["uv"] = _chamar_compat(uv_fn, obj, eh_organico=eh_org)
         if cfg_suav["corrective_smooth"] and malha_triangulada(obj) >= 120:
             info_gerada["corrective_smooth"] = organic_sculpt.aplicar_corrective_smooth(
                 obj, iteracoes=2, fator=0.35
             )
     elif bruto.get("armadura_modular"):
-        info_gerada["reparo_pos_decimate"] = reparar_malha(
-            obj, permitir_bordas_abertas=alpha_cards_ativo
-        )
+        info_gerada["reparo_pos_decimate"] = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
     info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=angulo_smooth)
     weighted = False
     if rig_obj is None and cfg_suav["weighted_normals"] and not bruto.get("armadura_modular"):
@@ -346,35 +368,20 @@ def _resolver_esqueleto_auto_rig(job: dict, item: dict, perfil: dict) -> tuple[s
     return tipo_item, str(item.get("esqueleto") or esq_padrao)
 
 
-def _prealinhar_se_criatura_rig(
-    obj,
-    job: dict,
-    item: dict,
-    perfil: dict,
-    *,
-    autorig_mod=None,
-) -> None:
+def _prealinhar_se_criatura_rig(obj, job: dict, item: dict, perfil: dict, *, autorig_mod=None) -> None:
     ar = autorig_mod if autorig_mod is not None else autorig
     res = _resolver_esqueleto_auto_rig(job, item, perfil)
     if res is None:
         return
     tipo_item, esq = res
-    humanos = set(
-        getattr(ar, "_ESQUELETOS_HUMANOS", ("godot-humanoid@1", "godot-humanoid-aa@1", "r15@1"))
-    )
+    humanos = set(getattr(ar, "_ESQUELETOS_HUMANOS", ("godot-humanoid@1", "godot-humanoid-aa@1", "r15@1")))
     criaturas = set(getattr(ar, "_ESQUELETOS_CRIATURA", ("quadruped@1", "winged_mount@1")))
     if esq in humanos:
         return
-    if esq in criaturas or tipo_item in (
-        "criatura",
-        "criatura_quadrupede",
-        "criatura_alada",
-        "montaria",
-    ):
+    if esq in criaturas or tipo_item in ("criatura", "criatura_quadrupede", "criatura_alada", "montaria"):
         fn_align = getattr(ar, "_alinhar_orientacao_criatura", None)
         if callable(fn_align):
-            com_asas = esq == "winged_mount@1" or tipo_item == "criatura_alada"
-            fn_align(obj, com_asas=com_asas)
+            fn_align(obj, com_asas=(esq == "winged_mount@1" or tipo_item == "criatura_alada"))
 
 
 def _clonar_high_nao_linkado(obj, nome_base: str):
@@ -386,31 +393,25 @@ def _clonar_high_nao_linkado(obj, nome_base: str):
 
 
 def _preparar_low_antes_escala(
-    obj,
-    ctx: dict,
-    info_gerada: dict,
-    alpha_cards_ativo: bool,
-    bruto: dict,
-    rig_obj,
-    cfg_suav: dict,
-    retopo_fn,
-    decimar_fn,
-    uv_fn,
+    obj, ctx: dict, info_gerada: dict, alpha_cards_ativo: bool, bruto: dict,
+    rig_obj, cfg_suav: dict, retopo_fn, decimar_fn, uv_fn,
 ) -> tuple[bool, bool, bool]:
     info_gerada["triangulos_antes_decimate"] = malha_triangulada(obj)
     lim_t = int(ctx["limite_tris"])
+    eh_org = bool(cfg_suav.get("eh_organico", ctx["proteger"]))
+    ang_sharp = float(ctx.get("angulo_smooth", 38.0))
     _, qf_ok = _reduzir_low(obj, lim_t, ctx, cfg_suav, info_gerada, retopo_fn, decimar_fn)
     info_reparo = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
     if malha_triangulada(obj) > lim_t:
-        _, qf2 = _reduzir_low(
-            obj, max(50, int(lim_t * 0.97)), ctx, cfg_suav, info_gerada, retopo_fn, decimar_fn
+        _chamar_compat(
+            decimar_fn, obj, max(50, int(lim_t * 0.97)),
+            proteger_cabeca_maos=ctx["proteger"], eh_organico=eh_org, angulo_sharp_graus=ang_sharp,
         )
-        qf_ok = qf_ok or qf2
         info_reparo = reparar_malha(obj, permitir_bordas_abertas=alpha_cards_ativo)
     info_gerada["reparo_pos_decimate"] = info_reparo
     info_gerada["triangulos_pos_decimate"] = malha_triangulada(obj)
     info_gerada["smooth"] = suavizar_por_angulo(obj, angulo_graus=ctx["angulo_smooth"])
-    info_gerada["uv"] = uv_fn(obj)
+    info_gerada["uv"] = _chamar_compat(uv_fn, obj, eh_organico=eh_org)
     weighted = False
     if cfg_suav["weighted_normals"] and rig_obj is None and not bruto.get("armadura_modular"):
         info_gerada["weighted_normal"] = aplicar_weighted_normal(obj)
@@ -455,18 +456,8 @@ def _transformar_high_escala(high_obj_src, escala: float, deslocamento: Vector) 
 
 
 def _aplicar_rig_bruto_arquivo(
-    obj,
-    rig_obj,
-    grupos: dict,
-    job: dict,
-    item: dict,
-    perfil: dict,
-    bruto: dict,
-    info_gerada: dict,
-    esqueleto_pedido: str | None,
-    esqueleto_efetivo: str | None,
-    *,
-    autorig_mod=None,
+    obj, rig_obj, grupos: dict, job: dict, item: dict, perfil: dict, bruto: dict,
+    info_gerada: dict, esqueleto_pedido: str | None, esqueleto_efetivo: str | None, *, autorig_mod=None,
 ) -> tuple:
     ar = autorig_mod if autorig_mod is not None else autorig
     if (

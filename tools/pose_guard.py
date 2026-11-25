@@ -18,6 +18,18 @@ from typing import Any
 
 from PIL import Image
 
+_TOOLS_DIR = str(Path(__file__).resolve().parent)
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+
+from cutout_clean import (  # noqa: E402
+    criar_sessao_rembg_otimizada,
+    estimar_cor_fundo_borda,
+    limpar_halo_e_sangrar_rgb,
+    modelo_rembg_padrao_cpu,
+    recortar_com_margem_segura,
+)
+
 try:  # noqa: SIM105 - opcional no nucleo .venv sem numpy/cv2
     import cv2  # type: ignore[import-not-found]
     import numpy as np  # type: ignore[import-not-found]
@@ -62,26 +74,14 @@ def _mascara_foreground_cv2(rgba_img: Image.Image) -> tuple[Any, str]:
     arr = np.array(rgba_img.convert("RGBA"))
     alpha = arr[:, :, 3]
     if int(alpha.min()) < 250:
-        mask = np.where(alpha >= 24, np.uint8(255), np.uint8(0))
-        return _limpar_mascara_cv2(mask), "alpha"
+        return _limpar_mascara_cv2(np.where(alpha >= 24, np.uint8(255), np.uint8(0))), "alpha"
 
     rgb = arr[:, :, :3]
     h, w = rgb.shape[:2]
-    borda = np.concatenate(
-        [
-            rgb[0, :],
-            rgb[-1, :],
-            rgb[:, 0],
-            rgb[:, -1],
-        ],
-        axis=0,
-    ).astype(np.float32)
+    borda = np.concatenate([rgb[0, :], rgb[-1, :], rgb[:, 0], rgb[:, -1]], axis=0).astype(np.float32)
     bg = np.median(borda, axis=0)
-    dist_borda = np.linalg.norm(borda - bg, axis=1)
-    limiar = max(20.0, float(np.percentile(dist_borda, 90)) + 12.0)
-
-    dist = np.linalg.norm(rgb.astype(np.float32) - bg, axis=2)
-    mask = np.where(dist > limiar, np.uint8(255), np.uint8(0))
+    limiar = max(20.0, float(np.percentile(np.linalg.norm(borda - bg, axis=1), 90)) + 12.0)
+    mask = np.where(np.linalg.norm(rgb.astype(np.float32) - bg, axis=2) > limiar, np.uint8(255), np.uint8(0))
 
     # Se fundo complexo estourar o limiar simples, refina via GrabCut em retangulo interno.
     frac = float(np.count_nonzero(mask)) / max(h * w, 1)
@@ -89,27 +89,12 @@ def _mascara_foreground_cv2(rgba_img: Image.Image) -> tuple[Any, str]:
         gc_mask = np.zeros((h, w), dtype=np.uint8)
         bgd_model = np.zeros((1, 65), dtype=np.float64)
         fgd_model = np.zeros((1, 65), dtype=np.float64)
-        rx0 = max(1, int(round(w * 0.05)))
-        ry0 = max(1, int(round(h * 0.03)))
-        rw = max(2, int(round(w * 0.90)))
-        rh = max(2, int(round(h * 0.94)))
+        rx0, ry0 = max(1, int(round(w * 0.05))), max(1, int(round(h * 0.03)))
+        rw, rh = max(2, int(round(w * 0.90))), max(2, int(round(h * 0.94)))
         if rx0 + rw < w and ry0 + rh < h:
-            cv2.grabCut(
-                rgb,
-                gc_mask,
-                (rx0, ry0, rw, rh),
-                bgd_model,
-                fgd_model,
-                3,
-                cv2.GC_INIT_WITH_RECT,
-            )
-            gc_fg = np.where(
-                (gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD),
-                np.uint8(255),
-                np.uint8(0),
-            )
-            gc_frac = float(np.count_nonzero(gc_fg)) / max(h * w, 1)
-            if 0.02 <= gc_frac <= 0.92:
+            cv2.grabCut(rgb, gc_mask, (rx0, ry0, rw, rh), bgd_model, fgd_model, 3, cv2.GC_INIT_WITH_RECT)
+            gc_fg = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), np.uint8(255), np.uint8(0))
+            if 0.02 <= float(np.count_nonzero(gc_fg)) / max(h * w, 1) <= 0.92:
                 return _limpar_mascara_cv2(gc_fg), "grabcut"
 
     return _limpar_mascara_cv2(mask), "border_dist"
@@ -120,37 +105,19 @@ def _mascara_foreground_pil(rgba_img: Image.Image) -> tuple[list[list[int]], int
     rgba = rgba_img.convert("RGBA")
     w, h = rgba.size
     px = rgba.tobytes()
-    alphas = px[3::4]
-    if min(alphas) < 250:
-        grade = [
-            [1 if px[(y * w + x) * 4 + 3] >= 24 else 0 for x in range(w)]
-            for y in range(h)
-        ]
-        return grade, w, h, "alpha"
+    if min(px[3::4]) < 250:
+        return [[1 if px[(y * w + x) * 4 + 3] >= 24 else 0 for x in range(w)] for y in range(h)], w, h, "alpha"
 
-    amostras: list[tuple[int, int, int]] = []
-    for x in range(w):
-        for y in (0, h - 1):
-            i = (y * w + x) * 4
-            amostras.append((px[i], px[i + 1], px[i + 2]))
-    for y in range(h):
-        for x in (0, w - 1):
-            i = (y * w + x) * 4
-            amostras.append((px[i], px[i + 1], px[i + 2]))
-    bg_r = statistics.median(c[0] for c in amostras)
-    bg_g = statistics.median(c[1] for c in amostras)
-    bg_b = statistics.median(c[2] for c in amostras)
-    grade = []
-    for y in range(h):
-        linha: list[int] = []
-        base = y * w * 4
-        for x in range(w):
-            i = base + x * 4
-            dr = px[i] - bg_r
-            dg = px[i + 1] - bg_g
-            db = px[i + 2] - bg_b
-            linha.append(1 if (dr * dr + dg * dg + db * db) > 26.0 * 26.0 else 0)
-        grade.append(linha)
+    bordas = (*(y * w + x for x in range(w) for y in (0, h - 1)), *(y * w + x for y in range(h) for x in (0, w - 1)))
+    amostras = [(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]) for i in bordas]
+    bg_r, bg_g, bg_b = (statistics.median(c[k] for c in amostras) for k in (0, 1, 2))
+    grade = [
+        [
+            1 if (px[(y * w + x) * 4] - bg_r) ** 2 + (px[(y * w + x) * 4 + 1] - bg_g) ** 2 + (px[(y * w + x) * 4 + 2] - bg_b) ** 2 > 676.0 else 0
+            for x in range(w)
+        ]
+        for y in range(h)
+    ]
     return grade, w, h, "border_dist_pil"
 
 
@@ -199,26 +166,16 @@ def _analisar_perfil_silhueta(linhas_xs: list[list[int]], metodo: str) -> dict[s
     linhas_fg = [(y, xs) for y, xs in enumerate(linhas_xs) if xs]
     if not linhas_fg:
         return {
-            "pose": "arms_down",
-            "razao_flanco": 0.0,
-            "largura_ombros": 0.0,
-            "precisa_repose": True,
-            "aspecto": 0.0,
-            "waist_elbow_gap": 0.0,
-            "cabeca_ok": False,
-            "simetria_iou": 0.0,
-            "leg_gap_ratio": 0.0,
-            "pernas_separadas": False,
-            "apto_rig": False,
-            "score_pose": 0.0,
+            "pose": "arms_down", "razao_flanco": 0.0, "largura_ombros": 0.0,
+            "precisa_repose": True, "aspecto": 0.0, "waist_elbow_gap": 0.0,
+            "cabeca_ok": False, "simetria_iou": 0.0, "leg_gap_ratio": 0.0,
+            "pernas_separadas": False, "apto_rig": False, "score_pose": 0.0,
             "metodo_mascara": metodo,
         }
 
-    y_min = linhas_fg[0][0]
-    y_max = linhas_fg[-1][0]
+    y_min, y_max = linhas_fg[0][0], linhas_fg[-1][0]
     fg_h = max(1, y_max - y_min + 1)
-    x_min = min(xs[0] for _, xs in linhas_fg)
-    x_max = max(xs[-1] for _, xs in linhas_fg)
+    x_min, x_max = min(xs[0] for _, xs in linhas_fg), max(xs[-1] for _, xs in linhas_fg)
     fg_w = max(1, x_max - x_min + 1)
     aspecto = fg_w / fg_h
 
@@ -232,71 +189,36 @@ def _analisar_perfil_silhueta(linhas_xs: list[list[int]], metodo: str) -> dict[s
     for y in range(y_min, y_max + 1):
         xs = linhas_xs[y]
         norm_y = (y - y_min) / max(1, fg_h - 1) if fg_h > 1 else 0.5
-        if xs:
-            span_px = xs[-1] - xs[0] + 1
-            fill_px = len(xs)
-        else:
-            span_px = 0
-            fill_px = 0
-
+        span_px, fill_px = (xs[-1] - xs[0] + 1, len(xs)) if xs else (0, 0)
         if 0.16 <= norm_y <= 0.38:
             upper_spans.append(span_px / fg_h)
             upper_max_px = max(upper_max_px, span_px)
         if 0.16 <= norm_y <= 0.60:
             upper_max_px = max(upper_max_px, span_px)
-
         if 0.40 <= norm_y <= 0.75:
             band_40_75_spans.append(span_px / fg_h)
             band_40_75_fills.append(fill_px / fg_h)
-
         # Banda cintura/cotovelo (acima da abertura entre pernas): detecta ar entre tronco e bracos.
         if 0.38 <= norm_y <= 0.64:
-            if len(xs) >= 2 and span_px > fill_px:
-                # Conta intervalos internos de background >= gap_min_px
-                tem_gap_real = False
-                for a, b in zip(xs, xs[1:]):
-                    if b - a - 1 >= gap_min_px:
-                        tem_gap_real = True
-                        break
-                if tem_gap_real:
-                    waist_gap_scores.append((span_px - fill_px) / max(span_px, 1))
-                else:
-                    waist_gap_scores.append(0.0)
-            else:
-                waist_gap_scores.append(0.0)
+            tem_gap_real = len(xs) >= 2 and span_px > fill_px and any((b - a - 1) >= gap_min_px for a, b in zip(xs, xs[1:]))
+            waist_gap_scores.append(((span_px - fill_px) / max(span_px, 1)) if tem_gap_real else 0.0)
 
     largura_ombros = _percentil(upper_spans, 0.90) if upper_spans else aspecto
     span_40_75 = _percentil(band_40_75_spans, 0.85) if band_40_75_spans else aspecto
-    mean_fill_40_75 = (
-        sum(band_40_75_fills) / len(band_40_75_fills) if band_40_75_fills else aspecto
-    )
+    mean_fill_40_75 = sum(band_40_75_fills) / len(band_40_75_fills) if band_40_75_fills else aspecto
     upper_norm = max(upper_max_px / fg_h, largura_ombros, 1e-6)
     flank_vs_upper = max(0.0, 1.0 - (mean_fill_40_75 / upper_norm))
-    waist_elbow_gap = (
-        sum(waist_gap_scores) / len(waist_gap_scores) if waist_gap_scores else 0.0
-    )
+    waist_elbow_gap = sum(waist_gap_scores) / len(waist_gap_scores) if waist_gap_scores else 0.0
     razao_flanco = max(flank_vs_upper, waist_elbow_gap)
 
     eh_tpose = largura_ombros >= 0.54 and flank_vs_upper >= 0.30 and aspecto >= 0.50
-    eh_apose = (
-        (largura_ombros >= 0.45 or span_40_75 >= 0.45)
-        and aspecto >= 0.45
-        and (waist_elbow_gap >= 0.06 or flank_vs_upper >= 0.32)
-    )
+    eh_apose = (largura_ombros >= 0.45 or span_40_75 >= 0.45) and aspecto >= 0.45 and (waist_elbow_gap >= 0.06 or flank_vs_upper >= 0.32)
     # Silhueta muito estreita ou zero espaco entre tronco e bracos (sem T-pose) => arms_down.
-    if aspecto < 0.44 or (not eh_tpose and waist_elbow_gap < 0.05):
-        pose = "arms_down"
-    elif eh_tpose or eh_apose:
-        pose = "tpose_apose"
-    else:
-        pose = "arms_down"
+    pose = "arms_down" if (aspecto < 0.44 or (not eh_tpose and waist_elbow_gap < 0.05)) else ("tpose_apose" if (eh_tpose or eh_apose) else "arms_down")
 
     cabeca_spans: list[float] = []
-    leg_total = 0
-    leg_com_gap = 0
+    leg_total, leg_com_gap, sim_inter, sim_union = 0, 0, 0, 0
     x_mid = (x_min + x_max) / 2.0
-    sim_inter = 0
-    sim_union = 0
     for y in range(y_min, y_max + 1):
         xs = linhas_xs[y]
         if not xs:
@@ -331,19 +253,12 @@ def _analisar_perfil_silhueta(linhas_xs: list[list[int]], metodo: str) -> dict[s
     )
 
     return {
-        "pose": pose,
-        "razao_flanco": round(float(razao_flanco), 4),
-        "largura_ombros": round(float(largura_ombros), 4),
-        "precisa_repose": pose == "arms_down",
-        "aspecto": round(float(aspecto), 4),
-        "waist_elbow_gap": round(float(waist_elbow_gap), 4),
-        "cabeca_ok": cabeca_ok,
-        "simetria_iou": round(float(simetria_iou), 4),
-        "leg_gap_ratio": round(float(leg_gap_ratio), 4),
-        "pernas_separadas": pernas_separadas,
-        "apto_rig": apto_rig,
-        "score_pose": round(float(score_pose), 4),
-        "metodo_mascara": metodo,
+        "pose": pose, "razao_flanco": round(float(razao_flanco), 4),
+        "largura_ombros": round(float(largura_ombros), 4), "precisa_repose": pose == "arms_down",
+        "aspecto": round(float(aspecto), 4), "waist_elbow_gap": round(float(waist_elbow_gap), 4),
+        "cabeca_ok": cabeca_ok, "simetria_iou": round(float(simetria_iou), 4),
+        "leg_gap_ratio": round(float(leg_gap_ratio), 4), "pernas_separadas": pernas_separadas,
+        "apto_rig": apto_rig, "score_pose": round(float(score_pose), 4), "metodo_mascara": metodo,
     }
 
 
@@ -368,120 +283,149 @@ def detectar_pose_imagem(imagem_path: str | Path) -> dict[str, Any]:
     return _analisar_perfil_silhueta(linhas_xs, metodo)
 
 
-def _desmultiplicar_rgba(
-    rgba: Image.Image, alfa_minimo: int = 24, *, unpremul: bool = False
-) -> Image.Image:
-    raw = bytearray(rgba.convert("RGBA").tobytes())
-    for i in range(0, len(raw), 4):
-        a = raw[i + 3]
-        if a < alfa_minimo:
-            raw[i] = 0
-            raw[i + 1] = 0
-            raw[i + 2] = 0
-            raw[i + 3] = 0
-        elif unpremul and a < 255:
-            raw[i] = min(255, round(raw[i] * 255 / a))
-            raw[i + 1] = min(255, round(raw[i + 1] * 255 / a))
-            raw[i + 2] = min(255, round(raw[i + 2] * 255 / a))
-    return Image.frombytes("RGBA", rgba.size, bytes(raw))
+def _recorte_rapido_estudio(rgba: Image.Image, bg_rgb: tuple[float, float, float]) -> Image.Image | None:
+    """Flood-fill rapido pelas 4 bordas quando o fundo de estudio e uniforme (opt-in)."""
+    if rgba.mode != "RGBA":
+        rgba = rgba.convert("RGBA")
+    w, h = rgba.size
+    if w < 8 or h < 8:
+        return None
+    raw = bytearray(rgba.tobytes())
+    br, bg_g, bb = bg_rgb
+    bordas = [*(y * w + x for x in range(w) for y in (0, h - 1)), *(y * w + x for y in range(h) for x in (0, w - 1))]
+    dists_b = [((raw[i * 4] - br) ** 2 + (raw[i * 4 + 1] - bg_g) ** 2 + (raw[i * 4 + 2] - bb) ** 2) ** 0.5 for i in bordas]
+    p90 = _percentil(dists_b, 0.90)
+    if p90 >= 16.0:
+        return None
+    if _TEM_CV2:
+        arr = np.array(rgba)
+        cand = (np.linalg.norm(arr[:, :, :3].astype(np.float32) - np.array(bg_rgb, dtype=np.float32), axis=2) < max(18.0, p90 + 8.0)).astype(np.uint8)
+        n_lab, labels = cv2.connectedComponents(cand, connectivity=4)
+        ids = np.unique(np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]])) if n_lab > 1 else np.array([], dtype=np.int32)
+        ids = ids[ids > 0]
+        if len(ids) == 0:
+            return None
+        eh_bg = np.isin(labels, ids)
+        if not (0.03 <= 1.0 - float(np.count_nonzero(eh_bg)) / float(w * h) <= 0.90):
+            return None
+        arr[eh_bg] = 0
+        return Image.fromarray(arr, mode="RGBA")
+    lim2 = max(18.0, p90 + 8.0) ** 2
+    bg_m = bytearray(w * h)
+    fila: deque[int] = deque()
+    for idx in bordas:
+        o = idx * 4
+        if not bg_m[idx] and (raw[o] - br) ** 2 + (raw[o + 1] - bg_g) ** 2 + (raw[o + 2] - bb) ** 2 < lim2:
+            bg_m[idx] = 1
+            fila.append(idx)
+    while fila:
+        idx = fila.popleft()
+        cx, cy = idx % w, idx // w
+        for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
+            if 0 <= nx < w and 0 <= ny < h:
+                ni, no = ny * w + nx, (ny * w + nx) * 4
+                if not bg_m[ni] and (raw[no] - br) ** 2 + (raw[no + 1] - bg_g) ** 2 + (raw[no + 2] - bb) ** 2 < lim2:
+                    bg_m[ni] = 1
+                    fila.append(ni)
+    if not (0.03 <= 1.0 - sum(bg_m) / float(w * h) <= 0.90):
+        return None
+    for i, eh in enumerate(bg_m):
+        if eh:
+            raw[i * 4 : i * 4 + 4] = b"\x00\x00\x00\x00"
+    return Image.frombytes("RGBA", (w, h), bytes(raw))
+
+
+def _remover_ilhas_ruido(recorte: Image.Image) -> Image.Image:
+    if _TEM_CV2:
+        arr = np.array(recorte)
+        lim_a = 160 if int(np.count_nonzero(arr[:, :, 3] >= 160)) > 0 else 24
+        fg_limpo = _limpar_mascara_cv2(np.where(arr[:, :, 3] >= lim_a, np.uint8(255), np.uint8(0)))
+        if int(np.count_nonzero(fg_limpo)) > 0:
+            arr[fg_limpo == 0] = 0
+            return Image.fromarray(arr, mode="RGBA")
+        return recorte
+    w, h = recorte.size
+    raw = bytearray(recorte.tobytes())
+    lim_a = 160 if any(a >= 160 for a in raw[3::4]) else 24
+    grade = [[1 if raw[(y * w + x) * 4 + 3] >= lim_a else 0 for x in range(w)] for y in range(h)]
+    grade = _manter_maior_componente_pil(grade, w, h)
+    if any(any(row) for row in grade):
+        for y in range(h):
+            for x in range(w):
+                if not grade[y][x]:
+                    idx = (y * w + x) * 4
+                    raw[idx : idx + 4] = b"\x00\x00\x00\x00"
+        return Image.frombytes("RGBA", (w, h), bytes(raw))
+    return recorte
 
 
 def decompor_silhueta_arma(imagem_path: str | Path, saida_png: str | Path) -> dict[str, Any]:
-    """Isola recorte RGBA limpo e recortado na bbox para extrusao 2D de arma/capa."""
+    """Isola recorte RGBA limpo, sem halo semitransparente e com margem segura."""
     caminho = Path(imagem_path)
     if not caminho.is_file():
         raise FileNotFoundError(f"imagem nao encontrada: {caminho}")
-
     with Image.open(caminho) as img:
         rgba = img.convert("RGBA")
 
+    bg_rgb = estimar_cor_fundo_borda(rgba)
     era_opaca = rgba.getchannel("A").getextrema()[0] >= 250
-    metodo = "alpha"
-    recorte = rgba
-    usou_rembg = False
+    metodo, recorte, usou_rembg = "alpha", rgba, False
     rembg_avisos: list[str] = []
 
     if era_opaca:
-        try:
-            import rembg  # type: ignore[import-not-found]
-
-            rembg_modelo = os.environ.get("FORGE3D_REMBG_MODELO", "birefnet-general").strip() or "birefnet-general"
+        usou_fast = False
+        if os.environ.get("FORGE3D_CUTOUT_FAST_STUDIO", "").strip() == "1":
+            fast_cut = _recorte_rapido_estudio(rgba, bg_rgb)
+            if fast_cut is not None:
+                recorte, metodo, usou_fast = fast_cut, "fast_studio", True
+        if not usou_fast:
             try:
-                sessao = rembg.new_session(rembg_modelo)
-                metodo = f"rembg:{rembg_modelo}"
-            except (OSError, RuntimeError, ImportError, LookupError, ValueError) as exc:
-                if rembg_modelo == "u2net" or "No session class found" in str(exc):
-                    raise
-                msg_u2 = f"rembg '{rembg_modelo}' falhou ({type(exc).__name__}: {exc}); fallback u2net"
-                rembg_avisos.append(msg_u2)
-                print(f"[pose_guard] aviso {msg_u2}", file=sys.stderr)
-                sessao = rembg.new_session("u2net")
-                metodo = "rembg:u2net"
-            recorte = rembg.remove(rgba, session=sessao).convert("RGBA")
-            usou_rembg = True
-        except (ImportError, OSError, RuntimeError, ValueError, AttributeError) as exc:
-            usou_rembg = False
-            msg_local = f"rembg indisponivel ({type(exc).__name__}: {exc}); fallback recorte local"
-            rembg_avisos.append(msg_local)
-            print(f"[pose_guard] aviso {msg_local}", file=sys.stderr)
+                import rembg  # type: ignore[import-not-found]
 
-        if not usou_rembg:
-            if _TEM_CV2:
-                mask_u8, m_sub = _mascara_foreground_cv2(rgba)
-                arr = np.array(rgba)
-                arr[:, :, 3] = np.where(mask_u8 > 0, np.uint8(255), np.uint8(0))
-                recorte = Image.fromarray(arr, mode="RGBA")
-                metodo = m_sub
-            else:
-                grade, w, h, m_sub = _mascara_foreground_pil(rgba)
-                grade = _manter_maior_componente_pil(grade, w, h)
-                raw = bytearray(rgba.tobytes())
-                for y in range(h):
-                    for x in range(w):
-                        if not grade[y][x]:
-                            idx = (y * w + x) * 4
-                            raw[idx : idx + 4] = b"\x00\x00\x00\x00"
-                recorte = Image.frombytes("RGBA", (w, h), bytes(raw))
-                metodo = m_sub
+                rembg_modelo = modelo_rembg_padrao_cpu()
+                try:
+                    sessao = criar_sessao_rembg_otimizada(rembg, rembg_modelo)
+                    metodo = f"rembg:{rembg_modelo}"
+                except (OSError, RuntimeError, ImportError, LookupError, ValueError) as exc:
+                    if rembg_modelo == "u2net" or "No session class found" in str(exc):
+                        raise
+                    msg_u2 = f"rembg '{rembg_modelo}' falhou ({type(exc).__name__}: {exc}); fallback u2net"
+                    rembg_avisos.append(msg_u2)
+                    print(f"[pose_guard] aviso {msg_u2}", file=sys.stderr)
+                    sessao = criar_sessao_rembg_otimizada(rembg, "u2net")
+                    metodo = "rembg:u2net"
+                recorte = rembg.remove(rgba, session=sessao).convert("RGBA")
+                usou_rembg = True
+            except (ImportError, OSError, RuntimeError, LookupError, ValueError, AttributeError) as exc:
+                usou_rembg = False
+                msg_local = f"rembg indisponivel ({type(exc).__name__}: {exc}); fallback recorte local"
+                rembg_avisos.append(msg_local)
+                print(f"[pose_guard] aviso {msg_local}", file=sys.stderr)
 
-    recorte = _desmultiplicar_rgba(recorte, alfa_minimo=24, unpremul=usou_rembg)
+            if not usou_rembg:
+                if _TEM_CV2:
+                    mask_u8, m_sub = _mascara_foreground_cv2(rgba)
+                    arr = np.array(rgba)
+                    arr[:, :, 3] = np.where(mask_u8 > 0, np.uint8(255), np.uint8(0))
+                    recorte, metodo = Image.fromarray(arr, mode="RGBA"), m_sub
+                else:
+                    grade, w, h, m_sub = _mascara_foreground_pil(rgba)
+                    grade = _manter_maior_componente_pil(grade, w, h)
+                    raw = bytearray(rgba.tobytes())
+                    for y in range(h):
+                        for x in range(w):
+                            if not grade[y][x]:
+                                raw[(y * w + x) * 4 : (y * w + x) * 4 + 4] = b"\x00\x00\x00\x00"
+                    recorte, metodo = Image.frombytes("RGBA", (w, h), bytes(raw)), m_sub
 
-    if _TEM_CV2:
-        arr = np.array(recorte)
-        fg_mask = np.where(arr[:, :, 3] >= 24, np.uint8(255), np.uint8(0))
-        fg_limpo = _limpar_mascara_cv2(fg_mask)
-        if int(np.count_nonzero(fg_limpo)) > 0:
-            arr[fg_limpo == 0] = 0
-            recorte = Image.fromarray(arr, mode="RGBA")
-    else:
-        w, h = recorte.size
-        raw = bytearray(recorte.tobytes())
-        grade = [
-            [1 if raw[(y * w + x) * 4 + 3] >= 24 else 0 for x in range(w)]
-            for y in range(h)
-        ]
-        grade = _manter_maior_componente_pil(grade, w, h)
-        if any(any(row) for row in grade):
-            for y in range(h):
-                for x in range(w):
-                    if not grade[y][x]:
-                        idx = (y * w + x) * 4
-                        raw[idx : idx + 4] = b"\x00\x00\x00\x00"
-            recorte = Image.frombytes("RGBA", (w, h), bytes(raw))
-
-    bbox = recorte.getchannel("A").getbbox()
-    if bbox:
-        x0, y0, x1, y1 = bbox
-        pad = 2
-        cx0 = max(0, x0 - pad)
-        cy0 = max(0, y0 - pad)
-        cx1 = min(recorte.width, x1 + pad)
-        cy1 = min(recorte.height, y1 + pad)
-        recorte = recorte.crop((cx0, cy0, cx1, cy1))
+    recorte = _remover_ilhas_ruido(recorte)
+    recorte = limpar_halo_e_sangrar_rgb(recorte, bg_rgb, usou_rembg=usou_rembg, alpha_corte=160, bleed_px=6)
+    recorte = recortar_com_margem_segura(recorte, margem_frac=0.12)
 
     alfa_bytes = recorte.getchannel("A").tobytes()
     total = max(len(alfa_bytes), 1)
-    opacos = sum(1 for a in alfa_bytes if a >= 24)
+    opacos = sum(1 for a in alfa_bytes if a >= 160)
+    halo_semi = sum(1 for a in alfa_bytes if 0 < a < 255) / total
 
     destino = Path(saida_png)
     destino.parent.mkdir(parents=True, exist_ok=True)
@@ -492,6 +436,7 @@ def decompor_silhueta_arma(imagem_path: str | Path, saida_png: str | Path) -> di
         "largura": recorte.width,
         "altura": recorte.height,
         "area_fg": round(opacos / total, 4),
+        "halo_semitransparente": round(halo_semi, 6),
         "metodo": metodo,
         **({"avisos": rembg_avisos} if rembg_avisos else {}),
     }

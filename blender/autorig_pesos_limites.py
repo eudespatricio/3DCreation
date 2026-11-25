@@ -56,9 +56,19 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
         perna_max_x = min(perna_max_x, 0.5 * (leg_abs + min_elbow_x) + 0.02 * h)
     hips_max_x = perna_max_x + 0.03 * h
     if arms_abducted and min_arm_low_x > leg_abs + 0.06 * h:
-        hips_max_x = max(hips_max_x, min(min_arm_low_x - 0.03 * h, 0.5 * (leg_abs + min_arm_low_x) + 0.04 * h))
+        cap_arm = min_arm_low_x - 0.03 * h - 1e-5
+        hips_max_x = min(
+            cap_arm,
+            max(hips_max_x, min(cap_arm, 0.5 * (leg_abs + min_arm_low_x) + 0.04 * h)),
+        )
     arm_pose_abduzida = bool(
-        arms_abducted and el_xs and min_elbow_x > sh_x + 0.04 * h and min_arm_low_x > sh_x + 0.04 * h
+        arms_abducted
+        and el_xs
+        and min_elbow_x > sh_x + 0.04 * h
+        and (
+            min_arm_low_x > sh_x + 0.04 * h
+            or (min_arm_low_x > leg_abs + 0.06 * h and min_arm_low_x > torso_hw + 0.02 * h)
+        )
     )
     if arm_pose_abduzida:
         perna_max_x = max(perna_max_x, hips_max_x - 0.02 * h)
@@ -79,6 +89,7 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
     arm_ext_z_hi = (max(el_zs) + 0.14 * h) if tem_el_baixo else arm_z_hi
     return {
         "h": h, "x_tol": 0.03 * h, "x_tol_leg": x_tol_leg, "torso_hw": torso_hw,
+        "sh_x_eff": sh_x, "cy": float(m.get("cy", 0.0)),
         "arms_abducted": 1.0 if arms_abducted else 0.0,
         "neck_max_x": neck_max_x, "head_max_x": head_max_x,
         "ombro_min_x": ombro_min_x, "ombro_max_x": ombro_max_x, "ombro_z_hi": arm_z_hi,
@@ -101,6 +112,22 @@ def _limites_anatomicos(m: dict, tem_neck: bool = True) -> dict[str, float]:
         "lower_leg_z_max": m["knee_z"] + 0.35 * max(0.05 * h, m["hip_z"] - m["knee_z"]),
         "foot_z_max": m["knee_z"] - 0.03 * h, "z_min_floor": m["z_min"] - 0.01 * h,
     }
+
+
+def _vertice_no_raio_ombro(v, b: dict[str, float], m: dict) -> bool:
+    """Restringe ombros acima de shoulder_z ao raio da junta sem vazar para chifres/cranio."""
+    h = b["h"]
+    sh_z = float(m["shoulder_z"])
+    if v.z <= sh_z + 0.04 * h:
+        return True
+    sh_x_eff = float(b.get("sh_x_eff") or 0.5 * (abs(m["shoulder_x_L"]) + abs(m["shoulder_x_R"])))
+    cy = float(b.get("cy", m.get("cy", 0.0)))
+    if v.z > float(m["neck_z"]) + 0.01 * h and abs(v.x) < sh_x_eff + 0.04 * h:
+        return False
+    sx = sh_x_eff if v.x >= 0.0 else -sh_x_eff
+    dx, dy, dz = v.x - sx, v.y - cy, v.z - sh_z
+    r_max = max(0.11 * h, 0.65 * sh_x_eff)
+    return (dx * dx + dy * dy + dz * dz) <= r_max * r_max
 
 
 def _construir_meta(mapas: list[tuple[str, list[float]]]) -> list[tuple[str, list[float], int, int]]:

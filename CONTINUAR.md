@@ -1,9 +1,6 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 24/11/2026 · **`v0.9.11` (`D136`): Fine-tuning de fidelidade PBR/facial/traseira e skinning R15 contínuo validado E2E em NPC humanoide parrudo (`512 BF16` vencedor vs `1024_cascade Q8_0`).** Contratos
-correntes `spec@6` e `manifest@7` (`D94–D136`; `@1`–`@6` compatíveis na leitura). Entrega game-ready
-para **Roblox R15** (`Pose` aninhada c/ caimento gravitacional + ground-clamp, 15 partes watertight `split_por_ossos`, `partes_combinadas.glb` rígido + `Motor6D` default / `--modo-rig bone` opcional, `StreamingEnabled=false`, `SurfaceAppearance` 4 canais, `G12–G14`, `G16` `1,00×`), **Godot 4** (`ORMMaterial3D=1.0`,
-sidecars, `forge3d_post_imported`, `BoneMap`, `UV2`+`GI_MODE_STATIC`, `UCX_`, 17 clipes, skinning coerente `<=3` infs/vértice + caimento natural em `Shoulder`/`UpperArm` + `G16`) e **i23d** (`TRELLIS.2-4B` local via `tools/trellis2_infer.py`, `o_voxel`, PBR nativo `EMIT` + lift emissivo em `_baseColor.png` + AO piso `0,45` + `TRELLIS` 1-vista, `ultra` `2048 px`).
+**Data:** 25/11/2026 · **`v0.9.11` (Onda 7 ✔): Postura natural assada (~14° no `roblox-*`, A-pose + `fix_silhouette` no `godot4*`), presets por `seed`, `idle` aterrado, `walk`/`run` aduzidos e export `SkinnedMesh` R15 nativo.** Contratos correntes `spec@6` e `manifest@7` (`PIPELINE_VERSION = "0.9.11"` mantido até Onda 9; `@1`–`@6` compatíveis na leitura). Entrega game-ready para **Roblox R15** (rest-pose ~14° assada pós-Cycles sem perda de UV/pesos + zero queda dupla, `Pose` aninhada c/ ground-clamp, `--modo-rig bone` sem `partes[]` + emissão de `rig.ancoras`, `export-anim --modo-rig --manifesto`, `StreamingEnabled=false`, `SurfaceAppearance`, `G12–G14`, `G16`), **Godot 4** (`ORMMaterial3D=1.0`, sidecars c/ `fix_silhouette`, `BoneMap`, `UV2`+`GI_MODE_STATIC`, `UCX_`, 17 clipes) e **i23d** (`TRELLIS.2-4B`).
 
 Verificação rápida: `.venv/bin/python -m pytest -m "not gpu and not blender" -q` e `bash tools/ci.sh`.
 
@@ -32,6 +29,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **Onda 2 (`v0.9.9`)** | ✔ | `manifest@7`, R15 rígido `partes_combinadas` + `Motor6D`, coerência geodésica e Gate `G16` (`D134`) |
 | **Onda 3 (`v0.9.10`)** | ✔ | `F-01`–`F-08`: marcos/skinning/R15 split, roll sagital + `F-08` caimento natural, emissive/AO PBR, `StreamingEnabled=false`, E2E 3 bosses (`D135`) |
 | **Onda 4 (`v0.9.11`)** | ✔ | `C1` PBR nativo/`delight`, `C2`/`C2b` casca dupla + UV/Quadriflow, Opção 1 `vista_back` + `C2c` projeção frontal rosto, `C3`/`C3b` R15 contínuo (`D136`) |
+| **Ondas 5–7 (`v0.9.11`)** | ✔ | Ondas 5–6 (`EMIT`/UV/QC/`GAP-052..055/060..062`) + Onda 7 (rest-pose ~14° assada, presets `seed`, `idle` aterrado, `walk`/`run` aduzidos, `export-r15 --modo-rig bone`, `GAP-064/065/067` fechados, `GAP-066` mitigado) |
 
 ## O que foi entregue nesta janela
 
@@ -72,6 +70,8 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 - **Onda 2 `v0.9.9` (`D134`)** — `schemas/manifest.v7.schema.json` (`manifest@7`, `partes_combinadas`, `G1–G16`), `export-r15 --model-id` `Motor6D` rígido padrão, coerência geodésica e Gate `G16` validados em Kragor e Iron Ram.
 - **Onda 3 `v0.9.10` (`D135`)** — consolida `F-01`–`F-08` sem bump em `manifest@7`: poda axila + trava pescoço/dorsal (`autorig_marcos_tronco.py`, `autorig_marcos.py`, `autorig_grafo.py`, `autorig_pesos_*.py`), `qc_roblox_partes.py` (`0` antebraço em perna), roll sagital + sync `qc_orientacao.py` (`F-05`), caimento gravitacional natural (`autorig_pose_natural.py`, `autorig_anim_sockets.py`, `animacao_pose.py`, `rbx_anim.py`), emissive GLB + lift `_baseColor` + AO `0,45` + `TRELLIS` 1-vista (`bake_pbr_emissive.py`, `bake_pbr_nativo_blend.py`), `adiar_reparo_high > limite_triangulos` (`postprocess_bruto.py`), `<bool name="StreamingEnabled">false</bool>` e `run` 31 kf. E2E `--no-cache` + `verify` verdes (`Tomb Warden` `7,3152×`, `Iron Ram` `G12=0,0mm` / rígido `1,0×` / skinned `6,9853×` / `.rbxlx`, `Kragor` `6,3406×`), DeepSeek review (`GAP-065`).
 - **Onda 4 `v0.9.11` (`D136`)** — `C1` PBR nativo/`delight_pbr` sem falso metálico; `C2`/`C2b` `filtrar_casca_interna_high` + solda in-place Quadriflow + UV cabeça `1,50`; Opção 1 `vista_back` Gemini + `C2c` projeção frontal `+Y` para olhos/sobrancelhas; `C3`/`C3b` âncora ombro + `arm_hip_block_z` (`autorig_pesos_limites.py`), `mesh_diag.VERSAO="0.1.12"`.
+
+- **Onda 7 (`v0.9.11`)** — `rig.postura` nos perfis (`roblox-*`: `natural_relaxada` 14° pós-skin A-pose 45°; `godot4*`: `apose` + `fix_silhouette/enable`), `assar_pose_rest_natural` (`blender/autorig_pose_natural.py`, `postprocess_export_pipe.py` c/ `_g15_apose_ref.glb`), modularização `animacao.py`/`animacao_motores.py`/`animacao_presets.py` (5 presets por `seed`, `idle` sem Z-roll e aterrado, `walk`/`run` adução Z de quadril + paridade Bone/Motor6D em `rbx_anim.py`), `export-r15 --modo-rig bone` s/ `partes[]` + `rig.ancoras` em `SkinnedMesh` + `export-anim --modo-rig --manifesto`, e fechamento de `GAP-064`/`GAP-065`/`GAP-067` (#4/#5) + mitigação de `GAP-066`.
 
 ## Números medidos nesta máquina
 
@@ -119,8 +119,8 @@ P6 de `docs/roadmap.md`.
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Aprovar visualmente o NPC R15 `v0.9.11` no Roblox Studio antes de eventual upload Open Cloud (`upload-model` / `PublishedAssetIds.luau`) | 1 sessão Studio | aceite visual do NPC |
-| **2** | Priorizar itens de backlog (`docs/gaps.md` `GAP-052`–`GAP-067`) conforme demanda dos jogos consumidores | sob demanda | débitos pós-`v0.9.11` |
+| **1** | Executar **Onda 8 (Godot 4)**: alinhar BoneMap `UpperChest`, tabelas de 22 clipes, emissive sidecars e validar E2E no Godot 4.7.2 | 1 janela | paridade Godot 4 |
+| **2** | Executar **Onda 9 (Throughput & Release `0.9.12`)** após Godot 4 e fechar backlog remanescente conforme demanda | 1 janela | release `0.9.12` |
 
 ## Comandos
 
@@ -165,6 +165,6 @@ godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_chec
 
 ## Como retomar
 
-> **Estado**: `v0.9.11` (`D136` completo): `C1` PBR nativo/`delight_pbr`, `C2`/`C2b` casca dupla + UV/Quadriflow, Opção 1 `vista_back` + `C2c` projeção frontal rosto e `C3`/`C3b` R15 contínuo validados E2E em NPC humanoide parrudo (`512 BF16` vencedor: `11.820` tris, `walk=3,67×`, `verify exit=0`).
-> **Próximo passo**: Aceite visual do NPC `v0.9.11` no projeto consumidor; sem upload Open Cloud automático (`GAP-052..067` em backlog).
+> **Estado**: `v0.9.11` (**Onda 7 completa**): postura relaxada ~14° assada no `roblox-*`, `godot4*` em A-pose + `fix_silhouette`, `idle` sem flutuar, `walk`/`run` com adução Z, 5 presets por `seed`, `SkinnedMesh` R15 `--modo-rig bone` c/ `rig.ancoras`, e `GAP-064/065/067` fechados (`spec@6`, `manifest@7`, `PIPELINE_VERSION="0.9.11"`).
+> **Próximo passo**: **Onda 8 (Godot 4)** — validação e paridade Godot 4.7.2 (`addons/forge3d/`, `sync_godot*.py`), mantendo `docs/gaps.md` (`GAP-004..068`) e `GAP-066` mitigado.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

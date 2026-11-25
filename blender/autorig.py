@@ -22,6 +22,7 @@ if __package__:
     from . import autorig_ossos as _os
     from . import autorig_pesos_aa as _pa
     from . import autorig_pesos_geo as _pg
+    from . import autorig_pose_natural as _pn
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
@@ -34,6 +35,7 @@ else:
     import autorig_ossos as _os
     import autorig_pesos_aa as _pa
     import autorig_pesos_geo as _pg
+    import autorig_pose_natural as _pn
 
 __all__ = [
     "ESQUELETOS_SUPORTADOS",
@@ -41,8 +43,12 @@ __all__ = [
     "auto_rigar_humanoide",
     "auto_rigar_por_tipo",
     "extrair_sockets",
+    "extrair_ancoras",
     "aplicar_animacoes_multi",
     "estimar_marcos",
+    "assar_pose_rest_natural",
+    "resolver_postura_perfil",
+    "microvariacao_postura_seed",
 ]
 
 ESQUELETOS_SUPORTADOS = _c.ESQUELETOS_SUPORTADOS
@@ -120,7 +126,11 @@ _construir_ossos_criatura = _cr._construir_ossos_criatura
 _atribuir_pesos_criatura = _cr._atribuir_pesos_criatura
 
 extrair_sockets = _as.extrair_sockets
+extrair_ancoras = _as.extrair_ancoras
 aplicar_animacoes_multi = _as.aplicar_animacoes_multi
+assar_pose_rest_natural = _pn.assar_pose_rest_natural
+resolver_postura_perfil = _pn.resolver_postura_perfil
+microvariacao_postura_seed = _pn.microvariacao_postura_seed
 
 
 def auto_rigar_humanoide(obj, esqueleto: str, criar_armadura_fn) -> tuple["bpy.types.Object", dict]:

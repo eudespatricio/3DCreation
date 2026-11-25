@@ -240,16 +240,13 @@ def _montar_partes_segmentadas(
     *,
     modo_rig: str = "motor6d",
 ) -> tuple[list[dict], dict[str, dict]]:
-    """Monta 16 ossos/partes R15 Y-up a partir de ``manifesto['partes']`` + ``rig.ancoras`` (F08)."""
+    """Monta 16 ossos/partes R15 Y-up a partir de ``manifesto['partes']`` e/ou ``rig.ancoras`` (F08/D134)."""
     if not isinstance(manifesto_eff, Mapping):
-        raise erro_spec("export-r15: rota nao-blocky exige manifesto segmentado com partes[] e rig.ancoras")
+        raise erro_spec("export-r15: rota nao-blocky exige manifesto com rig.ancoras ou partes[]")
     raw_partes = manifesto_eff.get("partes")
-    if not isinstance(raw_partes, list) or not raw_partes:
-        raise erro_spec("export-r15: rota nao-blocky exige manifesto segmentado com partes[] e rig.ancoras")
-
     partes_man = {
         str(p["nome"]): p
-        for p in raw_partes
+        for p in (raw_partes if isinstance(raw_partes, list) else [])
         if isinstance(p, Mapping) and p.get("nome")
     }
     raw_rig = manifesto_eff.get("rig")
@@ -258,9 +255,16 @@ def _montar_partes_segmentadas(
     tem_ancoras = bool(rig_ancoras) or (
         bool(partes_man) and all("ancora" in p for p in partes_man.values())
     )
-    if not partes_man or not tem_ancoras:
-        raise erro_spec("export-r15: rota nao-blocky exige manifesto segmentado com partes[] e rig.ancoras")
-    if modo_rig == "motor6d":
+    if modo_rig == "bone":
+        if not tem_ancoras:
+            raise erro_spec(
+                "export-r15: rota nao-blocky em modo_rig=bone exige rig.ancoras ou partes[] com ancora"
+            )
+    else:
+        if not partes_man or not tem_ancoras:
+            raise erro_spec(
+                "export-r15: rota nao-blocky exige manifesto segmentado com partes[] e rig.ancoras"
+            )
         faltantes = [
             n for n, *_ in blocky.OSSOS_R15 if n != "HumanoidRootPart" and n not in partes_man
         ]
@@ -274,7 +278,8 @@ def _montar_partes_segmentadas(
     ossos: list[dict] = []
     partes: dict[str, dict] = {}
     for nome, pai, cab, _cauda in blocky.OSSOS_R15:
-        ossos.append({"nome": nome, "pai": pai, "cabeca": list(cab)})
+        # cabeca=None instrui _bone_tree_xml a usar partes[nome]["centro"] (studs Y-up reais do rig)
+        ossos.append({"nome": nome, "pai": pai, "cabeca": None})
         if nome == "HumanoidRootPart":
             continue
         p_man = partes_man.get(nome) or {}
@@ -314,19 +319,23 @@ def _montar_partes_segmentadas(
         }
 
     lt = partes.get("LowerTorso")
+    raw_hrp = rig_ancoras.get("HumanoidRootPart") or rig_ancoras.get("Root")
+    if isinstance(raw_hrp, (list, tuple)) and len(raw_hrp) == 3:
+        hrp_centro = (float(raw_hrp[0]), float(raw_hrp[1]), float(raw_hrp[2]))
+    elif lt is not None:
+        hrp_centro = lt["centro"]
+    else:
+        hrp_centro = (0.0, 2.5, 0.0)
     if lt is not None:
         lt_tam = lt["tamanho"]
-        partes["HumanoidRootPart"] = {
-            "centro": lt["centro"],
-            "tamanho": (min(lt_tam[0], 2.0), lt_tam[1], min(lt_tam[2], 1.0)),
-            "cor": 0x7D858F,
-        }
+        hrp_tam = (min(lt_tam[0], 2.0), lt_tam[1], min(lt_tam[2], 1.0))
     else:
-        partes["HumanoidRootPart"] = {
-            "centro": (0.0, 2.5, 0.0),
-            "tamanho": (1.5, 1.0, 1.0),
-            "cor": 0x7D858F,
-        }
+        hrp_tam = (1.5, 1.0, 1.0)
+    partes["HumanoidRootPart"] = {
+        "centro": hrp_centro,
+        "tamanho": hrp_tam,
+        "cor": 0x7D858F,
+    }
     return ossos, partes
 
 

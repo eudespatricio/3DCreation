@@ -119,6 +119,9 @@ def _extrair_metadados_v5(resultado: dict) -> dict:
         "detalhe_alto",
         "pbr_zonas",
         "smart_fit",
+        "ancoras",
+        "pose_natural",
+        "g15_apose_ref",
     ):
         valor = resultado.get(chave)
         if valor is None and chave in medidas:
@@ -127,6 +130,8 @@ def _extrair_metadados_v5(resultado: dict) -> dict:
             resultado[chave] = dict(valor)
         elif isinstance(valor, list) and valor:
             resultado[chave] = list(valor)
+        elif isinstance(valor, str) and valor:
+            resultado[chave] = valor
     return resultado
 
 

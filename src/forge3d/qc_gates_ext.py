@@ -428,6 +428,23 @@ def _resolver_vista_back_g15(pasta: Path, resultado: dict) -> Path | None:
     return cand if cand is not None and cand.is_file() else None
 
 
+def _mask_apose_g15(pasta: Path, resultado: dict) -> dict[str, Any] | None:
+    ref = resultado.get("g15_apose_ref") or (resultado.get("medidas") or {}).get("g15_apose_ref")
+    if not isinstance(ref, str) or not ref.strip() or Path(ref).is_absolute():
+        return None
+    raiz = pasta.resolve(strict=False)
+    cand = (raiz / ref).resolve(strict=False)
+    if cand == raiz or not cand.is_relative_to(raiz) or not cand.is_file():
+        return None
+    try:
+        g_ref, b_ref = ler_glb_bin(cand)
+        m_ap = rasterizar_silhueta_frontal_glb(g_ref, b_ref)
+        return None if m_ap["vazia"] else m_ap
+    except (ForgeError, OSError, OverflowError, struct.error, ValueError, IndexError, TypeError) as exc:
+        logger.debug("falha ao ler ref apose G15 '%s': %s", cand, exc)
+        return None
+
+
 def _avaliar_g15(gltf: dict, binario: bytes, item: dict, perfil: dict, info: dict, pasta: Path, resultado: dict) -> dict[str, Any]:
     del perfil
     estrito = bool(item.get("g15_estrito") or resultado.get("g15_estrito"))
@@ -468,6 +485,10 @@ def _avaliar_g15(gltf: dict, binario: bytes, item: dict, perfil: dict, info: dic
         if vol_falhou:
             return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, modo="glb_frontal", concept=str(concept_path), **{**comp, "aprovado": False, "motivo": "volumetria_g15b_reprovada"}, volumetrico=vol_res)
         return _resp_g15("ok", limite, None, aplicavel=True, modo="glb_frontal", concept=str(concept_path), **comp, **vol_extra)
+    if (m_apose := _mask_apose_g15(pasta, resultado)) is not None and (comp_ap := _comparar_mascaras(m_concept, m_apose))["aprovado"]:
+        if vol_falhou:
+            return _resp_g15("falhou", limite, "FORGE-E-QC", aplicavel=True, modo="glb_frontal", concept=str(concept_path), comparado_em_apose=True, **{**comp_ap, "aprovado": False, "motivo": "volumetria_g15b_reprovada"}, volumetrico=vol_res)
+        return _resp_g15("ok", limite, None, aplicavel=True, modo="glb_frontal", concept=str(concept_path), comparado_em_apose=True, **comp_ap, **vol_extra)
     eh_extrude2d = (bool(item.get("extrudir_2d")) or str(item.get("rota") or "") == "extrude_2d") and str(item.get("pivot") or "empunhadura") == "empunhadura" and str(item.get("parte") or "arma") == "arma"
     if not estrito and eh_extrude2d and (comp_180 := _comparar_mascaras({**m_concept, "mask": m_concept["mask"][::-1]}, m_modelo))["aprovado"]:
         return _resp_g15("ok", limite, None, aplicavel=True, modo="glb_frontal", concept=str(concept_path), rotacionado_180=True, **comp_180)

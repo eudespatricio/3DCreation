@@ -122,6 +122,8 @@ def _pos_escala_rig_e_animacao(
     *,
     autorig_mod=None,
     pular_reparo_pos_escala: bool = False,
+    perfil: dict | None = None,
+    saida_dir: str | None = None,
 ) -> tuple[list[dict], list[dict]]:
     ar = autorig_mod if autorig_mod is not None else autorig
     if not pular_reparo_pos_escala:
@@ -179,6 +181,26 @@ def _pos_escala_rig_e_animacao(
             mod = obj.modifiers.new("armature", "ARMATURE")
             mod.object = rig_obj
 
+    perfil_eff = perfil if perfil is not None else (job.get("perfil") if isinstance(job, dict) else None)
+    saida_eff = saida_dir if saida_dir is not None else (job.get("saida_dir") if isinstance(job, dict) else None)
+    if rig_obj is not None and bruto.get("schema") != "forge3d/bruto-blocky@1":
+        fn_res_post = getattr(ar, "resolver_postura_perfil", None)
+        if callable(fn_res_post):
+            cfg_post = fn_res_post(perfil_eff, item)
+            if cfg_post.get("modo_rest") == "natural_relaxada":
+                if saida_eff and (item.get("rota") in ("mesh", "i23d") or bruto.get("concept")):
+                    exportar(os.path.join(saida_eff, "_g15_apose_ref.glb"), [obj], False, com_animacao=False, export_tangents=False, export_image_format="NONE")
+                    info_gerada["g15_apose_ref"] = "_g15_apose_ref.glb"
+                if callable(fn_assar := getattr(ar, "assar_pose_rest_natural", None)):
+                    raw_seed = item.get("seed") if "seed" in item else job.get("seed")
+                    seed_eff = raw_seed if (raw_seed is not None and cfg_post.get("variacao_seed", True)) else None
+                    info_gerada["pose_natural"] = fn_assar(
+                        obj, rig_obj,
+                        angulo_alvo_graus=float(cfg_post.get("angulo_braco_graus", 14.0)),
+                        seed=seed_eff,
+                        postura_preset=cfg_post.get("preset"),
+                    )
+
     animacoes_geradas: list[dict] = []
     if rig_obj is not None and job.get("clipes"):
         animacoes_geradas = animar(rig_obj, job["clipes"])
@@ -194,6 +216,9 @@ def _pos_escala_rig_e_animacao(
                 )
             except TypeError:
                 sockets_extraidos = list(fn_sockets(rig_obj) or [])
+        if callable(fn_anc := getattr(ar, "extrair_ancoras", None)):
+            if isinstance(ancoras := fn_anc(rig_obj), dict) and ancoras:
+                info_gerada["ancoras"] = ancoras
 
     return animacoes_geradas, sockets_extraidos
 
@@ -233,6 +258,9 @@ def _montar_medidas_lod0(
     }
     if sockets_extraidos:
         medidas_base["sockets"] = sockets_extraidos
+    if rig_obj is not None and hasattr(autorig, "extrair_ancoras"):
+        if anc_med := autorig.extrair_ancoras(rig_obj):
+            medidas_base["ancoras"] = anc_med
     if rig_obj is not None and esqueleto_efetivo:
         medidas_base["esqueleto"] = esqueleto_efetivo
     if esqueleto_pedido:
@@ -417,8 +445,12 @@ def _finalizar_colisor_e_resultado(
         medidas_base["detalhe_alto"] = dict(detalhe_alto_cfg)
     if isinstance(pbr_zonas_cfg, list) and pbr_zonas_cfg:
         medidas_base["pbr_zonas"] = list(pbr_zonas_cfg)
-    if isinstance(info_gerada.get("smart_fit"), dict) and info_gerada["smart_fit"]:
-        medidas_base["smart_fit"] = dict(info_gerada["smart_fit"])
+    for chave_info in ("smart_fit", "ancoras", "pose_natural", "g15_apose_ref"):
+        val_info = info_gerada.get(chave_info)
+        if isinstance(val_info, dict) and val_info:
+            medidas_base[chave_info] = dict(val_info)
+        elif isinstance(val_info, str) and val_info:
+            medidas_base[chave_info] = val_info
     medidas_base["partes_colisao"] = len(colisores)
     medidas_base["esqueleto"] = esqueleto_efetivo if rig_obj is not None else None
     medidas_base["lod"] = [
@@ -442,12 +474,9 @@ def _finalizar_colisor_e_resultado(
     }
     if sockets_extraidos:
         resultado["sockets"] = sockets_extraidos
-    if isinstance(medidas_base.get("detalhe_alto"), dict):
-        resultado["detalhe_alto"] = medidas_base["detalhe_alto"]
-    if isinstance(medidas_base.get("pbr_zonas"), list):
-        resultado["pbr_zonas"] = medidas_base["pbr_zonas"]
-    if isinstance(medidas_base.get("smart_fit"), dict):
-        resultado["smart_fit"] = medidas_base["smart_fit"]
+    for chave_med in ("detalhe_alto", "pbr_zonas", "smart_fit", "ancoras", "pose_natural", "g15_apose_ref"):
+        if val_med := medidas_base.get(chave_med):
+            resultado[chave_med] = val_med
     if bruto.get("concept"):
         resultado["concept"] = bruto["concept"]
     return resultado

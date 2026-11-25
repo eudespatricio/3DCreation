@@ -46,6 +46,8 @@ def _pos_processar(item: dict, perfil: dict, bruto, run_id: str) -> dict:
             perfil,
             profiles.esqueleto_para_item(perfil, item),
             _clipes_pedidos(item),
+            seed=(item.get("seed") if str(item.get("rota") or "") != "blocky" else None),
+            postura_preset=item.get("postura_preset"),
         ),
     }
     for chave_opt in (

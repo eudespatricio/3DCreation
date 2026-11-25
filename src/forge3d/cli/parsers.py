@@ -112,6 +112,8 @@ def construir_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="exporta todos os clipes suportados em um unico .rbxmx",
     )
+    ea.add_argument("--modo-rig", choices=["motor6d", "bone"], default="motor6d")
+    ea.add_argument("--manifesto", help="caminho .manifest.json com rig.ancoras para calibracao de pose")
     ea.add_argument("--saida")
     ea.add_argument("--json", action="store_true")
 

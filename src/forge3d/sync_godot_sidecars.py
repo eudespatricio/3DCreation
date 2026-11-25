@@ -165,6 +165,7 @@ def _construir_subresources_glb(manifesto: dict[str, Any] | None) -> dict[str, A
             sub["nodes"] = {
                 "PATH:Skeleton3D": {
                     "retarget/bone_map": _RawGodotExpr(_formatar_bone_map_object(mapa)),
+                    "retarget/rest_fixer/fix_silhouette/enable": True,
                 }
             }
 

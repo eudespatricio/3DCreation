@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from html import escape
 from pathlib import Path
+from typing import Any
 from xml.etree import ElementTree
 
 from . import animacao, animacao_pose, config, paths, spec
 from .errors import erro_spec
+from .rbx_r15_rig import _carregar_manifesto_r15
 from .rbx_xml import (
     JOINT_R15_REV,
     R15_FILHOS,
@@ -19,33 +21,13 @@ from .rbx_xml import (
 )
 
 _PRIORIDADE_CLIPE = {
-    "idle": 0,
-    "walk": 1,
-    "run": 1,
-    "gallop": 1,
-    "wing_flap": 1,
-    "glide": 1,
-    "ride_idle": 0,
-    "ride_fly": 1,
+    "idle": 0, "walk": 1, "run": 1, "gallop": 1,
+    "wing_flap": 1, "glide": 1, "ride_idle": 0, "ride_fly": 1,
 }
-_NAO_LOOP_CLIPES = frozenset(
-    {
-        "jump",
-        "attack",
-        "slash_combo",
-        "cast",
-        "block",
-        "hit",
-        "death",
-        "bite",
-        "roar",
-        "tail_swipe",
-        "land",
-        "rear_up",
-        "mount_up",
-        "dismount",
-    }
-)
+_NAO_LOOP_CLIPES = frozenset({
+    "jump", "attack", "slash_combo", "cast", "block", "hit", "death",
+    "bite", "roar", "tail_swipe", "land", "rear_up", "mount_up", "dismount",
+})
 
 
 def _sequencia_xml(
@@ -143,7 +125,15 @@ def _sequencia_xml(
             if isinstance(raw_quat, (list, tuple)) and len(raw_quat) == 4:
                 q_p = _quat_normalizar([float(v) for v in raw_quat])
             else:
-                q_p = _quat_de_eixo_graus(float(p.get("graus", 0.0)), str(p.get("eixo") or "X"))
+                eixo_str = str(p.get("eixo") or "X")
+                graus_val = float(p.get("graus", 0.0))
+                if (
+                    modo_rig == "motor6d"
+                    and parte in ("LeftUpperLeg", "RightUpperLeg")
+                    and eixo_str.strip().upper() == "Z"
+                ):
+                    graus_val = -graus_val
+                q_p = _quat_de_eixo_graus(graus_val, eixo_str)
             dadas_q[parte] = q_p if parte not in dadas_q else _quat_mul(dadas_q[parte], q_p)
             desl = p.get("deslocamento_m")
             if isinstance(desl, (list, tuple)) and len(desl) == 3:
@@ -183,29 +173,73 @@ def _sequencia_xml(
     return linhas, referent
 
 
+def _resolver_ancoras_anim(
+    ancoras: Mapping[str, Sequence[float]] | None,
+    manifesto: Mapping[str, Any] | str | Path | None,
+    doc: Mapping[str, Any],
+    item: Mapping[str, Any],
+    item_id: str,
+) -> Mapping[str, Sequence[float]] | None:
+    """Resolve ``rig.ancoras`` via argumento explicito, ``manifesto`` ou autodiscover nao-blocky."""
+    if isinstance(ancoras, Mapping) and ancoras:
+        return ancoras
+    eh_blocky = str(item.get("rota") or "") == "blocky"
+    man_eff, _ = _carregar_manifesto_r15(manifesto, None, doc, item_id, usar_destino_exportacao=not eh_blocky)
+    if not isinstance(man_eff, Mapping):
+        return None
+    raw_rig = man_eff.get("rig")
+    raw_anc = raw_rig.get("ancoras") if isinstance(raw_rig, Mapping) else None
+    if isinstance(raw_anc, Mapping) and raw_anc:
+        return raw_anc
+    raw_partes = man_eff.get("partes")
+    if isinstance(raw_partes, list):
+        extraidas = {
+            str(p["nome"]): p["ancora"]
+            for p in raw_partes
+            if isinstance(p, Mapping) and p.get("nome") and isinstance(p.get("ancora"), (list, tuple)) and len(p["ancora"]) == 3
+        }
+        if extraidas:
+            return extraidas
+    return None
+
+
 def _gerar_rbxmx_animacoes(
     lote: str | Path,
     item_id: str,
     pedidos: list[str],
     saida: str | Path | None,
     sufixo_padrao: str,
-) -> tuple[Path, list[dict]]:
+    *,
+    ancoras: Mapping[str, Sequence[float]] | None = None,
+    manifesto: Mapping[str, Any] | str | Path | None = None,
+    modo_rig: str = "motor6d",
+    seed: int | None = None,
+) -> tuple[Path, list[dict], bool]:
+    if modo_rig not in ("motor6d", "bone"):
+        raise erro_spec(f"export-anim: modo_rig invalido '{modo_rig}' (use motor6d ou bone)")
     doc = spec.carregar_arquivo(lote)
     doc, perfil, _avisos = spec.preparar(doc)
     item = next((i for i in doc["lote"] if i.get("id") == item_id), None)
     if item is None:
         raise erro_spec(f"export-anim: item '{item_id}' nao existe no lote")
-    clipes = animacao.clipes(perfil, item.get("esqueleto") or "r15@1", pedidos)
+    seed_eff = seed if seed is not None else (item.get("seed") if item.get("rota") != "blocky" else None)
+    clipes = animacao.clipes(
+        perfil, item.get("esqueleto") or "r15@1", pedidos,
+        seed=seed_eff, postura_preset=item.get("postura_preset"),
+    )
     if not clipes:
         raise erro_spec(
             f"export-anim: '{', '.join(pedidos)}' nao tem gerador ou o item nao pede animacao "
             f"(animacoes_base={item.get('animacoes_base')})"
         )
+    ancoras_eff = _resolver_ancoras_anim(ancoras, manifesto, doc, item, item_id)
     mps = float((perfil.get("unidades") or {}).get("metros_por_stud", 0.28))
     itens: list[str] = []
     referent = 0
     for escolhido in clipes:
-        seq, referent = _sequencia_xml(escolhido, referent, mps=mps)
+        seq, referent = _sequencia_xml(
+            escolhido, referent, mps=mps, ancoras=ancoras_eff, modo_rig=modo_rig
+        )
         itens += seq
     xml = "\n".join(
         ['<?xml version="1.0" encoding="utf-8"?>', '<roblox version="4">']
@@ -224,7 +258,7 @@ def _gerar_rbxmx_animacoes(
         config.validar_destino(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text(xml, encoding="utf-8")
-    return destino, clipes
+    return destino, clipes, bool(ancoras_eff)
 
 
 def exportar_animacao(
@@ -232,18 +266,32 @@ def exportar_animacao(
     item_id: str,
     clipe: str | list[str] | tuple[str, ...] = "idle",
     saida: str | Path | None = None,
+    *,
+    ancoras: Mapping[str, Sequence[float]] | None = None,
+    manifesto: Mapping[str, Any] | str | Path | None = None,
+    modo_rig: str = "motor6d",
+    seed: int | None = None,
 ) -> dict:
     """Gera um ``.rbxmx`` com KeyframeSequence (``idle``, ``walk``, ``run``, ``jump``)."""
     if isinstance(clipe, (list, tuple)):
-        return exportar_animacoes(lote, item_id, list(clipe), saida=saida)
+        return exportar_animacoes(
+            lote, item_id, list(clipe), saida=saida,
+            ancoras=ancoras, manifesto=manifesto, modo_rig=modo_rig, seed=seed,
+        )
     if isinstance(clipe, str) and "," in clipe:
         lista = [c.strip() for c in clipe.split(",") if c.strip()]
         if not lista:
             raise erro_spec("export-anim: informe ao menos um clipe")
         if len(lista) > 1:
-            return exportar_animacoes(lote, item_id, lista, saida=saida)
+            return exportar_animacoes(
+                lote, item_id, lista, saida=saida,
+                ancoras=ancoras, manifesto=manifesto, modo_rig=modo_rig, seed=seed,
+            )
         clipe = lista[0]
-    destino, clipes = _gerar_rbxmx_animacoes(lote, item_id, [str(clipe)], saida, str(clipe))
+    destino, clipes, anc_ok = _gerar_rbxmx_animacoes(
+        lote, item_id, [str(clipe)], saida, str(clipe),
+        ancoras=ancoras, manifesto=manifesto, modo_rig=modo_rig, seed=seed,
+    )
     escolhido = clipes[0]
     return {
         "ok": True,
@@ -252,6 +300,8 @@ def exportar_animacao(
         "clipe": escolhido["nome"],
         "duracao_s": escolhido["duracao_s"],
         "keyframes": len(escolhido.get("chaves") or []),
+        "modo_rig": modo_rig,
+        "ancoras_aplicadas": anc_ok,
     }
 
 
@@ -260,6 +310,11 @@ def exportar_animacoes(
     item_id: str,
     clipes: list[str] | tuple[str, ...] | None = None,
     saida: str | Path | None = None,
+    *,
+    ancoras: Mapping[str, Sequence[float]] | None = None,
+    manifesto: Mapping[str, Any] | str | Path | None = None,
+    modo_rig: str = "motor6d",
+    seed: int | None = None,
 ) -> dict:
     """Gera um ``.rbxmx`` multi-clipe com todas as KeyframeSequence pedidas (D69 / Fase B)."""
     doc = spec.carregar_arquivo(lote)
@@ -268,7 +323,10 @@ def exportar_animacoes(
     if item is None:
         raise erro_spec(f"export-anim: item '{item_id}' nao existe no lote")
     pedidos = [str(c) for c in (clipes or item.get("animacoes_base") or ["idle", "walk", "run", "jump"])]
-    destino, gerados = _gerar_rbxmx_animacoes(lote, item_id, pedidos, saida, "anims")
+    destino, gerados, anc_ok = _gerar_rbxmx_animacoes(
+        lote, item_id, pedidos, saida, "anims",
+        ancoras=ancoras, manifesto=manifesto, modo_rig=modo_rig, seed=seed,
+    )
     return {
         "ok": True,
         "saida": str(destino),
@@ -276,6 +334,8 @@ def exportar_animacoes(
         "clipes": [c["nome"] for c in gerados],
         "duracoes_s": {c["nome"]: c["duracao_s"] for c in gerados},
         "keyframes": {c["nome"]: len(c.get("chaves") or []) for c in gerados},
+        "modo_rig": modo_rig,
+        "ancoras_aplicadas": anc_ok,
     }
 
 

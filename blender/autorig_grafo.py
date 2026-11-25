@@ -30,7 +30,7 @@ if __package__:
         MAX_INFLUENCIAS_VERTICE,
         normalizar_top_k,
     )
-    from .autorig_pesos_limites import _limites_anatomicos
+    from .autorig_pesos_limites import _limites_anatomicos, _vertice_no_raio_ombro
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
@@ -56,7 +56,7 @@ else:
         MAX_INFLUENCIAS_VERTICE,
         normalizar_top_k,
     )
-    from autorig_pesos_limites import _limites_anatomicos
+    from autorig_pesos_limites import _limites_anatomicos, _vertice_no_raio_ombro
 
 
 def _osso_permitido(
@@ -93,7 +93,7 @@ def _osso_permitido(
         return b["upper_leg_z_min"] <= vz <= b["leg_z_max"]
     x_med_arm = (0.30 if not tem_neck else 0.245) * h
     if nome in _OSSOS_OMBROS:
-        if abs_x <= x_med_arm and vz > b["arm_z_hi_medial"]:
+        if (abs_x <= x_med_arm and vz > b["arm_z_hi_medial"]) or not _vertice_no_raio_ombro(v, b, m):
             return False
         return b["arm_z_cut_lo"] <= vz <= b["ombro_z_hi"] and abs_x >= b["ombro_min_x"]
     if nome in _OSSOS_BRACO_DISTAL:
@@ -110,7 +110,7 @@ def _osso_permitido(
         return bracos_baixos and abs_x > b["braco_baixo_min_x"] and vz >= b["arm_z_min"]
     if nome in _OSSOS_CABECA:
         z_lo_head = (b["head_z_min"] - 0.03 * h) if tem_neck else b["head_z_min"]
-        chifre_lat = (not tem_neck) and vz >= b["arm_z_hi_medial"] and abs_x > b["head_max_x"] + 0.04 * h
+        chifre_lat = vz >= (m["neck_z"] + 0.015 * h if tem_neck else b["arm_z_hi_medial"]) and abs_x > b["head_max_x"] + 0.04 * h
         head_x_hi = 0.34 * h if chifre_lat else max(b["head_max_x"] + 0.04 * h, 0.24 * h)
         head_x_lim = head_x_hi if (chifre_lat or vz >= m["neck_z"] + 0.015 * h) else (b["head_max_x"] + 0.04 * h)
         return vz >= z_lo_head and abs_x <= head_x_lim
@@ -164,7 +164,7 @@ def _osso_permitido_semente(
 
     x_med_arm = (0.30 if not tem_neck else 0.245) * h
     if nome in _OSSOS_OMBROS:
-        if abs_x <= x_med_arm and v.z > b["arm_z_hi_medial"]:
+        if (abs_x <= x_med_arm and v.z > b["arm_z_hi_medial"]) or not _vertice_no_raio_ombro(v, b, m):
             return False
         return m["shoulder_z"] - 0.08 * h <= v.z <= b["ombro_z_hi"] and b["ombro_min_x"] <= abs_x <= b["ombro_max_x"]
     if nome in _OSSOS_BRACO_DISTAL:
@@ -303,8 +303,13 @@ def _pesos_vertice_inverso(
         brutos_wn.append((1.0 / ((d + eps) ** 4), nome))
 
     if not brutos_wn:
+        candidatos = [
+            o for o in ossos
+            if o["nome"] not in _RAIZES
+            and not (o["nome"] in _OSSOS_OMBROS and not _vertice_no_raio_ombro(v, b, m))
+        ] or [o for o in ossos if o["nome"] not in _RAIZES]
         melhor = min(
-            (o for o in ossos if o["nome"] not in _RAIZES),
+            candidatos,
             key=lambda o: _dist_ponto_segmento(v, Vector(o["cabeca"]), Vector(o["cauda"])),
         )
         return [(melhor["nome"], 1.0)]

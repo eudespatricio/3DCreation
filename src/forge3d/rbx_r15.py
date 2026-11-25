@@ -246,8 +246,57 @@ def exportar_r15(
                 0.5 * (mn_r[2] + mx_r[2]),
             )
         else:
-            bbox_cen = partes["HumanoidRootPart"]["centro"]
-            bbox_tam = partes["HumanoidRootPart"]["tamanho"]
+            geom = manifesto_eff.get("geometry") if isinstance(manifesto_eff, Mapping) else None
+            aabb_mn = geom.get("aabb_min") if isinstance(geom, Mapping) else None
+            aabb_mx = geom.get("aabb_max") if isinstance(geom, Mapping) else None
+            bbox_m = geom.get("bbox_m") if isinstance(geom, Mapping) else None
+            if (
+                isinstance(aabb_mn, (list, tuple))
+                and isinstance(aabb_mx, (list, tuple))
+                and len(aabb_mn) == 3
+                and len(aabb_mx) == 3
+            ):
+                mn_s = [float(v) / mps for v in aabb_mn]
+                mx_s = [float(v) / mps for v in aabb_mx]
+                bbox_tam = (
+                    max(0.1, abs(mx_s[0] - mn_s[0])),
+                    max(0.1, abs(mx_s[1] - mn_s[1])),
+                    max(0.1, abs(mx_s[2] - mn_s[2])),
+                )
+                bbox_cen = (
+                    0.5 * (mn_s[0] + mx_s[0]),
+                    0.5 * (mn_s[1] + mx_s[1]),
+                    0.5 * (mn_s[2] + mx_s[2]),
+                )
+            elif isinstance(bbox_m, (list, tuple)) and len(bbox_m) == 3:
+                bbox_tam = (
+                    max(0.1, abs(float(bbox_m[0])) / mps),
+                    max(0.1, abs(float(bbox_m[1])) / mps),
+                    max(0.1, abs(float(bbox_m[2])) / mps),
+                )
+                bbox_cen = (0.0, bbox_tam[1] * 0.5, 0.0)
+            else:
+                pts_anc = [p["centro"] for p in partes.values() if isinstance(p.get("centro"), (list, tuple)) and len(p["centro"]) == 3]
+                if len(pts_anc) >= 2:
+                    mn_a = [min(p[i] for p in pts_anc) for i in range(3)]
+                    mx_a = [max(p[i] for p in pts_anc) for i in range(3)]
+                    if any(mx_a[i] - mn_a[i] > 0.05 for i in range(3)):
+                        bbox_tam = (
+                            max(0.5, mx_a[0] - mn_a[0]),
+                            max(0.5, mx_a[1] - mn_a[1]),
+                            max(0.5, mx_a[2] - mn_a[2]),
+                        )
+                        bbox_cen = (
+                            0.5 * (mn_a[0] + mx_a[0]),
+                            0.5 * (mn_a[1] + mx_a[1]),
+                            0.5 * (mn_a[2] + mx_a[2]),
+                        )
+                    else:
+                        bbox_cen = partes["HumanoidRootPart"]["centro"]
+                        bbox_tam = partes["HumanoidRootPart"]["tamanho"]
+                else:
+                    bbox_cen = partes["HumanoidRootPart"]["centro"]
+                    bbox_tam = partes["HumanoidRootPart"]["tamanho"]
         linhas += [
             f'<Item class="Model" referent="{refs["model"]}">',
             "<Properties>",
@@ -328,7 +377,13 @@ def exportar_r15(
             or None
         )
     )
-    clipes = animacao.clipes(perfil, str(esqueleto_item or "r15@1"), pedidos_anim)
+    clipes = animacao.clipes(
+        perfil,
+        str(esqueleto_item or "r15@1"),
+        pedidos_anim,
+        seed=(item.get("seed") if not eh_blocky else None),
+        postura_preset=item.get("postura_preset"),
+    )
     raw_rig = manifesto_eff.get("rig") if isinstance(manifesto_eff, Mapping) else None
     raw_anc = raw_rig.get("ancoras") if isinstance(raw_rig, Mapping) else None
     ancoras_rig = raw_anc if isinstance(raw_anc, Mapping) else None

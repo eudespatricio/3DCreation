@@ -191,11 +191,11 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
         # r15@1 nao possui osso Shoulder clavicular: ancora cabeca na junta do ombro para nao girar de dentro do torax.
         sh_l_x = math.copysign(
             max(abs(float(bL["clav_x"])), 0.92 * abs(float(bL["shoulder"].x))),
-            float(bL["clav_x"]) or 1.0,
+            float(bL["clav_x"]) or float(bL["shoulder"].x) or 1.0,
         )
         sh_r_x = math.copysign(
             max(abs(float(bR["clav_x"])), 0.92 * abs(float(bR["shoulder"].x))),
-            float(bR["clav_x"]) or -1.0,
+            float(bR["clav_x"]) or float(bR["shoulder"].x) or -1.0,
         )
         return [
             _osso("HumanoidRootPart", None, (0.0, 0.0, z0), (0.0, 0.0, z0 + 0.05 * h), ml),

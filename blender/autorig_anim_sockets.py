@@ -46,6 +46,18 @@ else:
     )
 
 
+def extrair_ancoras(rig_obj) -> dict[str, list[float]]:
+    """Extrai cabecas de todos os ossos em coordenadas Y-up (x, z, -y) no espaco do mundo."""
+    if rig_obj is None or getattr(rig_obj, "type", None) != "ARMATURE":
+        return {}
+    mw = rig_obj.matrix_world
+    ancoras: dict[str, list[float]] = {}
+    for bone in rig_obj.data.bones:
+        p = mw @ bone.head_local
+        ancoras[bone.name] = [round(float(p.x), 5), round(float(p.z), 5), round(float(-p.y), 5)]
+    return ancoras
+
+
 def extrair_sockets(
     rig_obj,
     mesh_obj=None,
@@ -243,6 +255,8 @@ def aplicar_animacoes_multi(
     if not clipes:
         return []
     cena = bpy.context.scene
+    fps_orig = int(cena.render.fps)
+    frame_orig = int(cena.frame_current)
     rig_obj.animation_data_create()
     while rig_obj.animation_data.nla_tracks:
         rig_obj.animation_data.nla_tracks.remove(rig_obj.animation_data.nla_tracks[0])
@@ -257,133 +271,138 @@ def aplicar_animacoes_multi(
         altura_rig_e_chao(rig_obj) if not e_criatura else (False, 1.75, 0.0)
     )
     caimento_ativo = bool(aplicar_caimento_natural and info_caimento.get("aplicavel"))
-    escala_desl = max(0.5, min(3.0, rig_height / 1.75)) if caimento_ativo else 1.0
+    escala_desl = max(0.5, min(3.0, rig_height / 1.75)) if eh_humanoide else 1.0
     clamp_ativo = bool(aplicar_ground_clamp and eh_humanoide and not e_criatura)
     pb_root = rig_obj.pose.bones.get("Hips") or rig_obj.pose.bones.get("LowerTorso")
 
     geradas: list[dict] = []
     max_frame_end = 1
-    for clipe in clipes:
-        nome = str(clipe["nome"])
-        fps = int(clipe.get("fps") or 24)
-        cena.render.fps = fps
-        duracao_s = float(clipe.get("duracao_s") or 0.0)
+    try:
+        for clipe in clipes:
+            nome = str(clipe["nome"])
+            eh_idle = nome.strip().lower() == "idle"
+            fps = int(clipe.get("fps") or 24)
+            cena.render.fps = fps
+            duracao_s = float(clipe.get("duracao_s") or 0.0)
 
-        acao = bpy.data.actions.new(nome)
-        if acao.name != nome and nome not in bpy.data.actions:
-            acao.name = nome
-        acao.use_fake_user = True
-        rig_obj.animation_data.action = acao
+            acao = bpy.data.actions.new(nome)
+            if acao.name != nome and nome not in bpy.data.actions:
+                acao.name = nome
+            acao.use_fake_user = True
+            rig_obj.animation_data.action = acao
 
-        for pb in rig_obj.pose.bones:
-            pb.rotation_mode = "QUATERNION"
-            pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
-            pb.location = (0.0, 0.0, 0.0)
-            pb.scale = (1.0, 1.0, 1.0)
-
-        chaves = clipe.get("chaves") or []
-        usar_clamp_clipe = clamp_ativo and (nome.strip().lower() in _CLIPES_NO_CHAO) and pb_root is not None
-        for idx_ch, chave in enumerate(chaves):
-            frame = int(chave["frame"])
-            if usar_clamp_clipe:
-                cena.frame_set(frame)
             for pb in rig_obj.pose.bones:
-                pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0, 0.0))
-                pb.location = Vector((0.0, 0.0, 0.0))
-            tocados_rot: list[str] = []
-            tocados_loc: list[str] = []
-            poses_por_osso: dict[str, list[dict]] = {}
-            for pose in chave.get("poses") or []:
-                osso = pose.get("osso")
-                if osso and osso not in rig_obj.pose.bones and e_criatura:
-                    osso = next((c for c in _ALIAS_OSSO_CRIATURA.get(str(osso), ()) if c in rig_obj.pose.bones), osso)
-                if not osso or osso not in rig_obj.pose.bones:
-                    continue
-                poses_por_osso.setdefault(str(osso), []).append(pose)
-                desloc = pose.get("deslocamento_m")
-                if isinstance(desloc, (list, tuple)) and len(desloc) == 3:
-                    pb = rig_obj.pose.bones[str(osso)]
-                    delta_arm = Vector((float(desloc[0]), float(desloc[1]), float(desloc[2]))) * escala_desl
-                    delta_local = pb.bone.matrix_local.to_3x3().inverted_safe() @ delta_arm
-                    pb.location = pb.location + delta_local
-                    if osso not in tocados_loc:
-                        tocados_loc.append(str(osso))
+                pb.rotation_mode = "QUATERNION"
+                pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+                pb.location = (0.0, 0.0, 0.0)
+                pb.scale = (1.0, 1.0, 1.0)
 
-            tratados_arm: set[str] = set()
-            if caimento_ativo:
-                if duracao_s > 0.0 and "segundos" in chave:
-                    fracao = max(0.0, min(1.0, float(chave["segundos"]) / duracao_s))
-                elif len(chaves) > 1:
-                    fracao = idx_ch / float(len(chaves) - 1)
-                else:
-                    fracao = 0.0
-                peso = peso_gravidade_clipe(nome, fracao)
-                tratados_arm = _aplicar_caimento_bracos_chave(
-                    rig_obj, poses_por_osso, info_caimento, peso, tocados_rot
-                )
+            chaves = clipe.get("chaves") or []
+            usar_clamp_clipe = clamp_ativo and (nome.strip().lower() in _CLIPES_NO_CHAO) and pb_root is not None
+            for idx_ch, chave in enumerate(chaves):
+                frame = int(chave["frame"])
+                if usar_clamp_clipe:
+                    cena.frame_set(frame)
+                for pb in rig_obj.pose.bones:
+                    pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0, 0.0))
+                    pb.location = Vector((0.0, 0.0, 0.0))
+                tocados_rot: list[str] = []
+                tocados_loc: list[str] = []
+                poses_por_osso: dict[str, list[dict]] = {}
+                for pose in chave.get("poses") or []:
+                    osso = pose.get("osso")
+                    if osso and osso not in rig_obj.pose.bones and e_criatura:
+                        osso = next((c for c in _ALIAS_OSSO_CRIATURA.get(str(osso), ()) if c in rig_obj.pose.bones), osso)
+                    if not osso or osso not in rig_obj.pose.bones:
+                        continue
+                    poses_por_osso.setdefault(str(osso), []).append(pose)
+                    desloc = pose.get("deslocamento_m")
+                    if isinstance(desloc, (list, tuple)) and len(desloc) == 3:
+                        pb = rig_obj.pose.bones[str(osso)]
+                        delta_arm = Vector((float(desloc[0]), float(desloc[1]), float(desloc[2]))) * escala_desl
+                        delta_local = pb.bone.matrix_local.to_3x3().inverted_safe() @ delta_arm
+                        pb.location = pb.location + delta_local
+                        if osso not in tocados_loc:
+                            tocados_loc.append(str(osso))
 
-            for osso, poses_osso in poses_por_osso.items():
-                if osso in tratados_arm:
-                    continue
-                pb = rig_obj.pose.bones[osso]
-                for pose in poses_osso:
-                    pb.rotation_quaternion = (pb.rotation_quaternion @ _quat_delta_local(pose)).normalized()
-                if osso not in tocados_rot:
-                    tocados_rot.append(osso)
+                tratados_arm: set[str] = set()
+                if caimento_ativo:
+                    if duracao_s > 0.0 and "segundos" in chave:
+                        fracao = max(0.0, min(1.0, float(chave["segundos"]) / duracao_s))
+                    elif len(chaves) > 1:
+                        fracao = idx_ch / float(len(chaves) - 1)
+                    else:
+                        fracao = 0.0
+                    peso = peso_gravidade_clipe(nome, fracao)
+                    tratados_arm = _aplicar_caimento_bracos_chave(
+                        rig_obj, poses_por_osso, info_caimento, peso, tocados_rot
+                    )
 
-            for osso in tocados_rot:
-                rig_obj.pose.bones[osso].keyframe_insert("rotation_quaternion", frame=frame)
-            for osso in tocados_loc:
-                rig_obj.pose.bones[osso].keyframe_insert("location", frame=frame)
-            if usar_clamp_clipe and pb_root is not None:
-                if pb_root.name not in tocados_loc:
-                    pb_root.keyframe_insert("location", frame=frame)
-                aplicar_ground_clamp_fk(rig_obj, nome, z_chao, frame=frame)
+                for osso, poses_osso in poses_por_osso.items():
+                    if osso in tratados_arm:
+                        continue
+                    pb = rig_obj.pose.bones[osso]
+                    for pose in poses_osso:
+                        pb.rotation_quaternion = (pb.rotation_quaternion @ _quat_delta_local(pose)).normalized()
+                    if osso not in tocados_rot:
+                        tocados_rot.append(osso)
 
-        frames = int(round(duracao_s * fps))
-        for fc in acao.fcurves:
-            for kp in fc.keyframe_points:
-                kp.interpolation = "BEZIER"
-                kp.handle_left_type = "AUTO_CLAMPED"
-                kp.handle_right_type = "AUTO_CLAMPED"
-            fc.update()
+                for osso in tocados_rot:
+                    rig_obj.pose.bones[osso].keyframe_insert("rotation_quaternion", frame=frame)
+                for osso in tocados_loc:
+                    rig_obj.pose.bones[osso].keyframe_insert("location", frame=frame)
+                if usar_clamp_clipe and pb_root is not None:
+                    if pb_root.name not in tocados_loc:
+                        pb_root.keyframe_insert("location", frame=frame)
+                    aplicar_ground_clamp_fk(rig_obj, nome, z_chao, frame=frame, evitar_flutuacao=eh_idle)
 
-        if usar_clamp_clipe and frames > 0:
-            inseriu_clamp = False
-            for fr in range(1, 2 + frames):
-                cena.frame_set(fr)
-                if aplicar_ground_clamp_fk(rig_obj, nome, z_chao, frame=fr, tol=1e-3) > 0.0:
-                    inseriu_clamp = True
-            if inseriu_clamp:
-                for fc in acao.fcurves:
-                    for kp in fc.keyframe_points:
-                        kp.interpolation = "BEZIER"
-                        kp.handle_left_type = "AUTO_CLAMPED"
-                        kp.handle_right_type = "AUTO_CLAMPED"
-                    fc.update()
+            frames = int(round(duracao_s * fps))
+            for fc in acao.fcurves:
+                for kp in fc.keyframe_points:
+                    kp.interpolation = "BEZIER"
+                    kp.handle_left_type = "AUTO_CLAMPED"
+                    kp.handle_right_type = "AUTO_CLAMPED"
+                fc.update()
 
-        track = rig_obj.animation_data.nla_tracks.new()
-        track.name = nome
-        inicio = int(acao.frame_range[0]) if acao.fcurves else 1
-        strip = track.strips.new(nome, inicio, acao)
-        strip.name = nome
-        track.mute = True
+            if usar_clamp_clipe and frames > 0:
+                inseriu_clamp = False
+                for fr in range(1, 2 + frames):
+                    cena.frame_set(fr)
+                    if abs(aplicar_ground_clamp_fk(rig_obj, nome, z_chao, frame=fr, tol=1e-3, evitar_flutuacao=eh_idle)) > 0.0:
+                        inseriu_clamp = True
+                if inseriu_clamp:
+                    for fc in acao.fcurves:
+                        for kp in fc.keyframe_points:
+                            kp.interpolation = "BEZIER"
+                            kp.handle_left_type = "AUTO_CLAMPED"
+                            kp.handle_right_type = "AUTO_CLAMPED"
+                        fc.update()
 
-        rig_obj.animation_data.action = None
-        for pb in rig_obj.pose.bones:
-            pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
-            pb.location = (0.0, 0.0, 0.0)
+            track = rig_obj.animation_data.nla_tracks.new()
+            track.name = nome
+            inicio = int(acao.frame_range[0]) if acao.fcurves else 1
+            strip = track.strips.new(nome, inicio, acao)
+            strip.name = nome
+            track.mute = True
 
-        max_frame_end = max(max_frame_end, 1 + frames)
-        geradas.append(
-            {
-                "nome": nome,
-                "duracao_s": duracao_s,
-                "ossos": list(clipe.get("ossos") or []),
-                "frames": frames,
-            }
-        )
+            rig_obj.animation_data.action = None
+            for pb in rig_obj.pose.bones:
+                pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+                pb.location = (0.0, 0.0, 0.0)
 
-    cena.frame_start = 1
-    cena.frame_end = max_frame_end
+            max_frame_end = max(max_frame_end, 1 + frames)
+            geradas.append(
+                {
+                    "nome": nome,
+                    "duracao_s": duracao_s,
+                    "ossos": list(clipe.get("ossos") or []),
+                    "frames": frames,
+                }
+            )
+
+        cena.frame_start = 1
+        cena.frame_end = max_frame_end
+    finally:
+        cena.render.fps = fps_orig
+        cena.frame_set(frame_orig)
     return geradas

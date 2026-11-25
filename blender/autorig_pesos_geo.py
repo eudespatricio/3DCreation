@@ -19,7 +19,7 @@ if __package__:
         _OSSOS_EXTREMIDADE_BRACO, MAX_INFLUENCIAS_VERTICE, construir_hierarquia_ossos,
         filtrar_pesos_coerentes, mediar_costuras_distantes,
     )
-    from .autorig_pesos_limites import _construir_meta
+    from .autorig_pesos_limites import _construir_meta, _vertice_no_raio_ombro
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
@@ -34,7 +34,7 @@ else:
         _OSSOS_EXTREMIDADE_BRACO, MAX_INFLUENCIAS_VERTICE, construir_hierarquia_ossos,
         filtrar_pesos_coerentes, mediar_costuras_distantes,
     )
-    from autorig_pesos_limites import _construir_meta
+    from autorig_pesos_limites import _construir_meta, _vertice_no_raio_ombro
 
 
 def _sementes_osso_ilha(
@@ -125,7 +125,7 @@ def _sementes_osso_ilha(
             if vz < z_lo_perna or vz > z_lim_perna or abs_x > perna_max_x:
                 continue
         elif cat == 2:
-            if vz < ombro_z_lo or vz > ombro_z_hi or abs_x < ombro_min_x or abs_x > ombro_max_x:
+            if vz < ombro_z_lo or vz > ombro_z_hi or abs_x < ombro_min_x or abs_x > ombro_max_x or not _vertice_no_raio_ombro(coords[vi], b, m):
                 continue
         elif cat == 3:
             if abs_x < braco_min_x or vz > b["arm_z_hi"]:
@@ -340,7 +340,7 @@ def _pesos_ilha_geodesicos(
             if cat_id == 4:
                 min_x_sh = max(x_tol, 0.55 * ombro_min_x)
                 z_cut_sh = (arm_z_cut_lo - 0.05 * h) if bracos_baixos else arm_z_cut_lo
-                if is_belt_like or vz < z_cut_sh or vz > ombro_z_hi or abs_x < min_x_sh or (abs_x <= x_med_arm and vz > arm_z_hi_medial):
+                if is_belt_like or vz < z_cut_sh or vz > ombro_z_hi or abs_x < min_x_sh or (abs_x <= x_med_arm and vz > arm_z_hi_medial) or not _vertice_no_raio_ombro(coords[vi], b, m):
                     continue
                 if vz < arm_z_cut_lo:
                     d += (arm_z_cut_lo - vz) * 6.0
@@ -377,7 +377,7 @@ def _pesos_ilha_geodesicos(
                     continue
             elif cat_id == 6:
                 acima_pescoco = vz >= head_horn_z
-                chifre_lat = (not tem_neck) and e_ilha_central and vz >= arm_z_hi_medial and abs_x > head_max_x + 0.04 * h
+                chifre_lat = e_ilha_central and vz >= (head_horn_z if tem_neck else arm_z_hi_medial) and abs_x > head_max_x + 0.04 * h
                 x_horn_lim = (0.34 * h if chifre_lat else (head_x_horn if acima_pescoco else head_max_x + 0.04 * h))
                 if vz < head_z_soft or abs_x > x_horn_lim:
                     continue

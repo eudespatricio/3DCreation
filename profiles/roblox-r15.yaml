@@ -42,6 +42,11 @@ rig:
   esqueleto_padrao: "r15@1"
   max_ossos: 24
   raiz: HumanoidRootPart
+  postura:
+    modo_rest: natural_relaxada
+    angulo_braco_graus: 14.0
+    fix_silhouette: false
+    variacao_seed: true
   retarget:
     "r15@1":
       quadril: LowerTorso

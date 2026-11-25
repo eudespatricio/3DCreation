@@ -156,23 +156,45 @@ def export_anim(args) -> int:
     from .. import animacao, profiles, rbx
     from ..errors import erro_spec
 
+    modo_rig = str(getattr(args, "modo_rig", "motor6d") or "motor6d")
+    manifesto = getattr(args, "manifesto", None)
+
     if args.todos:
         relatorio = rbx.exportar_animacoes(
-            args.lote, args.item, list(profiles.ANIMACOES_SUPORTADAS), saida=args.saida
+            args.lote,
+            args.item,
+            list(profiles.ANIMACOES_SUPORTADAS),
+            saida=args.saida,
+            modo_rig=modo_rig,
+            manifesto=manifesto,
         )
     else:
         clipes = list(dict.fromkeys(c.strip() for c in str(args.clipe).split(",") if c.strip()))
         if not clipes:
             raise erro_spec("export-anim: informe ao menos um clipe em --clipe ou use --todos")
         if len(clipes) == 1:
-            relatorio = rbx.exportar_animacao(args.lote, args.item, clipes[0], saida=args.saida)
+            relatorio = rbx.exportar_animacao(
+                args.lote,
+                args.item,
+                clipes[0],
+                saida=args.saida,
+                modo_rig=modo_rig,
+                manifesto=manifesto,
+            )
         else:
             desconhecidos = [c for c in clipes if c not in animacao.CLIPES_SUPORTADOS]
             if desconhecidos:
                 raise erro_spec(
                     f"export-anim: clipe(s) nao suportado(s): {', '.join(desconhecidos)}"
                 )
-            relatorio = rbx.exportar_animacoes(args.lote, args.item, clipes, saida=args.saida)
+            relatorio = rbx.exportar_animacoes(
+                args.lote,
+                args.item,
+                clipes,
+                saida=args.saida,
+                modo_rig=modo_rig,
+                manifesto=manifesto,
+            )
 
     if args.json:
         emit_json(relatorio)

@@ -441,7 +441,7 @@ def processar(job: dict) -> dict:
     animacoes_geradas, sockets_extraidos = _ep._pos_escala_rig_e_animacao(
         obj, rig_obj, grupos, job, item, bruto, escala, alpha_cards_ativo,
         smooth_normals_aplicado, angulo_smooth_final, weighted_normals_aplicado,
-        info_gerada, autorig_mod=autorig, pular_reparo_pos_escala=usar_bake_pendente,
+        info_gerada, autorig_mod=autorig, pular_reparo_pos_escala=usar_bake_pendente, perfil=perfil, saida_dir=saida_dir,
     )
     sombreamento_meta = {
         "smooth_normals": bool(smooth_normals_aplicado), "angulo_graus": round(float(angulo_smooth_final), 2),

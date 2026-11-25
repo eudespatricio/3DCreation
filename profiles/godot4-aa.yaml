@@ -40,6 +40,11 @@ lod:
 rig:
   esqueleto_padrao: "godot-humanoid-aa@1"
   max_ossos: 64
+  postura:
+    modo_rest: apose
+    angulo_braco_graus: 45.0
+    fix_silhouette: true
+    variacao_seed: true
   retarget:
     "godot-humanoid-aa@1":
       quadril: Hips

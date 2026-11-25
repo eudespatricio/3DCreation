@@ -236,7 +236,10 @@ def test_export_animacao_rbxmx_walk_run_jump_identico_ao_clip(tmp_path):
             dadas_m: dict[str, list[float]] = {}
             for p in ch_exp["poses"]:
                 parte = rbx.JOINT_R15_REV.get(p["osso"], p["osso"])
-                m_p = rbx._matriz_rotacao(p["graus"], p["eixo"])
+                graus = float(p["graus"])
+                if parte in ("LeftUpperLeg", "RightUpperLeg") and str(p["eixo"]).upper() == "Z":
+                    graus = -graus
+                m_p = rbx._matriz_rotacao(graus, p["eixo"])
                 dadas_m[parte] = m_p if parte not in dadas_m else rbx._mul_mat3(dadas_m[parte], m_p)
             identidade = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
             for pose in chave["poses"]:

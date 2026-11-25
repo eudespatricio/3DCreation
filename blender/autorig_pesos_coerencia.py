@@ -189,6 +189,24 @@ def _escolher_mediador(
     return None
 
 
+def _braco_permitido_x(
+    nome: str,
+    vi: int,
+    coords_xyz: list[tuple[float, float, float]] | None,
+    x_tol: float,
+) -> bool:
+    """Impede difusao de pesos de braco/ombro para a linha media dorsal ou lado oposto."""
+    if coords_xyz is None or x_tol <= 0.0:
+        return True
+    if nome not in _OSSOS_BRACO_PROXIMAL and nome not in _OSSOS_EXTREMIDADE_BRACO:
+        return True
+    vx = coords_xyz[vi][0]
+    if abs(vx) <= x_tol:
+        return False
+    lado = _lado_osso(nome)
+    return not ((lado == "L" and vx > x_tol) or (lado == "R" and vx < -x_tol))
+
+
 def mediar_costuras_distantes(
     ilha: list[int],
     adj: list[list[tuple[int, float]]],
@@ -196,6 +214,8 @@ def mediar_costuras_distantes(
     dist_hier: dict[str, dict[str, int]],
     lca_fn: Callable[[str, str], str | None],
     max_k: int = MAX_INFLUENCIAS_VERTICE,
+    coords_xyz: list[tuple[float, float, float]] | None = None,
+    x_tol: float = 0.0,
 ) -> None:
     """Media costuras entre ossos distantes (dist >= 3 ou L/R) sem colar mao na coxa."""
     if not ilha or not pesos_por_vertice:
@@ -233,7 +253,7 @@ def mediar_costuras_distantes(
                 if med is not None and med not in (di, dj):
                     pares.append((vi, vj, med))
     if not pares:
-        _suavizar_costura_axila(ilha_set, adj, pesos_por_vertice, dist_hier, max_k=max_k)
+        _suavizar_costura_axila(ilha_set, adj, pesos_por_vertice, dist_hier, max_k=max_k, coords_xyz=coords_xyz, x_tol=x_tol)
         return
 
     n_distal = sum(1 for d in dom.values() if d in _OSSOS_EXTREMIDADE_BRACO)
@@ -258,7 +278,7 @@ def mediar_costuras_distantes(
         )
     ]
     if not pares_ok:
-        _suavizar_costura_axila(ilha_set, adj, pesos_por_vertice, dist_hier, max_k=max_k)
+        _suavizar_costura_axila(ilha_set, adj, pesos_por_vertice, dist_hier, max_k=max_k, coords_xyz=coords_xyz, x_tol=x_tol)
         return
 
     anc_v: dict[int, str] = {}
@@ -290,11 +310,12 @@ def mediar_costuras_distantes(
             fator = w_viz / float(len(viz))
             for vj in viz:
                 for n, w in pesos_por_vertice.get(vj, ()):
-                    acum[n] = acum.get(n, 0.0) + w * fator
+                    if _braco_permitido_x(n, vi, coords_xyz, x_tol):
+                        acum[n] = acum.get(n, 0.0) + w * fator
             pares_wn = [(w, n) for n, w in acum.items() if w > 1e-6]
             novos[vi] = normalizar_top_k(pares_wn, max_k=max_k) if vi in anc_v else filtrar_pesos_coerentes(pares_wn, dist_hier, max_k=max_k)
         pesos_por_vertice.update(novos)
-    _suavizar_costura_axila(ilha_set, adj, pesos_por_vertice, dist_hier, max_k=max_k)
+    _suavizar_costura_axila(ilha_set, adj, pesos_por_vertice, dist_hier, max_k=max_k, coords_xyz=coords_xyz, x_tol=x_tol)
 
 
 def _suavizar_costura_axila(
@@ -303,6 +324,8 @@ def _suavizar_costura_axila(
     pesos_por_vertice: dict[int, list[tuple[str, float]]],
     dist_hier: dict[str, dict[str, int]],
     max_k: int = MAX_INFLUENCIAS_VERTICE,
+    coords_xyz: list[tuple[float, float, float]] | None = None,
+    x_tol: float = 0.0,
 ) -> None:
     """Suaviza em 4 passos (2 aneis) arestas de axila braco-movel <-> ombro/tronco com salto > 0.20."""
     ossos_braco = (_OSSOS_BRACO_PROXIMAL - {"Shoulder.L", "Shoulder.R"}) | _OSSOS_EXTREMIDADE_BRACO
@@ -346,7 +369,7 @@ def _suavizar_costura_axila(
     lados_spine_bloq: set[int] = set()
     for vi, lado_a in lados_axila.items():
         ombro = f"Shoulder.{lado_a}"
-        if ombro not in dist_hier:
+        if ombro not in dist_hier or not _braco_permitido_x(ombro, vi, coords_xyz, x_tol):
             continue
         lados_spine_bloq.add(vi)
         ws_i = pesos_por_vertice.get(vi)
@@ -379,6 +402,8 @@ def _suavizar_costura_axila(
             for vj in viz_ok:
                 for n, w in pesos_por_vertice.get(vj, ()):
                     if bloq_sp and n == "Spine":
+                        continue
+                    if not _braco_permitido_x(n, vi, coords_xyz, x_tol):
                         continue
                     ln = _lado_osso(n)
                     if li in ("L", "R") and ln in ("L", "R") and li != ln:

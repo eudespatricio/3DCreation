@@ -418,7 +418,7 @@ dorso_head_disp = eval_disp(
 )
 arm_self_disp = eval_disp(
     lambda: setattr(rig_obj.pose.bones[ua_l], "rotation_euler", (0.0, math.radians(45), 0.0)),
-    lambda v: v.co.x >= arm_x_min and (v.co.z - z_min) <= 0.78 * h,
+    lambda v: v.co.x <= -arm_x_min and (v.co.z - z_min) <= 0.78 * h,
 )
 dorso_arms_disp = eval_disp(
     lambda: (

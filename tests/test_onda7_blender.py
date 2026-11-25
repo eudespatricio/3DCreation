@@ -216,8 +216,8 @@ def sc_clav():
         bL, bR = dict(m["braco_L"]), dict(m["braco_R"])
         bL["clav_x"] = bR["clav_x"] = 0.0
         if espelhar:
-            bL["shoulder"] = Vector((-abs(bL["shoulder"].x), bL["shoulder"].y, bL["shoulder"].z))
-            bR["shoulder"] = Vector((abs(bR["shoulder"].x), bR["shoulder"].y, bR["shoulder"].z))
+            bL["shoulder"] = Vector((abs(bL["shoulder"].x), bL["shoulder"].y, bL["shoulder"].z))
+            bR["shoulder"] = Vector((-abs(bR["shoulder"].x), bR["shoulder"].y, bR["shoulder"].z))
         ossos = {o["nome"]: o for o in autorig_ossos._construir_ossos("r15@1", {**m, "braco_L": bL, "braco_R": bR})}
         r[rotulo] = {"L": ossos["LeftUpperArm"]["cabeca"][0], "R": ossos["RightUpperArm"]["cabeca"][0]}
     return r
@@ -290,7 +290,7 @@ def test_bake_rest_pose_45_para_natural_preserva_malha_pesos_e_zera_caimento(_bu
     assert c["tem_armature"] is True
     assert c["aplicavel_depois"] is False, "caimento dinamico ainda aplicavel apos o bake (queda dupla)"
     if cenario == "bake":
-        assert c["mao_x"][1] < c["mao_x"][0] - 0.15, "malha nao acompanhou o rest-pose assado"
+        assert abs(c["mao_x"][1]) < abs(c["mao_x"][0]) - 0.15, "malha nao acompanhou o rest-pose assado"
 
 
 @pytest.mark.blender
@@ -369,8 +369,8 @@ def test_gap064_chifres_largos_nao_pesam_no_ombro_e_ombreira_e_permitida(_bundle
 @pytest.mark.blender
 def test_gap067_4_clav_x_zero_usa_sinal_do_ombro_no_r15(_bundle: dict) -> None:
     c = _cena(_bundle, "clav")
-    assert c["normal"]["L"] > 0.0 > c["normal"]["R"]
-    assert c["espelhado"]["L"] < 0.0 < c["espelhado"]["R"], f"clav_x=0 ignorou o sinal de shoulder.x: {c['espelhado']}"
+    assert c["normal"]["L"] < 0.0 < c["normal"]["R"]
+    assert c["espelhado"]["L"] > 0.0 > c["espelhado"]["R"], f"clav_x=0 ignorou o sinal de shoulder.x: {c['espelhado']}"
 
 
 @pytest.mark.blender

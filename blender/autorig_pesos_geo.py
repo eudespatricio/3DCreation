@@ -487,5 +487,5 @@ def _pesos_ilha_geodesicos(
             else:
                 fb = _pesos_vertice_inverso(coords[vi], ossos_fb or ossos, m, bracos_baixos, tem_neck=tem_neck, lim=b)
                 saida[vi] = filtrar_pesos_coerentes([(w, n) for n, w in fb], dist_hier, max_k=MAX_INFLUENCIAS_VERTICE)
-    mediar_costuras_distantes(ilha, adj, saida, dist_hier, lca_fn, max_k=MAX_INFLUENCIAS_VERTICE)
+    mediar_costuras_distantes(ilha, adj, saida, dist_hier, lca_fn, max_k=MAX_INFLUENCIAS_VERTICE, coords_xyz=coords_xyz, x_tol=x_tol)
     return saida

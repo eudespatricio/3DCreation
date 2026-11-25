@@ -1,6 +1,6 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 25/11/2026 · **`v0.9.13` (Simetria `.L/.R`, Marcha/UV/Grip & Paridade Roblox R15 ✔): correções de rig/animação/PBR/pivô no Godot 4 portadas em paridade integral para Roblox R15.** Contratos `spec@6` e `manifest@7` (`PIPELINE_VERSION = "0.9.13"`, `@1`–`@6` compatíveis na leitura). Entrega game-ready para **Roblox R15** (`_PARTES_Z_INVERTIDO_MOTOR6D`, contra-rolagem de pé `"Y"`/`"Z"`, sockets Y-up, `Tool`/`Accessory` `--tipo` + `"Grip"`, 9 attachments + `SurfaceAppearance` `rbxassetid://`, `G13`/`G14` lateralidade/sinais, `Assets._meta` opt-in), **Godot 4** (`.L=-X`/`.R=+X`, `MOTORES_ATTACK` 2-eixos, picos `G16` suavizados, grip `Hand.R`, bleed pele/UV frontal, pivô `0.12` + `anexo`) e **i23d** (`TRELLIS.2-4B` c/ overlap/`steps=12`/warm-worker).
+**Data:** 25/11/2026 · **`v0.9.14` (Trava Subaxilar de Ombro, Guarda Dorsal & Paridade R15/Godot ✔): posicionamento adaptativo de ombros com ombreiras em camadas sem roubar peso de `UpperArm`, mais paridade integral Godot 4 / Roblox R15.** Contratos `spec@6` e `manifest@7` (`PIPELINE_VERSION = "0.9.14"`, `@1`–`@6` compatíveis na leitura). Entrega game-ready para **Roblox R15** (`_PARTES_Z_INVERTIDO_MOTOR6D`, contra-rolagem de pé `"Y"`/`"Z"`, sockets Y-up, `Tool`/`Accessory` `--tipo` + `"Grip"`, 9 attachments + `SurfaceAppearance` `rbxassetid://`, `G13`/`G14` lateralidade/sinais, `Assets._meta` opt-in), **Godot 4** (`.L=-X`/`.R=+X`, `w_shoulder_cap` subaxilar + guarda dorsal `_braco_permitido_x`, `MOTORES_ATTACK` 2-eixos, picos `G16` suavizados, grip `Hand.R`, bleed pele/UV frontal, pivô `0.12` + `anexo`) e **i23d** (`TRELLIS.2-4B` c/ overlap/`steps=12`/warm-worker).
 
 Verificação rápida: `.venv/bin/python -m pytest -m "not gpu and not blender" -q` e `bash tools/ci.sh`.
 
@@ -32,7 +32,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **Ondas 5–7 (`v0.9.11`)** | ✔ | Ondas 5–6 (`EMIT`/UV/QC/`GAP-052..055/060..062`) + Onda 7 (rest-pose ~14° assada, presets `seed`, `idle` aterrado, `walk`/`run` aduzidos, `export-r15 --modo-rig bone`, `GAP-064/065/067` fechados, `GAP-066` mitigado) |
 | **Onda 8 (`v0.9.11`)** | ✔ | Godot 4 parity: sidecar `_emissive.png` em `post_import_materials.gd`/`sync_godot*.py`, `.png.import` linear/sRGB, 22 clipes (`8` cíclicos / `14` não-cíclicos), `plugin.cfg` `0.8.0` e E2E Blender→Godot 4.7.2 |
 | **Onda 9 (`v0.9.12`)** | ✔ | Throughput & Release `0.9.12`: overlap GPU/CPU (`pipeline_overlap.py`), `steps=12` standard, warm worker (`trellis2_worker.py`) e diagnóstico de miss no `plan` (`cache_diag.py`) |
-| **Onda 10 (`v0.9.13`)** | ✔ | Simetria `.L/.R`, marcha/picos `G16`, UV/bleed pele, grip `0.12`/`anexo` e paridade Roblox R15 (`Z` Motor6D, `Tool`, `SurfaceAppearance`, `G13`/`G14`, `Assets._meta`) |
+| **Onda 10 (`v0.9.13`–`v0.9.14`)** | ✔ | Simetria `.L/.R`, marcha/picos `G16`, UV/bleed pele, grip `0.12`/`anexo`, trava subaxilar de ombreiras (`D139`) e paridade Roblox R15 |
 
 ## O que foi entregue nesta janela
 
@@ -77,7 +77,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 - **Onda 7 (`v0.9.11`)** — `rig.postura` nos perfis (`roblox-*`: `natural_relaxada` 14° pós-skin A-pose 45°; `godot4*`: `apose` + `fix_silhouette/enable`), `assar_pose_rest_natural` (`blender/autorig_pose_natural.py`, `postprocess_export_pipe.py` c/ `_g15_apose_ref.glb`), modularização `animacao.py`/`animacao_motores.py`/`animacao_presets.py` (5 presets por `seed`, `idle` sem Z-roll e aterrado, `walk`/`run` adução Z de quadril + paridade Bone/Motor6D em `rbx_anim.py`), `export-r15 --modo-rig bone` s/ `partes[]` + `rig.ancoras` em `SkinnedMesh` + `export-anim --modo-rig --manifesto`, e fechamento de `GAP-064`/`GAP-065`/`GAP-067` (#4/#5) + mitigação de `GAP-066`.
 - **Onda 8 (`v0.9.11`)** — `post_import_materials.gd` com `emissive_tex` opcional em `_processar_material` (compatível c/ 5 args) e descoberta `_emissive.png`; `sync_godot.py` emitindo `"emissive"` em `Forge3DAssets.gd`; `sync_godot_sidecars.py` com `.png.import` linear (`process/hdr_as_srgb=false` em `_orm/_roughness/_metalness/_ao`) + 22 clipes sincronizados com `post_import.gd`/`godot_anim_check.gd`/`godot_visual_qa.gd`; `plugin.cfg` `0.8.0` e E2E Blender→Godot 4.7.2 (`tests/test_onda8_godot4.py`).
 - **Onda 9 (`v0.9.12`, `D137`)** — bump `PIPELINE_VERSION = "0.9.12"`, overlap 1-slot GPU/CPU (`pipeline_overlap.py`, `post.py` `env_extra`, `--overlap`/`--no-overlap`), `steps=12` em `standard`/props (`mesh_trellis.py`, `mesh.py`), warm worker residente (`tools/trellis2_worker.py`, `mesh_trellis_worker.py`, `--warm-worker`) e diagnóstico de cache miss no `plan --json` (`cache_diag.py`, `.por_id` ignorado no `gc.py`).
-- **Onda 10 (`v0.9.13`, `D138`)** — simetria `.L=-X`/`.R=+X`, adução/contra-rolagem de pés, `MOTORES_ATTACK` 2-eixos, picos `G16` suavizados, grip `Hand.R`, UV frontal + bleed/pele (`bake_pbr_bleed_pele.py`), pivô `0.12`/socket `"Grip"`/`anexo` + paridade Roblox R15 (`rbx_anim.py`, `autorig_anim_sockets.py`, `rbx_acessorio.py` `--tipo Tool`, `rbx_r15_model.py`, `qc_roblox{,_anim}.py` `G13`/`G14`, `profiles/roblox-*.yaml`, `sync_rojo.py` `Assets._meta`).
+- **Onda 10 (`v0.9.13`–`v0.9.14`, `D138`–`D139`)** — simetria `.L=-X`/`.R=+X`, adução/contra-rolagem de pés, `MOTORES_ATTACK` 2-eixos, picos `G16` suavizados, grip `Hand.R`, UV frontal + bleed/pele (`bake_pbr_bleed_pele.py`), pivô `0.12`/socket `"Grip"`/`anexo`, paridade Roblox R15 (`rbx_anim.py`, `autorig_anim_sockets.py`, `rbx_acessorio.py` `--tipo Tool`, `rbx_r15_model.py`, `qc_roblox{,_anim}.py` `G13`/`G14`, `profiles/roblox-*.yaml`, `sync_rojo.py` `Assets._meta`) e trava subaxilar `w_shoulder_cap` + guarda `_braco_permitido_x` (`autorig_marcos_tronco.py`, `autorig_pesos_coerencia.py`).
 
 ## Números medidos nesta máquina
 
@@ -113,7 +113,7 @@ calibrado, `GAP-019`, Pixal3D MIT, `referencia_estilo` · `D114–D124` B23/B24,
 sidecars, `forge3d_post_imported`, `BoneMap`, `UCX_`, 17 clipes)** · **`D127` Onda 2 Visual (sub-rotas
 explícitas, 4 vistas Gemini/Cycles, zero `fal.run`, `TRELLIS.2-4B`/`Pixal3D`, `G15`)** · **`D128` Onda 3
 (`G1–G11`, `verify` `G11`, zero `except` silencioso, `PIPELINE_VERSION = "0.9.5"`)** · **`D129` Portão E2E `M6`
-(`97/97` E2E Tiers 1–4, Opção A Tier 5 dispensado, `GAP-050/051/062` fechados, `ci.sh`/`ci_verify.sh` `exit=0`)** · **`D130` Hardening `v0.9.6`** · **`D131` Fine-Tune `v0.9.7`** · **`D132` Onda 1 `v0.9.8` (`TRELLIS.2-4B` `o_voxel`, `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback UV0)** · **`D133` `TRELLIS.2-4B` local (`tools/trellis2_infer.py`, `BF16/512`, zero Colab)** · **`D134` Onda 2 `v0.9.9` (`manifest@7`, R15 rígido `Motor6D`, coerência geodésica, `G16`)** · **`D135` Onda 3 `v0.9.10` (`F-01`–`F-08` feedback Godot/Roblox + caimento natural dos braços, `GAP-065`)** · **`D136` Fine-tuning `v0.9.11` (`C1`–`C3b`, Opção 1 `vista_back`, `C2c` projeção frontal, `GAP-066`–`GAP-067`)** · **`D137` Onda 9 (`v0.9.12`, overlap, `steps=12`, warm worker, `cache_diag`)** · **`D138` Onda 10 (`v0.9.13`, simetria `.L/.R`, marcha/UV/grip, paridade Roblox R15)**.
+(`97/97` E2E Tiers 1–4, Opção A Tier 5 dispensado, `GAP-050/051/062` fechados, `ci.sh`/`ci_verify.sh` `exit=0`)** · **`D130` Hardening `v0.9.6`** · **`D131` Fine-Tune `v0.9.7`** · **`D132` Onda 1 `v0.9.8` (`TRELLIS.2-4B` `o_voxel`, `EMIT`, `Solidify+Voxel+Shrinkwrap`, fallback UV0)** · **`D133` `TRELLIS.2-4B` local (`tools/trellis2_infer.py`, `BF16/512`, zero Colab)** · **`D134` Onda 2 `v0.9.9` (`manifest@7`, R15 rígido `Motor6D`, coerência geodésica, `G16`)** · **`D135` Onda 3 `v0.9.10` (`F-01`–`F-08` feedback Godot/Roblox + caimento natural dos braços, `GAP-065`)** · **`D136` Fine-tuning `v0.9.11` (`C1`–`C3b`, Opção 1 `vista_back`, `C2c` projeção frontal, `GAP-066`–`GAP-067`)** · **`D137` Onda 9 (`v0.9.12`, overlap, `steps=12`, warm worker, `cache_diag`)** · **`D138`–`D139` Onda 10 (`v0.9.13`–`v0.9.14`, simetria `.L/.R`, trava subaxilar/dorsal, paridade Roblox R15)**.
 
 ## Aberto
 
@@ -125,8 +125,8 @@ P6 de `docs/roadmap.md`.
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Priorizar itens de backlog em `docs/gaps.md` (`GAP-004..068`) conforme demanda dos projetos consumidores | sob demanda | débitos pós-`v0.9.13` |
-| **2** | Testar pipeline em produção (`v0.9.13`) e avaliar E2E GPU com `--overlap --warm-worker` e `steps=12` | sob demanda | validação em campo `v0.9.13` |
+| **1** | Priorizar itens de backlog em `docs/gaps.md` (`GAP-004..068`) conforme demanda dos projetos consumidores | sob demanda | débitos pós-`v0.9.14` |
+| **2** | Testar pipeline em produção (`v0.9.14`) e avaliar E2E GPU com `--overlap --warm-worker` e `steps=12` | sob demanda | validação em campo `v0.9.14` |
 
 ## Comandos
 
@@ -171,6 +171,6 @@ godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_chec
 
 ## Como retomar
 
-> **Estado**: `v0.9.13` (**Ondas 7–10 completas**): simetria `.L=-X`/`.R=+X`, marcha/picos `G16`, UV/bleed pele, grip `0.12`/`"Grip"`/`anexo`, paridade integral Roblox R15 (`Z` Motor6D, `Tool`, `SurfaceAppearance`, `G13`/`G14`, `Assets._meta`), addon Godot `0.8.0`, overlap 1-slot, `steps=12`, warm worker TRELLIS.2 (`spec@6`, `manifest@7`, `PIPELINE_VERSION="0.9.13"`).
-> **Próximo passo**: Testar em produção (`v0.9.13`) e priorizar débitos em `docs/gaps.md`.
+> **Estado**: `v0.9.14` (**Ondas 7–10 + `D139` completas**): trava subaxilar `w_shoulder_cap` + guarda dorsal `_braco_permitido_x`, simetria `.L=-X`/`.R=+X`, marcha/picos `G16`, UV/bleed pele, grip `0.12`/`"Grip"`/`anexo`, paridade integral Roblox R15 (`Z` Motor6D, `Tool`, `SurfaceAppearance`, `G13`/`G14`, `Assets._meta`), addon Godot `0.8.0`, overlap 1-slot, `steps=12`, warm worker TRELLIS.2 (`spec@6`, `manifest@7`, `PIPELINE_VERSION="0.9.14"`).
+> **Próximo passo**: Testar em produção (`v0.9.14`) e priorizar débitos em `docs/gaps.md`.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

@@ -449,7 +449,7 @@ print("BOSS_SF_OK")
     dados = json.loads(res_json.read_text(encoding="utf-8"))
     h = dados["altura"]
     assert dados["torso_hw"] > 0.16 * h, f"torso_hw grampeado em {dados['torso_hw'] / h:.3f}*h"
-    assert dados["leg_x_L"] > 0.135 * h, f"leg_x_L grampeado em {dados['leg_x_L'] / h:.3f}*h"
+    assert dados["leg_x_L"] < -0.135 * h, f"leg_x_L grampeado em {dados['leg_x_L'] / h:.3f}*h"
     assert dados["sf"].get("aplicado") is True, f"smart_fit ignorou corpo da cena: {dados['sf']}"
 
 

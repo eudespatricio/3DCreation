@@ -178,6 +178,17 @@ def _perfil_tronco_fatias(
             for f, z, w, cc_pts, wr in raw_slices
         ]
 
+    # Limita a faixa de axila/ombro pela largura real do torax abaixo das ombreiras (0.59..0.65*h),
+    # evitando que ombreiras em camadas soldadas ao tronco inflem w_chest e empurrem UpperArm.
+    sub_armpit_ws = [w for f, _z, w, _cc, _wr in raw_slices if 0.58 <= f <= 0.66]
+    if sub_armpit_ws:
+        w_sub_armpit = _mediana(sub_armpit_ws, sub_armpit_ws[0])
+        w_shoulder_cap = max(w_sub_armpit * 1.25, w_sub_armpit + 0.020 * altura)
+        raw_slices = [
+            (f, z, min(w, w_shoulder_cap) if f >= 0.65 else w, cc_pts, wr)
+            for f, z, w, cc_pts, wr in raw_slices
+        ]
+
     base_pts = [(f, z, w, wr) for f, z, w, _, wr in raw_slices if 0.55 <= f <= 0.63] or [
         (f, z, w, wr) for f, z, w, _, wr in raw_slices if 0.48 <= f <= 0.63
     ]

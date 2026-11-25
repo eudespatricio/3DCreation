@@ -9,7 +9,8 @@ const CLIPES_CICLICOS: Array[String] = [
 	"idle", "walk", "run", "gallop", "wing_flap", "glide", "ride_idle", "ride_fly"
 ]
 const CLIPES_NAO_CICLICOS: Array[String] = [
-	"attack", "bite", "block", "cast", "death", "hit", "jump", "roar", "slash_combo"
+	"attack", "bite", "block", "cast", "death", "dismount",
+	"hit", "jump", "land", "mount_up", "rear_up", "roar", "slash_combo", "tail_swipe"
 ]
 
 

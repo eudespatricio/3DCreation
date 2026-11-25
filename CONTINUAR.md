@@ -1,6 +1,6 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 25/11/2026 · **`v0.9.11` (Onda 7 ✔): Postura natural assada (~14° no `roblox-*`, A-pose + `fix_silhouette` no `godot4*`), presets por `seed`, `idle` aterrado, `walk`/`run` aduzidos e export `SkinnedMesh` R15 nativo.** Contratos correntes `spec@6` e `manifest@7` (`PIPELINE_VERSION = "0.9.11"` mantido até Onda 9; `@1`–`@6` compatíveis na leitura). Entrega game-ready para **Roblox R15** (rest-pose ~14° assada pós-Cycles sem perda de UV/pesos + zero queda dupla, `Pose` aninhada c/ ground-clamp, `--modo-rig bone` sem `partes[]` + emissão de `rig.ancoras`, `export-anim --modo-rig --manifesto`, `StreamingEnabled=false`, `SurfaceAppearance`, `G12–G14`, `G16`), **Godot 4** (`ORMMaterial3D=1.0`, sidecars c/ `fix_silhouette`, `BoneMap`, `UV2`+`GI_MODE_STATIC`, `UCX_`, 17 clipes) e **i23d** (`TRELLIS.2-4B`).
+**Data:** 25/11/2026 · **`v0.9.11` (Ondas 7–8 ✔): Rigging R15/Godot com postura relaxada ~14° assada, marcha/idle aterrados, `SkinnedMesh` R15 nativo, paridade Godot 4 (sidecars emissive, 22 clipes, `plugin.cfg 0.8.0`) e E2E Blender→Godot 4.7.2.** Contratos correntes `spec@6` e `manifest@7` (`PIPELINE_VERSION = "0.9.11"` mantido até Onda 9; `@1`–`@6` compatíveis na leitura). Entrega game-ready para **Roblox R15** (rest-pose ~14° assada pós-Cycles sem perda de UV/pesos + zero queda dupla, `Pose` aninhada c/ ground-clamp, `--modo-rig bone` sem `partes[]` + emissão de `rig.ancoras`, `export-anim --modo-rig --manifesto`, `StreamingEnabled=false`, `SurfaceAppearance`, `G12–G14`, `G16`), **Godot 4** (`ORMMaterial3D=1.0` + `emissive_tex` sidecar/embutido, `.png.import` linear/sRGB, sidecars c/ `fix_silhouette`, `BoneMap` 56 ossos, `UV2`+`GI_MODE_STATIC`, `UCX_`, 22 clipes unificados) e **i23d** (`TRELLIS.2-4B`).
 
 Verificação rápida: `.venv/bin/python -m pytest -m "not gpu and not blender" -q` e `bash tools/ci.sh`.
 
@@ -30,6 +30,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **Onda 3 (`v0.9.10`)** | ✔ | `F-01`–`F-08`: marcos/skinning/R15 split, roll sagital + `F-08` caimento natural, emissive/AO PBR, `StreamingEnabled=false`, E2E 3 bosses (`D135`) |
 | **Onda 4 (`v0.9.11`)** | ✔ | `C1` PBR nativo/`delight`, `C2`/`C2b` casca dupla + UV/Quadriflow, Opção 1 `vista_back` + `C2c` projeção frontal rosto, `C3`/`C3b` R15 contínuo (`D136`) |
 | **Ondas 5–7 (`v0.9.11`)** | ✔ | Ondas 5–6 (`EMIT`/UV/QC/`GAP-052..055/060..062`) + Onda 7 (rest-pose ~14° assada, presets `seed`, `idle` aterrado, `walk`/`run` aduzidos, `export-r15 --modo-rig bone`, `GAP-064/065/067` fechados, `GAP-066` mitigado) |
+| **Onda 8 (`v0.9.11`)** | ✔ | Godot 4 parity: sidecar `_emissive.png` em `post_import_materials.gd`/`sync_godot*.py`, `.png.import` linear/sRGB, 22 clipes (`8` cíclicos / `14` não-cíclicos), `plugin.cfg` `0.8.0` e E2E Blender→Godot 4.7.2 |
 
 ## O que foi entregue nesta janela
 
@@ -72,6 +73,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 - **Onda 4 `v0.9.11` (`D136`)** — `C1` PBR nativo/`delight_pbr` sem falso metálico; `C2`/`C2b` `filtrar_casca_interna_high` + solda in-place Quadriflow + UV cabeça `1,50`; Opção 1 `vista_back` Gemini + `C2c` projeção frontal `+Y` para olhos/sobrancelhas; `C3`/`C3b` âncora ombro + `arm_hip_block_z` (`autorig_pesos_limites.py`), `mesh_diag.VERSAO="0.1.12"`.
 
 - **Onda 7 (`v0.9.11`)** — `rig.postura` nos perfis (`roblox-*`: `natural_relaxada` 14° pós-skin A-pose 45°; `godot4*`: `apose` + `fix_silhouette/enable`), `assar_pose_rest_natural` (`blender/autorig_pose_natural.py`, `postprocess_export_pipe.py` c/ `_g15_apose_ref.glb`), modularização `animacao.py`/`animacao_motores.py`/`animacao_presets.py` (5 presets por `seed`, `idle` sem Z-roll e aterrado, `walk`/`run` adução Z de quadril + paridade Bone/Motor6D em `rbx_anim.py`), `export-r15 --modo-rig bone` s/ `partes[]` + `rig.ancoras` em `SkinnedMesh` + `export-anim --modo-rig --manifesto`, e fechamento de `GAP-064`/`GAP-065`/`GAP-067` (#4/#5) + mitigação de `GAP-066`.
+- **Onda 8 (`v0.9.11`)** — `post_import_materials.gd` com `emissive_tex` opcional em `_processar_material` (compatível c/ 5 args) e descoberta `_emissive.png`; `sync_godot.py` emitindo `"emissive"` em `Forge3DAssets.gd`; `sync_godot_sidecars.py` com `.png.import` linear (`process/hdr_as_srgb=false` em `_orm/_roughness/_metalness/_ao`) + 22 clipes sincronizados com `post_import.gd`/`godot_anim_check.gd`/`godot_visual_qa.gd`; `plugin.cfg` `0.8.0` e E2E Blender→Godot 4.7.2 (`tests/test_onda8_godot4.py`).
 
 ## Números medidos nesta máquina
 
@@ -119,8 +121,8 @@ P6 de `docs/roadmap.md`.
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Executar **Onda 8 (Godot 4)**: alinhar BoneMap `UpperChest`, tabelas de 22 clipes, emissive sidecars e validar E2E no Godot 4.7.2 | 1 janela | paridade Godot 4 |
-| **2** | Executar **Onda 9 (Throughput & Release `0.9.12`)** após Godot 4 e fechar backlog remanescente conforme demanda | 1 janela | release `0.9.12` |
+| **1** | Executar **Onda 9 (Throughput & Release `0.9.12`)**: bump `PIPELINE_VERSION = "0.9.12"`, throughput, ci_dist/verify e tag de release | 1 janela | release `0.9.12` |
+| **2** | Priorizar itens de backlog em `docs/gaps.md` (`GAP-004..068`) conforme demanda dos projetos consumidores | sob demanda | débitos pós-`v0.9.12` |
 
 ## Comandos
 
@@ -165,6 +167,6 @@ godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_chec
 
 ## Como retomar
 
-> **Estado**: `v0.9.11` (**Onda 7 completa**): postura relaxada ~14° assada no `roblox-*`, `godot4*` em A-pose + `fix_silhouette`, `idle` sem flutuar, `walk`/`run` com adução Z, 5 presets por `seed`, `SkinnedMesh` R15 `--modo-rig bone` c/ `rig.ancoras`, e `GAP-064/065/067` fechados (`spec@6`, `manifest@7`, `PIPELINE_VERSION="0.9.11"`).
-> **Próximo passo**: **Onda 8 (Godot 4)** — validação e paridade Godot 4.7.2 (`addons/forge3d/`, `sync_godot*.py`), mantendo `docs/gaps.md` (`GAP-004..068`) e `GAP-066` mitigado.
+> **Estado**: `v0.9.11` (**Ondas 7 e 8 completas**): postura relaxada ~14° no `roblox-*`, `godot4*` em A-pose + `fix_silhouette`, `idle` aterrado, `walk`/`run` aduzidos, `SkinnedMesh` R15 `--modo-rig bone`, paridade emissive/22 clipes Godot 4 e E2E Blender→Godot 4.7.2 validado (`spec@6`, `manifest@7`, `PIPELINE_VERSION="0.9.11"`).
+> **Próximo passo**: **Onda 9 (Throughput & Release `0.9.12`)** — bump de `PIPELINE_VERSION`, validação de throughput e release, mantendo `GAP-064/065/067` fechados e `GAP-066` mitigado.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

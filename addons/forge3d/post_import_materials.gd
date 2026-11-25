@@ -14,7 +14,37 @@ static func _coletar_mesh_instances(root: Node) -> Array[MeshInstance3D]:
 	return resultado
 
 
+static func _resolver_caminho_manifesto(base_dir: String, rel: String) -> String:
+	return rel if rel.begins_with("res://") else base_dir.path_join(rel)
+
+
 static func _caminho_textura_irma(source_file: String, manifesto: Dictionary, papel: String, sufixo: String) -> String:
+	if source_file == "":
+		return ""
+	var base_dir := source_file.get_base_dir()
+	var papel_norm := papel.strip_edges().to_lower()
+	var arquivos: Variant = manifesto.get("files", [])
+	if typeof(arquivos) == TYPE_ARRAY:
+		for item in arquivos:
+			if typeof(item) != TYPE_DICTIONARY:
+				continue
+			if str(item.get("papel", "")).strip_edges().to_lower() == papel_norm:
+				var rel := str(item.get("caminho", ""))
+				if rel == "":
+					continue
+				var rel_low := rel.to_lower()
+				if papel_norm == "textura" and (rel_low.ends_with("_emissive.png") or rel_low.get_file() == "emissive.png"):
+					continue
+				var cand := _resolver_caminho_manifesto(base_dir, rel)
+				if FileAccess.file_exists(cand):
+					return cand
+	var fallback := source_file.get_basename() + sufixo
+	if FileAccess.file_exists(fallback):
+		return fallback
+	return ""
+
+
+static func _caminho_textura_emissive(source_file: String, manifesto: Dictionary) -> String:
 	if source_file == "":
 		return ""
 	var base_dir := source_file.get_base_dir()
@@ -23,15 +53,24 @@ static func _caminho_textura_irma(source_file: String, manifesto: Dictionary, pa
 		for item in arquivos:
 			if typeof(item) != TYPE_DICTIONARY:
 				continue
-			if str(item.get("papel", "")) == papel:
-				var rel := str(item.get("caminho", ""))
-				if rel != "":
-					var cand := base_dir.path_join(rel)
-					if FileAccess.file_exists(cand):
-						return cand
-	var fallback := source_file.get_basename() + sufixo
-	if FileAccess.file_exists(fallback):
-		return fallback
+			var rel := str(item.get("caminho", ""))
+			if rel == "":
+				continue
+			var p_item := str(item.get("papel", "")).strip_edges().to_lower()
+			var rel_low := rel.to_lower()
+			if p_item == "emissive" or rel_low.ends_with("_emissive.png") or rel_low.get_file() == "emissive.png":
+				var cand := _resolver_caminho_manifesto(base_dir, rel)
+				if FileAccess.file_exists(cand):
+					return cand
+	var asset_id := str(manifesto.get("asset_id", "")).strip_edges()
+	var candidatos: Array[String] = []
+	if asset_id != "":
+		candidatos.append(base_dir.path_join(asset_id + "_emissive.png"))
+	candidatos.append(source_file.get_basename() + "_emissive.png")
+	candidatos.append(base_dir.path_join("emissive.png"))
+	for cand in candidatos:
+		if FileAccess.file_exists(cand):
+			return cand
 	return ""
 
 
@@ -119,7 +158,8 @@ static func _processar_material(
 	orm_tex: Texture2D,
 	normal_tex: Texture2D,
 	base_color_tex: Texture2D,
-	usar_nearest: bool
+	usar_nearest: bool,
+	emissive_tex: Texture2D = null
 ) -> Material:
 	var resultado: Material = mat
 	var criado_novo := false
@@ -136,7 +176,7 @@ static func _processar_material(
 		orm_mat.metallic = 1.0
 		orm_mat.roughness = 1.0
 		resultado = orm_mat
-	elif resultado == null and (normal_tex != null or base_color_tex != null):
+	elif resultado == null and (normal_tex != null or base_color_tex != null or emissive_tex != null):
 		var std_mat := StandardMaterial3D.new()
 		std_mat.metallic = 0.0
 		std_mat.roughness = 0.65
@@ -154,6 +194,12 @@ static func _processar_material(
 			bm.normal_texture = normal_tex
 		if base_color_tex != null and bm.albedo_texture == null:
 			bm.albedo_texture = base_color_tex
+		if emissive_tex != null:
+			bm.emission_enabled = true
+			bm.emission_texture = emissive_tex
+			if is_zero_approx(bm.emission.r) and is_zero_approx(bm.emission.g) and is_zero_approx(bm.emission.b):
+				bm.emission = Color.WHITE
+			bm.emission_energy_multiplier = maxf(bm.emission_energy_multiplier, 1.0)
 		if bm.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR or String(bm.resource_name).to_lower().contains("cabelo"):
 			bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 			if bm.alpha_scissor_threshold <= 0.0:
@@ -177,12 +223,18 @@ static func _configurar_materiais(
 	var normal_tex := _carregar_textura(_caminho_textura_irma(source_file, manifesto, "normal", "_normal.png"))
 	var orm_tex := _carregar_textura(_caminho_textura_irma(source_file, manifesto, "orm", "_orm.png"))
 	var base_color_tex := _carregar_textura(_caminho_textura_irma(source_file, manifesto, "textura", "_baseColor.png"))
+	var emissive_tex := _carregar_textura(_caminho_textura_emissive(source_file, manifesto))
 	var usar_nearest := _usar_filtro_nearest(manifesto, perfil_cfg)
 
 	for mi in _coletar_mesh_instances(scene):
 		if mi.material_override != null:
+			var ov_em: Texture2D = (
+				null
+				if (mi.material_override is BaseMaterial3D and (mi.material_override as BaseMaterial3D).emission_texture != null)
+				else emissive_tex
+			)
 			mi.material_override = _processar_material(
-				mi.material_override, orm_tex, normal_tex, base_color_tex, usar_nearest
+				mi.material_override, orm_tex, normal_tex, base_color_tex, usar_nearest, ov_em
 			)
 		if mi.mesh == null:
 			continue
@@ -204,11 +256,16 @@ static func _configurar_materiais(
 					or abm.metallic > 0.05
 				)
 			var s_bc: Texture2D = null if preservar_albedo else base_color_tex
+			var s_em: Texture2D = (
+				null
+				if (alvo_mat is BaseMaterial3D and (alvo_mat as BaseMaterial3D).emission_texture != null)
+				else emissive_tex
+			)
 			if override != null:
 				mi.set_surface_override_material(
-					idx, _processar_material(override, orm_tex, normal_tex, s_bc, usar_nearest)
+					idx, _processar_material(override, orm_tex, normal_tex, s_bc, usar_nearest, s_em)
 				)
 			else:
-				var novo := _processar_material(alvo_mat, orm_tex, normal_tex, s_bc, usar_nearest)
+				var novo := _processar_material(alvo_mat, orm_tex, normal_tex, s_bc, usar_nearest, s_em)
 				if novo != null:
 					mi.mesh.surface_set_material(idx, novo)

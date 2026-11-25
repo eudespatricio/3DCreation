@@ -14,8 +14,21 @@ _SUFIXO_GODOT_KEEP_RE = re.compile(r"(?:_colisao|_lod[1-9]\d*)\.glb$", re.IGNORE
 _GODOT_POST_IMPORT_RES = "res://addons/forge3d/post_import.gd"
 _SECTION_HEADER_RE = re.compile(r"^\[([^\]]+)\]\s*$")
 
+_CLIPES_NAO_CICLICOS: frozenset[str] = animacao._NAO_LOOP_CLIPES | frozenset(
+    {"tail_swipe", "land", "rear_up", "mount_up", "dismount"}
+)
 _CLIPES_CICLICOS: frozenset[str] = (
-    frozenset(animacao.CLIPES_SUPORTADOS) - animacao._NAO_LOOP_CLIPES
+    frozenset(animacao.CLIPES_SUPORTADOS) - _CLIPES_NAO_CICLICOS
+)
+_SUFIXOS_PNG_LINEAR = (
+    "_orm.png",
+    "_roughness.png",
+    "_metalness.png",
+    "_metallic.png",
+    "_ao.png",
+)
+_NOMES_PNG_LINEAR = frozenset(
+    {"orm.png", "roughness.png", "metalness.png", "metallic.png", "ao.png"}
 )
 
 _BONE_MAP_HUMANOID_V1: dict[str, str] = {
@@ -145,6 +158,8 @@ def _formatar_valor_configfile(valor: Any) -> str:
 def _eh_clipe_ciclico(nome: str) -> bool:
     chave = nome.strip().lower()
     base = chave.rsplit("|", 1)[-1].strip() if "|" in chave else chave
+    if chave in _CLIPES_NAO_CICLICOS or base in _CLIPES_NAO_CICLICOS:
+        return False
     return chave in _CLIPES_CICLICOS or base in _CLIPES_CICLICOS
 
 
@@ -365,19 +380,44 @@ def _atualizar_import_sidecar_glb(
         _escrever_atomico(import_dst, novo, tag)
 
 
+def _nome_png_base(caminho: Path) -> str:
+    nome = caminho.name.lower()
+    return nome[:-7] if nome.endswith(".import") else nome
+
+
+def _eh_png_normal(nome_png: str) -> bool:
+    return nome_png == "normal.png" or nome_png.endswith("_normal.png")
+
+
+def _eh_png_linear(nome_png: str) -> bool:
+    return nome_png in _NOMES_PNG_LINEAR or nome_png.endswith(_SUFIXOS_PNG_LINEAR)
+
+
 def _atualizar_import_sidecar_png(
     import_dst: Path,
     *,
-    is_normal: bool,
+    is_normal: bool | None = None,
+    is_linear: bool | None = None,
     tag: str = "sync",
 ) -> None:
     """Cria ou atualiza ``<tex>.png.import`` para VRAM compressed texture2D."""
-    normal_flag = "1" if is_normal else "0"
-    updates = [
+    if import_dst.suffix.lower() == ".png":
+        import_dst = Path(f"{import_dst}.import")
+    nome_png = _nome_png_base(import_dst)
+    eh_normal = _eh_png_normal(nome_png) if is_normal is None else is_normal
+    eh_linear = (
+        (not eh_normal and _eh_png_linear(nome_png))
+        if is_linear is None
+        else is_linear
+    )
+    normal_flag = "1" if eh_normal else "0"
+    updates: list[tuple[str, str]] = [
         ("compress/mode", "2"),
         ("compress/normal_map", normal_flag),
         ("mipmaps/generate", "true"),
     ]
+    if eh_linear:
+        updates.append(("process/hdr_as_srgb", "false"))
     if not import_dst.is_file():
         corpo = "\n".join(f"{k}={v}" for k, v in updates)
         conteudo = (
@@ -414,9 +454,12 @@ def aplicar_sidecars_godot(
         sidecars.append(import_dst.resolve(strict=False))
     elif dst.suffix.lower() == ".png":
         import_dst = Path(f"{dst}.import")
+        nome_png = _nome_png_base(dst)
+        eh_normal = _eh_png_normal(nome_png)
         _atualizar_import_sidecar_png(
             import_dst,
-            is_normal=dst.name.lower().endswith("_normal.png"),
+            is_normal=eh_normal,
+            is_linear=(not eh_normal and _eh_png_linear(nome_png)),
             tag=tag,
         )
         sidecars.append(import_dst.resolve(strict=False))

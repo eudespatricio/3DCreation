@@ -27,6 +27,23 @@ const CLIPES_CICLICOS: Array[String] = [
 	"ride_fly",
 ]
 
+const CLIPES_NAO_CICLICOS: Array[String] = [
+	"jump",
+	"attack",
+	"slash_combo",
+	"cast",
+	"block",
+	"hit",
+	"death",
+	"bite",
+	"roar",
+	"tail_swipe",
+	"land",
+	"rear_up",
+	"mount_up",
+	"dismount",
+]
+
 
 func _fail(msg: String, cena: Node = null) -> void:
 	print("GODOT_VISUAL_QA_FAIL " + msg)
@@ -132,26 +149,20 @@ func _validar_glb(caminho: String) -> String:
 		if mi == null or mi.mesh == null:
 			continue
 		var mesh := mi.mesh
+		var mat_ov := mi.material_override
+		if mat_ov != null and mat_ov is BaseMaterial3D:
+			var err_ov := _validar_material_base(mat_ov as BaseMaterial3D, caminho)
+			if err_ov != "":
+				_fail(err_ov, cena)
+				return ""
 		for s in range(mesh.get_surface_count()):
 			var mat: Material = mi.get_surface_override_material(s)
 			if mat == null:
 				mat = mesh.surface_get_material(s)
 			if mat != null and mat is BaseMaterial3D:
-				var bmat := mat as BaseMaterial3D
-				if bmat.roughness < 0.0 or bmat.roughness > 1.0 or bmat.metallic < 0.0 or bmat.metallic > 1.0:
-					_fail("PBR fora de [0,1] em %s: metallic=%.3f roughness=%.3f" % [caminho, bmat.metallic, bmat.roughness], cena)
-					return ""
-				var tem_orm := (
-					(bmat is ORMMaterial3D and (bmat as ORMMaterial3D).orm_texture != null)
-					or bmat.metallic_texture != null
-					or bmat.roughness_texture != null
-				)
-				if not tem_orm:
-					if is_equal_approx(bmat.metallic, 1.0) and is_equal_approx(bmat.roughness, 1.0):
-						_fail("PBR clampado em metallic=1.0/roughness=1.0 sem textura ORM em %s" % caminho, cena)
-						return ""
-				if bmat.normal_texture != null and not bmat.normal_enabled:
-					_fail("normal_texture presente mas normal_enabled=false em %s" % caminho, cena)
+				var err_mat := _validar_material_base(mat as BaseMaterial3D, caminho)
+				if err_mat != "":
+					_fail(err_mat, cena)
 					return ""
 
 			var arrays := mesh.surface_get_arrays(s)
@@ -261,6 +272,23 @@ func _validar_glb(caminho: String) -> String:
 	return resumo
 
 
+static func _validar_material_base(bmat: BaseMaterial3D, caminho: String) -> String:
+	if bmat.roughness < 0.0 or bmat.roughness > 1.0 or bmat.metallic < 0.0 or bmat.metallic > 1.0:
+		return "PBR fora de [0,1] em %s: metallic=%.3f roughness=%.3f" % [caminho, bmat.metallic, bmat.roughness]
+	var tem_orm := (
+		(bmat is ORMMaterial3D and (bmat as ORMMaterial3D).orm_texture != null)
+		or bmat.metallic_texture != null
+		or bmat.roughness_texture != null
+	)
+	if not tem_orm and is_equal_approx(bmat.metallic, 1.0) and is_equal_approx(bmat.roughness, 1.0):
+		return "PBR clampado em metallic=1.0/roughness=1.0 sem textura ORM em %s" % caminho
+	if bmat.normal_texture != null and not bmat.normal_enabled:
+		return "normal_texture presente mas normal_enabled=false em %s" % caminho
+	if bmat.emission_enabled and bmat.emission_texture == null and is_zero_approx(bmat.emission.r) and is_zero_approx(bmat.emission.g) and is_zero_approx(bmat.emission.b):
+		return "emission_enabled=true sem emission_texture e com emission preto em %s" % caminho
+	return ""
+
+
 static func _extrair_loop_overrides(manifesto: Dictionary, caminho: String = "") -> Dictionary:
 	var overrides := PostImport._ler_import_subresources_animacoes(caminho)
 	var raw_anims: Variant = manifesto.get("animacoes", [])
@@ -305,6 +333,8 @@ static func _validar_animacoes_cena(cena: Node, caminho: String, manifesto: Dict
 				return "clipe '%s' com loop_mode=%d (esperado %d) em %s" % [nome, anim.loop_mode, expected_base, caminho]
 		elif (key in CLIPES_CICLICOS or base_key in CLIPES_CICLICOS) and anim.loop_mode != Animation.LOOP_LINEAR:
 			return "clipe ciclico '%s' sem LOOP_LINEAR em %s" % [nome, caminho]
+		elif (key in CLIPES_NAO_CICLICOS or base_key in CLIPES_NAO_CICLICOS) and anim.loop_mode != Animation.LOOP_NONE:
+			return "clipe nao-ciclico '%s' sem LOOP_NONE em %s" % [nome, caminho]
 		var max_delta := _maior_delta_anim(anim)
 		if max_delta <= 1e-5:
 			return "clipe '%s' congelado (delta=%.6f) em %s" % [nome, max_delta, caminho]

@@ -101,11 +101,20 @@ def _extrair_entrada_gd(rec: dict, res_prefix: str, manifest_rel: str | None = N
         if not isinstance(item, dict):
             continue
         caminho = str(item.get("caminho") or "").strip()
-        papel = str(item.get("papel") or "").strip()
+        papel = str(item.get("papel") or "").strip().lower()
         if not caminho:
             continue
+        nome_arq = Path(caminho.replace("\\", "/")).name.lower()
+        eh_emissive = (
+            papel == "emissive"
+            or nome_arq == "emissive.png"
+            or nome_arq.endswith("_emissive.png")
+        )
         if papel == "mesh" and not mesh_rel:
             mesh_rel = caminho
+        elif eh_emissive:
+            if "emissive" not in textures:
+                textures["emissive"] = _prefixar_caminho_gd(caminho, res_prefix)
         elif papel == "textura" and "baseColor" not in textures:
             textures["baseColor"] = _prefixar_caminho_gd(caminho, res_prefix)
         elif papel == "normal" and "normal" not in textures:

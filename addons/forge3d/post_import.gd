@@ -7,6 +7,30 @@ const DEFAULT_LOD_DISTANCIA_M := 25.0
 const Materials := preload("post_import_materials.gd")
 const LodCol := preload("post_import_lod_col.gd")
 const Rig := preload("post_import_rig.gd")
+const _CLIPES_LOOP := {
+	"idle": Animation.LOOP_LINEAR,
+	"walk": Animation.LOOP_LINEAR,
+	"run": Animation.LOOP_LINEAR,
+	"gallop": Animation.LOOP_LINEAR,
+	"wing_flap": Animation.LOOP_LINEAR,
+	"glide": Animation.LOOP_LINEAR,
+	"ride_idle": Animation.LOOP_LINEAR,
+	"ride_fly": Animation.LOOP_LINEAR,
+	"jump": Animation.LOOP_NONE,
+	"attack": Animation.LOOP_NONE,
+	"slash_combo": Animation.LOOP_NONE,
+	"cast": Animation.LOOP_NONE,
+	"block": Animation.LOOP_NONE,
+	"hit": Animation.LOOP_NONE,
+	"death": Animation.LOOP_NONE,
+	"bite": Animation.LOOP_NONE,
+	"roar": Animation.LOOP_NONE,
+	"tail_swipe": Animation.LOOP_NONE,
+	"land": Animation.LOOP_NONE,
+	"rear_up": Animation.LOOP_NONE,
+	"mount_up": Animation.LOOP_NONE,
+	"dismount": Animation.LOOP_NONE,
+}
 
 
 func _post_import(scene: Node) -> Object:
@@ -211,30 +235,7 @@ static func _ler_import_subresources_animacoes(source_file: String) -> Dictionar
 
 
 static func _configurar_animacoes(scene: Node, manifesto: Dictionary = {}, source_file: String = "") -> void:
-	var modos := {
-		"idle": Animation.LOOP_LINEAR,
-		"walk": Animation.LOOP_LINEAR,
-		"run": Animation.LOOP_LINEAR,
-		"gallop": Animation.LOOP_LINEAR,
-		"wing_flap": Animation.LOOP_LINEAR,
-		"glide": Animation.LOOP_LINEAR,
-		"ride_idle": Animation.LOOP_LINEAR,
-		"ride_fly": Animation.LOOP_LINEAR,
-		"jump": Animation.LOOP_NONE,
-		"attack": Animation.LOOP_NONE,
-		"slash_combo": Animation.LOOP_NONE,
-		"cast": Animation.LOOP_NONE,
-		"block": Animation.LOOP_NONE,
-		"hit": Animation.LOOP_NONE,
-		"death": Animation.LOOP_NONE,
-		"bite": Animation.LOOP_NONE,
-		"roar": Animation.LOOP_NONE,
-		"tail_swipe": Animation.LOOP_NONE,
-		"land": Animation.LOOP_NONE,
-		"rear_up": Animation.LOOP_NONE,
-		"mount_up": Animation.LOOP_NONE,
-		"dismount": Animation.LOOP_NONE,
-	}
+	var modos := _CLIPES_LOOP
 	var import_overrides := _ler_import_subresources_animacoes(source_file)
 	var manifest_overrides := {}
 	var raw_anims: Variant = manifesto.get("animacoes", [])
@@ -419,6 +420,10 @@ static func _aplicar_orientacao_frente(scene: Node, manifesto: Dictionary, perfi
 		scene.set_meta("forge3d_turned_180_y", true)
 
 
+static func _caminho_textura_emissive(source_file: String, manifesto: Dictionary) -> String:
+	return Materials._caminho_textura_emissive(source_file, manifesto)
+
+
 static func _carregar_textura(caminho: String) -> Texture2D:
 	return Materials._carregar_textura(caminho)
 
@@ -428,9 +433,10 @@ static func _processar_material(
 	orm_tex: Texture2D,
 	normal_tex: Texture2D,
 	base_color_tex: Texture2D,
-	usar_nearest: bool
+	usar_nearest: bool,
+	emissive_tex: Texture2D = null
 ) -> Material:
-	return Materials._processar_material(mat, orm_tex, normal_tex, base_color_tex, usar_nearest)
+	return Materials._processar_material(mat, orm_tex, normal_tex, base_color_tex, usar_nearest, emissive_tex)
 
 
 static func _configurar_materiais(

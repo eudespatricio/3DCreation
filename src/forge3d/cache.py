@@ -8,14 +8,52 @@ import shutil
 from pathlib import Path
 
 from . import paths
-from .canonical import sha256_arquivo
+from .canonical import hash_curto, sha256_arquivo
 from .errors import ForgeError
 
-__all__ = ["ler_cache", "salvar_cache"]
+__all__ = ["ler_cache", "ler_ultimo_registro_item", "salvar_cache"]
 
 
 def _dir_cache(chave: str) -> Path:
     return paths.dir_cache() / chave
+
+
+def _ponteiro_item(item_id: str) -> Path:
+    # ``.por_id`` comeca com ponto: o gc (gc.py) pula diretorios ocultos, o ponteiro sobrevive.
+    return paths.dir_cache() / ".por_id" / f"{hash_curto(str(item_id), 16)}.json"
+
+
+def _gravar_ponteiro_item(chave: str, entrada: dict) -> None:
+    """Ultima chave gravada por item: base do diagnostico de miss (cache_diag)."""
+    item = entrada.get("item")
+    if not isinstance(item, dict) or not item.get("id"):
+        return
+    item_id = str(item["id"])
+    alvo = _ponteiro_item(item_id)
+    alvo.parent.mkdir(parents=True, exist_ok=True)
+    registro = {
+        "item_id": item_id,
+        "chave": chave,
+        "chave_material": entrada.get("chave_material"),
+        "provider": entrada.get("provider"),
+        "item": item,
+    }
+    tmp = alvo.with_name(f"{alvo.name}.tmp.{os.getpid()}")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(registro, sort_keys=True, indent=1))
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, alvo)
+
+
+def ler_ultimo_registro_item(item_id: str) -> dict | None:
+    """Ponteiro do ultimo cache salvo para ``item_id``; None se ausente ou ilegivel."""
+    alvo = _ponteiro_item(item_id)
+    try:
+        dados = json.loads(alvo.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return dados if isinstance(dados, dict) else None
 
 
 def salvar_cache(chave: str, origem: Path, entrada: dict) -> None:
@@ -52,6 +90,7 @@ def salvar_cache(chave: str, origem: Path, entrada: dict) -> None:
     except Exception:
         shutil.rmtree(final_tmp, ignore_errors=True)
         raise
+    _gravar_ponteiro_item(chave, entrada)
 
 
 def ler_cache(chave: str) -> tuple[Path, dict] | None:

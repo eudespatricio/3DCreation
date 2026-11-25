@@ -157,7 +157,9 @@ class MeshProvider:
     def _custo_i23d(self, item: dict) -> dict:
         tem_origem = bool(str(item.get("origem") or "").strip())
         if modelo_escolhido() == "trellis":
-            return {"segundos_estimados": 320.0 if not tem_origem else 300.0, "vram_mb": 4500, "disco_mb": 250}
+            steps = _trellis.steps_trellis2(item)
+            seg = (200.0 if not tem_origem else 180.0) if steps <= 12 else (320.0 if not tem_origem else 300.0)
+            return {"segundos_estimados": seg, "vram_mb": 4500, "disco_mb": 250}
         if _device().startswith("cpu"):
             return {"segundos_estimados": 220.0 if not tem_origem else 200.0, "vram_mb": 0, "disco_mb": 4500}
         if not tem_origem:

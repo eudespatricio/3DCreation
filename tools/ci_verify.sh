@@ -97,7 +97,7 @@ assert nos_malha == ["ci.bloco.01"], f"nome de no inesperado: {nos_malha}"
 
 tree = ast.parse(pathlib.Path("blender/postprocess.py").read_text(encoding="utf-8"))
 fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "desdobrar_uv")
-assert abs(ast.literal_eval(fn.args.defaults[0]) - 0.02) < 1e-9
+assert abs(ast.literal_eval(fn.args.defaults[0]) - 0.004) < 1e-9
 print("GLB_PACOTE3_OK", nos_malha)
 PY
 

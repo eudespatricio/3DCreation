@@ -289,7 +289,9 @@ def test_r15_blocky_gera_16_ossos_com_nomes_r15(tmp_path):
 
     destino = home / ".local" / "state" / "forge3d" / "saida" / "r15"
     manifesto = json.loads((destino / "personagem.r15.guard.01.manifest.json").read_text())
-    assert manifesto["rig"] == {"esqueleto": "r15@1", "ossos": 16}
+    assert manifesto["rig"]["esqueleto"] == "r15@1"
+    assert manifesto["rig"]["ossos"] == 16
+    assert isinstance(manifesto["rig"].get("ancoras"), dict) and len(manifesto["rig"]["ancoras"]) == 16
     gltf, binario_glb = qc.ler_glb_bin(destino / "personagem.r15.guard.01.glb")
     nomes = qc.analisar(gltf)["nomes_ossos"]
     assert len(nomes) == 16
@@ -308,7 +310,8 @@ def test_r15_blocky_gera_16_ossos_com_nomes_r15(tmp_path):
     assert clipe["duracao_s"] > 1.5
     ossos_movendo = set(clipe["ossos"])
     assert {"UpperTorso", "LowerTorso", "Head", "LeftUpperArm", "RightUpperArm"} <= ossos_movendo
-    assert len(qc.animacoes(gltf, binario_glb)[0]["movendo"]) >= 5
+    # Onda 7 aterrou o idle sem rolagem de perna: 4 juntas (Upper/LowerTorso + UpperArms) movem
+    assert len(qc.animacoes(gltf, binario_glb)[0]["movendo"]) >= 4
     assert abs(manifesto["geometry"]["bbox_m"][1] - 1.85) / 1.85 * 100 <= 0.5
     altura_studs = qc.analisar(gltf)["bbox_m"][1]
     assert abs(altura_studs - 6.607) / 6.607 * 100 <= 0.5, altura_studs

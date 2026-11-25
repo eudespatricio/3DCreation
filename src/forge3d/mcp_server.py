@@ -83,6 +83,15 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "Quando verdadeiro, remove manifestos e arquivos legados no destino que nao pertencem ao lote.",
                     "default": False,
                 },
+                "overlap": {
+                    "type": "boolean",
+                    "description": "Sobrepoe gerar (GPU) do proximo item com o Blender (CPU) do atual; ausente = auto.",
+                },
+                "warm_worker": {
+                    "type": "boolean",
+                    "description": "Mantem o worker TRELLIS.2 residente durante o lote (encerrado no fim).",
+                    "default": False,
+                },
             },
             "required": ["lote"],
             "additionalProperties": False,
@@ -167,6 +176,10 @@ def _executar_tool(nome: str, args: dict[str, Any]) -> tuple[dict[str, Any], boo
             kw_run["no_cache"] = bool(args["no_cache"])
         if "clean_dest" in args:
             kw_run["clean_dest"] = bool(args["clean_dest"])
+        if "overlap" in args and args["overlap"] is not None:
+            kw_run["overlap"] = bool(args["overlap"])
+        if "warm_worker" in args:
+            kw_run["warm_worker"] = bool(args["warm_worker"])
         relatorio, codigo = pipeline.executar(lote, **kw_run)
         return relatorio, codigo != 0
 

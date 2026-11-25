@@ -76,6 +76,7 @@ def pack_glb(gltf: dict[str, Any], bin_data: bytes) -> bytes:
 def _cube_face_geometry(
     cx: float, cy: float, cz: float, hx: float, hy: float, hz: float,
     uv_bounds: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0),
+    segs: int = 1,
 ) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[float, float]], list[tuple[int, int, int]]]:
     y0, y1 = cy - hy, cy + hy
     faces = [
@@ -86,18 +87,30 @@ def _cube_face_geometry(
         ((0.0, 1.0, 0.0), [(cx - hx, y1, cz + hz), (cx + hx, y1, cz + hz), (cx + hx, y1, cz - hz), (cx - hx, y1, cz - hz)]),
         ((0.0, -1.0, 0.0), [(cx - hx, y0, cz - hz), (cx + hx, y0, cz - hz), (cx + hx, y0, cz + hz), (cx - hx, y0, cz + hz)]),
     ]
+    n = max(1, int(segs))
     ub0, vb0, ub1, vb1 = uv_bounds
     du, dv = (ub1 - ub0) / 3.0, (vb1 - vb0) / 2.0
     verts, norms, uvs, tris = [], [], [], []
-    for f_idx, (nrm, corners) in enumerate(faces):
+    for f_idx, (nrm, (c0, c1, c2, c3)) in enumerate(faces):
         base, col, row = len(verts), f_idx % 3, f_idx // 3
         u0, u1 = ub0 + col * du + 0.04 * du, ub0 + (col + 1) * du - 0.04 * du
         v0, v1 = vb0 + row * dv + 0.04 * dv, vb0 + (row + 1) * dv - 0.04 * dv
-        for c, uv in zip(corners, [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]):
-            verts.append(c)
-            norms.append(nrm)
-            uvs.append(uv)
-        tris.extend([(base, base + 1, base + 2), (base, base + 2, base + 3)])
+        for j in range(n + 1):
+            tv = j / float(n)
+            for i in range(n + 1):
+                tu = i / float(n)
+                pt = tuple(
+                    (1.0 - tv) * ((1.0 - tu) * c0[k] + tu * c1[k]) + tv * ((1.0 - tu) * c3[k] + tu * c2[k])
+                    for k in range(3)
+                )
+                verts.append((pt[0], pt[1], pt[2]))
+                norms.append(nrm)
+                uvs.append((u0 + tu * (u1 - u0), v0 + tv * (v1 - v0)))
+        for j in range(n):
+            for i in range(n):
+                p00 = base + j * (n + 1) + i
+                p10, p11, p01 = p00 + 1, p00 + (n + 1) + 1, p00 + (n + 1)
+                tris.extend([(p00, p10, p11), (p00, p11, p01)])
     return verts, norms, uvs, tris
 
 
@@ -437,15 +450,15 @@ def write_dense_humanoid_glb(path: Path, height: float = 1.8) -> Path:
     boxes = [
         (0.0, 0.90 * s, 0.0, 0.14 * s, 0.12 * s, 0.09 * s), (0.0, 1.22 * s, 0.0, 0.16 * s, 0.20 * s, 0.10 * s),
         (0.0, 1.60 * s, 0.0, 0.11 * s, 0.16 * s, 0.11 * s),
-        (-0.28 * s, 1.26 * s, 0.0, 0.07 * s, 0.14 * s, 0.07 * s), (-0.34 * s, 1.00 * s, 0.0, 0.06 * s, 0.12 * s, 0.06 * s), (-0.38 * s, 0.80 * s, 0.0, 0.05 * s, 0.07 * s, 0.05 * s),
-        (0.28 * s, 1.26 * s, 0.0, 0.07 * s, 0.14 * s, 0.07 * s), (0.34 * s, 1.00 * s, 0.0, 0.06 * s, 0.12 * s, 0.06 * s), (0.38 * s, 0.80 * s, 0.0, 0.05 * s, 0.07 * s, 0.05 * s),
+        (-0.28 * s, 1.28 * s, 0.0, 0.07 * s, 0.11 * s, 0.07 * s), (-0.38 * s, 1.04 * s, 0.0, 0.06 * s, 0.11 * s, 0.06 * s), (-0.46 * s, 0.85 * s, 0.0, 0.05 * s, 0.06 * s, 0.05 * s),
+        (0.28 * s, 1.28 * s, 0.0, 0.07 * s, 0.11 * s, 0.07 * s), (0.38 * s, 1.04 * s, 0.0, 0.06 * s, 0.11 * s, 0.06 * s), (0.46 * s, 0.85 * s, 0.0, 0.05 * s, 0.06 * s, 0.05 * s),
         (-0.10 * s, 0.60 * s, 0.0, 0.07 * s, 0.18 * s, 0.07 * s), (-0.10 * s, 0.28 * s, 0.0, 0.06 * s, 0.16 * s, 0.06 * s), (-0.10 * s, 0.06 * s, -0.02 * s, 0.06 * s, 0.06 * s, 0.10 * s),
         (0.10 * s, 0.60 * s, 0.0, 0.07 * s, 0.18 * s, 0.07 * s), (0.10 * s, 0.28 * s, 0.0, 0.06 * s, 0.16 * s, 0.06 * s), (0.10 * s, 0.06 * s, -0.02 * s, 0.06 * s, 0.06 * s, 0.10 * s),
     ]
     verts, norms, uvs, tris = [], [], [], []
     for idx, bx in enumerate(boxes):
         gx, gy = idx % 4, idx // 4
-        v, n, uv, t = _cube_face_geometry(*bx, uv_bounds=(gx / 4.0, gy / 4.0, (gx + 1) / 4.0, (gy + 1) / 4.0))
+        v, n, uv, t = _cube_face_geometry(*bx, uv_bounds=(gx / 4.0, gy / 4.0, (gx + 1) / 4.0, (gy + 1) / 4.0), segs=2)
         o = len(verts)
         verts.extend(v)
         norms.extend(n)

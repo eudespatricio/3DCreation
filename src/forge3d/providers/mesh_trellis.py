@@ -10,8 +10,9 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from .. import paths
 from ..errors import ForgeError, erro_licenca, erro_provider_run
 from . import concept_preflight as _preflight
 from . import mesh_diag as _diag
+from . import mesh_trellis_worker as _worker
 from .mesh_templates import ler_json_obrigatorio
 
 MODELO_TRELLIS_PADRAO = "microsoft/TRELLIS.2-4B"
@@ -42,46 +44,76 @@ _MAPA_MIT_NORM: dict[str, str] = {k.lower(): v for k, v in MODELOS_TRELLIS_MIT.i
 _QUANTS_VALIDAS = ("BF16", "Q8_0", "Q4_K_M")
 _PIPELINE_TYPES_VALIDOS = ("512", "1024_cascade")
 _DIAGNOSTICO_TRELLIS2: dict[tuple[str, str, str], dict[str, Any]] = {}
+_WARM_WORKER_LOCK = threading.RLock()
+_WARM_WORKER_OVERRIDE: bool | None = None
+encerrar_worker_trellis2 = _worker.encerrar_worker_trellis2
+
+
+def _dir_t2(env_var: str, sub: str | None = None) -> Path:
+    env = os.environ.get(env_var, "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    base = dir_trellis2() if sub else Path.home() / ".cache" / "forge3d" / "trellis2"
+    return base / sub if sub else base
 
 
 def dir_trellis2() -> Path:
     """Diretorio raiz da instalacao isolada do TRELLIS.2 local."""
-    env = os.environ.get("FORGE3D_TRELLIS2_DIR", "").strip()
-    if env:
-        return Path(env).expanduser().resolve()
-    return Path.home() / ".cache" / "forge3d" / "trellis2"
+    return _dir_t2("FORGE3D_TRELLIS2_DIR")
 
 
 def dir_venv_trellis2() -> Path:
-    env = os.environ.get("FORGE3D_VENV_TRELLIS2", "").strip()
-    if env:
-        return Path(env).expanduser().resolve()
-    return dir_trellis2() / "venv"
+    return _dir_t2("FORGE3D_VENV_TRELLIS2", "venv")
 
 
 def dir_repo_trellis2() -> Path:
-    env = os.environ.get("FORGE3D_TRELLIS2_REPO", "").strip()
-    if env:
-        return Path(env).expanduser().resolve()
-    return dir_trellis2() / "repo"
+    return _dir_t2("FORGE3D_TRELLIS2_REPO", "repo")
 
 
 def dir_models_trellis2() -> Path:
-    env = os.environ.get("FORGE3D_TRELLIS2_MODELS", "").strip()
+    return _dir_t2("FORGE3D_TRELLIS2_MODELS", "models")
+
+
+def _script_trellis2(env_var: str, nome: str) -> Path:
+    env = os.environ.get(env_var, "").strip()
     if env:
         return Path(env).expanduser().resolve()
-    return dir_trellis2() / "models"
+    em_dados = paths.raiz_dados() / "tools" / nome
+    if em_dados.is_file() or "FORGE3D_ROOT" in os.environ:
+        return em_dados
+    cand = Path(__file__).resolve().parents[3] / "tools" / nome
+    return cand if cand.is_file() else em_dados
 
 
 def script_trellis2_infer() -> Path:
-    env = os.environ.get("FORGE3D_TRELLIS2_SCRIPT", "").strip()
-    if env:
-        return Path(env).expanduser().resolve()
-    em_dados = paths.raiz_dados() / "tools" / "trellis2_infer.py"
-    if em_dados.is_file() or "FORGE3D_ROOT" in os.environ:
-        return em_dados
-    cand = Path(__file__).resolve().parents[3] / "tools" / "trellis2_infer.py"
-    return cand if cand.is_file() else em_dados
+    return _script_trellis2("FORGE3D_TRELLIS2_SCRIPT", "trellis2_infer.py")
+
+
+def script_trellis2_worker() -> Path:
+    """Resolve o caminho de ``tools/trellis2_worker.py``."""
+    return _script_trellis2("FORGE3D_TRELLIS2_WORKER_SCRIPT", "trellis2_worker.py")
+
+
+@contextlib.contextmanager
+def usar_warm_worker(ativo: bool) -> Iterator[None]:
+    """Sobrepoe temporariamente ``warm_worker_ativo()`` no processo atual sob lock."""
+    global _WARM_WORKER_OVERRIDE
+    with _WARM_WORKER_LOCK:
+        anterior = _WARM_WORKER_OVERRIDE
+        _WARM_WORKER_OVERRIDE = bool(ativo)
+    try:
+        yield
+    finally:
+        with _WARM_WORKER_LOCK:
+            _WARM_WORKER_OVERRIDE = anterior
+
+
+def warm_worker_ativo() -> bool:
+    """Indica se o modo warm worker persistente do TRELLIS.2 esta habilitado."""
+    with _WARM_WORKER_LOCK:
+        if _WARM_WORKER_OVERRIDE is not None:
+            return bool(_WARM_WORKER_OVERRIDE)
+    return os.environ.get("FORGE3D_TRELLIS2_WARM_WORKER", "").strip().lower() in ("1", "true", "sim", "on")
 
 
 def quant_trellis2() -> str:
@@ -100,12 +132,16 @@ def pipeline_type_trellis2() -> str:
     return raw
 
 
-def steps_trellis2() -> int:
-    raw = os.environ.get("FORGE3D_TRELLIS2_STEPS", "25").strip() or "25"
-    val = int(raw)
-    if not (1 <= val <= 200):
-        raise ValueError(f"FORGE3D_TRELLIS2_STEPS deve estar em [1, 200]: {raw!r}")
-    return val
+def steps_trellis2(item: dict[str, Any] | None = None) -> int:
+    """Resolve passos de sampler: env ``FORGE3D_TRELLIS2_STEPS`` ou 25 (hero/ultra) vs 12."""
+    raw = os.environ.get("FORGE3D_TRELLIS2_STEPS", "").strip()
+    if raw:
+        val = int(raw)
+        if not (1 <= val <= 200):
+            raise ValueError(f"FORGE3D_TRELLIS2_STEPS deve estar em [1, 200]: {raw!r}")
+        return val
+    qual = _diag.facade_attr("_qualidade", _diag._qualidade)(item)
+    return 25 if qual in ("hero", "ultra") else 12
 
 
 def shape_guidance_trellis2() -> float:
@@ -147,15 +183,12 @@ def cache_tag_trellis2() -> str:
         mod,
         os.environ.get("FORGE3D_TRELLIS2_QUANT", "BF16").strip().upper() or "BF16",
         os.environ.get("FORGE3D_TRELLIS2_PIPELINE_TYPE", "512").strip().lower() or "512",
-        os.environ.get("FORGE3D_TRELLIS2_STEPS", "25").strip() or "25",
+        os.environ.get("FORGE3D_TRELLIS2_STEPS", "").strip() or "auto12_25",
         os.environ.get("FORGE3D_TRELLIS2_SHAPE_GUIDANCE", "7.5").strip() or "7.5",
         os.environ.get("FORGE3D_TRELLIS2_TEX_GUIDANCE", "3.0").strip() or "3.0",
         os.environ.get("FORGE3D_TRELLIS2_REMESH_PROJECT", "0.9").strip() or "0.9",
         os.environ.get("FORGE3D_I23D_DECIMATION_TARGET", "").strip(),
-        str(dir_repo_trellis2()),
-        str(dir_models_trellis2()),
-        str(script),
-        script_hash,
+        str(dir_repo_trellis2()), str(dir_models_trellis2()), str(script), script_hash,
     ]
     sha8 = hashlib.sha256("|".join(partes).encode("utf-8")).hexdigest()[:8]
     return f"tr2{sha8}"
@@ -276,26 +309,14 @@ def diagnostico_trellis2() -> dict[str, Any]:
     elif not script.is_file():
         res = {"ok": False, "razao": f"P3: script TRELLIS.2 ausente em {script}"}
     else:
-        codigo = (
-            "import json, torch, o_voxel, flex_gemm, nvdiffrast, cumesh; "
-            "print(json.dumps({'torch': torch.__version__, 'cuda': bool(torch.cuda.is_available())}))"
-        )
+        codigo = "import json, torch, o_voxel, flex_gemm, nvdiffrast, cumesh; print(json.dumps({'torch': torch.__version__, 'cuda': bool(torch.cuda.is_available())}))"
         try:
-            proc = _diag.subproc_run(
-                [str(python), "-c", codigo],
-                capture_output=True,
-                text=True,
-                timeout=180,
-                env=env_subprocesso_trellis2(),
-            )
+            proc = _diag.subproc_run([str(python), "-c", codigo], capture_output=True, text=True, timeout=180, env=env_subprocesso_trellis2())
             linha = next((ln for ln in reversed(proc.stdout.splitlines()) if ln.strip().startswith("{")), "")
             info = json.loads(linha) if linha else {}
             if proc.returncode != 0 or not info:
                 det = (proc.stderr or proc.stdout or "").strip().splitlines()
-                res = {
-                    "ok": False,
-                    "razao": "P3: falha ao importar TRELLIS.2 na venv: " + (det[-1] if det else f"exit {proc.returncode}"),
-                }
+                res = {"ok": False, "razao": "P3: falha ao importar TRELLIS.2 na venv: " + (det[-1] if det else f"exit {proc.returncode}")}
             elif not info.get("cuda"):
                 res = {"ok": False, "razao": "P3: venv TRELLIS.2 sem CUDA disponivel"}
             else:
@@ -311,13 +332,14 @@ def preflight_trellis2() -> tuple[bool, str]:
     """Preflight completo para TRELLIS.2 local: licenca, params, GPU/CUDA, pesos e VRAM."""
     try:
         validar_modelo_trellis_licenca()
-        quant = quant_trellis2()
-        pipe_type = pipeline_type_trellis2()
+        quant, pipe_type = quant_trellis2(), pipeline_type_trellis2()
         steps_trellis2()
         shape_guidance_trellis2()
         tex_guidance_trellis2()
         remesh_project_trellis2()
         calcular_decimation_target({})
+        if warm_worker_ativo():
+            _worker.max_jobs_worker()
     except ForgeError as exc:
         return False, exc.mensagem
     except ValueError as exc:
@@ -325,24 +347,16 @@ def preflight_trellis2() -> tuple[bool, str]:
 
     if _diag.facade_attr("_device", _diag._device)().startswith("cpu"):
         return False, "P3: TRELLIS.2 local requer GPU CUDA (CPU nao suportado)"
-
     diag = diagnostico_trellis2()
     if not diag.get("ok"):
         return False, str(diag.get("razao") or "P3: diagnostico TRELLIS.2 falhou")
-
     ok_pesos, razao_pesos = pesos_trellis2_ok(quant=quant, pipe_type=pipe_type)
     if not ok_pesos:
         return False, f"P3: {razao_pesos}"
-
-    livre = _diag.facade_attr("_vram_livre_mb", _diag._vram_livre_mb)()
-    vram_min = _diag.facade_attr("_vram_minima_mb", _diag._vram_minima_mb)()
+    livre, vram_min = _diag.facade_attr("_vram_livre_mb", _diag._vram_livre_mb)(), _diag.facade_attr("_vram_minima_mb", _diag._vram_minima_mb)()
     if livre is not None and livre < vram_min:
         return False, f"P3: VRAM livre {livre} MiB < {vram_min} MiB exigidos"
-
-    return (
-        True,
-        f"pronto (TRELLIS.2 local {quant}/{pipe_type}, torch {diag.get('torch', '?')}, venv {dir_venv_trellis2().name})",
-    )
+    return True, f"pronto (TRELLIS.2 local {quant}/{pipe_type}, torch {diag.get('torch', '?')}, venv {dir_venv_trellis2().name})"
 
 
 def _preparar_inputs_locais(imagem: Path, destino: Path, env: dict[str, str]) -> tuple[Path, Path | None]:
@@ -398,14 +412,15 @@ def executar_i23d_trellis2_local(
         raise erro_provider_run(f"script trellis2_infer.py ausente em {script}", id=item.get("id"), modelo="trellis")
 
     try:
-        quant, pipe_type, steps = quant_trellis2(), pipeline_type_trellis2(), steps_trellis2()
+        quant, pipe_type, steps = quant_trellis2(), pipeline_type_trellis2(), steps_trellis2(item)
         shape_cfg, tex_cfg, remesh_proj = shape_guidance_trellis2(), tex_guidance_trellis2(), remesh_project_trellis2()
         decimation_target = calcular_decimation_target(item)
-        seed_raw = item.get("seed")
-        seed = int(seed_raw) if seed_raw is not None else 1
+        seed = int(item["seed"]) if item.get("seed") is not None else 1
         qual = _diag.facade_attr("_qualidade", _diag._qualidade)(item)
         tex_size = int(os.environ.get("FORGE3D_TEX_PX", "2048" if qual in ("hero", "ultra") else "1024"))
         timeout_s = max(1, int(os.environ.get("FORGE3D_I23D_TIMEOUT", "1200")))
+        if warm_worker_ativo():
+            _worker.max_jobs_worker()
     except (TypeError, ValueError) as exc:
         raise erro_provider_run(f"parametro invalido para TRELLIS.2 local: {exc}", id=item.get("id"), modelo="trellis") from exc
 
@@ -419,10 +434,7 @@ def executar_i23d_trellis2_local(
     front_src, preflight_2d = _preflight.validar_e_preparar_concept_2d(front_src, destino, item=item, env=env)
     if not preflight_2d.get("ok", True):
         erros_pf = ", ".join(str(e) for e in (preflight_2d.get("erros") or ())) or "invalido"
-        raise erro_provider_run(
-            f"preflight 2D reprovou concept ({erros_pf})",
-            id=item.get("id"), modelo="trellis", preflight_2d=preflight_2d,
-        )
+        raise erro_provider_run(f"preflight 2D reprovou concept ({erros_pf})", id=item.get("id"), modelo="trellis", preflight_2d=preflight_2d)
     if preflight_2d.get("auto_padded") and input_rgba is not None and front_src.is_file() and front_src.resolve() != input_rgba.resolve():
         shutil.copyfile(front_src, input_rgba)
 
@@ -430,36 +442,46 @@ def executar_i23d_trellis2_local(
     if resultado_path.exists():
         resultado_path.unlink()
 
-    comando = [
-        str(venv_py), str(script), "--imagem", str(front_src), "--saida-dir", str(destino),
-        "--resultado", str(resultado_path), "--models-dir", str(models_dir), "--repo-dir", str(repo_dir),
-        "--modelo", modelo_canon, "--seed", str(seed), "--quant", quant, "--pipeline-type", pipe_type,
-        "--steps", str(steps), "--shape-guidance", str(shape_cfg), "--tex-guidance", str(tex_cfg),
-        "--texture-size", str(tex_size), "--decimation-target", str(decimation_target), "--remesh-project", str(remesh_proj),
-    ]
+    req: dict[str, Any] = {
+        "imagem": str(front_src), "saida_dir": str(destino), "resultado": str(resultado_path),
+        "models_dir": str(models_dir), "repo_dir": str(repo_dir), "modelo": modelo_canon,
+        "seed": seed, "quant": quant, "pipeline_type": pipe_type, "steps": steps,
+        "shape_guidance": shape_cfg, "tex_guidance": tex_cfg, "texture_size": tex_size,
+        "decimation_target": decimation_target, "remesh_project": remesh_proj,
+    }
+    comando = [str(venv_py), str(script), *(arg for k, v in req.items() for arg in (f"--{k.replace('_', '-')}", str(v)))]
+    env_sub = env_subprocesso_trellis2(env)
     lock_fn = gpu_lock_factory if gpu_lock_factory is not None else contextlib.nullcontext
     t0 = time.monotonic()
+    proc: subprocess.CompletedProcess[str] | None = None
     try:
         with lock_fn():
-            proc = _diag.subproc_run(
-                comando, capture_output=True, text=True, timeout=timeout_s, env=env_subprocesso_trellis2(env)
-            )
-    except subprocess.TimeoutExpired:
+            if warm_worker_ativo():
+                try:
+                    _worker.executar_via_worker(req, venv_py=venv_py, worker_script=script_trellis2_worker(), env=env_sub, timeout_s=timeout_s)
+                except (TimeoutError, subprocess.TimeoutExpired):
+                    encerrar_worker_trellis2()
+                    raise
+                except (RuntimeError, OSError, EOFError, ValueError) as exc:
+                    encerrar_worker_trellis2()
+                    if not resultado_path.is_file():
+                        sys.stderr.write(f"[mesh_trellis] aviso warm worker falhou ({exc}); fallback para subprocesso unico\n")
+                        proc = _diag.subproc_run(comando, capture_output=True, text=True, timeout=timeout_s, env=env_sub)
+                    else:
+                        sys.stderr.write(f"[mesh_trellis] aviso warm worker apos resultado ({exc})\n")
+            else:
+                proc = _diag.subproc_run(comando, capture_output=True, text=True, timeout=timeout_s, env=env_sub)
+    except (subprocess.TimeoutExpired, TimeoutError):
         raise erro_provider_run(f"timeout de {timeout_s}s na inferencia TRELLIS.2 local", id=item.get("id"), modelo="trellis") from None
     except OSError as exc:
         raise erro_provider_run(f"falha ao executar venv TRELLIS.2: {exc}", id=item.get("id"), modelo="trellis") from exc
 
     if not resultado_path.is_file():
-        raise erro_provider_run(
-            "trellis2_infer nao escreveu i23d_resultado.json",
-            id=item.get("id"), modelo="trellis", exit=proc.returncode, stderr=(proc.stderr or proc.stdout or "")[-2000:],
-        )
+        det = {"exit": proc.returncode, "stderr": (proc.stderr or proc.stdout or "")[-2000:]} if proc is not None else {}
+        raise erro_provider_run("trellis2_infer nao escreveu i23d_resultado.json", id=item.get("id"), modelo="trellis", **det)
     resultado = ler_json_obrigatorio(resultado_path, "trellis2_local", item.get("id"))
     if not resultado.get("ok"):
-        raise erro_provider_run(
-            f"TRELLIS.2 local falhou: {resultado.get('erro')}",
-            id=item.get("id"), modelo="trellis", stderr=(resultado.get("traceback") or "")[-2000:],
-        )
+        raise erro_provider_run(f"TRELLIS.2 local falhou: {resultado.get('erro')}", id=item.get("id"), modelo="trellis", stderr=(resultado.get("traceback") or "")[-2000:])
     glb_out = destino / "modelo.glb"
     if not glb_out.is_file() or glb_out.stat().st_size == 0:
         raise erro_provider_run(f"TRELLIS.2 local nao produziu modelo.glb valido em {destino}", id=item.get("id"), modelo="trellis")

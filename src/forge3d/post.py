@@ -17,7 +17,7 @@ from .errors import ForgeError, erro_ambiente, erro_bpy
 
 __all__ = ["binario", "versao", "script", "executar", "preflight", "PIPELINE_VERSION"]
 
-PIPELINE_VERSION = "0.9.11"
+PIPELINE_VERSION = "0.9.12"
 VERSAO_MIN = (4, 2)
 VERSAO_MAX = (4, 3)
 
@@ -135,10 +135,22 @@ def _extrair_metadados_v5(resultado: dict) -> dict:
     return resultado
 
 
-def executar(job: dict, timeout: int = 900, tentativas: int = 2) -> dict:
-    """Roda o pos-processo. Devolve o ``resultado.json`` ou levanta ``FORGE-E-BPY``."""
+def executar(
+    job: dict,
+    timeout: int = 900,
+    tentativas: int = 2,
+    *,
+    env_extra: dict[str, str] | None = None,
+) -> dict:
+    """Roda o pos-processo. Devolve o ``resultado.json`` ou levanta ``FORGE-E-BPY``.
+
+    ``env_extra`` soma variaveis so ao processo filho do Blender (ex.: Cycles em CPU durante o
+    overlap GPU/CPU); ``os.environ`` do processo pai nunca e mutado (threads concorrentes).
+    """
     for tentativa in range(1, tentativas + 1):
-        resultado = _executar_uma(job, timeout)
+        resultado = (
+            _executar_uma(job, timeout, env_extra) if env_extra else _executar_uma(job, timeout)
+        )
         if resultado.get("ok"):
             return _extrair_metadados_v5(resultado)
         if tentativa == tentativas:
@@ -149,7 +161,7 @@ def executar(job: dict, timeout: int = 900, tentativas: int = 2) -> dict:
     raise erro_bpy("pos-processo falhou")  # pragma: no cover
 
 
-def _executar_uma(job: dict, timeout: int) -> dict:
+def _executar_uma(job: dict, timeout: int, env_extra: dict[str, str] | None = None) -> dict:
     job_preparado = _preparar_job(job)
     job_path = Path(job_preparado["saida_dir"]) / "_job.json"
     job_path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +173,17 @@ def _executar_uma(job: dict, timeout: int) -> dict:
 
     cmd = [binario(), "--background", "--factory-startup", "--python", str(script()), "--", str(job_path)]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if env_extra:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env={**os.environ, **env_extra},
+            )
+        else:
+            # sem env_extra o kwarg ``env`` e omitido: preserva mocks legados de subprocess.run
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return {"ok": False, "erro": f"timeout de {timeout}s no blender"}
     except OSError as exc:

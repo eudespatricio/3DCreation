@@ -11,6 +11,7 @@ import pytest
 from tests.e2e._helpers_scenarios import (
     GODOT_AA_56_BONES,
     R15_15_PARTS,
+    build_humanoid_silhouette_png_bytes,
     build_multisurface_ucx_glb,
     build_prism_glb,
     build_skinned_humanoid_glb,
@@ -29,7 +30,8 @@ def test_pair1_r15_mesh_partes_export_r15_nested_pose_and_sync_rojo_lua(
     e2e_sandbox, write_spec, publish_synthetic_asset, make_minimal_png, repo_root
 ) -> None:
     """Pair 1: mesh + 15 R15 partes + export-r15 + nested KeyframeSequence + isolated sync --rojo-lua."""
-    concept_png = make_minimal_png(e2e_sandbox.root / "pair1_concept.png", width=256, height=256, rgba=(170, 110, 70, 255))
+    concept_png = e2e_sandbox.root / "pair1_concept.png"
+    concept_png.write_bytes(build_humanoid_silhouette_png_bytes(size=256))
     shim_env = setup_offline_i23d_shim(e2e_sandbox.root / "shim_pair1")
     spec_doc = {
         "schema": "forge3d/spec@6", "projeto": "e2e_pair1", "perfil": "roblox-aa-80",

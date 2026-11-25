@@ -1,6 +1,6 @@
 # CONTINUAR — handoff de sessão
 
-**Data:** 25/11/2026 · **`v0.9.11` (Ondas 7–8 ✔): Rigging R15/Godot com postura relaxada ~14° assada, marcha/idle aterrados, `SkinnedMesh` R15 nativo, paridade Godot 4 (sidecars emissive, 22 clipes, `plugin.cfg 0.8.0`) e E2E Blender→Godot 4.7.2.** Contratos correntes `spec@6` e `manifest@7` (`PIPELINE_VERSION = "0.9.11"` mantido até Onda 9; `@1`–`@6` compatíveis na leitura). Entrega game-ready para **Roblox R15** (rest-pose ~14° assada pós-Cycles sem perda de UV/pesos + zero queda dupla, `Pose` aninhada c/ ground-clamp, `--modo-rig bone` sem `partes[]` + emissão de `rig.ancoras`, `export-anim --modo-rig --manifesto`, `StreamingEnabled=false`, `SurfaceAppearance`, `G12–G14`, `G16`), **Godot 4** (`ORMMaterial3D=1.0` + `emissive_tex` sidecar/embutido, `.png.import` linear/sRGB, sidecars c/ `fix_silhouette`, `BoneMap` 56 ossos, `UV2`+`GI_MODE_STATIC`, `UCX_`, 22 clipes unificados) e **i23d** (`TRELLIS.2-4B`).
+**Data:** 25/11/2026 · **`v0.9.12` (Ondas 7–9 ✔): Rigging R15/Godot ~14° assada, paridade Godot 4 (sidecars emissive, 22 clipes, `plugin.cfg 0.8.0`) e Throughput (`pipeline_overlap`, `steps=12` standard, warm worker TRELLIS.2 e diagnóstico de cache no `plan`).** Contratos `spec@6` e `manifest@7` (`PIPELINE_VERSION = "0.9.12"`, `@1`–`@6` compatíveis na leitura). Entrega game-ready para **Roblox R15** (rest-pose ~14° assada pós-Cycles s/ perda de UV/pesos, `Pose` aninhada c/ ground-clamp, `--modo-rig bone` s/ `partes[]` + `rig.ancoras`, `export-anim --modo-rig --manifesto`, `StreamingEnabled=false`, `SurfaceAppearance`, `G12–G14`, `G16`), **Godot 4** (`ORMMaterial3D=1.0` + `emissive_tex` sidecar/embutido, `.png.import` linear/sRGB, `fix_silhouette`, `BoneMap` 56 ossos, `UV2`+`GI_MODE_STATIC`, `UCX_`, 22 clipes) e **i23d** (`TRELLIS.2-4B`).
 
 Verificação rápida: `.venv/bin/python -m pytest -m "not gpu and not blender" -q` e `bash tools/ci.sh`.
 
@@ -31,6 +31,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 | **Onda 4 (`v0.9.11`)** | ✔ | `C1` PBR nativo/`delight`, `C2`/`C2b` casca dupla + UV/Quadriflow, Opção 1 `vista_back` + `C2c` projeção frontal rosto, `C3`/`C3b` R15 contínuo (`D136`) |
 | **Ondas 5–7 (`v0.9.11`)** | ✔ | Ondas 5–6 (`EMIT`/UV/QC/`GAP-052..055/060..062`) + Onda 7 (rest-pose ~14° assada, presets `seed`, `idle` aterrado, `walk`/`run` aduzidos, `export-r15 --modo-rig bone`, `GAP-064/065/067` fechados, `GAP-066` mitigado) |
 | **Onda 8 (`v0.9.11`)** | ✔ | Godot 4 parity: sidecar `_emissive.png` em `post_import_materials.gd`/`sync_godot*.py`, `.png.import` linear/sRGB, 22 clipes (`8` cíclicos / `14` não-cíclicos), `plugin.cfg` `0.8.0` e E2E Blender→Godot 4.7.2 |
+| **Onda 9 (`v0.9.12`)** | ✔ | Throughput & Release `0.9.12`: overlap GPU/CPU (`pipeline_overlap.py`), `steps=12` standard, warm worker (`trellis2_worker.py`) e diagnóstico de miss no `plan` (`cache_diag.py`) |
 
 ## O que foi entregue nesta janela
 
@@ -74,6 +75,7 @@ diretório onde roda, não escreve fora do próprio estado, não importa código
 
 - **Onda 7 (`v0.9.11`)** — `rig.postura` nos perfis (`roblox-*`: `natural_relaxada` 14° pós-skin A-pose 45°; `godot4*`: `apose` + `fix_silhouette/enable`), `assar_pose_rest_natural` (`blender/autorig_pose_natural.py`, `postprocess_export_pipe.py` c/ `_g15_apose_ref.glb`), modularização `animacao.py`/`animacao_motores.py`/`animacao_presets.py` (5 presets por `seed`, `idle` sem Z-roll e aterrado, `walk`/`run` adução Z de quadril + paridade Bone/Motor6D em `rbx_anim.py`), `export-r15 --modo-rig bone` s/ `partes[]` + `rig.ancoras` em `SkinnedMesh` + `export-anim --modo-rig --manifesto`, e fechamento de `GAP-064`/`GAP-065`/`GAP-067` (#4/#5) + mitigação de `GAP-066`.
 - **Onda 8 (`v0.9.11`)** — `post_import_materials.gd` com `emissive_tex` opcional em `_processar_material` (compatível c/ 5 args) e descoberta `_emissive.png`; `sync_godot.py` emitindo `"emissive"` em `Forge3DAssets.gd`; `sync_godot_sidecars.py` com `.png.import` linear (`process/hdr_as_srgb=false` em `_orm/_roughness/_metalness/_ao`) + 22 clipes sincronizados com `post_import.gd`/`godot_anim_check.gd`/`godot_visual_qa.gd`; `plugin.cfg` `0.8.0` e E2E Blender→Godot 4.7.2 (`tests/test_onda8_godot4.py`).
+- **Onda 9 (`v0.9.12`, `D137`)** — bump `PIPELINE_VERSION = "0.9.12"`, overlap 1-slot GPU/CPU (`pipeline_overlap.py`, `post.py` `env_extra`, `--overlap`/`--no-overlap`), `steps=12` em `standard`/props (`mesh_trellis.py`, `mesh.py`), warm worker residente (`tools/trellis2_worker.py`, `mesh_trellis_worker.py`, `--warm-worker`) e diagnóstico de cache miss no `plan --json` (`cache_diag.py`, `.por_id` ignorado no `gc.py`).
 
 ## Números medidos nesta máquina
 
@@ -121,8 +123,8 @@ P6 de `docs/roadmap.md`.
 
 | # | Ação | Custo | Ataca |
 |---|---|---|---|
-| **1** | Executar **Onda 9 (Throughput & Release `0.9.12`)**: bump `PIPELINE_VERSION = "0.9.12"`, throughput, ci_dist/verify e tag de release | 1 janela | release `0.9.12` |
-| **2** | Priorizar itens de backlog em `docs/gaps.md` (`GAP-004..068`) conforme demanda dos projetos consumidores | sob demanda | débitos pós-`v0.9.12` |
+| **1** | Priorizar itens de backlog em `docs/gaps.md` (`GAP-004..068`) conforme demanda dos projetos consumidores | sob demanda | débitos pós-`v0.9.12` |
+| **2** | Avaliar E2E GPU opcional de lote com `--overlap --warm-worker` e `steps=12` quando hardware NVIDIA livre | sob demanda | benchmark em campo `v0.9.12` |
 
 ## Comandos
 
@@ -167,6 +169,6 @@ godot --headless --path tools/godot_project --script "$PWD/tools/godot_anim_chec
 
 ## Como retomar
 
-> **Estado**: `v0.9.11` (**Ondas 7 e 8 completas**): postura relaxada ~14° no `roblox-*`, `godot4*` em A-pose + `fix_silhouette`, `idle` aterrado, `walk`/`run` aduzidos, `SkinnedMesh` R15 `--modo-rig bone`, paridade emissive/22 clipes Godot 4 e E2E Blender→Godot 4.7.2 validado (`spec@6`, `manifest@7`, `PIPELINE_VERSION="0.9.11"`).
-> **Próximo passo**: **Onda 9 (Throughput & Release `0.9.12`)** — bump de `PIPELINE_VERSION`, validação de throughput e release, mantendo `GAP-064/065/067` fechados e `GAP-066` mitigado.
+> **Estado**: `v0.9.12` (**Ondas 7–9 completas**): postura relaxada ~14° no `roblox-*`, `godot4*` em A-pose + `fix_silhouette`, `idle` aterrado, `walk`/`run` aduzidos, `SkinnedMesh` R15 `--modo-rig bone`, paridade Godot 4 (`0.8.0`, 22 clipes, `_emissive.png`), pipeline 1-slot overlap, `steps=12` standard, warm worker TRELLIS.2 e diagnóstico de miss no `plan` (`spec@6`, `manifest@7`, `PIPELINE_VERSION="0.9.12"`).
+> **Próximo passo**: Priorizar débitos pós-`v0.9.12` em `docs/gaps.md` conforme demanda dos jogos consumidores.
 > Sessão no Windows? Leia `AGENTS.md` §Ambiente **antes** de editar arquivo.

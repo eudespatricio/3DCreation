@@ -110,7 +110,7 @@ def _osso_permitido(
         return bracos_baixos and abs_x > b["braco_baixo_min_x"] and vz >= b["arm_z_min"]
     if nome in _OSSOS_CABECA:
         z_lo_head = (b["head_z_min"] - 0.03 * h) if tem_neck else b["head_z_min"]
-        chifre_lat = vz >= (m["neck_z"] + 0.015 * h if tem_neck else b["arm_z_hi_medial"]) and abs_x > b["head_max_x"] + 0.04 * h
+        chifre_lat = vz >= (m["neck_z"] + 0.10 * h if tem_neck else b["arm_z_hi_medial"]) and abs_x > b["head_max_x"] + 0.04 * h
         head_x_hi = 0.34 * h if chifre_lat else max(b["head_max_x"] + 0.04 * h, 0.24 * h)
         head_x_lim = head_x_hi if (chifre_lat or vz >= m["neck_z"] + 0.015 * h) else (b["head_max_x"] + 0.04 * h)
         return vz >= z_lo_head and abs_x <= head_x_lim

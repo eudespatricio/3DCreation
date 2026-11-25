@@ -55,6 +55,26 @@ def construir_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="remove manifestos e arquivos legados no destino que nao pertencem ao lote",
     )
+    r.add_argument(
+        "--overlap",
+        dest="overlap",
+        action="store_true",
+        default=None,
+        help="sobrepoe gerar (GPU) do proximo item com o Blender (CPU) do atual; padrao: auto",
+    )
+    r.add_argument(
+        "--no-overlap",
+        dest="overlap",
+        action="store_false",
+        help="forca execucao serial item a item",
+    )
+    r.add_argument(
+        "--warm-worker",
+        dest="warm_worker",
+        action="store_true",
+        default=False,
+        help="mantem o worker TRELLIS.2 residente durante o lote (encerrado no fim)",
+    )
 
     ve = sub.add_parser("verify", help="portao de CI: manifesto integro + hash conferido")
     ve.add_argument("destino")

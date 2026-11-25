@@ -104,11 +104,11 @@ def test_bake_de_cor_por_vertice_gera_uv_e_textura(asset):
     assert nos_malha == [item["id"]], gltf.get("nodes")
     assert resultado["medidas"]["gerada"]["smooth"]["angulo_graus"] == 45.0
 
-    # Margem de UV padrao >= 0.02 (evita bleed de mipmap no bake PBR)
+    # Margem de UV padrao 0.004 (D130/D135: evita desperdicio de area em smart_project)
     tree = ast.parse((RAIZ / "blender" / "postprocess.py").read_text(encoding="utf-8"))
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "desdobrar_uv")
     margem_default = ast.literal_eval(fn.args.defaults[0])
-    assert margem_default == pytest.approx(0.02)
+    assert margem_default == pytest.approx(0.004)
 
 
 def test_prop_aceito_no_perfil_roblox_sem_prefixo(asset):

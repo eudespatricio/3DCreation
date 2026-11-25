@@ -5,7 +5,7 @@ Fachada modular que mantem ``plan.py`` <= 500 linhas delegando inspecao e orcame
 
 from __future__ import annotations
 
-from . import __version__, providers
+from . import __version__, cache_diag, providers
 from .canonical import chave_cache
 from .errors import ForgeError
 from .plan_budget import (
@@ -70,6 +70,15 @@ def montar(
         tarefa["provedor"] = {"nome": provider.nome, "versao": provider.versao}
         tarefa["estimativa"] = provider.custo(item, perfil)
         tarefa["cache_hit"] = False if ignorar_cache else bool(cache_disponivel(chave))
+        # So leitura do ponteiro .por_id (L2 continua: plano nao escreve nada).
+        material = (
+            {}
+            if tarefa["cache_hit"]
+            else cache_diag.material_chave_cache(item, __version__, provider, perfil_para_chave)
+        )
+        tarefa["cache_diagnostico"] = cache_diag.diagnosticar_miss(
+            item["id"], chave, material, cache_hit=tarefa["cache_hit"], no_cache=ignorar_cache
+        )
 
         avaliar = getattr(provider, "preflight_item", None)
         pronto, razao = avaliar(item) if callable(avaliar) else provider.preflight()

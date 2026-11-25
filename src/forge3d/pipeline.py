@@ -6,13 +6,30 @@ publica (D9) e nada escreve no destino fora de ``publish`` (I3).
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import os
+import threading
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from . import __version__, config, doctor, paths, plan, profiles, providers, publish, qc, spec
+from . import (
+    __version__,
+    config,
+    doctor,
+    paths,
+    pipeline_overlap,
+    plan,
+    profiles,
+    providers,
+    publish,
+    qc,
+    spec,
+)
 from .canonical import canon, sha256_bytes
-from .errors import EXIT_AMBIENTE, EXIT_OK, EXIT_PROVIDER, EXIT_QC, EXIT_RECURSO, ForgeError
+from .errors import EXIT_AMBIENTE, EXIT_OK, EXIT_PROVIDER, EXIT_QC, EXIT_RECURSO, ForgeError, erro_ambiente
 from .pipeline_item import _clipes_pedidos, _esqueleto_divergente, _pos_processar, executar_item
 from .pipeline_report import (
     _agregar,
@@ -71,6 +88,52 @@ def _executar_item(
     )
 
 
+# Referencias originais: monkeypatch em ``_executar_item`` forca o caminho serial (o overlap nao
+# passa por ele) e ``_pos_processar`` trocado e repassado explicitamente ao overlap.
+_EXECUTAR_ITEM_PADRAO = _executar_item
+_POS_PROCESSAR_PADRAO = _pos_processar
+
+
+_WARM_WORKER_LOCK = threading.Lock()
+_WARM_WORKER_REFS = 0
+_WARM_WORKER_CTX: contextlib.AbstractContextManager[None] | None = None
+
+
+@contextlib.contextmanager
+def _warm_worker(ativo: bool | None) -> Iterator[None]:
+    """Worker TRELLIS.2 residente durante o lote; encerrado so quando ultima chamada ativa termina."""
+    global _WARM_WORKER_CTX, _WARM_WORKER_REFS
+    if ativo is not True:
+        yield
+        return
+    from .providers import mesh_trellis
+
+    usar = getattr(mesh_trellis, "usar_warm_worker", None)
+    if usar is None:
+        raise erro_ambiente("warm worker TRELLIS.2 indisponivel nesta versao (mesh_trellis.usar_warm_worker)")
+    with _WARM_WORKER_LOCK:
+        if _WARM_WORKER_REFS == 0:
+            ctx = usar(True)
+            ctx.__enter__()
+            _WARM_WORKER_CTX = ctx
+        _WARM_WORKER_REFS += 1
+    try:
+        yield
+    finally:
+        ctx_sair: contextlib.AbstractContextManager[None] | None = None
+        with _WARM_WORKER_LOCK:
+            _WARM_WORKER_REFS = max(0, _WARM_WORKER_REFS - 1)
+            if _WARM_WORKER_REFS == 0 and _WARM_WORKER_CTX is not None:
+                ctx_sair = _WARM_WORKER_CTX
+                _WARM_WORKER_CTX = None
+        if ctx_sair is not None:
+            try:
+                ctx_sair.__exit__(None, None, None)
+            finally:
+                worker = importlib.import_module("forge3d.providers.mesh_trellis_worker")
+                worker.encerrar_worker_trellis2()
+
+
 def executar(
     caminho: str | Path,
     *,
@@ -79,6 +142,108 @@ def executar(
     no_cache: bool = False,
     clean_dest: bool = False,
     scene_budget: bool = False,
+    overlap: bool | None = None,
+    warm_worker: bool | None = None,
+) -> tuple[dict, int]:
+    """``overlap``: None = auto/``FORGE3D_OVERLAP``; ``warm_worker``: True mantem TRELLIS.2 residente."""
+    with _warm_worker(warm_worker if not plano_apenas else None):
+        return _executar(
+            caminho,
+            plano_apenas=plano_apenas,
+            publicar_arquivos=publicar_arquivos,
+            no_cache=no_cache,
+            clean_dest=clean_dest,
+            scene_budget=scene_budget,
+            overlap=overlap,
+        )
+
+
+def _executar_serial(
+    tarefas: list[dict],
+    por_id: dict[str, dict],
+    *,
+    spec_doc: dict,
+    perfil: dict,
+    spec_hash: str,
+    destino: Path,
+    run_id: str,
+    publicar_arquivos: bool,
+    ignorar_cache: bool,
+    politica: str,
+) -> tuple[list[dict], list[int]]:
+    itens: list[dict] = []
+    codigos: list[int] = []
+    for tarefa in tarefas:
+        item = por_id[tarefa["id"]]
+        if tarefa["estado_previsto"] == "bloqueada" and not tarefa.get("cache_hit"):
+            itens.append(
+                {
+                    "id": tarefa["id"],
+                    "estado": "bloqueado",
+                    "rota": tarefa["rota"],
+                    "codigo": tarefa.get("codigo", "FORGE-E-PROVIDER"),
+                    "razao": tarefa["razao"],
+                }
+            )
+            codigos.append(
+                EXIT_RECURSO if tarefa.get("codigo") == "FORGE-E-RECURSO" else EXIT_PROVIDER
+            )
+            continue
+
+        try:
+            item["_paleta"] = item.get("paleta") or spec_doc.get("paleta")
+            saida = _executar_item(
+                item,
+                tarefa,
+                spec_doc=spec_doc,
+                perfil=perfil,
+                spec_hash=spec_hash,
+                destino=destino,
+                run_id=run_id,
+                publicar_arquivos=publicar_arquivos,
+                no_cache=ignorar_cache,
+                adiar_publicacao=True,
+            )
+            itens.append(saida)
+            codigos.append(EXIT_OK)
+        except ForgeError as exc:
+            estado = _estado_por_codigo(exc.codigo)
+            itens.append(
+                {
+                    "id": item["id"],
+                    "estado": estado,
+                    "rota": item.get("rota"),
+                    "codigo": exc.codigo,
+                    "razao": exc.mensagem,
+                    "detalhes": exc.detalhes,
+                }
+            )
+            codigos.append(exc.exit_code)
+            if politica == "abortar" and estado == "falhou":
+                break
+        except Exception as exc:  # noqa: BLE001 - nada derruba o lote inteiro
+            itens.append(
+                {
+                    "id": item["id"],
+                    "estado": "falhou",
+                    "rota": item.get("rota"),
+                    "codigo": "FORGE-E-INTERNO",
+                    "razao": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            codigos.append(EXIT_AMBIENTE)
+    return itens, codigos
+
+
+def _executar(
+    caminho: str | Path,
+    *,
+    plano_apenas: bool,
+    publicar_arquivos: bool,
+    no_cache: bool,
+    clean_dest: bool,
+    scene_budget: bool,
+    overlap: bool | None,
 ) -> tuple[dict, int]:
     doc = spec.carregar_arquivo(caminho)
     spec_doc, perfil, avisos = spec.preparar(doc)
@@ -148,68 +313,27 @@ def executar(
 
     por_id = {item["id"]: item for item in spec_doc["lote"]}
     politica = (spec_doc.get("politica") or {}).get("falha", "continuar")
-    codigos: list[int] = []
     manifestos_publicados: list[dict] = []
 
-    for tarefa in tarefas:
-        item = por_id[tarefa["id"]]
-        if tarefa["estado_previsto"] == "bloqueada" and not tarefa.get("cache_hit"):
-            relatorio["itens"].append(
-                {
-                    "id": tarefa["id"],
-                    "estado": "bloqueado",
-                    "rota": tarefa["rota"],
-                    "codigo": tarefa.get("codigo", "FORGE-E-PROVIDER"),
-                    "razao": tarefa["razao"],
-                }
-            )
-            codigos.append(
-                EXIT_RECURSO if tarefa.get("codigo") == "FORGE-E-RECURSO" else EXIT_PROVIDER
-            )
-            continue
-
-        try:
-            item["_paleta"] = item.get("paleta") or spec_doc.get("paleta")
-            saida = _executar_item(
-                item,
-                tarefa,
-                spec_doc=spec_doc,
-                perfil=perfil,
-                spec_hash=spec_hash,
-                destino=destino,
-                run_id=run_id,
-                publicar_arquivos=publicar_arquivos,
-                no_cache=ignorar_cache,
-                adiar_publicacao=True,
-            )
-            relatorio["itens"].append(saida)
-            codigos.append(EXIT_OK)
-        except ForgeError as exc:
-            estado = _estado_por_codigo(exc.codigo)
-            relatorio["itens"].append(
-                {
-                    "id": item["id"],
-                    "estado": estado,
-                    "rota": item.get("rota"),
-                    "codigo": exc.codigo,
-                    "razao": exc.mensagem,
-                    "detalhes": exc.detalhes,
-                }
-            )
-            codigos.append(exc.exit_code)
-            if politica == "abortar" and estado == "falhou":
-                break
-        except Exception as exc:  # noqa: BLE001 - nada derruba o lote inteiro
-            relatorio["itens"].append(
-                {
-                    "id": item["id"],
-                    "estado": "falhou",
-                    "rota": item.get("rota"),
-                    "codigo": "FORGE-E-INTERNO",
-                    "razao": f"{type(exc).__name__}: {exc}",
-                }
-            )
-            codigos.append(EXIT_AMBIENTE)
+    kw_lote: dict[str, Any] = {
+        "spec_doc": spec_doc,
+        "perfil": perfil,
+        "spec_hash": spec_hash,
+        "destino": destino,
+        "run_id": run_id,
+        "publicar_arquivos": publicar_arquivos,
+        "ignorar_cache": ignorar_cache,
+        "politica": politica,
+    }
+    if _executar_item is _EXECUTAR_ITEM_PADRAO and pipeline_overlap.overlap_ativo(tarefas, overlap=overlap):
+        pos_fn = None if _pos_processar is _POS_PROCESSAR_PADRAO else _pos_processar
+        itens, codigos, info_overlap = pipeline_overlap.executar_lote_overlap(
+            tarefas, por_id, pos_processar_fn=pos_fn, **kw_lote
+        )
+        relatorio["overlap"] = info_overlap
+    else:
+        itens, codigos = _executar_serial(tarefas, por_id, **kw_lote)
+    relatorio["itens"].extend(itens)
 
     # Gate G11 (orcamento_cena) avalia ANTES de publicar qualquer arquivo no destino (I3 + I5).
     g11_falhou = False

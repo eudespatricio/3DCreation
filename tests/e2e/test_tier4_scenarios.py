@@ -28,7 +28,8 @@ def test_scenario1_roblox_r15_segmented_hero_pipeline(
     e2e_sandbox, write_spec, make_minimal_png
 ) -> None:
     """Scenario 1: Segmented R15 hero/creature -> validate -> plan -> run -> export-r15 -> sync --rojo-lua -> verify."""
-    concept_png = make_minimal_png(e2e_sandbox.root / "hero_concept.png", width=256, height=256, rgba=(170, 110, 70, 255))
+    concept_png = e2e_sandbox.root / "hero_concept.png"
+    concept_png.write_bytes(build_humanoid_silhouette_png_bytes(size=256))
     shim_env = setup_offline_i23d_shim(e2e_sandbox.root / "shim_s1")
     spec_path = write_spec(
         e2e_sandbox.root / "s1_r15.yaml",

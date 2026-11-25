@@ -273,7 +273,7 @@ def test_autorig_organico_conectado_godot_humanoid_4_clipes(tmp_path, export_mod
     for a in anims_qc:
         assert a["duracao_s"] > 0.2
         assert a["canais"] >= 1
-        assert len(a["movendo"]) >= 5
+        assert len(a["movendo"]) >= (3 if a["nome"] == "idle" else 5)
 
     _checar_godot_4_clipes(glb)
 

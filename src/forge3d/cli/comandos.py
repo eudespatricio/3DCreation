@@ -172,6 +172,8 @@ def _run(args) -> int:
         publicar_arquivos=not args.nao_publicar,
         no_cache=getattr(args, "no_cache", False),
         clean_dest=getattr(args, "clean_dest", False),
+        overlap=getattr(args, "overlap", None),
+        warm_worker=getattr(args, "warm_worker", False),
     )
     if args.json:
         emit_json(relatorio)
@@ -323,6 +325,21 @@ def _ui(args) -> int:
     )
 
 
+def _resumo_miss(diag: dict | None, maximo: int = 3) -> str:
+    """``  (miss: provider.steps 25->12, ...)`` quando o diagnostico aponta campos alterados."""
+    if not isinstance(diag, dict) or not diag.get("campos_alterados"):
+        return ""
+    difs = diag.get("diferencas") or {}
+    partes = []
+    for campo in diag["campos_alterados"][:maximo]:
+        d = difs.get(campo) or {}
+        partes.append(f"{campo} {d.get('antes')!s:.24}->{d.get('depois')!s:.24}")
+    resto = len(diag["campos_alterados"]) - maximo
+    if resto > 0:
+        partes.append(f"+{resto}")
+    return f"  (miss: {', '.join(partes)})"
+
+
 def _imprimir_plano(relatorio: dict) -> None:
     plano = relatorio["plano"]
     print(f"plano {relatorio['run_id']}  projeto {relatorio['projeto']}  perfil {relatorio['perfil']}")
@@ -340,6 +357,7 @@ def _imprimir_plano(relatorio: dict) -> None:
             marca_t, extra = "cache", tarefa["rota"]
         else:
             marca_t, extra = "executar", f"{tarefa['rota']}  ~{estimativa}s"
+            extra += _resumo_miss(tarefa.get("cache_diagnostico"))
         print(f"  [{marca_t:<9}] {tarefa['id']:<30} {extra}")
     orc = relatorio.get("orcamento_cena")
     if isinstance(orc, dict):

@@ -168,6 +168,12 @@ def construir_parser() -> argparse.ArgumentParser:
     ec.add_argument("--item", help="id do asset (obrigatorio ao passar diretorio)")
     ec.add_argument("--saida", help="arquivo .rbxmx de saida (padrao ao lado da origem/asset)")
     ec.add_argument("--no-ledger", action="store_true", help="ignora ledger.jsonl ao resolver AssetIds")
+    ec.add_argument(
+        "--tipo",
+        choices=["Accessory", "Tool"],
+        default="Accessory",
+        help="classe Roblox do item exportado (Accessory ou Tool)",
+    )
     ec.add_argument("--json", action="store_true")
 
     u = sub.add_parser("upload-model", help="sobe um .glb via Open Cloud Assets (Model)")

@@ -31,9 +31,9 @@ def test_empunhadura_mede_a_fracao_do_contrato():
 
 
 def test_empunhadura_desalinhada_reprova():
-    """Pivo na base (min_y = 0) quando a regra pede 20% tem que acusar o desvio."""
+    """Pivo na base (min_y = 0) quando a regra pede FRACAO_EMPUNHADURA (12%) tem que acusar o desvio."""
     desvio = _desvio_pivo("empunhadura", 0.0, 1.0)
-    assert desvio == pytest.approx(0.20)
+    assert desvio == pytest.approx(FRACAO_EMPUNHADURA)
 
 
 def test_regra_desconhecida_nao_mede():

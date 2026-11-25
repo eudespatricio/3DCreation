@@ -28,8 +28,8 @@ from .rbx_xml import (
 _MOTOR_NOMES_R15 = frozenset(JOINT_R15.values())
 
 _MAPA_ATT_SOCKETS: dict[str, tuple[str, ...]] = {
-    "RightGripAttachment": ("RightGripAttachment", "GripAttachment", "Hand.R", "RightHand", "Socket_HandR"),
-    "GripAttachment": ("GripAttachment", "RightGripAttachment", "Hand.R", "RightHand", "Socket_HandR"),
+    "RightGripAttachment": ("RightGripAttachment", "GripAttachment", "Grip", "Hand.R", "RightHand", "Socket_HandR"),
+    "GripAttachment": ("GripAttachment", "RightGripAttachment", "Grip", "Hand.R", "RightHand", "Socket_HandR"),
     "LeftGripAttachment": ("LeftGripAttachment", "Hand.L", "LeftHand", "Socket_HandL"),
     "BodyBackAttachment": ("BodyBackAttachment", "Back", "Socket_Back", "Chest", "UpperTorso"),
     "HatAttachment": ("HatAttachment", "Head", "Socket_Head"),
@@ -122,10 +122,20 @@ def exportar_acessorio_rbxmx(
     skinned: bool | None = None,
     nome_acessorio: str | None = None,
     metros_por_stud: float = 0.28,
+    tipo_item_roblox: str = "Accessory",
 ) -> dict:
-    """Exporta acessorio modular/mesh (``Accessory`` + ``Handle`` ``MeshPart`` + ``Attachment`` + ``SurfaceAppearance``)."""
+    """Exporta acessorio modular/mesh (``Accessory`` ou ``Tool`` + ``Handle`` ``MeshPart`` + ``Attachment`` + ``SurfaceAppearance``)."""
     if metros_por_stud <= 0:
         raise erro_spec("export-acessorio: metros_por_stud precisa ser > 0")
+    raw_tipo = str(tipo_item_roblox or "Accessory").strip().lower()
+    if raw_tipo == "accessory":
+        classe_rbx = "Accessory"
+    elif raw_tipo == "tool":
+        classe_rbx = "Tool"
+    else:
+        raise erro_spec(
+            f"export-acessorio: tipo_item_roblox invalido '{tipo_item_roblox}' (use Accessory ou Tool)"
+        )
 
     manifesto: dict[str, Any] = {}
     mapas: dict[str, str] = {}
@@ -254,7 +264,7 @@ def exportar_acessorio_rbxmx(
     )
 
     weld_xml: list[str] = []
-    if not eh_skinned:
+    if classe_rbx == "Accessory" and not eh_skinned:
         weld_xml = [
             '<Item class="WeldConstraint" referent="RBX4">',
             "<Properties>",
@@ -266,13 +276,25 @@ def exportar_acessorio_rbxmx(
             "</Item>",
         ]
 
+    if classe_rbx == "Tool":
+        raiz_props = [
+            f'<string name="Name">{escape(nome_acc)}</string>',
+            '<bool name="RequiresHandle">true</bool>',
+            '<bool name="CanBeDropped">true</bool>',
+            *_cframe("Grip", *att_pos_efetiva, rot_mat=sock_rot),
+        ]
+    else:
+        raiz_props = [
+            f'<string name="Name">{escape(nome_acc)}</string>',
+            *_cframe("AttachmentPoint", *att_pos_efetiva, rot_mat=sock_rot),
+        ]
+
     linhas = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<roblox version="4">',
-        '<Item class="Accessory" referent="RBX0">',
+        f'<Item class="{classe_rbx}" referent="RBX0">',
         "<Properties>",
-        f'<string name="Name">{escape(nome_acc)}</string>',
-        *_cframe("AttachmentPoint", *att_pos_efetiva, rot_mat=sock_rot),
+        *raiz_props,
         "</Properties>",
         '<Item class="MeshPart" referent="RBX1">',
         "<Properties>",
@@ -300,6 +322,7 @@ def exportar_acessorio_rbxmx(
         "saida": destino_str,
         "bytes": tamanho,
         "item_id": id_efetivo,
+        "classe_roblox": classe_rbx,
         "attachment": att_nome,
         "skinned": eh_skinned,
         "mesh_id": mesh_uri or None,

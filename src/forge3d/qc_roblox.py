@@ -21,6 +21,14 @@ from .rbx_xml import JOINT_R15
 LIMIAR_SEPARACAO_MM = 2.0
 LIMIAR_ANCORA_MM = 1.0
 _TORSO_PARTES = frozenset({"LowerTorso", "UpperTorso"})
+_PARES_LATERAIS_R15 = (
+    ("LeftUpperArm", "RightUpperArm"),
+    ("LeftLowerArm", "RightLowerArm"),
+    ("LeftHand", "RightHand"),
+    ("LeftUpperLeg", "RightUpperLeg"),
+    ("LeftLowerLeg", "RightLowerLeg"),
+    ("LeftFoot", "RightFoot"),
+)
 
 __all__ = [
     "LIMIAR_SEPARACAO_MM",
@@ -369,6 +377,24 @@ def verificar_g13_ancoras(
             if drift_mm > LIMIAR_ANCORA_MM:
                 problemas.append(f"ancora_skin_divergente:{nome}:{drift_mm:.3f}mm")
 
+    ancoras_por_parte: dict[str, tuple[float, float, float]] = {}
+    for p in partes:
+        p_nome = str(p.get("nome") or "")
+        if p_nome and (v_p := _vec3_valido(p.get("ancora"))) is not None:
+            ancoras_por_parte[p_nome] = v_p
+    if isinstance(rig_ancoras, dict):
+        for esq, dir_ in _PARES_LATERAIS_R15:
+            for p_nome in (esq, dir_):
+                if p_nome not in ancoras_por_parte:
+                    v_r = _vec3_valido(rig_ancoras.get(p_nome) or rig_ancoras.get(JOINT_R15.get(p_nome, "")))
+                    if v_r is not None:
+                        ancoras_por_parte[p_nome] = v_r
+    for esq, dir_ in _PARES_LATERAIS_R15:
+        a_esq, a_dir = ancoras_por_parte.get(esq), ancoras_por_parte.get(dir_)
+        if a_esq is not None and a_dir is not None and (abs(a_esq[0]) + abs(a_dir[0])) > 1e-3:
+            if a_esq[0] > 1e-3 or a_dir[0] < -1e-3 or a_esq[0] >= a_dir[0]:
+                problemas.append(f"lateralidade_invertida:{esq}:{a_esq[0]:.4f}:{dir_}:{a_dir[0]:.4f}")
+
     max_erro_mm = round(max_erro_mm, 3)
     ok = (not problemas) and (max_erro_mm <= LIMIAR_ANCORA_MM)
     return {
@@ -395,8 +421,19 @@ def verificar_gates_roblox(
 ) -> list[dict]:
     """Executa os portoes G12, G13 e G14 sobre o artefato Roblox/segmentado."""
     arquivos = resultado.get("arquivos", [])
+    ancoras_rig = (
+        resultado.get("ancoras")
+        or (resultado.get("rig") or {}).get("ancoras")
+        or (item.get("rig") or {}).get("ancoras")
+    )
     return [
         verificar_g12_separacao(item, pasta, resultado, escala),
         verificar_g13_ancoras(item, resultado, escala, gltf=gltf),
-        verificar_g14_animacao_roblox(item, perfil, pasta, arquivos),
+        verificar_g14_animacao_roblox(
+            item,
+            perfil,
+            pasta,
+            arquivos,
+            ancoras=ancoras_rig if isinstance(ancoras_rig, dict) else None,
+        ),
     ]

@@ -59,9 +59,9 @@ def face_valida_faminto(
     """Impede fallback de partes famintas de cruzar lado X ou roubar Head/chifres ou antebracos."""
     h = max(altura_w, 1e-3)
     lado = _lado_parte(nome)
-    if lado == "L" and c_w.x < -0.02 * h:
+    if lado == "L" and c_w.x > 0.02 * h:
         return False
-    if lado == "R" and c_w.x > 0.02 * h:
+    if lado == "R" and c_w.x < -0.02 * h:
         return False
     if lado_apenas:
         return True

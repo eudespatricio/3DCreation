@@ -12,9 +12,14 @@ from xml.etree import ElementTree
 from . import animacao, config, paths, upload
 from .errors import erro_spec
 from .rbx_anim import _sequencia_xml
+from .rbx_pbr import (
+    _extrair_mapas_pbr_manifesto_dict,
+    _normalizar_mapas_pbr,
+    _resolver_asset_ids_pbr,
+)
 from .rbx_xml import JOINT_R15, PARENT_R15, _cframe, _vec
 
-_LUAU_LOAD_MODEL = """\
+_LUAU_LOAD_HDR = """\
 local InsertService = game:GetService("InsertService")
 local MODEL_ID = {model_id}
 local container = InsertService:LoadAsset(MODEL_ID)
@@ -26,13 +31,9 @@ else
     modelo = container
 end
 modelo.Name = "Forge3DR15"
-local rootPart = modelo.PrimaryPart
-    or modelo:FindFirstChild("HumanoidRootPart")
-    or modelo:FindFirstChildWhichIsA("BasePart", true)
-if rootPart ~= nil then
-    if modelo.PrimaryPart == nil then modelo.PrimaryPart = rootPart end
-    rootPart.Anchored = true
-end
+"""
+
+_LUAU_LOAD_FTR = """\
 local controller = modelo:FindFirstChildOfClass("Humanoid")
     or modelo:FindFirstChildOfClass("AnimationController")
 if controller == nil then
@@ -49,23 +50,36 @@ modelo.Parent = workspace
 modelo:SetAttribute("Forge3DModelReady", true)
 """
 
-_LUAU_LOAD_MODEL_RIGID = """\
-local InsertService = game:GetService("InsertService")
-local MODEL_ID = {model_id}
-local container = InsertService:LoadAsset({model_id})
-local modelo = container:FindFirstChildOfClass("Model")
-if modelo ~= nil then
-    modelo.Parent = workspace
-    container:Destroy()
-else
-    modelo = container
+_LUAU_LOAD_BONE_BODY = """\
+local rootPart = modelo.PrimaryPart or modelo:FindFirstChild("HumanoidRootPart") or modelo:FindFirstChildWhichIsA("BasePart", true)
+if rootPart ~= nil then
+    if modelo.PrimaryPart == nil then modelo.PrimaryPart = rootPart end
+    rootPart.Anchored = true
 end
-modelo.Name = "Forge3DR15"
+"""
+
+_LUAU_ATTACHMENTS_RIGID = """\
+local ATTS = {
+    {"Head", "HatAttachment", 0, 0.5, 0}, {"Head", "HairAttachment", 0, 0.5, 0},
+    {"UpperTorso", "BodyBackAttachment", 0, 0, 0.5}, {"UpperTorso", "BodyFrontAttachment", 0, 0, -0.5},
+    {"UpperTorso", "LeftCollarAttachment", -0.5, 0.5, 0}, {"UpperTorso", "RightCollarAttachment", 0.5, 0.5, 0},
+    {"LowerTorso", "WaistCenterAttachment", 0, 0, 0},
+    {"RightHand", "RightGripAttachment", 0, -0.5, 0}, {"LeftHand", "LeftGripAttachment", 0, -0.5, 0},
+}
+for _, a in ipairs(ATTS) do
+    local prt = partes[a[1]]
+    if prt ~= nil and prt:FindFirstChild(a[2]) == nil then
+        local att = Instance.new("Attachment")
+        att.Name, att.Parent = a[2], prt
+        att.Position = Vector3.new(prt.Size.X * a[3], prt.Size.Y * a[4], prt.Size.Z * a[5])
+    end
+end
+"""
+
+_LUAU_LOAD_MODEL_RIGID = """\
 local PART_NAMES = {{
-    "LowerTorso", "UpperTorso", "Head",
-    "LeftUpperArm", "LeftLowerArm", "LeftHand",
-    "RightUpperArm", "RightLowerArm", "RightHand",
-    "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+    "LowerTorso", "UpperTorso", "Head", "LeftUpperArm", "LeftLowerArm", "LeftHand",
+    "RightUpperArm", "RightLowerArm", "RightHand", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
     "RightUpperLeg", "RightLowerLeg", "RightFoot",
 }}
 local COLLIDE_PARTS = {{ LowerTorso = true, UpperTorso = true, HumanoidRootPart = true }}
@@ -89,31 +103,22 @@ end
 local partes = {{}}
 for _, nome in ipairs(PART_NAMES) do
     local p = findPart(modelo, nome)
-    if p ~= nil then
-        p.Name = nome
-        p.Parent = modelo
-        partes[nome] = p
-    end
+    if p ~= nil then p.Name, p.Parent, partes[nome] = nome, modelo, p end
 end
-local temRig = (modelo:FindFirstChildWhichIsA("Motor6D", true) ~= nil)
-    or (modelo:FindFirstChildWhichIsA("Bone", true) ~= nil)
+local temRig = (modelo:FindFirstChildWhichIsA("Motor6D", true) ~= nil) or (modelo:FindFirstChildWhichIsA("Bone", true) ~= nil)
 local ltPart = partes["LowerTorso"]
 if ltPart ~= nil and not temRig then
     local originCF = ltPart.CFrame * CFrame.new(-LT_CENTER.X, -LT_CENTER.Y, -LT_CENTER.Z)
     local hrp = modelo:FindFirstChild("HumanoidRootPart")
     if not (hrp and hrp:IsA("BasePart")) then
         hrp = Instance.new("Part")
-        hrp.Name = "HumanoidRootPart"
-        hrp.Parent = modelo
+        hrp.Name, hrp.Parent = "HumanoidRootPart", modelo
     end
     local ancLT = ANCORAS["LowerTorso"]
-    hrp.Transparency = 1
-    hrp.CanCollide = false
-    hrp.Anchored = true
+    hrp.Transparency, hrp.CanCollide, hrp.Anchored = 1, false, true
     hrp.Size = Vector3.new(math.min(ltPart.Size.X, 2), ltPart.Size.Y, math.min(ltPart.Size.Z, 1))
     hrp.CFrame = originCF * CFrame.new(ancLT.X, ancLT.Y, ancLT.Z)
-    modelo.PrimaryPart = hrp
-    partes["HumanoidRootPart"] = hrp
+    modelo.PrimaryPart, partes["HumanoidRootPart"] = hrp, hrp
     for _, nome in ipairs(PART_NAMES) do
         local p = partes[nome]
         if p ~= nil then
@@ -122,43 +127,16 @@ if ltPart ~= nil and not temRig then
         end
     end
     for _, j in ipairs(JOINTS) do
-        local p0 = partes[j.p0]
-        local p1 = partes[j.p1]
-        local anc = ANCORAS[j.p1]
+        local p0, p1, anc = partes[j.p0], partes[j.p1], ANCORAS[j.p1]
         if p0 ~= nil and p1 ~= nil and anc ~= nil then
             local jointCF = originCF * CFrame.new(anc.X, anc.Y, anc.Z)
             local m = Instance.new("Motor6D")
-            m.Name = j.nome
-            m.Part0 = p0
-            m.Part1 = p1
-            m.C0 = p0.CFrame:ToObjectSpace(jointCF)
-            m.C1 = p1.CFrame:ToObjectSpace(jointCF)
-            m.Parent = p0
+            m.Name, m.Part0, m.Part1 = j.nome, p0, p1
+            m.C0, m.C1, m.Parent = p0.CFrame:ToObjectSpace(jointCF), p1.CFrame:ToObjectSpace(jointCF), p0
         end
     end
 else
-    local rootPart = modelo.PrimaryPart
-        or modelo:FindFirstChild("HumanoidRootPart")
-        or modelo:FindFirstChildWhichIsA("BasePart", true)
-    if rootPart ~= nil then
-        if modelo.PrimaryPart == nil then modelo.PrimaryPart = rootPart end
-        rootPart.Anchored = true
-    end
-end
-local controller = modelo:FindFirstChildOfClass("Humanoid")
-    or modelo:FindFirstChildOfClass("AnimationController")
-if controller == nil then
-    controller = Instance.new("AnimationController")
-    controller.Name = "AnimationController"
-    controller.Parent = modelo
-end
-local animator = controller:FindFirstChildOfClass("Animator")
-if animator == nil then
-    animator = Instance.new("Animator")
-    animator.Parent = controller
-end
-modelo.Parent = workspace
-modelo:SetAttribute("Forge3DModelReady", true)
+{else_body}end
 """
 
 _LUAU_PLAY_ANIM = """\
@@ -340,10 +318,44 @@ def _extrair_rig_r15_segmentado(
     return ancoras, lt_centro
 
 
+def _snippet_surface_luau(mapas_rbx: Mapping[str, str]) -> str:
+    if not mapas_rbx:
+        return ""
+    props = "\n".join(f"        sa.{k} = {json.dumps(v)}" for k, v in sorted(mapas_rbx.items()))
+    return (
+        'for _, desc in ipairs(modelo:GetDescendants()) do\n'
+        '    if desc:IsA("MeshPart") then\n'
+        '        local sa = desc:FindFirstChildOfClass("SurfaceAppearance") or Instance.new("SurfaceAppearance")\n'
+        '        sa.AlphaMode = Enum.AlphaMode.Overlay\n'
+        f"{props}\n"
+        "        sa.Parent = desc\n"
+        "    end\n"
+        "end\n"
+    )
+
+
+def _resolver_mapas_rbx_model(
+    item_id: str,
+    *,
+    manifesto: Mapping[str, Any] | None,
+    asset_ids: Mapping[str, str] | None,
+    mapas_pbr: Mapping[str, str] | None,
+    ledger: str | Path | bool | None,
+) -> dict[str, str]:
+    brutos = _normalizar_mapas_pbr(mapas_pbr)
+    if not brutos and isinstance(manifesto, Mapping):
+        brutos = _extrair_mapas_pbr_manifesto_dict(manifesto, id_efetivo=item_id)
+    resolvidos = _resolver_asset_ids_pbr(
+        brutos, asset_ids, item_id=item_id, ledger=None if ledger is False else ledger
+    )
+    return {k: str(v) for k, v in resolvidos.items() if str(v or "").startswith("rbxassetid://")}
+
+
 def _montar_script_load_rigido(
     model_id_num: str,
     ancoras: Mapping[str, tuple[float, float, float]],
     lt_centro: tuple[float, float, float],
+    mapas_rbx: Mapping[str, str] | None = None,
 ) -> str:
     linhas_anc = [
         f'    {nome} = Vector3.new({anc[0]:.6f}, {anc[1]:.6f}, {anc[2]:.6f}),'
@@ -353,14 +365,14 @@ def _montar_script_load_rigido(
         f'    {{ nome = "{junta}", p0 = "{PARENT_R15[nome]}", p1 = "{nome}" }},'
         for nome, junta in JOINT_R15.items()
     ]
-    return _LUAU_LOAD_MODEL_RIGID.format(
-        model_id=model_id_num,
+    hdr = _LUAU_LOAD_HDR.format(model_id=model_id_num)
+    body = _LUAU_LOAD_MODEL_RIGID.format(
         ancoras_luau="\n".join(linhas_anc),
         joints_luau="\n".join(linhas_juntas),
-        lt_cx=lt_centro[0],
-        lt_cy=lt_centro[1],
-        lt_cz=lt_centro[2],
+        lt_cx=lt_centro[0], lt_cy=lt_centro[1], lt_cz=lt_centro[2],
+        else_body="\n".join(f"    {ln}" for ln in _LUAU_LOAD_BONE_BODY.splitlines()) + "\n",
     )
+    return f"{hdr}{body}{_LUAU_ATTACHMENTS_RIGID}{_snippet_surface_luau(mapas_rbx or {})}{_LUAU_LOAD_FTR}"
 
 
 def exportar_r15_model(
@@ -375,6 +387,8 @@ def exportar_r15_model(
     ledger: str | Path | bool | None = True,
     modo_rig: str = "motor6d",
     manifesto: Mapping[str, Any] | None = None,
+    asset_ids: Mapping[str, str] | None = None,
+    mapas_pbr: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Gera ``.rbxlx`` com ``KeyframeSequence`` + loader Server + player Client via ``model_id``."""
     model_id_num = resolver_model_id(model_id, item_id, ledger=ledger, modo_rig=modo_rig)
@@ -423,11 +437,15 @@ def exportar_r15_model(
 
     rig_seg = _extrair_rig_r15_segmentado(manifesto) if modo_rig == "motor6d" else None
     montagem_motor6d = rig_seg is not None
+    mapas_rbx = _resolver_mapas_rbx_model(
+        item_id, manifesto=manifesto, asset_ids=asset_ids, mapas_pbr=mapas_pbr, ledger=ledger
+    )
     if rig_seg is not None:
         ancoras_r15, lt_centro = rig_seg
-        codigo_load = _montar_script_load_rigido(model_id_num, ancoras_r15, lt_centro)
+        codigo_load = _montar_script_load_rigido(model_id_num, ancoras_r15, lt_centro, mapas_rbx)
     else:
-        codigo_load = _LUAU_LOAD_MODEL.format(model_id=model_id_num)
+        hdr = _LUAU_LOAD_HDR.format(model_id=model_id_num)
+        codigo_load = f"{hdr}{_LUAU_LOAD_BONE_BODY}{_snippet_surface_luau(mapas_rbx)}{_LUAU_LOAD_FTR}"
 
     src_load = escape(codigo_load)
     src_play = escape(_LUAU_PLAY_ANIM.format(clipe_padrao=json.dumps(clipe_padrao)))
@@ -468,6 +486,7 @@ def exportar_r15_model(
         "partes": 16 if montagem_motor6d else 0,
         "motores": 15 if montagem_motor6d else 0,
         "attachments": 0,
+        "attachments_script": bool(montagem_motor6d),
         "clipes": nomes_clipes,
         "animacoes": nomes_clipes,
         "keyframes": {c["nome"]: len(c.get("chaves") or []) for c in clipes},
@@ -475,5 +494,6 @@ def exportar_r15_model(
         "modo_rig": "model",
         "montagem_motor6d": montagem_motor6d,
         "metros_por_stud": mps,
-        "textura": False,
+        "textura": bool(mapas_rbx),
+        **({"surface_appearance": mapas_rbx} if mapas_rbx else {}),
     }

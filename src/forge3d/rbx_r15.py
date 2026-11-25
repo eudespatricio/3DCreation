@@ -131,6 +131,7 @@ def exportar_r15(
             ledger=ledger,
             modo_rig=modo_rig,
             manifesto=manifesto_eff,
+            asset_ids=asset_ids,
         )
     if eh_blocky:
         ossos, partes, caixas, modelo_sockets = _montar_partes_blocky(item, perfil, mps)

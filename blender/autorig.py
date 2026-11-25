@@ -2,7 +2,7 @@
 
 Usa **apenas** ``bpy``, ``bmesh``, ``mathutils`` e stdlib (sem Pillow, sem numpy).
 Convenção canônica da malha: +Z para cima, base em Z=0, frente +Y, X centrado em 0,
-lado esquerdo (``.L`` / ``Left*``) em ``+X`` e lado direito (``.R`` / ``Right*``) em ``-X``
+lado esquerdo (``.L`` / ``Left*``) em ``-X`` e lado direito (``.R`` / ``Right*``) em ``+X``
 (idêntico a ``blocky.OSSOS_HUMANOIDE`` e ``blocky.OSSOS_R15``).
 """
 

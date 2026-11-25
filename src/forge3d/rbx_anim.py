@@ -28,6 +28,15 @@ _NAO_LOOP_CLIPES = frozenset({
     "jump", "attack", "slash_combo", "cast", "block", "hit", "death",
     "bite", "roar", "tail_swipe", "land", "rear_up", "mount_up", "dismount",
 })
+# No Blender (autorig_ossos.py), membros descendentes tem Z_loc=+Y_bl=-Z_rbx (oposto ao motor6d),
+# enquanto tronco/cabeca ja alinham Z_loc=-Y_bl=+Z_rbx.
+_PARTES_Z_INVERTIDO_MOTOR6D = frozenset({
+    "LeftUpperArm", "RightUpperArm",
+    "LeftLowerArm", "RightLowerArm",
+    "LeftHand", "RightHand",
+    "LeftUpperLeg", "RightUpperLeg",
+    "LeftLowerLeg", "RightLowerLeg",
+})
 
 
 def _sequencia_xml(
@@ -38,13 +47,20 @@ def _sequencia_xml(
     ancoras: Mapping[str, Sequence[float]] | None = None,
     modo_rig: str = "motor6d",
 ) -> tuple[list[str], int]:
-    """KeyframeSequence do Roblox com arvore aninhada de ``Pose`` R15 (D69 / F05)."""
+    """KeyframeSequence do Roblox com arvore aninhada de ``Pose`` R15 (D69 / F05).
+
+    ``modo_rig == "bone"`` mira ``Bone``s de GLB Open Cloud exportados do Blender
+    (``autorig_ossos.py``), enquanto ``modo_rig == "motor6d"`` mira partes alinhadas
+    ao mundo Y-up com ``C0``/``C1`` identidade.
+    """
     mps_eff = float(mps) if mps and mps > 0 else 0.28
     nome_clipe = str(clipe.get("nome") or "")
     loop = bool(clipe.get("loop", nome_clipe not in _NAO_LOOP_CLIPES))
     prioridade = int(clipe.get("priority", _PRIORIDADE_CLIPE.get(nome_clipe, 2)))
     usar_ancoras = ancoras is not None
     drop_base = animacao_pose.calcular_aducao_braco_ancoras(ancoras) if usar_ancoras else 0.0
+    eh_marcha = nome_clipe.strip().lower() in ("walk", "run")
+    extra_leg = animacao_pose.calcular_aducao_perna_ancoras(ancoras) if (usar_ancoras and eh_marcha) else 0.0
     fator_altura, min_y_quadril_studs = (
         animacao_pose.escala_deslocamento_ancoras(ancoras, mps=mps_eff)
         if usar_ancoras
@@ -118,6 +134,7 @@ def _sequencia_xml(
         referent += 1
         dadas_q: dict[str, tuple[float, float, float, float]] = {}
         dadas_pos: dict[str, list[float]] = {}
+        leg_z_efetivo: dict[str, float] = {}
         for p in chave.get("poses") or []:
             raw_osso = str(p.get("osso", "")).strip()
             parte = JOINT_R15_REV.get(raw_osso, raw_osso)
@@ -126,13 +143,12 @@ def _sequencia_xml(
                 q_p = _quat_normalizar([float(v) for v in raw_quat])
             else:
                 eixo_str = str(p.get("eixo") or "X")
+                eixo_up = eixo_str.strip().upper()
                 graus_val = float(p.get("graus", 0.0))
-                if (
-                    modo_rig == "motor6d"
-                    and parte in ("LeftUpperLeg", "RightUpperLeg")
-                    and eixo_str.strip().upper() == "Z"
-                ):
+                if modo_rig == "motor6d" and eixo_up == "Z" and parte in _PARTES_Z_INVERTIDO_MOTOR6D:
                     graus_val = -graus_val
+                if eh_marcha and parte in ("LeftUpperLeg", "RightUpperLeg") and eixo_up == "Z":
+                    leg_z_efetivo[parte] = leg_z_efetivo.get(parte, 0.0) + graus_val
                 q_p = _quat_de_eixo_graus(graus_val, eixo_str)
             dadas_q[parte] = q_p if parte not in dadas_q else _quat_mul(dadas_q[parte], q_p)
             desl = p.get("deslocamento_m")
@@ -157,8 +173,8 @@ def _sequencia_xml(
                     fracao = 0.0
                 drop_eff = drop_base * animacao_pose.peso_gravidade_clipe(nome_clipe, fracao)
                 if drop_eff > 0.0:
-                    ang_l = drop_eff if modo_rig == "bone" else -drop_eff
-                    ang_r = -drop_eff if modo_rig == "bone" else drop_eff
+                    ang_l = -drop_eff if modo_rig == "bone" else drop_eff
+                    ang_r = drop_eff if modo_rig == "bone" else -drop_eff
                     for parte_arm, ang_arm in (("LeftUpperArm", ang_l), ("RightUpperArm", ang_r)):
                         q_drop = _quat_de_eixo_graus(ang_arm, "Z")
                         dadas_q[parte_arm] = (
@@ -166,6 +182,27 @@ def _sequencia_xml(
                             if parte_arm not in dadas_q
                             else _quat_mul(dadas_q[parte_arm], q_drop)
                         )
+
+        if eh_marcha:
+            sgn_modo = -1.0 if modo_rig == "motor6d" else 1.0
+            eixo_pe = "Z" if modo_rig == "motor6d" else "Y"
+            for leg_p, foot_p, sgn_leg in (
+                ("LeftUpperLeg", "LeftFoot", -1.0),
+                ("RightUpperLeg", "RightFoot", 1.0),
+            ):
+                if usar_ancoras and extra_leg > 1e-4:
+                    g_extra = sgn_modo * sgn_leg * extra_leg
+                    q_extra = _quat_de_eixo_graus(g_extra, "Z")
+                    dadas_q[leg_p] = (
+                        q_extra if leg_p not in dadas_q else _quat_mul(dadas_q[leg_p], q_extra)
+                    )
+                    leg_z_efetivo[leg_p] = leg_z_efetivo.get(leg_p, 0.0) + g_extra
+                z_eff = leg_z_efetivo.get(leg_p, 0.0)
+                if abs(z_eff) > 1e-4:
+                    q_counter = _quat_de_eixo_graus(-z_eff, eixo_pe)
+                    dadas_q[foot_p] = (
+                        q_counter if foot_p not in dadas_q else _quat_mul(q_counter, dadas_q[foot_p])
+                    )
 
         referent = _emit_pose("HumanoidRootPart", dadas_q, dadas_pos, linhas, referent)
         linhas.append("</Item>")

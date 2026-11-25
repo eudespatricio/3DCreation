@@ -171,7 +171,7 @@ def _atribuir_pesos_criatura(obj, ossos: list[dict], m: dict) -> None:
     bones_info = []
     for o in deformaveis:
         nome = o["nome"]
-        lado_i = 1 if (ls := _lado_osso(nome)) == "L" else (-1 if ls == "R" else 0)
+        lado_i = -1 if (ls := _lado_osso(nome)) == "L" else (1 if ls == "R" else 0)
         cat = 0 if nome in ossos_tronco_c else (1 if nome in ossos_cabeca_c else (2 if nome in _OSSOS_CAUDA else (3 if nome in _OSSOS_PATA else (4 if nome in _OSSOS_ASA else 5))))
         extra = None
         if cat == 3:

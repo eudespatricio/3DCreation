@@ -122,7 +122,7 @@ def _estimar_lado_braco(
     edges: list[tuple[int, int]] | None = None,
     ignorar: set[int] | None = None,
 ) -> dict:
-    """Detecta ombro, cotovelo, pulso e ponta da mao para +X (L) ou -X (R)."""
+    """Detecta ombro, cotovelo, pulso e ponta da mao para -X (L) ou +X (R)."""
     del leg_top_z, leg_x
     ign = ignorar or set()
     ref_hw = max(torso_hw, upper_torso_hw or torso_hw)
@@ -300,37 +300,37 @@ def estimar_marcos(obj) -> dict:
 
     foot_x_cap = max(0.24 * altura, torso_hw * 1.15)
     leg_x_fb = max(0.065 * altura, 0.55 * torso_hw)
-    xs_foot_L = [v.x for v in coords if v.z <= z_min + 0.12 * altura and 0.01 * altura < v.x <= foot_x_cap]
-    xs_foot_R = [-v.x for v in coords if v.z <= z_min + 0.12 * altura and -foot_x_cap <= v.x < -0.01 * altura]
+    xs_foot_L = [-v.x for v in coords if v.z <= z_min + 0.12 * altura and -foot_x_cap <= v.x < -0.01 * altura]
+    xs_foot_R = [v.x for v in coords if v.z <= z_min + 0.12 * altura and 0.01 * altura < v.x <= foot_x_cap]
     foot_x_L = _mediana(xs_foot_L, leg_x_fb)
     foot_x_R = _mediana(xs_foot_R, leg_x_fb)
     corridor_L = min(0.26 * altura, max(0.14 * altura, torso_hw * 1.10, foot_x_L + 0.08 * altura))
     corridor_R = min(0.26 * altura, max(0.14 * altura, torso_hw * 1.10, foot_x_R + 0.08 * altura))
     leg_x_max = min(0.24 * altura, max(0.13 * altura, torso_hw * 1.05))
     xs_leg_L = (
-        [v.x for v in coords if z_min + 0.10 * altura <= v.z <= leg_top_z - 0.03 * altura and 0.01 * altura < v.x <= corridor_L]
-        or [v.x for v in coords if z_min <= v.z <= leg_top_z - 0.01 * altura and 0.01 * altura < v.x <= corridor_L]
+        [v.x for v in coords if z_min + 0.10 * altura <= v.z <= leg_top_z - 0.03 * altura and -corridor_L <= v.x < -0.01 * altura]
+        or [v.x for v in coords if z_min <= v.z <= leg_top_z - 0.01 * altura and -corridor_L <= v.x < -0.01 * altura]
     )
     xs_leg_R = (
-        [v.x for v in coords if z_min + 0.10 * altura <= v.z <= leg_top_z - 0.03 * altura and -corridor_R <= v.x < -0.01 * altura]
-        or [v.x for v in coords if z_min <= v.z <= leg_top_z - 0.01 * altura and -corridor_R <= v.x < -0.01 * altura]
+        [v.x for v in coords if z_min + 0.10 * altura <= v.z <= leg_top_z - 0.03 * altura and 0.01 * altura < v.x <= corridor_R]
+        or [v.x for v in coords if z_min <= v.z <= leg_top_z - 0.01 * altura and 0.01 * altura < v.x <= corridor_R]
     )
-    leg_x_L = _clamped(_mediana(xs_leg_L, leg_x_fb), 0.045 * altura, leg_x_max)
-    leg_x_R = _clamped(_mediana(xs_leg_R, -leg_x_fb), -leg_x_max, -0.045 * altura)
+    leg_x_L = _clamped(_mediana(xs_leg_L, -leg_x_fb), -leg_x_max, -0.045 * altura)
+    leg_x_R = _clamped(_mediana(xs_leg_R, leg_x_fb), 0.045 * altura, leg_x_max)
 
     pes_y = sorted(v.y for v in coords if v.z <= ankle_z + 0.01 * altura and v.y > 0.0)
     foot_y = _clamped((pes_y[int(0.9 * (len(pes_y) - 1))] if pes_y else 0.12 * altura) * 0.85, 0.08 * altura, 0.15 * altura)
     toe_y = foot_y + 0.04 * altura
 
-    braco_L = _estimar_lado_braco(all_coords, z_min, altura, cy, chest_top_z, torso_hw, 1.0, leg_top_z=leg_top_z, leg_x=leg_x_L, perfil_tronco=perfil, edges=edges, ignorar=verts_cabelo)
-    braco_R = _estimar_lado_braco(all_coords, z_min, altura, cy, chest_top_z, torso_hw, -1.0, leg_top_z=leg_top_z, leg_x=leg_x_R, perfil_tronco=perfil, edges=edges, ignorar=verts_cabelo)
+    braco_L = _estimar_lado_braco(all_coords, z_min, altura, cy, chest_top_z, torso_hw, -1.0, leg_top_z=leg_top_z, leg_x=leg_x_L, perfil_tronco=perfil, edges=edges, ignorar=verts_cabelo)
+    braco_R = _estimar_lado_braco(all_coords, z_min, altura, cy, chest_top_z, torso_hw, 1.0, leg_top_z=leg_top_z, leg_x=leg_x_R, perfil_tronco=perfil, edges=edges, ignorar=verts_cabelo)
     if abs(abs(braco_L["elbow"].x) - abs(braco_R["elbow"].x)) <= 0.06 * altura:
         clav_sym = 0.5 * (abs(braco_L["clav_x"]) + abs(braco_R["clav_x"]))
-        braco_L["clav_x"], braco_R["clav_x"] = clav_sym, -clav_sym
+        braco_L["clav_x"], braco_R["clav_x"] = -clav_sym, clav_sym
         for chave in ("shoulder", "elbow", "wrist", "tip"):
             pL, pR = braco_L[chave], braco_R[chave]
             sx, sy, sz = 0.5 * (abs(pL.x) + abs(pR.x)), 0.5 * (pL.y + pR.y), 0.5 * (pL.z + pR.z)
-            braco_L[chave], braco_R[chave] = Vector((sx, sy, sz)), Vector((-sx, sy, sz))
+            braco_L[chave], braco_R[chave] = Vector((-sx, sy, sz)), Vector((sx, sy, sz))
 
     return {
         "z_min": z_min, "z_max": z_max, "altura": altura, "cy": cy, "torso_hw": torso_hw, "neck_hw": neck_hw,

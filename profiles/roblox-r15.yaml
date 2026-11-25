@@ -40,7 +40,7 @@ lod:
 
 rig:
   esqueleto_padrao: "r15@1"
-  max_ossos: 24
+  max_ossos: 64
   raiz: HumanoidRootPart
   postura:
     modo_rest: natural_relaxada
@@ -65,6 +65,60 @@ rig:
       canela_d: RightLowerLeg
       pe_e: LeftFoot
       pe_d: RightFoot
+    "quadruped@1":
+      quadril: Hips
+      coluna: Spine
+      tronco: Chest
+      pescoco: Neck
+      cabeca: Head
+      mandibula: Jaw
+      cauda_1: Tail1
+      cauda_2: Tail2
+      cauda_3: Tail3
+      pata_dianteira_e: FrontUpperLeg.L
+      canela_dianteira_e: FrontLowerLeg.L
+      pe_dianteiro_e: FrontFoot.L
+      pata_dianteira_d: FrontUpperLeg.R
+      canela_dianteira_d: FrontLowerLeg.R
+      pe_dianteiro_d: FrontFoot.R
+      pata_traseira_e: BackUpperLeg.L
+      canela_traseira_e: BackLowerLeg.L
+      pe_traseiro_e: BackFoot.L
+      pata_traseira_d: BackUpperLeg.R
+      canela_traseira_d: BackLowerLeg.R
+      pe_traseiro_d: BackFoot.R
+      sela: MountSeat
+    "winged_mount@1":
+      quadril: Hips
+      coluna: Spine
+      tronco: Chest
+      pescoco: Neck
+      cabeca: Head
+      mandibula: Jaw
+      cauda_1: Tail1
+      cauda_2: Tail2
+      cauda_3: Tail3
+      pata_dianteira_e: FrontUpperLeg.L
+      canela_dianteira_e: FrontLowerLeg.L
+      pe_dianteiro_e: FrontFoot.L
+      pata_dianteira_d: FrontUpperLeg.R
+      canela_dianteira_d: FrontLowerLeg.R
+      pe_dianteiro_d: FrontFoot.R
+      pata_traseira_e: BackUpperLeg.L
+      canela_traseira_e: BackLowerLeg.L
+      pe_traseiro_e: BackFoot.L
+      pata_traseira_d: BackUpperLeg.R
+      canela_traseira_d: BackLowerLeg.R
+      pe_traseiro_d: BackFoot.R
+      asa_ombro_e: WingShoulder.L
+      asa_braco_e: WingArm.L
+      asa_antebraco_e: WingForearm.L
+      asa_ponta_e: WingTip.L
+      asa_ombro_d: WingShoulder.R
+      asa_braco_d: WingArm.R
+      asa_antebraco_d: WingForearm.R
+      asa_ponta_d: WingTip.R
+      sela: MountSeat
   mapas:
     "r15@1":
       - HumanoidRootPart
@@ -83,6 +137,62 @@ rig:
       - RightUpperLeg
       - RightLowerLeg
       - RightFoot
+    "quadruped@1":
+      - Root
+      - Hips
+      - Spine
+      - Chest
+      - Neck
+      - Head
+      - Jaw
+      - Tail1
+      - Tail2
+      - Tail3
+      - FrontUpperLeg.L
+      - FrontLowerLeg.L
+      - FrontFoot.L
+      - FrontUpperLeg.R
+      - FrontLowerLeg.R
+      - FrontFoot.R
+      - BackUpperLeg.L
+      - BackLowerLeg.L
+      - BackFoot.L
+      - BackUpperLeg.R
+      - BackLowerLeg.R
+      - BackFoot.R
+      - MountSeat
+    "winged_mount@1":
+      - Root
+      - Hips
+      - Spine
+      - Chest
+      - Neck
+      - Head
+      - Jaw
+      - Tail1
+      - Tail2
+      - Tail3
+      - FrontUpperLeg.L
+      - FrontLowerLeg.L
+      - FrontFoot.L
+      - FrontUpperLeg.R
+      - FrontLowerLeg.R
+      - FrontFoot.R
+      - BackUpperLeg.L
+      - BackLowerLeg.L
+      - BackFoot.L
+      - BackUpperLeg.R
+      - BackLowerLeg.R
+      - BackFoot.R
+      - WingShoulder.L
+      - WingArm.L
+      - WingForearm.L
+      - WingTip.L
+      - WingShoulder.R
+      - WingArm.R
+      - WingForearm.R
+      - WingTip.R
+      - MountSeat
 
 material:
   modelo: surface_appearance

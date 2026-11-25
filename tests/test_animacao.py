@@ -386,22 +386,22 @@ def test_jump_e_block_levantam_ombros_com_espelho_lr():
     from forge3d import animacao
 
     clips = {c["nome"]: c for c in animacao.clipes(GODOT, "godot-humanoid@1", ["jump", "block", "hit"])}
-    # Pico do jump (~meio do clipe): ambos os bracos sobem (+120 deg), logo Shoulder.L < 0 e Shoulder.R > 0
+    # Pico do jump (~meio do clipe): ambos os bracos sobem (+120 deg), logo Shoulder.L > 0 (-X) e Shoulder.R < 0 (+X)
     jump_poses = [{p["osso"]: p["graus"] for p in ch["poses"]} for ch in clips["jump"]["chaves"]]
-    jump_pico = min(jump_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
-    assert jump_pico["Shoulder.L"] < -5.0, jump_pico["Shoulder.L"]
-    assert jump_pico["Shoulder.R"] > 5.0, jump_pico["Shoulder.R"]
+    jump_pico = max(jump_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
+    assert jump_pico["Shoulder.L"] > 5.0, jump_pico["Shoulder.L"]
+    assert jump_pico["Shoulder.R"] < -5.0, jump_pico["Shoulder.R"]
     for ps in jump_poses:
         if "Shoulder.L" in ps and "Shoulder.R" in ps:
             assert ps["Shoulder.L"] == pytest.approx(-ps["Shoulder.R"])
 
-    # Block: braco esquerdo ergue escudo -> Shoulder.L sobe (< -5.0) e Shoulder.R acompanha (> 0)
+    # Block: braco esquerdo ergue escudo -> Shoulder.L sobe (> 5.0) e Shoulder.R acompanha (< 0)
     block_poses = [{p["osso"]: p["graus"] for p in ch["poses"]} for ch in clips["block"]["chaves"]]
-    block_pico = min(block_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
-    assert block_pico["Shoulder.L"] < -5.0, block_pico["Shoulder.L"]
-    assert block_pico["Shoulder.R"] > 0.0, block_pico["Shoulder.R"]
+    block_pico = max(block_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
+    assert block_pico["Shoulder.L"] > 5.0, block_pico["Shoulder.L"]
+    assert block_pico["Shoulder.R"] < 0.0, block_pico["Shoulder.R"]
 
     # Hit mantem o mesmo sinal de elevacao dos ombros
     hit_poses = [{p["osso"]: p["graus"] for p in ch["poses"]} for ch in clips["hit"]["chaves"]]
-    hit_pico = min(hit_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
-    assert hit_pico["Shoulder.L"] < -5.0 and hit_pico["Shoulder.R"] > 5.0
+    hit_pico = max(hit_poses, key=lambda ps: ps.get("Shoulder.L", 0.0))
+    assert hit_pico["Shoulder.L"] > 5.0 and hit_pico["Shoulder.R"] < -5.0

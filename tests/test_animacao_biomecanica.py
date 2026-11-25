@@ -91,8 +91,8 @@ def test_ride_idle_and_ride_fly_straddle_posture():
         forearm_l = [p["graus"] for p in ch0 if p["osso"] == "LowerArm.L" and p["eixo"] == "X"][0]
 
         assert 46.0 <= thigh_l_x <= 58.0
-        assert thigh_l_z == pytest.approx(-38.0, abs=4.0)
-        assert thigh_r_z == pytest.approx(38.0, abs=4.0)
+        assert thigh_l_z == pytest.approx(38.0, abs=4.0)
+        assert thigh_r_z == pytest.approx(-38.0, abs=4.0)
         assert knee_l == pytest.approx(-78.0, abs=5.0)
         assert chest_x <= -9.0
         assert head_x >= 8.0

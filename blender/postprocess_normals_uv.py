@@ -15,7 +15,9 @@ if __package__:
     from .postprocess_scene import (
         PARTES_RIGIDAS, TIPOS_ORGANICOS, _selecionar, malha_triangulada,
     )
-    from .postprocess_uv_boost import aplicar_prioridade_uv_cabeca, tem_uv_sobreposta
+    from .postprocess_uv_boost import (
+        aplicar_prioridade_uv_cabeca, tem_uv_sobreposta, unificar_ilha_uv_rosto_cabeca,
+    )
 else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
@@ -24,7 +26,9 @@ else:
     from postprocess_scene import (
         PARTES_RIGIDAS, TIPOS_ORGANICOS, _selecionar, malha_triangulada,
     )
-    from postprocess_uv_boost import aplicar_prioridade_uv_cabeca, tem_uv_sobreposta
+    from postprocess_uv_boost import (
+        aplicar_prioridade_uv_cabeca, tem_uv_sobreposta, unificar_ilha_uv_rosto_cabeca,
+    )
 
 
 def _resolver_config_suavizacao(job: dict, bruto: dict) -> dict:
@@ -230,6 +234,7 @@ def desdobrar_uv(
         if not obj.data.uv_layers or n_polys <= 0:
             break
         if eh_organico:
+            unificar_ilha_uv_rosto_cabeca(obj, margem=smart_margin)
             aplicar_prioridade_uv_cabeca(obj, fator=1.50)
         bpy.ops.object.mode_set(mode="EDIT")
         bpy.ops.mesh.select_all(action="SELECT")

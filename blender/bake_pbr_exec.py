@@ -11,6 +11,7 @@ except ImportError:  # pragma: no cover - permite import puro em testes fora do 
     bpy = None  # type: ignore[assignment]
 
 if __package__:
+    from . import bake_pbr_bleed_pele as _bleed_pele
     from . import bake_pbr_config as _cfg
     from . import bake_pbr_emissive as _emissive
     from . import bake_pbr_heal as _heal
@@ -24,6 +25,7 @@ else:
     _BLENDER_DIR = os.path.dirname(os.path.abspath(__file__))
     if _BLENDER_DIR not in sys.path:
         sys.path.insert(0, _BLENDER_DIR)
+    import bake_pbr_bleed_pele as _bleed_pele
     import bake_pbr_config as _cfg
     import bake_pbr_emissive as _emissive
     import bake_pbr_heal as _heal
@@ -253,6 +255,7 @@ def executar_bake_high_low(
     imgs_hints_vistas: dict[str, tuple[object | None, object | None]] = {}
     info_detalhe_alto, info_back, info_front = {"aplicado": False}, {}, {}
     info_heal, stats_cage = {"aplicado": False}, {"aplicado": False}
+    info_pele_met, info_bleed = {"aplicado": False}, {"aplicado": False}
     delight_hints_aplicados = emissive_aplicado = False
     cena = bpy.context.scene
     estado_anterior = _cfg._capturar_estado_cena(cena)
@@ -407,6 +410,10 @@ def executar_bake_high_low(
                 or any(m is not None or r is not None for m, r in imgs_hints_vistas.values())
             )
 
+        info_pele_met = _bleed_pele.travar_metalico_rosto_pele(
+            cena, obj, img_hints_tmp, img_bc, px_sub, nome_base, tipo_item=tipo_item
+        )
+
         nome_orm = f"{nome_base}_orm.png"
         path_orm = os.path.join(saida_dir, nome_orm)
         piso_rough = 0.0 if usar_pbr_nativo else (0.68 if (proteger_superficie and not usar_emit_proc) else 0.0)
@@ -425,6 +432,10 @@ def executar_bake_high_low(
             img_em_nativo=img_em_nativo,
         )
         img_em_nativo = None
+
+        img_bc, info_bleed = _bleed_pele.dilatar_fundo_basecolor(
+            cena, obj, img_bc, path_bc, px, nome_base
+        )
 
         for atributo in list(obj.data.color_attributes):
             obj.data.color_attributes.remove(atributo)
@@ -491,6 +502,7 @@ def executar_bake_high_low(
             "metallic_hint_aplicado": bool(img_met is not None or tem_met_mv or usar_emit_proc or usar_pbr_nativo),
             "roughness_hint_aplicado": bool(img_rough is not None or tem_rough_mv or usar_emit_proc or usar_pbr_nativo),
             "delight_hints_aplicados": bool(delight_hints_aplicados), "emissive_aplicado": bool(emissive_aplicado),
+            "rosto_pele_metalico": info_pele_met, "dilatacao_fundo_basecolor": info_bleed,
             "png_bytes": bytes_bc, "baseColor_bytes": bytes_bc, "normal_bytes": bytes_nm, "orm_bytes": bytes_orm,
         },
         "arquivos_textura": [{"caminho": nome_bc, "papel": "textura", "bytes": bytes_bc}, {"caminho": nome_nm, "papel": "normal", "bytes": bytes_nm}, {"caminho": nome_orm, "papel": "orm", "bytes": bytes_orm}, *extras_roblox],

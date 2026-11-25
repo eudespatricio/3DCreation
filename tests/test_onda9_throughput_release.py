@@ -453,8 +453,8 @@ def test_gc_ignora_por_id_mesmo_velho(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------- 5. release 0.9.12 e higiene
 def test_versoes_0_9_12_consistentes():
-    assert forge3d.__version__ == forge3d.PIPELINE_VERSION == post.PIPELINE_VERSION == "0.9.12"
-    assert tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"] == "0.9.12"
+    assert forge3d.__version__ == forge3d.PIPELINE_VERSION == post.PIPELINE_VERSION == "0.9.13"
+    assert tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"] == "0.9.13"
 
 
 def test_cli_run_aceita_overlap_e_warm_worker():

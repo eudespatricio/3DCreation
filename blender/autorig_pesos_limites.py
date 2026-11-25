@@ -137,7 +137,7 @@ def _construir_meta(mapas: list[tuple[str, list[float]]]) -> list[tuple[str, lis
     grupos = ((_OSSOS_COXA, 1), (_OSSOS_CANELA, 2), (_OSSOS_PE, 3), (_OSSOS_OMBROS, 4), (_OSSOS_BRACO_DISTAL, 5), (_OSSOS_CABECA, 6), (_OSSOS_PESCOCO, 7))
     for nome, dist_v in mapas:
         lado = _lado_osso(nome)
-        lado_id = 1 if lado == "L" else (-1 if lado == "R" else 0)
+        lado_id = -1 if lado == "L" else (1 if lado == "R" else 0)
         cat_id = fixos.get(nome, 0) or next((cid for grp, cid in grupos if nome in grp), 0)
         meta.append((nome, dist_v, lado_id, cat_id))
     return meta

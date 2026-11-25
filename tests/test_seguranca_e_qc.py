@@ -453,10 +453,12 @@ def test_qc_gates_inclui_g10():
 
 
 def test_qc_g2_libera_empunhadura_e_equipavel_assimetrico_em_xz(tmp_path):
-    # Empunhadura deslocada em X nao falha G2 quando Y respeita FRACAO_EMPUNHADURA (0.20)
+    from forge3d.profiles import FRACAO_EMPUNHADURA
+
+    y_lo, y_hi = -FRACAO_EMPUNHADURA, 1.0 - FRACAO_EMPUNHADURA
     verts_emp = [
-        (0.2, -0.2, -0.5), (1.2, -0.2, -0.5), (1.2, 0.8, -0.5), (0.2, 0.8, -0.5),
-        (0.2, -0.2, 0.5), (1.2, -0.2, 0.5), (1.2, 0.8, 0.5), (0.2, 0.8, 0.5),
+        (0.2, y_lo, -0.5), (1.2, y_lo, -0.5), (1.2, y_hi, -0.5), (0.2, y_hi, -0.5),
+        (0.2, y_lo, 0.5), (1.2, y_lo, 0.5), (1.2, y_hi, 0.5), (0.2, y_hi, 0.5),
     ]
     rel_emp = _rodar_qc(
         tmp_path,

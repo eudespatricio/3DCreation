@@ -270,7 +270,7 @@ with open({str(res_json)!r}, "w", encoding="utf-8") as f:
     assert por_nome["Hand.L"]["frente_local"] == [0.0, 0.0, -1.0]
     assert por_nome["Hand.R"]["posicao_local"][1] > 0.02
     assert por_nome["Hand.L"]["posicao_local"][1] > 0.02
-    assert ver["hand_r_head"][0] < 0.0 and ver["hand_l_head"][0] > 0.0
+    assert ver["hand_r_head"][0] > 0.0 and ver["hand_l_head"][0] < 0.0
     assert abs(ver["hand_r_head"][0] + ver["hand_l_head"][0]) < 1e-4
 
     # (d) Regressao V1 (calca confinada dentro do cano da bota) e V2 (tunica continua sem degrau UV)

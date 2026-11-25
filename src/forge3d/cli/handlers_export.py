@@ -309,20 +309,23 @@ def export_acessorio(args) -> int:
 
     origem = Path(args.origem).expanduser()
     item_id = (args.item or "").strip() or None
+    tipo_item = str(getattr(args, "tipo", "Accessory") or "Accessory")
+    sufixo = "tool" if tipo_item.strip().lower() == "tool" else "accessory"
     saida: str | Path | None = args.saida
     if saida is None and origem.exists():
         if origem.is_file():
             nome_base = item_id or origem.stem.removesuffix(".manifest")
-            saida = origem.parent / f"{nome_base}_accessory.rbxmx"
+            saida = origem.parent / f"{nome_base}_{sufixo}.rbxmx"
         elif origem.is_dir():
-            nome_base = item_id or "accessory"
-            saida = origem / f"{nome_base}_accessory.rbxmx"
+            nome_base = item_id or sufixo
+            saida = origem / f"{nome_base}_{sufixo}.rbxmx"
 
     relatorio = rbx.exportar_acessorio_rbxmx(
         origem,
         item_id=item_id,
         saida=saida,
         ledger=None if args.no_ledger else True,
+        tipo_item_roblox=tipo_item,
     )
     if args.json:
         emit_json(relatorio)

@@ -113,7 +113,7 @@ def _sementes_osso_ilha(
     abx, aby, abz = bx - ax, by - ay, bz - az
     comp2 = abx * abx + aby * aby + abz * abz
     inv_comp2 = (1.0 / comp2) if comp2 > 1e-12 else 0.0
-    lado_id = 1 if lado == "L" else (-1 if lado == "R" else 0)
+    lado_id = -1 if lado == "L" else (1 if lado == "R" else 0)
 
     cands: list[tuple[float, float, int, int]] = []
     for vi in ilha:
@@ -209,7 +209,7 @@ def _fallback_sementes_membro(
         return {}
     h = b["h"]
     x_tol = b["x_tol_leg"] if nome in _OSSOS_PERNA else b["x_tol"]
-    lado_id = 1 if lado == "L" else (-1 if lado == "R" else 0)
+    lado_id = -1 if lado == "L" else (1 if lado == "R" else 0)
     a, b_seg = Vector(o["cabeca"]), Vector(o["cauda"])
     eh_braco = nome in _OSSOS_BRACO
     estrito: list[tuple[float, int]] = []
@@ -255,8 +255,8 @@ def _pesos_ilha_geodesicos(
     h = b["h"]
     x_tol, x_tol_leg = b["x_tol"], b["x_tol_leg"]
     e_ilha_central = any(abs(coords[vi].x) <= 0.05 * h for vi in ilha)
-    tem_lado_l = any(coords[vi].x > x_tol for vi in ilha)
-    tem_lado_r = any(coords[vi].x < -x_tol for vi in ilha)
+    tem_lado_l = any(coords[vi].x < -x_tol for vi in ilha)
+    tem_lado_r = any(coords[vi].x > x_tol for vi in ilha)
     xs_ilha = [coords_xyz[vi][0] for vi in ilha]
     zs_ilha = [coords_xyz[vi][2] for vi in ilha]
     n_verts = len(coords)

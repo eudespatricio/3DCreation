@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +76,43 @@ _SEMANTICO_GODOT: dict[str, str] = {
     "Head": "cabeca",
     "LowerArm.L": "antebraco_e",
 }
+
+
+_RE_PARTE_EQUIPAVEL: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("escudo", re.compile(r"\b(?:escudos?|shields?|bucklers?|aegis)\b", re.I)),
+    ("orbe", re.compile(r"\b(?:orbes?|orbs?|esferas?|focus)\b", re.I)),
+    ("elmo", re.compile(r"\b(?:elmos?|capacetes?|helms?|helmets?|crowns?|coroas?)\b", re.I)),
+    ("capa", re.compile(r"\b(?:capas?|mantos?|cloaks?|capes?)\b", re.I)),
+    ("mochila", re.compile(r"\b(?:mochilas?|backpacks?|quivers?|aljavas?)\b", re.I)),
+    ("asas", re.compile(r"\b(?:asas|wings)\b", re.I)),
+    ("sela", re.compile(r"\b(?:selas?|saddles?)\b", re.I)),
+    ("ombreiras", re.compile(r"\b(?:ombreiras?|pauldrons?)\b", re.I)),
+    ("peitoral", re.compile(r"\b(?:peitorai[s]?|coura[cç]as?|chestplates?|cuirass(?:es)?)\b", re.I)),
+    ("luvas", re.compile(r"\b(?:luvas?|manoplas?|gauntlets?|gloves?)\b", re.I)),
+    ("botas", re.compile(r"\b(?:botas?|grevas?|boots?|greaves)\b", re.I)),
+    ("calcas", re.compile(r"\b(?:cal[cç]as?|leggings)\b", re.I)),
+)
+
+
+def _inferir_parte_equipavel(item: dict) -> str | None:
+    """Resolve `parte` explicita ou infere anexo canonico para `prop_equipavel`."""
+    parte = item.get("parte")
+    if isinstance(parte, str) and parte.strip():
+        limpa = parte.strip().lower()
+        return "calcas" if limpa == "calças" else limpa
+    if str(item.get("tipo") or "").strip() != "prop_equipavel":
+        return None
+    texto = " ".join(
+        [
+            str(item.get("id") or "").replace("_", " ").replace(".", " "),
+            " ".join(str(t) for t in (item.get("tags") or [])),
+            str(item.get("prompt") or ""),
+        ]
+    )
+    for nome_parte, padrao in _RE_PARTE_EQUIPAVEL:
+        if padrao.search(texto):
+            return nome_parte
+    return "arma"
 
 
 def _traduzir_osso_anexo(osso: str, esqueleto: str, perfil: dict | None) -> str:
@@ -189,9 +227,7 @@ def montar_manifesto(
         or profiles.esqueleto_para_item(perfil or {"rig": {"esqueleto_padrao": "godot-humanoid@1"}}, item)
     )
 
-    parte = item.get("parte")
-    if parte == "calças":
-        parte = "calcas"
+    parte = _inferir_parte_equipavel(item)
     anexo = None
     if isinstance(parte, str) and parte in _ANEXOS_POR_PARTE:
         anexo = dict(_ANEXOS_POR_PARTE[parte])

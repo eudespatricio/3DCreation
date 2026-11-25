@@ -408,13 +408,10 @@ def aplicar_pose_maos_mpfb(
     if modo_l not in _ANGULOS_DEDOS_POSE:
         modo_l = "cupped"
 
-    # Apos exportar() aplicar rotation_euler.z = pi, o lado MPFB 'l' (+X pre-pi)
-    # passa para -X_bl (Hand.R canonico), e 'r' (-X pre-pi) passa para +X_bl (Hand.L).
-    lado_para_modo = (
-        {"l": modo_r, "r": modo_l}
-        if compensar_rotacao_z
-        else {"r": modo_r, "l": modo_l}
-    )
+    # Apos exportar() aplicar rotation_euler.z = pi, o lado MPFB 'r' (-X pre-pi)
+    # passa para +X_bl (Hand.R canonico) e 'l' (+X pre-pi) passa para -X_bl (Hand.L).
+    del compensar_rotacao_z
+    lado_para_modo = {"r": modo_r, "l": modo_l}
 
     bpy.context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode="POSE")
@@ -444,9 +441,7 @@ def aplicar_pose_maos_mpfb(
 
     mw = rig.matrix_world
     res: dict = {"pose_mao_r": modo_r, "pose_mao_l": modo_l}
-    for lado_mpfb, chave_can in (
-        (("l", "r"), ("r", "l")) if compensar_rotacao_z else (("r", "r"), ("l", "l"))
-    ):
+    for lado_mpfb, chave_can in (("r", "r"), ("l", "l")):
         hand_pb = pbones.get(f"hand_{lado_mpfb}")
         mid_pb = pbones.get(f"middle_03_{lado_mpfb}")
         m01_pb = pbones.get(f"middle_01_{lado_mpfb}")

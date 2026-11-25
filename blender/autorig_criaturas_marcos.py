@@ -383,7 +383,7 @@ def _construir_ossos_criatura(esqueleto: str, m: dict) -> list[dict]:
         _osso("Tail3", "Tail2", (0.0, yt0 + (yt3 - yt0) * 0.67, zm + (zt3 - zm) * 0.67), (0.0, yt3, zt3), ml),
         _osso("MountSeat", "Spine", (0.0, y_spine, zt + 0.01 * h_b), (0.0, y_spine, zt + 0.09 * h_b), ml),
     ]
-    for lado, sx in ((".L", 1.0), (".R", -1.0)):
+    for lado, sx in ((".L", -1.0), (".R", 1.0)):
         ossos.extend([
             _osso(f"FrontUpperLeg{lado}", "Chest", (sx * xf, yf, z_leg_top), (sx * xf, yf - 0.02 * m["len_y"], z_knee_f), ml),
             _osso(f"FrontLowerLeg{lado}", f"FrontUpperLeg{lado}", (sx * xf, yf - 0.02 * m["len_y"], z_knee_f), (sx * xf, yf, z_ank_f), ml),
@@ -401,7 +401,7 @@ def _construir_ossos_criatura(esqueleto: str, m: dict) -> list[dict]:
         x_r = _clamped(max(trx * 0.75, 0.10 * ws), 0.08 * ws, min(0.25 * ws, max(trx * 0.92, 0.22 * ws)))
         x_p1, x_p2 = max(x_r + 0.04 * ws, 0.25 * ws), max(x_r + 0.10 * ws, 0.52 * ws)
         x_p3, x_p4 = max(x_p2 + 0.06 * ws, 0.78 * ws), max(x_p2 + 0.10 * ws, 0.98 * ws)
-        for lado, sx in ((".L", 1.0), (".R", -1.0)):
+        for lado, sx in ((".L", -1.0), (".R", 1.0)):
             ps = [(sx * x_r, y_w0, z_w0), (sx * x_p1, y_w0 + 0.03 * m["len_y"], z_w0 + 0.30 * (z_wt - z_w0)),
                   (sx * x_p2, 0.5 * (y_w0 + y_wt) + 0.05 * m["len_y"], z_w0 + 0.70 * (z_wt - z_w0)),
                   (sx * x_p3, 0.25 * y_w0 + 0.75 * y_wt, z_w0 + 0.90 * (z_wt - z_w0)), (sx * x_p4, y_wt, z_wt)]

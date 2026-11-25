@@ -216,10 +216,10 @@ def _box(nome, cx, cy, cz, sx, sy, sz):
     bpy.context.collection.objects.link(obj)
     return obj
 
-# Orbe colocado na palma de Hand.L (X=+0.34, Y=0.04, Z=0.88) longe dos joelhos (Z=0.45)
-m_hand_l = Matrix.Translation((0.34, 0.04, 0.88)) @ Euler((math.pi, 0.0, 0.0), "XYZ").to_matrix().to_4x4()
-orbe = _box("Orbe", 0.34, 0.04, 0.88, 0.14, 0.14, 0.14)
-modular_armor._ajustar_pivo_socket(orbe, "orbe", "Hand.L", Vector((0.34, 0.04, 0.88)), matriz_osso=m_hand_l)
+# Orbe colocado na palma de Hand.L (X=-0.34, Y=0.04, Z=0.88) longe dos joelhos (Z=0.45)
+m_hand_l = Matrix.Translation((-0.34, 0.04, 0.88)) @ Euler((math.pi, 0.0, 0.0), "XYZ").to_matrix().to_4x4()
+orbe = _box("Orbe", -0.34, 0.04, 0.88, 0.14, 0.14, 0.14)
+modular_armor._ajustar_pivo_socket(orbe, "orbe", "Hand.L", Vector((-0.34, 0.04, 0.88)), matriz_osso=m_hand_l)
 orbe_zs = [v.co.z for v in orbe.data.vertices]
 orbe_xs = [v.co.x for v in orbe.data.vertices]
 
@@ -230,14 +230,14 @@ modular_armor._ajustar_pivo_socket(capa_prancha, "capa", "Chest", Vector((0.0, -
 czs = [v.co.z for v in capa_prancha.data.vertices]
 cys = [v.co.y for v in capa_prancha.data.vertices]
 
-# Arma standalone centrada na origem: cabo fica a 20% da base
+# Arma standalone centrada na origem: cabo fica a 12% da base
 arma = _box("Arma", 0.0, 0.0, 0.50, 0.08, 0.04, 1.00)
-modular_armor._ajustar_pivo_socket(arma, "arma", "Hand.R", Vector((-0.34, 0.0, 0.90)))
+modular_armor._ajustar_pivo_socket(arma, "arma", "Hand.R", Vector((0.34, 0.0, 0.90)))
 azs = [v.co.z for v in arma.data.vertices]
 
 # Escudo procedural: frente convexa em +Y, grip interno proximo a Y<=0
 esc = modular_armor._criar_escudo_procedural("EscudoTeste")
-modular_armor._ajustar_pivo_socket(esc, "escudo", "LowerArm.L", Vector((0.30, 0.0, 1.05)))
+modular_armor._ajustar_pivo_socket(esc, "escudo", "LowerArm.L", Vector((-0.30, 0.0, 1.05)))
 eys = [v.co.y for v in esc.data.vertices]
 
 out_json.write_text(json.dumps({
@@ -268,9 +268,9 @@ def test_modular_armor_bone_local_sockets(tmp_path: Path):
     assert d["capa_span_z"] > d["capa_span_y"] * 2.0
     assert d["capa_z_max"] <= 0.15
     assert d["capa_z_min"] < -0.50
-    # Arma com cabo em 20% da base (Z=-0.20..+0.80)
-    assert d["arma_z_min"] == pytest.approx(-0.20, abs=0.02)
-    assert d["arma_z_max"] == pytest.approx(0.80, abs=0.02)
+    # Arma com cabo em 12% da base (Z=-0.12..+0.88)
+    assert d["arma_z_min"] == pytest.approx(-0.12, abs=0.02)
+    assert d["arma_z_max"] == pytest.approx(0.88, abs=0.02)
     # Escudo com face externa (+Y) maior que profundidade de pegada (-Y)
     assert d["escudo_y_max"] > abs(d["escudo_y_min"])
 

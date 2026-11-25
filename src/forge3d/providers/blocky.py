@@ -55,22 +55,22 @@ OSSOS_HUMANOIDE = [
     ("Chest", "Spine1", (0.0, 0.0, 0.62), (0.0, 0.0, 0.78)),
     ("Neck", "Chest", (0.0, 0.0, 0.78), (0.0, 0.0, 0.845)),
     ("Head", "Neck", (0.0, 0.0, 0.845), (0.0, 0.0, 1.00)),
-    ("Shoulder.L", "Chest", (0.10, 0.0, 0.76), (0.15, 0.0, 0.76)),
-    ("UpperArm.L", "Shoulder.L", (0.17, 0.0, 0.76), (0.17, 0.0, 0.60)),
-    ("LowerArm.L", "UpperArm.L", (0.17, 0.0, 0.60), (0.17, 0.0, 0.44)),
-    ("Hand.L", "LowerArm.L", (0.17, 0.0, 0.44), (0.17, 0.0, 0.36)),
-    ("Shoulder.R", "Chest", (-0.10, 0.0, 0.76), (-0.15, 0.0, 0.76)),
-    ("UpperArm.R", "Shoulder.R", (-0.17, 0.0, 0.76), (-0.17, 0.0, 0.60)),
-    ("LowerArm.R", "UpperArm.R", (-0.17, 0.0, 0.60), (-0.17, 0.0, 0.44)),
-    ("Hand.R", "LowerArm.R", (-0.17, 0.0, 0.44), (-0.17, 0.0, 0.36)),
-    ("UpperLeg.L", "Hips", (0.065, 0.0, 0.44), (0.065, 0.0, 0.235)),
-    ("LowerLeg.L", "UpperLeg.L", (0.065, 0.0, 0.235), (0.065, 0.0, 0.065)),
-    ("Foot.L", "LowerLeg.L", (0.065, 0.0, 0.065), (0.065, 0.12, 0.02)),
-    ("Toe.L", "Foot.L", (0.065, 0.12, 0.02), (0.065, 0.16, 0.012)),
-    ("UpperLeg.R", "Hips", (-0.065, 0.0, 0.44), (-0.065, 0.0, 0.235)),
-    ("LowerLeg.R", "UpperLeg.R", (-0.065, 0.0, 0.235), (-0.065, 0.0, 0.065)),
-    ("Foot.R", "LowerLeg.R", (-0.065, 0.0, 0.065), (-0.065, 0.12, 0.02)),
-    ("Toe.R", "Foot.R", (-0.065, 0.12, 0.02), (-0.065, 0.16, 0.012)),
+    ("Shoulder.L", "Chest", (-0.10, 0.0, 0.76), (-0.15, 0.0, 0.76)),
+    ("UpperArm.L", "Shoulder.L", (-0.17, 0.0, 0.76), (-0.17, 0.0, 0.60)),
+    ("LowerArm.L", "UpperArm.L", (-0.17, 0.0, 0.60), (-0.17, 0.0, 0.44)),
+    ("Hand.L", "LowerArm.L", (-0.17, 0.0, 0.44), (-0.17, 0.0, 0.36)),
+    ("Shoulder.R", "Chest", (0.10, 0.0, 0.76), (0.15, 0.0, 0.76)),
+    ("UpperArm.R", "Shoulder.R", (0.17, 0.0, 0.76), (0.17, 0.0, 0.60)),
+    ("LowerArm.R", "UpperArm.R", (0.17, 0.0, 0.60), (0.17, 0.0, 0.44)),
+    ("Hand.R", "LowerArm.R", (0.17, 0.0, 0.44), (0.17, 0.0, 0.36)),
+    ("UpperLeg.L", "Hips", (-0.065, 0.0, 0.44), (-0.065, 0.0, 0.235)),
+    ("LowerLeg.L", "UpperLeg.L", (-0.065, 0.0, 0.235), (-0.065, 0.0, 0.065)),
+    ("Foot.L", "LowerLeg.L", (-0.065, 0.0, 0.065), (-0.065, 0.12, 0.02)),
+    ("Toe.L", "Foot.L", (-0.065, 0.12, 0.02), (-0.065, 0.16, 0.012)),
+    ("UpperLeg.R", "Hips", (0.065, 0.0, 0.44), (0.065, 0.0, 0.235)),
+    ("LowerLeg.R", "UpperLeg.R", (0.065, 0.0, 0.235), (0.065, 0.0, 0.065)),
+    ("Foot.R", "LowerLeg.R", (0.065, 0.0, 0.065), (0.065, 0.12, 0.02)),
+    ("Toe.R", "Foot.R", (0.065, 0.12, 0.02), (0.065, 0.16, 0.012)),
 ]
 
 
@@ -80,18 +80,18 @@ OSSOS_R15 = [
     ("LowerTorso", "HumanoidRootPart", (0.0, 0.0, 0.44), (0.0, 0.0, 0.52)),
     ("UpperTorso", "LowerTorso", (0.0, 0.0, 0.52), (0.0, 0.0, 0.78)),
     ("Head", "UpperTorso", (0.0, 0.0, 0.78), (0.0, 0.0, 1.00)),
-    ("LeftUpperArm", "UpperTorso", (0.10, 0.0, 0.76), (0.17, 0.0, 0.60)),
-    ("LeftLowerArm", "LeftUpperArm", (0.17, 0.0, 0.60), (0.17, 0.0, 0.44)),
-    ("LeftHand", "LeftLowerArm", (0.17, 0.0, 0.44), (0.17, 0.0, 0.36)),
-    ("RightUpperArm", "UpperTorso", (-0.10, 0.0, 0.76), (-0.17, 0.0, 0.60)),
-    ("RightLowerArm", "RightUpperArm", (-0.17, 0.0, 0.60), (-0.17, 0.0, 0.44)),
-    ("RightHand", "RightLowerArm", (-0.17, 0.0, 0.44), (-0.17, 0.0, 0.36)),
-    ("LeftUpperLeg", "LowerTorso", (0.065, 0.0, 0.44), (0.065, 0.0, 0.235)),
-    ("LeftLowerLeg", "LeftUpperLeg", (0.065, 0.0, 0.235), (0.065, 0.0, 0.065)),
-    ("LeftFoot", "LeftLowerLeg", (0.065, 0.0, 0.065), (0.065, 0.12, 0.02)),
-    ("RightUpperLeg", "LowerTorso", (-0.065, 0.0, 0.44), (-0.065, 0.0, 0.235)),
-    ("RightLowerLeg", "RightUpperLeg", (-0.065, 0.0, 0.235), (-0.065, 0.0, 0.065)),
-    ("RightFoot", "RightLowerLeg", (-0.065, 0.0, 0.065), (-0.065, 0.12, 0.02)),
+    ("LeftUpperArm", "UpperTorso", (-0.10, 0.0, 0.76), (-0.17, 0.0, 0.60)),
+    ("LeftLowerArm", "LeftUpperArm", (-0.17, 0.0, 0.60), (-0.17, 0.0, 0.44)),
+    ("LeftHand", "LeftLowerArm", (-0.17, 0.0, 0.44), (-0.17, 0.0, 0.36)),
+    ("RightUpperArm", "UpperTorso", (0.10, 0.0, 0.76), (0.17, 0.0, 0.60)),
+    ("RightLowerArm", "RightUpperArm", (0.17, 0.0, 0.60), (0.17, 0.0, 0.44)),
+    ("RightHand", "RightLowerArm", (0.17, 0.0, 0.44), (0.17, 0.0, 0.36)),
+    ("LeftUpperLeg", "LowerTorso", (-0.065, 0.0, 0.44), (-0.065, 0.0, 0.235)),
+    ("LeftLowerLeg", "LeftUpperLeg", (-0.065, 0.0, 0.235), (-0.065, 0.0, 0.065)),
+    ("LeftFoot", "LeftLowerLeg", (-0.065, 0.0, 0.065), (-0.065, 0.12, 0.02)),
+    ("RightUpperLeg", "LowerTorso", (0.065, 0.0, 0.44), (0.065, 0.0, 0.235)),
+    ("RightLowerLeg", "RightUpperLeg", (0.065, 0.0, 0.235), (0.065, 0.0, 0.065)),
+    ("RightFoot", "RightLowerLeg", (0.065, 0.0, 0.065), (0.065, 0.12, 0.02)),
 ]
 
 #: osso do template godot -> parte R15 que recebe a caixa
@@ -179,7 +179,7 @@ def _template_humanoide(cores: dict) -> list[dict]:
         caixa("visor", "Head", -0.065, 0.085, 0.90, 0.065, 0.096, 0.935, cores["visor"], "visor"),
     ]
 
-    for lado, sinal in (("L", 1.0), ("R", -1.0)):
+    for lado, sinal in (("L", -1.0), ("R", 1.0)):
         pecas += [
             caixa(
                 f"ombro_{lado}", f"Shoulder.{lado}", 0.135 * sinal, -0.085, 0.72,

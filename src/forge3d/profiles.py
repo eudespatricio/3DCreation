@@ -42,9 +42,9 @@ ORCAMENTO_CENA_PADRAO: dict[str, Any] = {
     "vram_texturas_mb_max": 200.0,
 }
 
-#: Regra numerica da `empunhadura` (D58): fracao da altura medida a partir da base.
-#: Uma regra so, usada pelo blocky (pivo declarado) e pelo QC (G2). Antes havia 10% e 20%.
-FRACAO_EMPUNHADURA = 0.20
+#: Regra numerica da `empunhadura` (D58): fracao da altura medida a partir da base (centro do cabo, abaixo da guarda).
+#: Uma regra so, usada pelo blocky (pivo declarado) e pelo QC (G2). Antes havia 10%, depois 20%.
+FRACAO_EMPUNHADURA = 0.12
 
 #: Clipes base procedurais e determinísticos suportados pelo pipeline (D66 / Fase B).
 #: Pedir clipe fora desta lista não é erro: vira aviso `FORGE-W-ANIM`.

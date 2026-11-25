@@ -22,9 +22,9 @@ from .animacao_motores import (
     SEGUNDOS_RIDE_FLY, SEGUNDOS_RIDE_IDLE, SEGUNDOS_ROAR, SEGUNDOS_RUN,
     SEGUNDOS_SLASH_COMBO, SEGUNDOS_WALK, SEGUNDOS_WING_FLAP,
     _CAPA_BALISTICA, _CAPA_HARMONICA, _CHAVES_DEDOS_CASCATA,
-    _CLIPES_EXCLUSIVOS_CRIATURA, _DEFINICOES_CRIATURA, _DEFINICOES_HUMANO,
-    _DESLOCAMENTO_QUADRIL_Z, _DESLOCAMENTO_QUADRIL_Z_CRIATURA,
-    _MANDIBULA_BALISTICA, _NAO_LOOP_CLIPES,
+    _CLIPES_EXCLUSIVOS_CRIATURA, _CLIPES_GRIP_MAO_ARMA, _DEFINICOES_CRIATURA,
+    _DEFINICOES_HUMANO, _DESLOCAMENTO_QUADRIL_Z, _DESLOCAMENTO_QUADRIL_Z_CRIATURA,
+    _GRIP_ARMA_FALANGES, _GRIP_ARMA_POLEGAR, _MANDIBULA_BALISTICA, _NAO_LOOP_CLIPES,
 )
 from .animacao_presets import PRESETS_POSTURA, aplicar_preset_motores, resolver_preset_postura
 
@@ -230,11 +230,33 @@ def _motores_secundarios_aa(
                 extras.append((sem_pe, "X", (0.0, 10.0, -14.0, -10.0, -6.0, -8.0, 12.0, 4.0, 0.0)))
 
     for lado_suf, phase_lado in (("e", 0.25), ("d", 0.75), ("l", 0.25), ("r", 0.75)):
+        eh_mao_arma = lado_suf in ("d", "r") and nome in _CLIPES_GRIP_MAO_ARMA
         for dedo_pref, esc, defas_d in _CHAVES_DEDOS_CASCATA:
+            eh_polegar = dedo_pref in ("polegar", "thumb")
             for seg in (1, 2, 3):
                 for chave_cand in (f"{dedo_pref}_{seg}_{lado_suf}", f"{dedo_pref}{seg}_{lado_suf}"):
                     if chave_cand in mapa and chave_cand not in presentes_base:
-                        if modo == "harmonica":
+                        if eh_mao_arma:
+                            g_base = (
+                                _GRIP_ARMA_POLEGAR[seg - 1]
+                                if eh_polegar
+                                else min(76.0, _GRIP_ARMA_FALANGES[seg - 1] * esc)
+                            )
+                            if modo == "harmonica":
+                                amp_g = 2.0 if nome == "idle" else 3.0
+                                cyc_g = 2.0 if nome in ("walk", "run") else 1.0
+                                extras.append((chave_cand, amp_g, (phase_lado + defas_d) % 1.0, "X", cyc_g, round(g_base, 3)))
+                            else:
+                                b0 = round(g_base, 3)
+                                p1 = round(min(78.0, g_base * 1.06), 3)
+                                p2 = round(min(82.0, g_base * 1.12), 3)
+                                vals_g = (
+                                    b0, round(b0 * 1.02, 3), p1, p2,
+                                    round(p2 * 0.97, 3), p1, round(b0 * 1.04, 3),
+                                    round(b0 * 1.01, 3), b0,
+                                )
+                                extras.append((chave_cand, "X", vals_g))
+                        elif modo == "harmonica":
                             base_off = (26.0 if nome in ("ride_idle", "ride_fly") else 18.0) * esc
                             amp_d = (4.5 if nome in ("walk", "run", "ride_fly") else 2.2) * esc
                             cyc_d = 2.0 if nome in ("walk", "run") else 1.0

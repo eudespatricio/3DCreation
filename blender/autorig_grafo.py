@@ -75,9 +75,9 @@ def _osso_permitido(
     vx, vz = v.x, v.z
     abs_x = vx if vx >= 0.0 else -vx
     x_tol = b["x_tol_leg"] if nome in _OSSOS_PERNA else b["x_tol"]
-    if vx > x_tol and lado == "R":
+    if vx < -x_tol and lado == "R":
         return False
-    if vx < -x_tol and lado == "L":
+    if vx > x_tol and lado == "L":
         return False
     if abs_x <= b["x_tol"] and nome in _OSSOS_BRACO:
         return False

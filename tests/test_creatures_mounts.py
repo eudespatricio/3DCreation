@@ -274,7 +274,7 @@ def test_creatures_mounts_blender_pca_skinning_and_sockets(tmp_path: Path):
     # Montaria alada corrigida apesar da envergadura larga, com 31 ossos e asas L/R simetricas
     assert d["w_ossos"] == sorted(GODOT["rig"]["mapas"]["winged_mount@1"])
     assert d["w_head_y"] > d["w_tail_y"]
-    assert d["w_wing_l_x"] > 0.8 and d["w_wing_r_x"] < -0.8
+    assert d["w_wing_l_x"] < -0.8 and d["w_wing_r_x"] > 0.8
     assert d["w_wing_l_x"] == pytest.approx(-d["w_wing_r_x"], abs=0.05)
     assert d["w_sem_peso"] == 0
     assert 1 <= d["w_max_inf"] <= 4

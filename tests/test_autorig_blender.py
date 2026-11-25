@@ -159,10 +159,10 @@ for v in obj.data.vertices:
     soma = sum(w for _, w in ws)
     max_soma_err = max(max_soma_err, abs(soma - 1.0))
     if v.co.x > 0.08:
-        if any((n.endswith(".R") or n.startswith("Right")) and w > 0.05 for n, w in ws):
+        if any((n.endswith(".L") or n.startswith("Left")) and w > 0.05 for n, w in ws):
             troca_sinal += 1
     elif v.co.x < -0.08:
-        if any((n.endswith(".L") or n.startswith("Left")) and w > 0.05 for n, w in ws):
+        if any((n.endswith(".R") or n.startswith("Right")) and w > 0.05 for n, w in ws):
             troca_sinal += 1
 
 ossos_info = {
@@ -256,13 +256,13 @@ def test_autorig_organico_conectado_godot_humanoid_4_clipes(tmp_path, export_mod
     assert [t["name"] for t in rel["nla"]] == pedidos
     assert all(t["mute"] is True for t in rel["nla"])
 
-    # Convenção X (+X esquerda, -X direita) e lista exata de 23 ossos do G6
+    # Convenção X (-X esquerda, +X direita) e lista exata de 23 ossos do G6
     mapa_esperado = godot_perfil["rig"]["mapas"]["godot-humanoid@1"]
     assert rel["ossos"] == mapa_esperado
-    assert rel["ossos_info"]["UpperArm.L"]["head"][0] > 0.0
-    assert rel["ossos_info"]["UpperArm.R"]["head"][0] < 0.0
-    assert rel["ossos_info"]["UpperLeg.L"]["head"][0] > 0.0
-    assert rel["ossos_info"]["UpperLeg.R"]["head"][0] < 0.0
+    assert rel["ossos_info"]["UpperArm.L"]["head"][0] < 0.0
+    assert rel["ossos_info"]["UpperArm.R"]["head"][0] > 0.0
+    assert rel["ossos_info"]["UpperLeg.L"]["head"][0] < 0.0
+    assert rel["ossos_info"]["UpperLeg.R"]["head"][0] > 0.0
 
     gltf, binb = qc.ler_glb_bin(glb)
     info = qc.analisar(gltf)

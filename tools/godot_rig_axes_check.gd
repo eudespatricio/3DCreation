@@ -84,8 +84,8 @@ func _initialize() -> void:
 			_fail("escudo nao esta com topo para cima (+Y): " + str(esc_topo), cb)
 			return
 		var esc_frente := (escudo_node.global_transform.basis * Vector3(0.0, 0.0, -1.0)).normalized()
-		if esc_frente.dot(Vector3(1.0, 0.0, 0.0)) <= 0.9:
-			_fail("escudo nao aponta face externa para fora (+X): " + str(esc_frente), cb)
+		if esc_frente.dot(Vector3(-1.0, 0.0, 0.0)) <= 0.9:
+			_fail("escudo nao aponta face externa para fora (-X): " + str(esc_frente), cb)
 			return
 
 	var skel := _achar_tipo(cb, "Skeleton3D") as Skeleton3D

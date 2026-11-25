@@ -307,7 +307,41 @@ def transformar_colisores_ucx(escala: float, deslocamento: Vector) -> None:
         obj.data.update()
 
 
-def calcular_pivo(regra: str, minimo: Vector, maximo: Vector, declarado) -> tuple[Vector, str]:
+def centro_banda_empunhadura(
+    minimo: Vector,
+    maximo: Vector,
+    escala: float = 1.0,
+    z_frac_min: float = 0.05,
+    z_frac_max: float = 0.15,
+) -> tuple[float, float] | None:
+    """Centro XY da haste na faixa do cabo (abaixo da guarda) na escala final."""
+    altura = float(maximo.z - minimo.z) * float(escala)
+    if altura <= 1e-6:
+        return None
+    z_base = float(minimo.z) * float(escala)
+    z_lo = z_base + z_frac_min * altura
+    z_hi = z_base + z_frac_max * altura
+    xs: list[float] = []
+    ys: list[float] = []
+    for obj in objetos_malha():
+        mw = obj.matrix_world
+        for v in obj.data.vertices:
+            co = (mw @ v.co) * float(escala)
+            if z_lo <= co.z <= z_hi:
+                xs.append(float(co.x))
+                ys.append(float(co.y))
+    if not xs:
+        return None
+    return (0.5 * (min(xs) + max(xs)), 0.5 * (min(ys) + max(ys)))
+
+
+def calcular_pivo(
+    regra: str,
+    minimo: Vector,
+    maximo: Vector,
+    declarado,
+    centro_xy: tuple[float, float] | None = None,
+) -> tuple[Vector, str]:
     """Pivo pedido pela spec, ou a regra geometrica quando o provider nao declara."""
     centro = (minimo + maximo) / 2
     if declarado:
@@ -321,11 +355,11 @@ def calcular_pivo(regra: str, minimo: Vector, maximo: Vector, declarado) -> tupl
     if regra == "origem":
         return Vector((0.0, 0.0, 0.0)), "regra"
     if regra == "empunhadura":
-        # regra do contrato (D58): 20% da altura a partir da base, igual ao blocky
-        # (FRACAO_EMPUNHADURA em src/forge3d/profiles.py). Este script roda no Python do
-        # Blender e nao importa o pacote: a fracao fica literal de proposito.
-        z = minimo.z + 0.2 * (maximo.z - minimo.z)
-        return Vector((centro.x, centro.y, z)), "heuristica"
+        # regra do contrato (D58): 12% da altura a partir da base (centro do cabo, abaixo da guarda),
+        # igual a FRACAO_EMPUNHADURA em src/forge3d/profiles.py. Literal aqui porque o Blender nao importa src.
+        z = minimo.z + 0.12 * (maximo.z - minimo.z)
+        px, py = centro_xy if centro_xy is not None else (centro.x, centro.y)
+        return Vector((px, py, z)), "heuristica"
     return Vector((centro.x, centro.y, minimo.z)), "regra"
 
 

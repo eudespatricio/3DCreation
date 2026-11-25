@@ -7,6 +7,7 @@ import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import upload
 from .errors import erro_spec
@@ -260,6 +261,104 @@ def _formatar_luau_valor(valor: str | dict[str, str], nivel: int = 1) -> str:
     return f'"{_escapar_literal(str(valor))}"'
 
 
+def _formatar_luau_any(valor: Any, nivel: int = 1) -> str:
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    if isinstance(valor, (int, float)):
+        return str(valor)
+    if valor is None:
+        return "nil"
+    if isinstance(valor, str):
+        return f'"{_escapar_literal(valor)}"'
+    if isinstance(valor, list):
+        if not valor:
+            return "{}"
+        tab = "\t" * (nivel + 1)
+        tab_fim = "\t" * nivel
+        itens = "\n".join(f"{tab}{_formatar_luau_any(v, nivel=nivel + 1)}," for v in valor)
+        return f"{{\n{itens}\n{tab_fim}}}"
+    if isinstance(valor, dict):
+        if not valor:
+            return "{}"
+        tab = "\t" * (nivel + 1)
+        tab_fim = "\t" * nivel
+        itens = "\n".join(
+            f'{tab}["{_escapar_literal(str(k))}"] = {_formatar_luau_any(valor[k], nivel=nivel + 1)},'
+            for k in sorted(valor)
+        )
+        return f"{{\n{itens}\n{tab_fim}}}"
+    return f'"{_escapar_literal(str(valor))}"'
+
+
+def _coletar_meta_manifesto(
+    dados: dict,
+    meta_out: dict[str, dict[str, Any]],
+    escopo: EscopoRojo | None,
+) -> None:
+    schema = str(dados.get("schema") or "")
+    if not (schema.startswith("forge3d/manifest@") or ("files" in dados and "qc" in dados)):
+        return
+    aid = str(dados.get("asset_id") or dados.get("id") or "").strip()
+    if not aid or (escopo is not None and aid not in escopo.asset_ids):
+        return
+    entry: dict[str, Any] = {}
+    for campo in ("anexo", "sockets", "partes"):
+        val = dados.get(campo)
+        if val:
+            entry[campo] = val
+    if entry:
+        meta_out[aid] = entry
+
+
+def coletar_metadados_manifestos(
+    fontes: str | os.PathLike | dict | Iterable[str | os.PathLike | dict] | None,
+    escopo: EscopoRojo | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Coleta metadados estruturais (``anexo``, ``sockets``, ``partes``) de manifestos."""
+    if fontes is None:
+        lista: list[str | os.PathLike | dict] = []
+    elif isinstance(fontes, (str, os.PathLike, dict)):
+        lista = [fontes]
+    else:
+        lista = list(fontes)
+
+    meta: dict[str, dict[str, Any]] = {}
+    for fonte in lista:
+        if isinstance(fonte, dict):
+            if escopo is None or _registro_pertence_escopo(fonte, escopo):
+                _coletar_meta_manifesto(fonte, meta, escopo)
+            continue
+        caminho = Path(fonte).expanduser()
+        if not caminho.exists():
+            continue
+        if caminho.is_dir():
+            dir_res = caminho.resolve(strict=False)
+            for arq in sorted(caminho.glob("*.manifest.json")):
+                try:
+                    dados = json.loads(arq.read_text(encoding="utf-8"))
+                except ValueError:
+                    continue
+                if not isinstance(dados, dict):
+                    continue
+                if escopo is not None:
+                    rec_escopo = dict(dados)
+                    if escopo.origem is not None or escopo.destino is not None:
+                        rec_escopo.setdefault("origem", str(dir_res))
+                    if not _registro_pertence_escopo(rec_escopo, escopo):
+                        continue
+                _coletar_meta_manifesto(dados, meta, escopo)
+        elif caminho.is_file() and caminho.suffix.lower() == ".json":
+            try:
+                dados = json.loads(caminho.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            itens = dados if isinstance(dados, list) else ([dados] if isinstance(dados, dict) else [])
+            for item in itens:
+                if isinstance(item, dict) and (escopo is None or _registro_pertence_escopo(item, escopo)):
+                    _coletar_meta_manifesto(item, meta, escopo)
+    return {k: meta[k] for k in sorted(meta)}
+
+
 def gerar_assets_lua(
     fontes_ou_ledger: str | os.PathLike | dict | Iterable[str | os.PathLike | dict] | None,
     destino_lua: str | os.PathLike,
@@ -269,6 +368,7 @@ def gerar_assets_lua(
     destino_escopo: str | os.PathLike | None = None,
     asset_ids_permitidos: Iterable[str] | None = None,
     projetos_permitidos: Iterable[str] | None = None,
+    incluir_metadados: bool = False,
 ) -> dict:
     """Gera modulo Luau ``Assets.lua`` deterministico (``id -> rbxassetid://<asset_id>`` ou mapa por role)."""
     if not _IDENTIFICADOR_LUAU.match(namespace or ""):
@@ -330,9 +430,19 @@ def gerar_assets_lua(
     else:
         corpo = "{}"
 
+    metadados: dict[str, dict[str, Any]] = (
+        coletar_metadados_manifestos(fontes, escopo=escopo) if incluir_metadados else {}
+    )
+    bloco_meta = (
+        f"\n{namespace}._meta = {_formatar_luau_any(metadados, nivel=0)}\n"
+        if metadados
+        else ""
+    )
+
     conteudo = (
         "-- Gerado automaticamente pelo Forge3D. Nao editar manualmente.\n"
-        f"local {namespace} = {corpo}\n\n"
+        f"local {namespace} = {corpo}\n"
+        f"{bloco_meta}\n"
         f"return {namespace}\n"
     )
     _escrever_atomico(destino, conteudo, f"rojo-{os.getpid()}")
@@ -342,4 +452,5 @@ def gerar_assets_lua(
         "namespace": namespace,
         "total": len(ordenado),
         "assets": ordenado,
+        **({"metadados": metadados} if incluir_metadados else {}),
     }

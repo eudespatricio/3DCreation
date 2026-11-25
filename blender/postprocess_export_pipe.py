@@ -219,6 +219,22 @@ def _pos_escala_rig_e_animacao(
         if callable(fn_anc := getattr(ar, "extrair_ancoras", None)):
             if isinstance(ancoras := fn_anc(rig_obj), dict) and ancoras:
                 info_gerada["ancoras"] = ancoras
+    elif (
+        str(item.get("tipo") or "").strip() == "prop_equipavel"
+        or str(item.get("parte") or "").strip() == "arma"
+        or str(item.get("pivot") or "").strip() == "empunhadura"
+    ):
+        solicitados_sockets = job.get("sockets") or item.get("sockets")
+        if not solicitados_sockets or "Grip" in solicitados_sockets:
+            sockets_extraidos = [
+                {
+                    "nome": "Grip",
+                    "osso": str(obj.name),
+                    "posicao_local": [0.0, 0.0, 0.0],
+                    "rotacao_quat_wxyz": [1.0, 0.0, 0.0, 0.0],
+                    "frente_local": [0.0, 0.0, -1.0],
+                }
+            ]
 
     return animacoes_geradas, sockets_extraidos
 

@@ -123,7 +123,7 @@ def _refinar_pesos_aa_56(
                 if poly.material_index in eye_slots:
                     for vi in poly.vertices:
                         verts_olho.add(vi)
-                        alvo_e = "Eye.L" if coords_xyz[vi][0] >= 0.0 else "Eye.R"
+                        alvo_e = "Eye.R" if coords_xyz[vi][0] >= 0.0 else "Eye.L"
                         pesos_por_vertice[vi] = [(alvo_e, 1.0)]
         eye_l_h = Vector(ossos_por_nome["Eye.L"]["cabeca"])
         eye_r_h = Vector(ossos_por_nome["Eye.R"]["cabeca"])
@@ -169,7 +169,7 @@ def _refinar_pesos_aa_56(
     eps_f = max(0.0025 * h, 1e-4)
     vert_ilha_id = {vi: iid for iid, il in enumerate(ilhas) for vi in il}
     vert_ilha_tam = {vi: len(il) for il in ilhas for vi in il}
-    for lado, sinal in (("L", 1.0), ("R", -1.0)):
+    for lado, sinal in (("L", -1.0), ("R", 1.0)):
         hand_name = f"Hand.{lado}"
         hand_osso = ossos_por_nome.get(hand_name)
         dedos_lado = [ossos_por_nome[f"{d}{idx}.{lado}"] for d in _DEDOS_NOMES for idx in (1, 2, 3) if f"{d}{idx}.{lado}" in ossos_por_nome]
@@ -440,7 +440,7 @@ def _atribuir_pesos_inverso(
         for vi in range(n_total):
             vx = coords_xyz[vi][0]
             if abs(vx) > 0.042 * h:
-                lado_opp = "R" if vx > 0.0 else "L"
+                lado_opp = "L" if vx > 0.0 else "R"
                 filtrados = [
                     (n, min(w, 0.045) if _lado_osso(n) == lado_opp else w)
                     for n, w in pesos_por_vertice.get(vi, ())

@@ -66,7 +66,7 @@ def _ossos_dedos_mao(
     ml: float,
 ) -> list[dict]:
     """Constroi os 15 ossos de falanges (Thumb..Little x 1..3) para uma mao."""
-    sinal = 1.0 if lado == "L" else -1.0
+    sinal = -1.0 if lado == "L" else 1.0
     u_hand, u_thumb, u_palm, len_hand = _quadro_mao(wrist, tip, h, sinal)
     palm_w = max(0.020 * h, 0.44 * len_hand)
     knuckle_t = 0.48 * len_hand
@@ -149,8 +149,8 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
         cape_y_raw = float(m["torso_back_y"]) if has_back_y else cape_y_fb
         cape_y = max(cy - 0.16 * h, min(cy - 0.04 * h, cape_y_raw))
         cape_tail_y = max(cape_y_raw, cape_y - 0.015 * h) if has_back_y else (cape_y - 0.03 * h)
-        u_h_l, _, _, len_h_l = _quadro_mao(bL["wrist"], bL["tip"], h, 1.0)
-        u_h_r, _, _, len_h_r = _quadro_mao(bR["wrist"], bR["tip"], h, -1.0)
+        u_h_l, _, _, len_h_l = _quadro_mao(bL["wrist"], bL["tip"], h, -1.0)
+        u_h_r, _, _, len_h_r = _quadro_mao(bR["wrist"], bR["tip"], h, 1.0)
         hand_tail_l = Vector(bL["wrist"]) + u_h_l * (0.50 * len_h_l)
         hand_tail_r = Vector(bR["wrist"]) + u_h_r * (0.50 * len_h_r)
         ossos_aa = [
@@ -161,8 +161,8 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
             _osso("Neck", "Chest", (0.0, cy, m["chest_top_z"]), (0.0, cy, m["neck_z"]), ml),
             _osso("Head", "Neck", (0.0, cy, m["neck_z"]), (0.0, cy, m["head_top_z"]), ml),
             _osso("Jaw", "Head", (0.0, cy + 0.022 * h, m["neck_z"] + 0.18 * head_h), (0.0, cy + 0.070 * h, m["neck_z"] + 0.06 * head_h), ml),
-            _osso("Eye.L", "Head", (0.020 * h, cy + 0.052 * h, m["neck_z"] + 0.56 * head_h), (0.020 * h, cy + 0.082 * h, m["neck_z"] + 0.56 * head_h), ml),
-            _osso("Eye.R", "Head", (-0.020 * h, cy + 0.052 * h, m["neck_z"] + 0.56 * head_h), (-0.020 * h, cy + 0.082 * h, m["neck_z"] + 0.56 * head_h), ml),
+            _osso("Eye.L", "Head", (-0.020 * h, cy + 0.052 * h, m["neck_z"] + 0.56 * head_h), (-0.020 * h, cy + 0.082 * h, m["neck_z"] + 0.56 * head_h), ml),
+            _osso("Eye.R", "Head", (0.020 * h, cy + 0.052 * h, m["neck_z"] + 0.56 * head_h), (0.020 * h, cy + 0.082 * h, m["neck_z"] + 0.56 * head_h), ml),
             _osso("Cape", "Chest", (0.0, cape_y, m["chest_top_z"] - 0.02 * h), (0.0, cape_tail_y, m["hip_z"] - 0.04 * h), ml),
             _osso("Shoulder.L", "Chest", (bL["clav_x"], cy, bL["shoulder"].z), bL["shoulder"], ml),
             _osso("UpperArm.L", "Shoulder.L", bL["shoulder"], bL["elbow"], ml),
@@ -191,11 +191,11 @@ def _construir_ossos(esqueleto: str, m: dict) -> list[dict]:
         # r15@1 nao possui osso Shoulder clavicular: ancora cabeca na junta do ombro para nao girar de dentro do torax.
         sh_l_x = math.copysign(
             max(abs(float(bL["clav_x"])), 0.92 * abs(float(bL["shoulder"].x))),
-            float(bL["clav_x"]) or float(bL["shoulder"].x) or 1.0,
+            float(bL["clav_x"]) or float(bL["shoulder"].x) or -1.0,
         )
         sh_r_x = math.copysign(
             max(abs(float(bR["clav_x"])), 0.92 * abs(float(bR["shoulder"].x))),
-            float(bR["clav_x"]) or float(bR["shoulder"].x) or -1.0,
+            float(bR["clav_x"]) or float(bR["shoulder"].x) or 1.0,
         )
         return [
             _osso("HumanoidRootPart", None, (0.0, 0.0, z0), (0.0, 0.0, z0 + 0.05 * h), ml),
@@ -255,7 +255,7 @@ def _alinhar_roll_ossos(rig_obj) -> None:
                         if abs(alvo_ref.y) > 0.25:
                             n_canon = n if alvo_ref.y > 0.0 else -n
                         else:
-                            sgn_x = 1.0 if sup_n.endswith(".L") else -1.0
+                            sgn_x = -1.0 if sup_n.endswith(".L") else 1.0
                             n_canon = n if (n.y * sgn_x) >= 0.0 else -n
                     planos_lado[sup_n] = n_canon
                     for eb_arm in (sup, inf):
@@ -288,7 +288,7 @@ def _alinhar_roll_ossos(rig_obj) -> None:
     ossos_eixo_criatura = _OSSOS_ASA | _OSSOS_PATA | _OSSOS_CAUDA
     e_rig_criatura = any(eb.name in ossos_eixo_criatura or eb.name == "MountSeat" for eb in edit_bones)
     alvos_aa: dict[str, Vector] = {}
-    for lado, sinal in (("L", 1.0), ("R", -1.0)):
+    for lado, sinal in (("L", -1.0), ("R", 1.0)):
         hand_eb = edit_bones.get(f"Hand.{lado}")
         if hand_eb is not None:
             u_h = hand_eb.y_axis.normalized()

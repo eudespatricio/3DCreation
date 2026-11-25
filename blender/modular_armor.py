@@ -2798,7 +2798,7 @@ def _ajustar_pivo_socket(
             if min_z < -0.05 and max_z > 0.5:
                 ancora = Vector((0.0, 0.0, 0.0))
             else:
-                ancora = Vector((centro.x, centro.y, min_z + 0.20 * max(max_z - min_z, 1e-4)))
+                ancora = Vector((centro.x, centro.y, min_z + 0.12 * max(max_z - min_z, 1e-4)))
         elif parte == "escudo":
             # Lado interno de pegada no antebraco (-Y_bl), face convexa externa em +Y_bl
             ancora = Vector((centro.x, min_y + 0.15 * max(max_y - min_y, 1e-4), centro.z))

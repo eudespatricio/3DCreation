@@ -173,15 +173,15 @@ def test_montar_character_body_orienta_arma_escudo_e_ombreira(tmp_path: Path) ->
     gltf = json.loads(data[20 : 20 + jlen])
     bin_bytes = bytearray(data[28 + jlen : 28 + jlen + blen])
     ang = math.radians(15.0)
-    sh_q = [0.0, 0.0, -math.sin(math.pi / 4.0), math.cos(math.pi / 4.0)]
+    sh_q = [0.0, 0.0, math.sin(math.pi / 4.0), math.cos(math.pi / 4.0)]
     arm_q = [0.0, 0.0, math.sin((math.pi - ang) / 2.0), math.cos((math.pi - ang) / 2.0)]
     gltf["nodes"] = [
         {"name": "Armature", "children": [1, 2]},
         {"name": "body", "mesh": 0, "skin": 0},
         {"name": "Hips", "children": [3, 5]},
-        {"name": "Shoulder.L", "translation": [0.1, 1.35, 0.0], "rotation": sh_q, "children": [4]},
+        {"name": "Shoulder.L", "translation": [-0.1, 1.35, 0.0], "rotation": sh_q, "children": [4]},
         {"name": "LowerArm.L", "translation": [0.0, 0.15, 0.0], "rotation": arm_q},
-        {"name": "Hand.R", "translation": [-0.3, 1.0, 0.0], "rotation": [0.0, 0.0, math.sin((math.pi + ang) / 2.0), math.cos((math.pi + ang) / 2.0)]},
+        {"name": "Hand.R", "translation": [0.3, 1.0, 0.0], "rotation": [0.0, 0.0, math.sin((math.pi + ang) / 2.0), math.cos((math.pi + ang) / 2.0)]},
     ]
     ident = struct.pack("<16f", 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
     while len(bin_bytes) % 4:
@@ -241,8 +241,8 @@ func _initialize() -> void:
 \tif esc_topo.dot(Vector3(0.0, 1.0, 0.0)) <= 0.9:
 \t\t_fail("escudo nao esta com topo para cima (+Y): " + str(esc_topo), cb)
 \t\treturn
-\tif esc_frente.dot(Vector3(1.0, 0.0, 0.0)) <= 0.9:
-\t\t_fail("escudo nao aponta face externa para fora (+X): " + str(esc_frente), cb)
+\tif esc_frente.dot(Vector3(-1.0, 0.0, 0.0)) <= 0.9:
+\t\t_fail("escudo nao aponta face externa para fora (-X): " + str(esc_frente), cb)
 \t\treturn
 
 \tvar omb_topo := (ombreira.global_transform.basis * Vector3(0.0, 1.0, 0.0)).normalized()

@@ -76,6 +76,61 @@ def calcular_aducao_braco_ancoras(ancoras: Mapping[str, Sequence[float]] | None)
     return min(26.0, max(0.0, theta_arm_total - target_deg))
 
 
+def aducao_base_marcha(nome_clipe: str) -> float:
+    """Retorna aducao base (graus) das coxas em marcha humana (walk/run)."""
+    nome = str(nome_clipe or "").strip().lower()
+    if nome == "walk":
+        return 4.5
+    if nome == "run":
+        return 6.0
+    return 0.0
+
+
+def calcular_aducao_perna_ancoras(ancoras: Mapping[str, Sequence[float]] | None) -> float:
+    """Calcula aducao extra (graus) de UpperLeg.L/R proporcional a ``hip_dx / altura`` via ancoras Y-up."""
+    if not isinstance(ancoras, Mapping) or not ancoras:
+        return 0.0
+
+    ul = _pt3(ancoras, "LeftUpperLeg") or _pt3(ancoras, "UpperLeg.L")
+    ur = _pt3(ancoras, "RightUpperLeg") or _pt3(ancoras, "UpperLeg.R")
+    fl = _pt3(ancoras, "LeftFoot") or _pt3(ancoras, "Foot.L")
+    fr = _pt3(ancoras, "RightFoot") or _pt3(ancoras, "Foot.R")
+    if ul is None or ur is None or fl is None or fr is None:
+        return 0.0
+
+    hip_dx = abs(ul[0] - ur[0])
+    foot_dx = abs(fl[0] - fr[0])
+    leg_len = 0.5 * (max(ul[1] - fl[1], 1e-4) + max(ur[1] - fr[1], 1e-4))
+    y_foot = 0.5 * (fl[1] + fr[1])
+
+    head = _pt3(ancoras, "Head")
+    if head is not None:
+        h_est = max((head[1] - y_foot) / 0.79, 1e-4)
+    elif (neck := _pt3(ancoras, "Neck")) is not None:
+        h_est = max((neck[1] - y_foot) / 0.72, 1e-4)
+    else:
+        ys = [
+            float(v[1])
+            for v in ancoras.values()
+            if isinstance(v, (list, tuple)) and len(v) == 3
+        ]
+        h_est = max(((max(ys) - min(ys)) / 0.88) if ys else 1.75, 1e-4)
+
+    hip_ratio = hip_dx / h_est
+    foot_ratio = foot_dx / h_est
+    if hip_ratio <= 0.15 and foot_ratio <= 0.16:
+        return 0.0
+
+    alvo_ratio = max(0.090, min(0.145, 0.090 + 0.35 * max(0.0, hip_ratio - 0.20)))
+    foot_dx_alvo = alvo_ratio * h_est
+    if foot_dx <= foot_dx_alvo + 1e-4:
+        return 0.0
+
+    sin_tot = max(0.0, min(0.85, (foot_dx - foot_dx_alvo) / max(2.0 * leg_len, 1e-4)))
+    theta_tot = math.degrees(math.asin(sin_tot))
+    return round(max(0.0, min(10.0, theta_tot - 4.5)), 4)
+
+
 def escala_deslocamento_ancoras(
     ancoras: Mapping[str, Sequence[float]] | None,
     mps: float = 0.28,

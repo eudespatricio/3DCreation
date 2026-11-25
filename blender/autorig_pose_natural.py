@@ -162,6 +162,68 @@ def calcular_caimento_braco_rig(rig_obj) -> dict:
     }
 
 
+def calcular_aducao_perna_rig(rig_obj) -> dict:
+    """Calcula aducao extra (graus) de UpperLeg.L/R proporcional a ``hip_dx / altura`` no rig Blender."""
+    vazio = {
+        "aplicavel": False,
+        "extra_graus": 0.0,
+        "hip_dx": 0.0,
+        "foot_dx": 0.0,
+        "hip_ratio": 0.0,
+    }
+    if rig_obj is None or getattr(rig_obj, "type", None) != "ARMATURE":
+        return vazio
+    bones = rig_obj.data.bones
+    if any(b.name in _OSSOS_ASA or b.name in _OSSOS_PATA or b.name == "MountSeat" for b in bones):
+        return vazio
+
+    leg_l = bones.get("UpperLeg.L") or bones.get("LeftUpperLeg")
+    leg_r = bones.get("UpperLeg.R") or bones.get("RightUpperLeg")
+    foot_l = bones.get("Foot.L") or bones.get("LeftFoot")
+    foot_r = bones.get("Foot.R") or bones.get("RightFoot")
+    if leg_l is None or leg_r is None or foot_l is None or foot_r is None:
+        return vazio
+
+    hip_dx = abs(float(leg_l.head_local.x) - float(leg_r.head_local.x))
+    foot_dx = abs(float(foot_l.head_local.x) - float(foot_r.head_local.x))
+    leg_len = 0.5 * (
+        max(float(leg_l.head_local.z - foot_l.head_local.z), 1e-4)
+        + max(float(leg_r.head_local.z - foot_r.head_local.z), 1e-4)
+    )
+    z_foot = 0.5 * (float(foot_l.head_local.z) + float(foot_r.head_local.z))
+
+    head = bones.get("Head")
+    if head is not None:
+        h_est = max((float(head.head_local.z) - z_foot) / 0.79, 1e-4)
+    elif (neck := bones.get("Neck")) is not None:
+        h_est = max((float(neck.head_local.z) - z_foot) / 0.72, 1e-4)
+    else:
+        h_est = max(altura_rig_e_chao(rig_obj)[1], 1e-4)
+
+    hip_ratio = hip_dx / h_est
+    foot_ratio = foot_dx / h_est
+    if hip_ratio <= 0.15 and foot_ratio <= 0.16:
+        extra_graus = 0.0
+    else:
+        alvo_ratio = max(0.090, min(0.145, 0.090 + 0.35 * max(0.0, hip_ratio - 0.20)))
+        foot_dx_alvo = alvo_ratio * h_est
+        if foot_dx <= foot_dx_alvo + 1e-4:
+            extra_graus = 0.0
+        else:
+            sin_tot = max(0.0, min(0.85, (foot_dx - foot_dx_alvo) / max(2.0 * leg_len, 1e-4)))
+            theta_tot = math.degrees(math.asin(sin_tot))
+            extra_graus = round(max(0.0, min(10.0, theta_tot - 4.5)), 4)
+
+    return {
+        "aplicavel": extra_graus > 1e-4,
+        "extra_graus": extra_graus,
+        "hip_dx": round(hip_dx, 5),
+        "foot_dx": round(foot_dx, 5),
+        "altura_est": round(h_est, 5),
+        "hip_ratio": round(hip_ratio, 4),
+    }
+
+
 def peso_gravidade_clipe(nome_clipe: str, fracao: float) -> float:
     """Peso temporal [0..1] do caimento gravitacional conforme dinamica do clipe."""
     f = max(0.0, min(1.0, float(fracao)))
@@ -373,7 +435,7 @@ def assar_pose_rest_natural(
 
         tem_ombro = "Shoulder.L" in bones and "Shoulder.R" in bones
         frac_sh, frac_ua = (0.25, 0.75) if tem_ombro else (0.0, 1.0)
-        for lado, sgn, d_tot, flex_deg in (("L", 1.0, delta_l, flex_l), ("R", -1.0, delta_r, flex_r)):
+        for lado, sgn, d_tot, flex_deg in (("L", -1.0, delta_l, flex_l), ("R", 1.0, delta_r, flex_r)):
             if tem_ombro and (pb_sh := rig_obj.pose.bones.get(f"Shoulder.{lado}")) is not None:
                 q_m = pb_sh.bone.matrix_local.to_3x3().to_quaternion()
                 pb_sh.rotation_quaternion = (q_m.inverted() @ Quaternion((0.0, 1.0, 0.0), sgn * math.radians(d_tot * frac_sh)) @ q_m).normalized()

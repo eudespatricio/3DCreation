@@ -64,6 +64,8 @@ rig:
       braco_d: RightUpperArm
       antebraco_e: LeftLowerArm
       antebraco_d: RightLowerArm
+      mao_e: LeftHand
+      mao_d: RightHand
       perna_e: LeftUpperLeg
       perna_d: RightUpperLeg
       canela_e: LeftLowerLeg

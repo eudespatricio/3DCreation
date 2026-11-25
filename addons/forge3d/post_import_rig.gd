@@ -442,9 +442,9 @@ static func _orientar_anexo_socket(n3d: Node3D, skel: Skeleton3D, bone_name: Str
 		tratado = true
 	elif parte == "escudo":
 		if lado_r:
-			target_basis_skel = Basis(Vector3(0.0, 0.0, -1.0), Vector3(0.0, 1.0, 0.0), Vector3(1.0, 0.0, 0.0))
-		else:
 			target_basis_skel = Basis(Vector3(0.0, 0.0, 1.0), Vector3(0.0, 1.0, 0.0), Vector3(-1.0, 0.0, 0.0))
+		else:
+			target_basis_skel = Basis(Vector3(0.0, 0.0, -1.0), Vector3(0.0, 1.0, 0.0), Vector3(1.0, 0.0, 0.0))
 		tratado = true
 	elif parte in ["elmo", "cabelo", "capa", "ombreiras", "peitoral", "luvas", "calcas", "calças", "botas"]:
 		target_basis_skel = Basis.IDENTITY

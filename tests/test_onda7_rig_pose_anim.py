@@ -156,8 +156,8 @@ def test_locomocao_quadril_z_reduzido_e_pernas_aduzidas(perfil: str, esq: str, n
     ciclo = slice(0, -1)  # ultima chave repete a primeira (loop fechado)
     media_e = sum(_serie(clipe, _osso(perfil, esq, "perna_e"), "Z")[ciclo]) / (len(clipe["chaves"]) - 1)
     media_d = sum(_serie(clipe, _osso(perfil, esq, "perna_d"), "Z")[ciclo]) / (len(clipe["chaves"]) - 1)
-    assert media_e > 2.0, f"perna esquerda nao aduz (+Z) em {nome}: media={media_e:.2f}"
-    assert media_d < -2.0, f"perna direita nao aduz (-Z) em {nome}: media={media_d:.2f}"
+    assert media_e < -2.0, f"perna esquerda nao aduz (-Z) em {nome}: media={media_e:.2f}"
+    assert media_d > 2.0, f"perna direita nao aduz (+Z) em {nome}: media={media_d:.2f}"
 
 
 @pytest.mark.parametrize(("perfil", "esq"), PERFIS_ESQ)
@@ -247,13 +247,13 @@ def test_locomocao_com_seed_mantem_invariantes_biomecanicos(nome: str) -> None:
 # ------------------------------------------------------------------ Roblox SkinnedMesh R15 sem partes[]
 _METROS = {
     "HumanoidRootPart": (0, 0.95, 0), "LowerTorso": (0, 1.0, 0), "UpperTorso": (0, 1.2, 0), "Head": (0, 1.52, 0),
-    "LeftUpperArm": (0.22, 1.42, 0), "LeftLowerArm": (0.30, 1.14, 0), "LeftHand": (0.36, 0.90, 0),
-    "LeftUpperLeg": (0.10, 0.92, 0), "LeftLowerLeg": (0.10, 0.50, 0), "LeftFoot": (0.10, 0.10, 0),
+    "LeftUpperArm": (-0.22, 1.42, 0), "LeftLowerArm": (-0.30, 1.14, 0), "LeftHand": (-0.36, 0.90, 0),
+    "LeftUpperLeg": (-0.10, 0.92, 0), "LeftLowerLeg": (-0.10, 0.50, 0), "LeftFoot": (-0.10, 0.10, 0),
 }
 _METROS.update({n.replace("Left", "Right"): (-x, y, z) for n, (x, y, z) in list(_METROS.items()) if n.startswith("Left")})
 ANC_RELAX = {n: [round(c / MPS, 5) for c in p] for n, p in _METROS.items()}
-_METROS_45 = {**_METROS, "LeftLowerArm": (0.46, 1.18, 0), "LeftHand": (0.70, 0.94, 0),
-              "RightLowerArm": (-0.46, 1.18, 0), "RightHand": (-0.70, 0.94, 0)}
+_METROS_45 = {**_METROS, "LeftLowerArm": (-0.46, 1.18, 0), "LeftHand": (-0.70, 0.94, 0),
+              "RightLowerArm": (0.46, 1.18, 0), "RightHand": (0.70, 0.94, 0)}
 ANC_A45 = {n: [round(c / MPS, 5) for c in p] for n, p in _METROS_45.items()}
 
 
@@ -417,12 +417,12 @@ def blender_puro(monkeypatch: pytest.MonkeyPatch):
 def _marcos(**ajustes) -> dict:
     m = {
         "altura": 2.0, "z_min": 0.0, "z_max": 2.0, "cy": 0.0, "torso_hw": 0.22, "neck_hw": 0.08,
-        "leg_x_L": 0.28, "leg_x_R": -0.28, "shoulder_x_L": 0.38, "shoulder_x_R": -0.38,
-        "elbow_x_L": 0.70, "elbow_x_R": -0.70, "shoulder_z": 1.50, "chest_top_z": 1.58, "neck_z": 1.66,
+        "leg_x_L": -0.28, "leg_x_R": 0.28, "shoulder_x_L": -0.38, "shoulder_x_R": 0.38,
+        "elbow_x_L": -0.70, "elbow_x_R": 0.70, "shoulder_z": 1.50, "chest_top_z": 1.58, "neck_z": 1.66,
         "chest_z": 1.36, "spine1_z": 1.18, "spine_z": 1.06, "hip_z": 0.94, "leg_top_z": 0.84,
         "knee_z": 0.48, "ankle_z": 0.14, "head_top_z": 2.0,
-        "braco_L": {"shoulder": _Vec3((0.38, 0, 1.50)), "elbow": _Vec3((0.70, 0, 1.20)), "wrist": _Vec3((0.52, 0, 0.90))},
-        "braco_R": {"shoulder": _Vec3((-0.38, 0, 1.50)), "elbow": _Vec3((-0.70, 0, 1.20)), "wrist": _Vec3((-0.52, 0, 0.90))},
+        "braco_L": {"shoulder": _Vec3((-0.38, 0, 1.50)), "elbow": _Vec3((-0.70, 0, 1.20)), "wrist": _Vec3((-0.52, 0, 0.90))},
+        "braco_R": {"shoulder": _Vec3((0.38, 0, 1.50)), "elbow": _Vec3((0.70, 0, 1.20)), "wrist": _Vec3((0.52, 0, 0.90))},
     }
     m.update(ajustes)
     return m
@@ -438,7 +438,7 @@ def test_gap064_raio_do_ombro_exclui_chifre_largo_e_aceita_ombreira(blender_puro
         assert apl._vertice_no_raio_ombro(_Vec3((lado * 0.40, 0, 1.69)), lim, m) is False  # medial-alto acima do pescoco
         assert apl._vertice_no_raio_ombro(_Vec3((lado * 0.40, 0, 1.60)), lim, m) is True  # ombreira sobre a junta
         assert apl._vertice_no_raio_ombro(_Vec3((lado * 0.90, 0, 1.20)), lim, m) is True  # abaixo do corte: sempre livre
-    for nome, lado in (("Shoulder.L", 1.0), ("Shoulder.R", -1.0)):
+    for nome, lado in (("Shoulder.L", -1.0), ("Shoulder.R", 1.0)):
         assert ag._osso_permitido(nome, _Vec3((lado * 0.52, 0, 1.72)), m, True, tem_neck=True, lim=lim) is False
         assert ag._osso_permitido(nome, _Vec3((lado * 0.40, 0, 1.69)), m, True, tem_neck=True, lim=lim) is False
         assert ag._osso_permitido(nome, _Vec3((lado * 0.40, 0, 1.60)), m, True, tem_neck=True, lim=lim) is True
@@ -447,13 +447,13 @@ def test_gap064_raio_do_ombro_exclui_chifre_largo_e_aceita_ombreira(blender_puro
 def test_gap067_5_cotovelo_abduzido_com_pulso_baixo_ativa_pose_abduzida(blender_puro) -> None:
     _ag, apl = blender_puro
     h = 2.0
-    pulso = {"braco_L": {**_marcos()["braco_L"], "wrist": _Vec3((0.43, 0, 0.90))},
-             "braco_R": {**_marcos()["braco_R"], "wrist": _Vec3((-0.43, 0, 0.90))}}
+    pulso = {"braco_L": {**_marcos()["braco_L"], "wrist": _Vec3((-0.43, 0, 0.90))},
+             "braco_R": {**_marcos()["braco_R"], "wrist": _Vec3((0.43, 0, 0.90))}}
     # min_arm_low_x=0.43 <= sh_x+0.04h (0.46): so o ramo novo (> leg_abs+0.06h e > torso_hw+0.02h) o ativa.
     lim = apl._limites_anatomicos(_marcos(**pulso), tem_neck=True)
     assert lim["arm_hip_block_z"] > 0.9, "pose abduzida deveria ativar o bloqueio braco/quadril"
     assert lim["hips_max_x"] < 0.43 - 0.03 * h
     # Controle: cotovelo junto ao corpo nao e pose abduzida.
-    junto = _marcos(elbow_x_L=0.30, elbow_x_R=-0.30, **{"braco_L": {**pulso["braco_L"], "elbow": _Vec3((0.30, 0, 1.20))},
-                                                         "braco_R": {**pulso["braco_R"], "elbow": _Vec3((-0.30, 0, 1.20))}})
+    junto = _marcos(elbow_x_L=-0.30, elbow_x_R=0.30, **{"braco_L": {**pulso["braco_L"], "elbow": _Vec3((-0.30, 0, 1.20))},
+                                                         "braco_R": {**pulso["braco_R"], "elbow": _Vec3((0.30, 0, 1.20))}})
     assert apl._limites_anatomicos(junto, tem_neck=True).get("arm_hip_block_z", -1e9) < -1e8

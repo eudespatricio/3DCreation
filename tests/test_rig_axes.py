@@ -117,7 +117,7 @@ def add_box(cx, cy, cz, sx, sy, sz):
         v.co.y = v.co.y * sy + cy
         v.co.z = v.co.z * sz + cz
 
-# Humanoide sintetico em pe (+Z cima, +Y frente, +X esquerda)
+# Humanoide sintetico em pe (+Z cima, +Y frente, -X esquerda, +X direita)
 add_box(0.0, 0.0, 1.05, 0.28, 0.16, 0.56)
 add_box(0.0, 0.0, 1.44, 0.11, 0.11, 0.14)
 add_box(0.0, 0.0, 1.67, 0.20, 0.22, 0.34)
@@ -225,11 +225,11 @@ def test_rig_eixos_direcoes_simetria_e_cadeia_de_pais(
         ly = info["local_y"]
         lz = info["local_z"]
 
-        # 2. Simetria esquerda (+X) / direita (-X) / tronco central (|x| < 1e-3)
+        # 2. Simetria esquerda (-X) / direita (+X) / tronco central (|x| < 1e-3)
         if nome.endswith(".L") or nome.startswith("Left"):
-            assert hx > 0.0, f"{nome} deveria estar em +X, obteve head.x={hx}"
-        elif nome.endswith(".R") or nome.startswith("Right"):
             assert hx < 0.0, f"{nome} deveria estar em -X, obteve head.x={hx}"
+        elif nome.endswith(".R") or nome.startswith("Right"):
+            assert hx > 0.0, f"{nome} deveria estar em +X, obteve head.x={hx}"
         else:
             assert abs(hx) < 1e-3, f"{nome} central fora de X=0: head.x={hx}"
 
@@ -244,13 +244,13 @@ def test_rig_eixos_direcoes_simetria_e_cadeia_de_pais(
         elif nome in _PES:
             assert dy > 0.80, f"pe {nome} deve apontar +Y: dir={info['dir']}"
         elif nome == "Shoulder.L":
-            assert dx > 0.99, f"Shoulder.L deve apontar +X: dir={info['dir']}"
+            assert dx < -0.99, f"Shoulder.L deve apontar -X: dir={info['dir']}"
             assert lz[1] > 0.99, f"Shoulder.L local_z deve apontar +Y: lz={lz}"
-            assert lx[2] > 0.99, f"Shoulder.L local_x deve apontar +Z: lx={lx}"
+            assert lx[2] < -0.99, f"Shoulder.L local_x deve apontar -Z: lx={lx}"
         elif nome == "Shoulder.R":
-            assert dx < -0.99, f"Shoulder.R deve apontar -X: dir={info['dir']}"
+            assert dx > 0.99, f"Shoulder.R deve apontar +X: dir={info['dir']}"
             assert lz[1] > 0.99, f"Shoulder.R local_z deve apontar +Y: lz={lz}"
-            assert lx[2] < -0.99, f"Shoulder.R local_x deve apontar -Z: lx={lx}"
+            assert lx[2] > 0.99, f"Shoulder.R local_x deve apontar +Z: lx={lx}"
 
         # 4. Eixos locais de flexao (local_z frente +Y > 0.90, local_x lateral +X > 0.75)
         if nome in _MEMBROS_FLEXAO:

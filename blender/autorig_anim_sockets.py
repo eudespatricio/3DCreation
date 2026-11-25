@@ -22,6 +22,7 @@ if __package__:
         _CLIPES_NO_CHAO,
         altura_rig_e_chao,
         aplicar_ground_clamp_fk,
+        calcular_aducao_perna_rig,
         calcular_caimento_braco_rig,
         peso_gravidade_clipe,
     )
@@ -41,6 +42,7 @@ else:
         _CLIPES_NO_CHAO,
         altura_rig_e_chao,
         aplicar_ground_clamp_fk,
+        calcular_aducao_perna_rig,
         calcular_caimento_braco_rig,
         peso_gravidade_clipe,
     )
@@ -90,11 +92,46 @@ def extrair_sockets(
         verts_mesh = [v.co.copy() for v in mesh_obj.data.vertices]
 
     mat_bl_gltf = Matrix(_MAT_BL_PARA_GLTF_LINHAS)
+    eh_r15 = ("HumanoidRootPart" in ossos) and ("RightHand" in ossos)
     saida: list[dict] = []
     for nome_socket in ordem:
         candidatos = _SOCKETS_MAPA.get(nome_socket, (nome_socket,))
         osso = next((ossos[c] for c in candidatos if c in ossos), None)
         if osso is None:
+            continue
+
+        if eh_r15:
+            # rbx_r15_rig.py posiciona attachments em Y-up studs sobre MeshParts alinhadas ao mundo;
+            # emitir rotacao identidade e delta Y-up relativo ao ponto padrao da parte.
+            if nome_socket == "Hand.R":
+                vetor_mao = osso.tail_local - osso.head_local
+                escala_mao = max(vetor_mao.length, 0.05) / 0.10
+                pos_out = [
+                    -0.004 * escala_mao,
+                    0.20 * vetor_mao.length,
+                    -0.015 * escala_mao,
+                ]
+            elif nome_socket == "Hand.L":
+                vetor_mao = osso.tail_local - osso.head_local
+                escala_mao = max(vetor_mao.length, 0.05) / 0.10
+                pos_out = [
+                    0.003 * escala_mao,
+                    0.20 * vetor_mao.length,
+                    -0.014 * escala_mao,
+                ]
+            elif nome_socket == "Back":
+                pos_out = [0.0, 0.0, 0.02 * s_rig]
+            else:
+                pos_out = [0.0, 0.0, 0.0]
+            saida.append(
+                {
+                    "nome": nome_socket,
+                    "osso": osso.name,
+                    "posicao_local": [round(float(c), 5) for c in pos_out],
+                    "rotacao_quat_wxyz": [1.0, 0.0, 0.0, 0.0],
+                    "frente_local": [0.0, 0.0, -1.0],
+                }
+            )
             continue
 
         m_bone_3x3 = osso.matrix_local.to_3x3().normalized()
@@ -112,7 +149,7 @@ def extrair_sockets(
             comp_ref_r = vetor_mao.length * (2.0 if tem_dedos_r else 1.0)
             escala_mao = max(comp_ref_r, 0.05) / 0.10
             delta_bl = vetor_mao * fator_r + (
-                m_bone_3x3 @ Vector((0.004 * escala_mao, 0.0, 0.015 * escala_mao))
+                m_bone_3x3 @ Vector((-0.004 * escala_mao, 0.0, 0.015 * escala_mao))
             )
         elif nome_socket == "Hand.L":
             vetor_mao = osso.tail_local - osso.head_local
@@ -121,7 +158,7 @@ def extrair_sockets(
             comp_ref_l = vetor_mao.length * (2.0 if tem_dedos_l else 1.0)
             escala_mao = max(comp_ref_l, 0.05) / 0.10
             delta_bl = vetor_mao * fator_l + (
-                m_bone_3x3 @ Vector((-0.003 * escala_mao, 0.0, 0.014 * escala_mao))
+                m_bone_3x3 @ Vector((0.003 * escala_mao, 0.0, 0.014 * escala_mao))
             )
         elif nome_socket == "Back":
             meio_osso = (osso.head_local + osso.tail_local) * 0.5
@@ -183,7 +220,7 @@ def _aplicar_caimento_bracos_chave(
     braco_deg = float(info_caimento["braco_graus"]) * peso
     sh_total_arm: dict[str, Quaternion] = {}
 
-    for lado, sgn in (("L", 1.0), ("R", -1.0)):
+    for lado, sgn in (("L", -1.0), ("R", 1.0)):
         sh_nome = f"Shoulder.{lado}"
         pb_sh = rig_obj.pose.bones.get(sh_nome)
         if pb_sh is None:
@@ -203,10 +240,10 @@ def _aplicar_caimento_bracos_chave(
                 tocados_rot.append(sh_nome)
 
     for arm_nome, lado, sgn in (
-        ("UpperArm.L", "L", 1.0),
-        ("UpperArm.R", "R", -1.0),
-        ("LeftUpperArm", "L", 1.0),
-        ("RightUpperArm", "R", -1.0),
+        ("UpperArm.L", "L", -1.0),
+        ("UpperArm.R", "R", 1.0),
+        ("LeftUpperArm", "L", -1.0),
+        ("RightUpperArm", "R", 1.0),
     ):
         pb_arm = rig_obj.pose.bones.get(arm_nome)
         if pb_arm is None:
@@ -267,6 +304,11 @@ def aplicar_animacoes_multi(
         if (aplicar_caimento_natural and not e_criatura)
         else {"aplicavel": False, "ombro_graus": 0.0, "braco_graus": 0.0, "tem_ombro": False}
     )
+    info_aducao_perna = (
+        calcular_aducao_perna_rig(rig_obj)
+        if not e_criatura
+        else {"aplicavel": False, "extra_graus": 0.0}
+    )
     eh_humanoide, rig_height, z_chao = (
         altura_rig_e_chao(rig_obj) if not e_criatura else (False, 1.75, 0.0)
     )
@@ -274,13 +316,26 @@ def aplicar_animacoes_multi(
     escala_desl = max(0.5, min(3.0, rig_height / 1.75)) if eh_humanoide else 1.0
     clamp_ativo = bool(aplicar_ground_clamp and eh_humanoide and not e_criatura)
     pb_root = rig_obj.pose.bones.get("Hips") or rig_obj.pose.bones.get("LowerTorso")
+    pares_perna = (
+        ("UpperLeg.L", "Foot.L", -1.0),
+        ("UpperLeg.R", "Foot.R", 1.0),
+        ("LeftUpperLeg", "LeftFoot", -1.0),
+        ("RightUpperLeg", "RightFoot", 1.0),
+    )
 
     geradas: list[dict] = []
     max_frame_end = 1
     try:
         for clipe in clipes:
             nome = str(clipe["nome"])
-            eh_idle = nome.strip().lower() == "idle"
+            nome_low = nome.strip().lower()
+            eh_idle = nome_low == "idle"
+            eh_marcha = eh_humanoide and nome_low in ("walk", "run")
+            extra_leg = (
+                float(info_aducao_perna.get("extra_graus", 0.0))
+                if (eh_marcha and info_aducao_perna.get("aplicavel"))
+                else 0.0
+            )
             fps = int(clipe.get("fps") or 24)
             cena.render.fps = fps
             duracao_s = float(clipe.get("duracao_s") or 0.0)
@@ -298,7 +353,7 @@ def aplicar_animacoes_multi(
                 pb.scale = (1.0, 1.0, 1.0)
 
             chaves = clipe.get("chaves") or []
-            usar_clamp_clipe = clamp_ativo and (nome.strip().lower() in _CLIPES_NO_CHAO) and pb_root is not None
+            usar_clamp_clipe = clamp_ativo and (nome_low in _CLIPES_NO_CHAO) and pb_root is not None
             for idx_ch, chave in enumerate(chaves):
                 frame = int(chave["frame"])
                 if usar_clamp_clipe:
@@ -325,6 +380,23 @@ def aplicar_animacoes_multi(
                         if osso not in tocados_loc:
                             tocados_loc.append(str(osso))
 
+                leg_z_totals: dict[str, float] = {}
+                if eh_marcha:
+                    for leg_n, _foot_n, sgn_leg in pares_perna:
+                        if leg_n not in rig_obj.pose.bones:
+                            continue
+                        z_tot = sum(
+                            float(p.get("graus", 0.0))
+                            for p in poses_por_osso.get(leg_n, ())
+                            if str(p.get("eixo") or "X").upper() == "Z"
+                        )
+                        if extra_leg > 1e-4:
+                            poses_por_osso.setdefault(leg_n, []).append(
+                                {"osso": leg_n, "eixo": "Z", "graus": sgn_leg * extra_leg}
+                            )
+                            z_tot += sgn_leg * extra_leg
+                        leg_z_totals[leg_n] = z_tot
+
                 tratados_arm: set[str] = set()
                 if caimento_ativo:
                     if duracao_s > 0.0 and "segundos" in chave:
@@ -346,6 +418,21 @@ def aplicar_animacoes_multi(
                         pb.rotation_quaternion = (pb.rotation_quaternion @ _quat_delta_local(pose)).normalized()
                     if osso not in tocados_rot:
                         tocados_rot.append(osso)
+
+                if eh_marcha:
+                    for leg_n, foot_n, _sgn_leg in pares_perna:
+                        z_tot = leg_z_totals.get(leg_n, 0.0)
+                        if abs(z_tot) <= 1e-4 or foot_n not in rig_obj.pose.bones:
+                            continue
+                        pb_foot = rig_obj.pose.bones[foot_n]
+                        q_m_foot = pb_foot.bone.matrix_local.to_3x3().to_quaternion()
+                        q_counter_arm = Quaternion((0.0, 1.0, 0.0), -math.radians(z_tot))
+                        q_counter_local = (q_m_foot.inverted() @ q_counter_arm @ q_m_foot).normalized()
+                        pb_foot.rotation_quaternion = (
+                            q_counter_local @ pb_foot.rotation_quaternion
+                        ).normalized()
+                        if foot_n not in tocados_rot:
+                            tocados_rot.append(foot_n)
 
                 for osso in tocados_rot:
                     rig_obj.pose.bones[osso].keyframe_insert("rotation_quaternion", frame=frame)

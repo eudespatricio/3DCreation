@@ -108,12 +108,65 @@ def _inspecionar_keyframe_sequence(seq: ElementTree.Element) -> dict[str, Any]:
     }
 
 
+def _validar_sinais_sequencia(
+    seq: ElementTree.Element,
+    nome_clipe: str,
+    modo_rig: str,
+) -> list[str]:
+    """Valida invariantes de sinal Z em ``walk``/``run``/``attack`` para ``motor6d``."""
+    if modo_rig != "motor6d":
+        return []
+    nome_low = nome_clipe.strip().lower()
+    if nome_low not in ("walk", "run", "attack"):
+        return []
+
+    mats_por_osso: dict[str, list[tuple[float, ...]]] = {}
+    for kf in seq.findall("Item[@class='Keyframe']"):
+        for pose in kf.iter("Item"):
+            if pose.get("class") == "Pose":
+                pname = pose.findtext("Properties/string[@name='Name']") or ""
+                if pname:
+                    mats_por_osso.setdefault(pname, []).append(_rot_pose_mat3(pose))
+
+    erros: list[str] = []
+    if nome_low in ("walk", "run"):
+        rolls_leg: dict[str, list[float]] = {}
+        for leg in ("LeftUpperLeg", "RightUpperLeg"):
+            if leg in mats_por_osso and len(mats_por_osso[leg]) >= 2:
+                rolls_leg[leg] = [math.degrees(math.atan2(-m[1], m[0])) for m in mats_por_osso[leg]]
+        if "LeftUpperLeg" in rolls_leg:
+            m_l = sum(rolls_leg["LeftUpperLeg"]) / len(rolls_leg["LeftUpperLeg"])
+            if abs(m_l) > 1.0 and m_l < 0.0:
+                erros.append(f"sinal_z_invertido:{nome_low}:LeftUpperLeg")
+        if "RightUpperLeg" in rolls_leg:
+            m_r = sum(rolls_leg["RightUpperLeg"]) / len(rolls_leg["RightUpperLeg"])
+            if abs(m_r) > 1.0 and m_r > 0.0:
+                erros.append(f"sinal_z_invertido:{nome_low}:RightUpperLeg")
+        for leg, foot in (("LeftUpperLeg", "LeftFoot"), ("RightUpperLeg", "RightFoot")):
+            if leg in rolls_leg and foot in mats_por_osso and len(mats_por_osso[foot]) == len(rolls_leg[leg]):
+                rolls_f = [math.degrees(math.atan2(m[3], m[0])) for m in mats_por_osso[foot]]
+                m_leg = sum(rolls_leg[leg]) / len(rolls_leg[leg])
+                m_foot = sum(rolls_f) / len(rolls_f)
+                if abs(m_leg) > 1.0 and abs(m_leg + m_foot) > 2.5:
+                    erros.append(f"sinal_z_invertido:{nome_low}:{foot}")
+    elif nome_low == "attack" and "RightUpperArm" in mats_por_osso:
+        zs = [math.degrees(math.atan2(m[3], m[0])) for m in mats_por_osso["RightUpperArm"]]
+        if len(zs) >= 5 and (max(zs) - min(zs)) > 5.0:
+            idx_w = int(round(0.25 * (len(zs) - 1)))
+            idx_s = int(round(0.50 * (len(zs) - 1)))
+            if not (zs[idx_w] > 0.0 and zs[idx_s] < 0.0):
+                erros.append(f"sinal_z_invertido:{nome_low}:RightUpperArm")
+    return erros
+
+
 def verificar_g14_animacao_roblox(
     item: dict,
     perfil: dict,
     pasta: Path,
     arquivos: list[dict],
     play_report: Mapping[str, Any] | None = None,
+    *,
+    ancoras: Mapping[str, Any] | None = None,
 ) -> dict:
     """Gate G14: KeyframeSequence com arvore Pose aninhada, Loop=true e amplitude >= 5 deg."""
     anim_arqs = [
@@ -123,6 +176,7 @@ def verificar_g14_animacao_roblox(
         and str(a.get("caminho") or "").lower().endswith((".rbxmx", ".rbxlx"))
     ]
     modo_rig = str((item.get("rig") or {}).get("modo") or "")
+    modo_eff = "bone" if modo_rig in ("bone", "skinned") else "motor6d"
     anim_specs = [a for a in (item.get("animacoes") or []) if isinstance(a, dict)]
     pedidos_anim = list(
         dict.fromkeys(
@@ -169,17 +223,21 @@ def verificar_g14_animacao_roblox(
             clipes_medidos.append(info_seq)
             if not info_seq["pose_aninhada"]:
                 problemas.append(f"arvore_pose_invalida:{info_seq['nome'] or arq.get('caminho')}")
+            problemas.extend(_validar_sinais_sequencia(seq, str(info_seq["nome"]), modo_eff))
 
     if pedidos_anim and not anim_arqs:
         esq = profiles.esqueleto_para_item(perfil, item)
         mps = float((perfil.get("unidades") or {}).get("metros_por_stud", 0.28))
         clipes_gerados = animacao.clipes(perfil, esq, pedidos_anim)
         for idx, clipe in enumerate(clipes_gerados, start=1):
-            linhas, _ = rbx_anim._sequencia_xml(clipe, idx * 100, mps=mps)
+            linhas, _ = rbx_anim._sequencia_xml(
+                clipe, idx * 100, mps=mps, ancoras=ancoras, modo_rig=modo_eff
+            )
             seq_el = ElementTree.fromstring("\n".join(linhas))
             info_seq = _inspecionar_keyframe_sequence(seq_el)
-            info_seq["fonte"] = "gerado_motor6d"
+            info_seq["fonte"] = f"gerado_{modo_eff}"
             clipes_medidos.append(info_seq)
+            problemas.extend(_validar_sinais_sequencia(seq_el, str(info_seq["nome"]), modo_eff))
 
     validos = [
         c

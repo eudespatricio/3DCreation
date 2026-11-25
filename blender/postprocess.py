@@ -62,6 +62,7 @@ transformar_armadura = _sc.transformar_armadura
 bbox_local = _sc.bbox_local
 transformar = _sc.transformar
 transformar_colisores_ucx = _sc.transformar_colisores_ucx
+centro_banda_empunhadura = _sc.centro_banda_empunhadura
 calcular_pivo = _sc.calcular_pivo
 malha_triangulada = _sc.malha_triangulada
 medir_geometria = _sc.medir_geometria
@@ -373,7 +374,14 @@ def processar(job: dict) -> dict:
         escala = ((float(raw_alt) if raw_alt is not None else altura_atual) / altura_atual) * escala_saida
         pivot_nome = item.get("pivot", "base")
         pivo_declarado = (bruto.get("pivos") or {}).get(pivot_nome)
-        pivo, origem_regra = calcular_pivo(pivot_nome, minimo * escala, maximo * escala, pivo_declarado)
+        centro_emp = (
+            centro_banda_empunhadura(minimo, maximo, escala)
+            if (pivot_nome == "empunhadura" and not pivo_declarado)
+            else None
+        )
+        pivo, origem_regra = calcular_pivo(
+            pivot_nome, minimo * escala, maximo * escala, pivo_declarado, centro_xy=centro_emp
+        )
         if pivo_declarado:
             pivo = Vector(pivo_declarado) * escala
 

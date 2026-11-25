@@ -7,7 +7,7 @@ from xml.etree import ElementTree
 
 import pytest
 
-from forge3d import config, rbx
+from forge3d import config, rbx, rbx_anim
 from forge3d.cli.comandos import despachar
 from forge3d.errors import ForgeError
 
@@ -104,7 +104,10 @@ def test_export_r15_gera_keyframe_sequence_do_clipe(tmp_path):
         dadas_m: dict[str, list[float]] = {}
         for p in ch_exp["poses"]:
             parte = rbx.JOINT_R15_REV.get(p["osso"], p["osso"])
-            m_p = rbx._matriz_rotacao(p["graus"], p["eixo"])
+            graus = float(p["graus"])
+            if parte in rbx_anim._PARTES_Z_INVERTIDO_MOTOR6D and str(p["eixo"]).upper() == "Z":
+                graus = -graus
+            m_p = rbx._matriz_rotacao(graus, p["eixo"])
             dadas_m[parte] = m_p if parte not in dadas_m else rbx._mul_mat3(dadas_m[parte], m_p)
         for pose in chave["poses"]:
             matriz = dadas_m.get(pose["osso"], identidade)
@@ -234,13 +237,24 @@ def test_export_animacao_rbxmx_walk_run_jump_identico_ao_clip(tmp_path):
             assert chave["tempo"] == pytest.approx(ch_exp["segundos"], abs=1e-4)
             assert {p["osso"] for p in chave["poses"]} == partes_r15
             dadas_m: dict[str, list[float]] = {}
+            leg_z: dict[str, float] = {}
+            eh_marcha = clipe_nome in ("walk", "run")
             for p in ch_exp["poses"]:
                 parte = rbx.JOINT_R15_REV.get(p["osso"], p["osso"])
                 graus = float(p["graus"])
-                if parte in ("LeftUpperLeg", "RightUpperLeg") and str(p["eixo"]).upper() == "Z":
+                eixo_up = str(p["eixo"]).upper()
+                if parte in rbx_anim._PARTES_Z_INVERTIDO_MOTOR6D and eixo_up == "Z":
                     graus = -graus
+                if eh_marcha and parte in ("LeftUpperLeg", "RightUpperLeg") and eixo_up == "Z":
+                    leg_z[parte] = leg_z.get(parte, 0.0) + graus
                 m_p = rbx._matriz_rotacao(graus, p["eixo"])
                 dadas_m[parte] = m_p if parte not in dadas_m else rbx._mul_mat3(dadas_m[parte], m_p)
+            if eh_marcha:
+                for leg_p, foot_p in (("LeftUpperLeg", "LeftFoot"), ("RightUpperLeg", "RightFoot")):
+                    z_eff = leg_z.get(leg_p, 0.0)
+                    if abs(z_eff) > 1e-4:
+                        m_c = rbx._matriz_rotacao(-z_eff, "Z")
+                        dadas_m[foot_p] = m_c if foot_p not in dadas_m else rbx._mul_mat3(m_c, dadas_m[foot_p])
             identidade = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
             for pose in chave["poses"]:
                 matriz = dadas_m.get(pose["osso"], identidade)
